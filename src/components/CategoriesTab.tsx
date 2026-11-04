@@ -4,12 +4,12 @@ import type { Category } from '../hooks/useData'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { QueryError } from './PageLoader'
-import { btn, useToast, Toast, Modal, Inp } from './_dashboard/sharedUI'
+import { btn, useToast, Toast, Modal, Inp, Sel } from './_dashboard/sharedUI'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { MENU_LANGS, activeTranslationLangs, mergeTranslations } from '../lib/i18nMenu'
-import { toUserMessage } from '../lib/userMessages'
+import { toUserMessage, zeroRowsAsDenied } from '../lib/userMessages'
 
 function CategoryModal({
   category,
@@ -243,6 +243,23 @@ export default function CategoriesTab({
   const { toasts, toast } = useToast()
   const [modal, setModal] = useState<Category | 'add' | null>(null)
   const [delId, setDelId] = useState<string | null>(null)
+  // Unde se mută produsele categoriei șterse (lotul O1a). '' = nicăieri: FK-ul
+  // e ON DELETE SET NULL, iar un produs fără categorie NU apare în meniu.
+  const [moveTo, setMoveTo] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  // Numărul din dialog se reîmprospătează la deschidere (lista e citită o dată,
+  // la montare; alt dispozitiv poate fi adăugat produse între timp). Cât
+  // durează citirea, dialogul nu promite „nu are produse” și „Șterge” stă
+  // blocat — altfel produsele ar fi plecat în categoria implicită fără ca omul
+  // s-o fi ales (recenzia CodeRabbit pe #346).
+  const [countRefreshing, setCountRefreshing] = useState(false)
+  const openDelete = (id: string) => {
+    setDelId(id)
+    setMoveTo(categories.find((c) => c.id !== id)?.id ?? '')
+    setCountRefreshing(true)
+    void refetchProds().finally(() => setCountRefreshing(false))
+  }
+  const delCount = delId ? prodCounts.filter((p) => p.category_id === delId).length : 0
 
   if (error || prodError)
     return (
@@ -272,13 +289,51 @@ export default function CategoriesTab({
     return null
   }
   const handleDelete = async () => {
-    if (!delId) return
-    const { error: e } = await remove(delId)
-    // Mesajul hardcodat afirma o cauză FALSĂ (FK-ul e ON DELETE SET NULL —
-    // produsele nu blochează ștergerea); afișăm cauza reală.
-    if (e) toast(toUserMessage(e, 'Nu s-a putut șterge categoria.'), 'error')
-    else toast('Ștearsă')
-    setDelId(null)
+    if (!delId || deleting) return
+    setDeleting(true)
+    try {
+      // Întâi mutăm produsele: dacă mutarea e refuzată, categoria rămâne și
+      // produsele nu ajung tăcut în „Fără categorie" (invizibile în meniu).
+      // Câte sunt se citește ACUM din server, nu din numărătoarea de la montare
+      // (recenzia #346): una veche de 0 sărea mutarea și lăsa produsele
+      // orfane, una veche de N făcea ca „nimic de mutat” să pară refuz.
+      if (moveTo) {
+        const inCat = await supabase
+          .from('products')
+          .select('id')
+          .eq('restaurant_id', restaurantId)
+          .eq('category_id', delId)
+        if (inCat.error) {
+          toast(toUserMessage(inCat.error, 'Produsele nu au putut fi mutate.'), 'error')
+          return
+        }
+        if ((inCat.data ?? []).length > 0) {
+          const res = await supabase
+            .from('products')
+            .update({ category_id: moveTo })
+            .eq('restaurant_id', restaurantId)
+            .eq('category_id', delId)
+            .select('id')
+          const denied = zeroRowsAsDenied(res)
+          if (denied) {
+            toast(toUserMessage(denied, 'Produsele nu au putut fi mutate.'), 'error')
+            void refetchProds()
+            return
+          }
+        }
+      }
+      const { error: e } = await remove(delId)
+      // Mesajul hardcodat afirma o cauză FALSĂ (FK-ul e ON DELETE SET NULL —
+      // produsele nu blochează ștergerea); afișăm cauza reală.
+      if (e) toast(toUserMessage(e, 'Nu s-a putut șterge categoria.'), 'error')
+      else toast('Ștearsă')
+      setDelId(null)
+      void refetchProds()
+    } catch (err) {
+      toast(toUserMessage(err, 'Nu s-a putut șterge categoria.'), 'error')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   return (
@@ -440,7 +495,7 @@ export default function CategoriesTab({
                   </button>
                   <button
                     aria-label="Șterge categorie"
-                    onClick={() => setDelId(cat.id)}
+                    onClick={() => openDelete(cat.id)}
                     style={{
                       minWidth: 44,
                       minHeight: 44,
@@ -472,9 +527,37 @@ export default function CategoriesTab({
       )}
       {delId && (
         <Modal title="Șterge categorie" onClose={() => setDelId(null)} width={380}>
-          <p style={{ color: D.t2, marginBottom: 22 }}>
-            Produsele din această categorie rămân fără categorie.
-          </p>
+          {countRefreshing ? (
+            <p style={{ color: D.t2, marginBottom: 22 }}>Verific produsele categoriei…</p>
+          ) : delCount === 0 ? (
+            <p style={{ color: D.t2, marginBottom: 22 }}>Categoria nu are produse.</p>
+          ) : (
+            <div style={{ marginBottom: 22 }}>
+              <label
+                htmlFor="cat-delete-move"
+                style={{ display: 'block', color: D.t2, fontSize: '0.85rem', marginBottom: 8 }}
+              >
+                {delCount === 1
+                  ? 'Mută produsul acestei categorii în:'
+                  : `Mută cele ${delCount} produse ale acestei categorii în:`}
+              </label>
+              <Sel id="cat-delete-move" label="Mută produsele în" value={moveTo} onChange={setMoveTo}>
+                {categories
+                  .filter((c) => c.id !== delId)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.emoji} {c.name}
+                    </option>
+                  ))}
+                <option value="">Nicio categorie (nu vor apărea în meniu)</option>
+              </Sel>
+              {moveTo === '' && (
+                <p role="note" style={{ color: D.amber, fontSize: '0.75rem', marginTop: 6 }}>
+                  Fără categorie, produsele nu apar în meniul clienților până nu le alegi una.
+                </p>
+              )}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button
               onClick={() => setDelId(null)}
@@ -482,8 +565,17 @@ export default function CategoriesTab({
             >
               Anulează
             </button>
-            <button onClick={handleDelete} style={btn({ background: D.red, color: '#fff' })}>
-              Șterge
+            <button
+              onClick={handleDelete}
+              disabled={deleting || countRefreshing}
+              aria-busy={deleting}
+              style={btn({
+                background: D.red,
+                color: '#fff',
+                opacity: deleting || countRefreshing ? 0.6 : 1,
+              })}
+            >
+              {deleting ? 'Se șterge…' : 'Șterge'}
             </button>
           </div>
         </Modal>

@@ -11,6 +11,8 @@ import type { RestaurantTable, CartItem, OrderConfirmationPayload } from '../lib
 import type { Category, Product } from '../lib/qr'
 import { D } from '../lib/constants'
 import { isNetworkError } from '../lib/networkError'
+import { describeGuestError } from '../lib/guestErrors'
+import { toUserMessage } from '../lib/userMessages'
 import ModifierSheet from './ModifierSheet'
 import { OrderLineDetails } from './OrderLineDetails'
 import { confirm as confirmDialog } from './ui/confirm'
@@ -172,9 +174,14 @@ export default function WaiterEntry({
       }
     }
 
-    const msg = lastError instanceof Error ? lastError.message : 'Eroare la trimiterea comenzii'
+    // Mesajul ROMÂNESC al serverului rămâne: numește produsul („Produsul
+    // "Pizza" este epuizat", „Grupul … pentru produsul …"), deci ospătarul află
+    // CARE linie s-o scoată (recenzia #346). Un mesaj englezesc sau intern
+    // („Invalid quantity: 24 (must be 1-20)") devine textul clar al cheii, nu
+    // ajunge brut; harta de staff vine odată cu limbile (L0).
     setSubmitError(
-      isNetworkError(lastError) ? 'Conexiune slabă. Verifică internetul și încearcă din nou.' : msg,
+      toUserMessage(lastError, '') ||
+        describeGuestError('ro', lastError, { fallback: 'err_order_not_sent' }),
     )
     setSubmitting(false)
   }

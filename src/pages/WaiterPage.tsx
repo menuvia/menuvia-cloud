@@ -27,7 +27,6 @@ import { useToast } from '../components/ui/useToast'
 // OPT-10: sheet-urile/modalele condiționale sunt lazy (pattern QrMenuPage) —
 // ~2.000+ LOC amânate din chunk-ul inițial al paginii de ospătar. WaiterEntry
 // rămâne static (partajează ModifierSheet, folosit imediat la comanda nouă).
-const ManualOrderSheet = lazy(() => import('../components/ManualOrderSheet'))
 const EditOrderSheet = lazy(() => import('../components/EditOrderSheet'))
 const CancelOrderDialog = lazy(() => import('../components/CancelOrderDialog'))
 const OrderAuditSheet = lazy(() => import('../components/OrderAuditSheet'))
@@ -443,10 +442,6 @@ export default function WaiterPage() {
     setSeatTablePick({})
   }, [restaurantId])
 
-  const [showManualOrder, setShowManualOrder] = useState(false)
-  const [lastManualOrder, setLastManualOrder] = useState<{ id: string; shortId: string } | null>(
-    null,
-  )
 
   // ── Table assignments — filter orders to waiter's assigned tables ──
   // 'loading' = still fetching | Set = has assignments | null = no assignments (show all)
@@ -840,14 +835,6 @@ export default function WaiterPage() {
               ))}
             </select>
           )}
-          <Button
-            variant="secondary"
-            onClick={() => setShowManualOrder(true)}
-            icon={<Icon name="users" size={15} />}
-            style={{ flexShrink: 0 }}
-          >
-            Manual
-          </Button>
           <Button
             variant="secondary"
             onClick={() => setShowSoldOut(true)}
@@ -1792,59 +1779,7 @@ export default function WaiterPage() {
         />
       )}
 
-      {showManualOrder && restaurantId != null && (
-        <ManualOrderSheet
-          restaurantId={restaurantId}
-          onClose={() => setShowManualOrder(false)}
-          onOrderPlaced={(_id, shortId) => {
-            setLastManualOrder({ id: _id, shortId })
-            setShowManualOrder(false)
-          }}
-        />
-      )}
       </Suspense>
-
-      {lastManualOrder && (
-        <div
-          onClick={() => setLastManualOrder(null)}
-          style={{
-            position: 'fixed',
-            bottom: 80,
-            right: 16,
-            zIndex: 9999,
-            background: D.s2,
-            border: `1px solid ${D.greenBorder}`,
-            borderLeft: `3px solid ${D.green}`,
-            borderRadius: 10,
-            padding: '12px 16px',
-            fontSize: '0.875rem',
-            color: D.t1,
-            boxShadow: D.shadowLg,
-            minWidth: 220,
-            cursor: 'pointer',
-          }}
-        >
-          {lastManualOrder.shortId.startsWith('LOCAL-') ? (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Icon name="clock" size={14} color={D.amber} />
-              <span>
-                Comandă salvată local <strong>#{lastManualOrder.shortId}</strong> — va fi trimisă
-                când revine conexiunea
-              </span>
-            </span>
-          ) : (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Icon name="check" size={14} color={D.green} />
-              <span>
-                Comanda <strong>#{lastManualOrder.shortId}</strong> trimisă
-              </span>
-            </span>
-          )}
-          <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 3 }}>
-            Click pentru a închide
-          </div>
-        </div>
-      )}
 
       {showSoldOut && restaurantId != null && (
         <Suspense fallback={null}>

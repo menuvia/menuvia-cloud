@@ -38,6 +38,31 @@ const AiBulkGenerate = lazy(() => import('./AiBulkGenerate'))
 // ── Product Modal ─────────────────────────────────────────────
 type ProductSaveOpts = { keepOpen?: boolean; onError?: (message: string) => void }
 
+// Valoarea filtrului „Fără categorie" (nu poate coincide cu un uuid de categorie).
+const UNCATEGORIZED = '__uncategorized__'
+
+// Un produs fără categorie e invizibil pentru clienți: meniul public (QR și
+// /m/:slug) și comanda ospătarului îl grupează doar sub categorii.
+function NotOnMenuBadge() {
+  return (
+    <span
+      title="Alege o categorie ca produsul să apară în meniu"
+      style={{
+        color: D.amber,
+        background: D.amberA,
+        border: `1px solid ${D.amberBorder}`,
+        borderRadius: 4,
+        padding: '1px 6px',
+        fontSize: '0.68rem',
+        fontWeight: 600,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      Fără categorie · nu apare în meniu
+    </span>
+  )
+}
+
 function ProductModal({
   product,
   categories,
@@ -52,9 +77,14 @@ function ProductModal({
   showVat,
   showExtras,
   onOpenVatRates,
+  defaultCategoryId = null,
 }: {
   product: Product | null
   categories: Category[]
+  // Categoria propusă pentru un produs NOU (lotul O1a): un produs fără
+  // categorie NU apare în meniul clienților (get_menu_for_restaurant îl
+  // grupează doar sub categorii), iar fișa pornea mereu pe „Fără categorie".
+  defaultCategoryId?: string | null
   // Întoarce succesul salvării; cu keepOpen (doar la create) modalul rămâne
   // deschis pentru „Salvează și adaugă următorul" — parentul NU face setModal(null).
   // `onError`: unde ajunge mesajul unui eșec — modalul trimite toast-ul LOCAL,
@@ -205,6 +235,7 @@ function ProductModal({
     product || {
       name: '',
       price: 0,
+      category_id: defaultCategoryId,
       emoji: '🍽️',
       is_active: true,
       is_draft: false,
@@ -674,7 +705,9 @@ function ProductModal({
                 // Opțiunea specială NU e o categorie: deschide input-ul inline;
                 // select-ul controlat rămâne pe valoarea curentă.
                 if (v === '__new__') setNewCatOpen(true)
-                else upd('category_id', v)
+                // „Fără categorie" are valoarea '' în select; în DB e NULL (un ''
+                // ajungea la Postgres ca uuid invalid și salvarea pica, MENU-04).
+                else upd('category_id', v === '' ? null : v)
               }}
             >
               <option value="">Fără categorie</option>
@@ -685,6 +718,16 @@ function ProductModal({
               ))}
               <option value="__new__">➕ Categorie nouă…</option>
             </Sel>
+            {!form.category_id && (
+              <div
+                role="note"
+                style={{ fontSize: '0.72rem', color: D.amber, marginTop: 5, lineHeight: 1.4 }}
+              >
+                {categories.length === 0
+                  ? 'Creează întâi o categorie: produsele fără categorie nu apar în meniul clienților.'
+                  : 'Fără categorie, produsul nu apare în meniul clienților.'}
+              </div>
+            )}
             {newCatOpen && (
               <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
                 <div style={{ flex: 1 }}>
@@ -2221,7 +2264,7 @@ export default function ProductsTab({
   const [csvImportOpen, setCsvImportOpen] = useState(false)
   const [aiImportOpen, setAiImportOpen] = useState(false)
   const [aiBulkOpen, setAiBulkOpen] = useState(false)
-  const [activeCat, setActiveCat] = useState('all')
+  const [activeCatRaw, setActiveCat] = useState('all')
   const [search, setSearch] = useState('')
   const canAdd = canAddProduct(products.length)
   const mob = useIsMobile()
@@ -2236,12 +2279,39 @@ export default function ProductsTab({
   )
   // Lista filtrată se recalculează DOAR când se schimbă produsele / categoria /
   // căutarea — nu la fiecare re-randare (togglingId, modal, delId etc.).
+  // Produsele fără categorie NU apar în meniul clienților (lotul O1a): le
+  // numărăm ca să le arătăm un filtru și un avertisment, nu să dispară tăcut.
+  const uncategorizedCount = useMemo(
+    () => products.filter((p) => !p.category_id).length,
+    [products],
+  )
+  // Filtrul „Fără categorie” revine pe „Toate” când nu mai e niciun produs
+  // acolo (ultimul a primit o categorie sau a fost șters): chip-ul dispare, iar
+  // lista goală ar spune „Niciun produs încă” pe un meniu plin (recenzia #346).
+  const activeCat =
+    activeCatRaw === UNCATEGORIZED && uncategorizedCount === 0 ? 'all' : activeCatRaw
+  // Și filtrul memorat trece pe „Toate” (recenzia CodeRabbit pe #346): altfel,
+  // la următorul produs fără categorie, lista sărea singură înapoi pe filtru.
+  useEffect(() => {
+    if (activeCatRaw === UNCATEGORIZED && uncategorizedCount === 0) setActiveCat('all')
+  }, [activeCatRaw, uncategorizedCount])
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
     return products
-      .filter((p) => activeCat === 'all' || p.category_id === activeCat)
+      .filter((p) =>
+        activeCat === 'all'
+          ? true
+          : activeCat === UNCATEGORIZED
+            ? !p.category_id
+            : p.category_id === activeCat,
+      )
       .filter((p) => p.name.toLowerCase().includes(q))
   }, [products, activeCat, search])
+  // Un produs nou pornește în categoria filtrată acum, altfel în prima.
+  const defaultCategoryId =
+    activeCat !== 'all' && activeCat !== UNCATEGORIZED
+      ? activeCat
+      : (categories[0]?.id ?? null)
 
   if (error || catError)
     return (
@@ -2421,37 +2491,41 @@ export default function ProductsTab({
             paddingBottom: 2,
           }}
         >
-          <button
-            onClick={() => setActiveCat('all')}
-            aria-pressed={activeCat === 'all'}
-            style={btn({
-              height: 44,
-              padding: '0 14px',
-              fontSize: '0.78rem',
-              background: activeCat === 'all' ? D.goldA : D.s2,
-              color: activeCat === 'all' ? D.goldL : D.t2,
-              border: `1px solid ${activeCat === 'all' ? D.goldBorder : D.border}`,
-            })}
-          >
-            Toate
-          </button>
-          {categories.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setActiveCat(c.id)}
-              aria-pressed={activeCat === c.id}
-              style={btn({
-                height: 44,
-                padding: '0 14px',
-                fontSize: '0.78rem',
-                background: activeCat === c.id ? D.goldA : D.s2,
-                color: activeCat === c.id ? D.goldL : D.t2,
-                border: `1px solid ${activeCat === c.id ? D.goldBorder : D.border}`,
-              })}
-            >
-              {c.emoji} {c.name}
-            </button>
-          ))}
+          {/* O singură formă de chip pentru „Toate", „Fără categorie" și
+              categoriile reale; „Fără categorie" e chihlimbar fiindcă e un
+              avertisment (produsele de acolo nu apar în meniu), nu o categorie. */}
+          {[
+            { id: 'all', label: 'Toate', warn: false },
+            ...(uncategorizedCount > 0
+              ? [{ id: UNCATEGORIZED, label: `Fără categorie (${uncategorizedCount})`, warn: true }]
+              : []),
+            ...categories.map((c) => ({
+              id: c.id,
+              label: [c.emoji, c.name].filter(Boolean).join(' '),
+              warn: false,
+            })),
+          ].map((chip) => {
+            const on = activeCat === chip.id
+            return (
+              <button
+                key={chip.id}
+                onClick={() => setActiveCat(chip.id)}
+                aria-pressed={on}
+                style={btn({
+                  height: 44,
+                  padding: '0 14px',
+                  fontSize: '0.78rem',
+                  background: on ? (chip.warn ? D.amberA : D.goldA) : D.s2,
+                  color: chip.warn ? D.amber : on ? D.goldL : D.t2,
+                  border: `1px solid ${
+                    chip.warn ? (on ? D.amber : D.amberBorder) : on ? D.goldBorder : D.border
+                  }`,
+                })}
+              >
+                {chip.label}
+              </button>
+            )
+          })}
         </div>
       </div>
       {singleVatGroup != null && (
@@ -2672,7 +2746,11 @@ export default function ProductsTab({
                       )}
                     </div>
                     <div style={{ fontSize: '0.75rem', color: D.t3 }}>
-                      {catNameById.get(p.category_id ?? '') || '—'}
+                      {p.category_id ? (
+                        catNameById.get(p.category_id) || '—'
+                      ) : (
+                        <NotOnMenuBadge />
+                      )}
                     </div>
                   </div>
                   <div
@@ -2871,7 +2949,7 @@ export default function ProductsTab({
                   </div>
                 </div>
                 <div style={{ fontSize: '0.8rem', color: D.t2 }}>
-                  {catNameById.get(p.category_id ?? '') || '—'}
+                  {p.category_id ? catNameById.get(p.category_id) || '—' : <NotOnMenuBadge />}
                 </div>
                 <div>
                   <div style={{ fontSize: '0.875rem', color: D.t1, fontWeight: 500 }}>
@@ -3013,6 +3091,7 @@ export default function ProductsTab({
           restaurantId={restaurantId}
           userId={userId}
           menuLanguages={menuLanguages}
+          defaultCategoryId={defaultCategoryId}
           canUseAi={canUseAi}
           canManageRecipes={showRecipes}
           showVat={showVat}

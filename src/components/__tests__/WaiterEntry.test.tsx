@@ -2,7 +2,8 @@
 //   - masă → meniu → produs → coș → submit cu payload-ul corect
 //   - idempotency key: STABIL pe durata unui coș, ROTIT după succes
 //   - eroare de validare server (ex. missing_required_group): NU se
-//     retry-uiește, mesajul real ajunge la ospătar
+//     retry-uiește; mesajul ROMÂNESC (numește produsul) ajunge la ospătar,
+//     unul englezesc devine textul clar al hint-ului (lotul O1a)
 //   - meniul pornește la montare, în PARALEL cu mesele, și nu se re-descarcă
 //     la fiecare masă / redeschidere (perf-staff-2)
 //   - „✕" cu produse în coș cere confirmare (ux-staff-entry-discard)
@@ -10,6 +11,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { T } from '../../lib/publicMenuStrings'
 
 const { fetchTablesMock, createOrderMock, fetchMenuMock, confirmMock } = vi.hoisted(() => ({
   fetchTablesMock: vi.fn(),
@@ -154,6 +156,17 @@ describe('WaiterEntry — fluxul de bani al comenzii manuale', () => {
     // Erorile non-network NU se retry-uiesc (ar dubla latența degeaba).
     expect(createOrderMock).toHaveBeenCalledTimes(1)
     expect(onOrderCreated).not.toHaveBeenCalled()
+  })
+
+  it('eroare de server în ENGLEZĂ: textul clar al hint-ului, nu mesajul brut (lotul O1a)', async () => {
+    const user = userEvent.setup()
+    createOrderMock.mockRejectedValue(
+      Object.assign(new Error('Invalid quantity: 24 (must be 1-20)'), { hint: 'invalid_quantity' }),
+    )
+    render(<WaiterEntry restaurantId="r1" onClose={vi.fn()} onOrderCreated={vi.fn()} />)
+    await placeOneOrder(user)
+    expect(await screen.findByText(T('ro', 'err_invalid_quantity'))).toBeInTheDocument()
+    expect(screen.queryByText(/Invalid quantity/)).toBeNull()
   })
 })
 
