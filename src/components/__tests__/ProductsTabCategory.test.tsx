@@ -12,6 +12,9 @@
 //   PC3  lista: produsul fără categorie are insigna „nu apare în meniu", iar
 //        filtrul „Fără categorie (1)" le arată doar pe ele. Control: produsul cu
 //        categorie arată numele categoriei, fără insignă.
+//   PC4  după ce ultimul produs fără categorie primește una, filtrul revine pe
+//        „Toate” (altfel lista goală spunea „Niciun produs încă”). [PICĂ:
+//        `activeCat` derivat scos — filtrul rămâne pe chip-ul ascuns]
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -57,7 +60,16 @@ vi.mock('../../hooks/usePlanLimits', () => ({
   }),
 }))
 vi.mock('../../lib/vat', () => ({ fetchVatRates: async () => [] }))
-vi.mock('../../lib/supabase', () => ({ supabase: {} }))
+// Fișa unui produs EXISTENT pe growth își încarcă extra-urile și asocierile
+// (supabase.from…): un mock `{}` ar arunca într-un async nesupravegheat, iar
+// vitest pică rularea pe respingerea nefinalizată (recenzia #346).
+vi.mock('../../lib/supabase', () => {
+  const builder: Record<string, unknown> = {}
+  for (const m of ['select', 'eq', 'neq', 'order']) builder[m] = () => builder
+  builder.then = (resolve: (v: { data: unknown[]; error: null }) => unknown) =>
+    Promise.resolve({ data: [], error: null }).then(resolve)
+  return { supabase: { from: () => builder } }
+})
 vi.mock('../../lib/ai', () => ({
   generateNutrition: vi.fn(),
   generateProductImage: vi.fn(),
@@ -109,8 +121,8 @@ function product(over: Partial<Product> = {}): Product {
   }
 }
 
-function renderTab() {
-  render(
+function tab() {
+  return (
     <ProductsTab
       restaurantId="rest-1"
       plan="growth"
@@ -121,8 +133,12 @@ function renderTab() {
       canManageRecipes={false}
       menuLanguages={[]}
       surface={surfaceFor('growth')}
-    />,
+    />
   )
+}
+
+function renderTab() {
+  return render(tab())
 }
 
 beforeEach(() => {
@@ -183,6 +199,26 @@ describe('ProductsTab — produsele fără categorie nu mai dispar tăcut', () =
     expect(chip).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getAllByText('Limonadă').length).toBeGreaterThan(0)
     expect(screen.queryByText('Supă de roșii')).toBeNull()
+  })
+
+  it('PC4 filtrul „Fără categorie” revine pe „Toate” când nu mai are produse', async () => {
+    data.products = [
+      product({ id: 'p1', name: 'Supă de roșii', category_id: 'cat-a' }),
+      product({ id: 'p2', name: 'Limonadă', category_id: null }),
+    ]
+    const user = userEvent.setup()
+    const { rerender } = renderTab()
+    await user.click(screen.getByRole('button', { name: 'Fără categorie (1)' }))
+    // Ultimul produs fără categorie primește una: chip-ul dispare.
+    data.products = [
+      product({ id: 'p1', name: 'Supă de roșii', category_id: 'cat-a' }),
+      product({ id: 'p2', name: 'Limonadă', category_id: 'cat-b' }),
+    ]
+    rerender(tab())
+    expect(screen.queryByRole('button', { name: /Fără categorie \(/ })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Toate' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getAllByText('Supă de roșii').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Limonadă').length).toBeGreaterThan(0)
   })
 
   it('PC3b control: fără produse necategorisite, fără filtru și fără insignă', () => {
