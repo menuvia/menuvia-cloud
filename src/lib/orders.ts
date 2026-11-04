@@ -124,8 +124,50 @@ export interface OrderItem {
   quantity: number
   item_total: number
   selected_modifiers: SelectedModifier[]
+  // Extra-urile plătite ale liniei, cum le scrie serverul (create_order 191,
+  // update_order_items 313): {extra_id, extra_name, price}. Rândurile dinainte
+  // de mig 088 au cheia `name`. Opțional: realtime-ul și fixture-urile vechi
+  // nu îl au, iar ecranele îl tratează ca listă goală.
+  extras_added?: OrderItemExtra[] | null
   notes: string | null
   created_at: string
+}
+
+export interface OrderItemExtra {
+  extra_id?: string | null
+  extra_name?: string | null
+  /** Forma veche (înainte de mig 088). */
+  name?: string | null
+  price?: number | null
+}
+
+/** Numele opțiunilor alese pe o linie, fără intrările goale. */
+export function orderItemOptionNames(item: Pick<OrderItem, 'selected_modifiers'>): string[] {
+  const mods = Array.isArray(item.selected_modifiers) ? item.selected_modifiers : []
+  return mods
+    .map((m) => (m != null && typeof m.option_name === 'string' ? m.option_name.trim() : ''))
+    .filter((n) => n !== '')
+}
+
+/**
+ * Numele extra-urilor unei linii, în ordinea din comandă, fără intrările goale.
+ * Aceeași regulă ca tichetul de bucătărie (mig 316): `extra_name`, apoi `name`.
+ */
+export function orderItemExtraNames(item: Pick<OrderItem, 'extras_added'>): string[] {
+  const list = Array.isArray(item.extras_added) ? item.extras_added : []
+  const names: string[] = []
+  for (const x of list) {
+    if (x == null || typeof x !== 'object') continue
+    const raw =
+      typeof x.extra_name === 'string' && x.extra_name.trim() !== ''
+        ? x.extra_name
+        : typeof x.name === 'string'
+          ? x.name
+          : ''
+    const name = raw.trim()
+    if (name !== '') names.push(name)
+  }
+  return names
 }
 
 export interface Order {
@@ -206,7 +248,7 @@ export interface OrderRealtimePayload {
 const ORDER_SELECT = `
   *,
   table:tables(id, name, slug, seats),
-  order_items(id, product_id, product_name_snapshot, unit_price_snapshot, quantity, item_total, selected_modifiers, notes)
+  order_items(id, product_id, product_name_snapshot, unit_price_snapshot, quantity, item_total, selected_modifiers, extras_added, notes)
 ` as const
 
 // Plafonul NOSTRU pe listele de staff (audit v3 RES-36). Fără `.limit()`,

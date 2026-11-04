@@ -10,6 +10,7 @@ import { ageLevel } from '../lib/orderAge'
 import { isScheduledPickupAhead, urgencyAnchor } from '../lib/pickupOrders'
 import { Icon } from './ui/Icon'
 import PickupDetails from './PickupDetails'
+import { OrderLineDetails } from './OrderLineDetails'
 import { confirm as confirmDialog } from './ui/confirm'
 import { ActionErrorNote } from './ActionErrorNote'
 import { toUserMessage } from '../lib/userMessages'
@@ -788,12 +789,17 @@ function OrderCardInner({
       {/* Pickup: ora de ridicare + clientul (null pe celelalte surse). */}
       <PickupDetails order={order} />
 
-      <div style={{ fontSize: 13, color: D.t2 }}>
-        {order.order_items.map((item, i) => (
-          <span key={item.id}>
-            {item.product_name_snapshot} ×{item.quantity}
-            {i < order.order_items.length - 1 ? ', ' : ''}
-          </span>
+      {/* Câte un rând pe linie, cu opțiunile, extra-urile și nota (lotul O2a):
+          înainte cardul spunea doar „Pizza ×1, Pizza ×1", deci ospătarul nu
+          știa care pizza e cea „Subțire" și nu vedea extra-urile plătite. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {order.order_items.map((item) => (
+          <div key={item.id} data-testid="order-line">
+            <div style={{ fontSize: 13, color: D.t2 }}>
+              {item.product_name_snapshot} ×{item.quantity}
+            </div>
+            <OrderLineDetails item={item} />
+          </div>
         ))}
       </div>
 

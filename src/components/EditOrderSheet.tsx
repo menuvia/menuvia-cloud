@@ -17,6 +17,7 @@ import { fetchMenuForRestaurant, type Category, type Product } from '../lib/qr'
 import { createLatestGate } from '../lib/menuRefresh'
 import { D } from '../lib/constants'
 import ModifierSheet from './ModifierSheet'
+import { OrderLineDetails } from './OrderLineDetails'
 
 interface Props {
   order: Order
@@ -34,6 +35,9 @@ interface EditCartItem extends CartItem {
   // pe care order_items nu le expune în selected_* (M1, mig 146). Fără el,
   // subtotalul afișat subevalua liniile cu extras (serverul salva corect).
   _unitWithAddons?: number
+  // Extra-urile liniei venite din DB, doar pentru afișare (lotul O2a). Editarea
+  // lor (trimiterea `extra_ids`) vine în lotul O3.
+  _extras?: Order['order_items'][number]['extras_added']
 }
 
 function orderItemsToCart(order: Order): EditCartItem[] {
@@ -47,6 +51,7 @@ function orderItemsToCart(order: Order): EditCartItem[] {
     notes: it.notes,
     _orphan: it.product_id == null,
     _unitWithAddons: it.quantity > 0 ? it.item_total / it.quantity : it.unit_price_snapshot,
+    _extras: it.extras_added ?? [],
   }))
 }
 
@@ -310,23 +315,13 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                           Produs șters din meniu — doar elimină
                         </div>
                       )}
-                      {item.selected_modifiers.length > 0 && (
-                        <div style={{ fontSize: 11, color: D.t3, marginTop: 3 }}>
-                          {item.selected_modifiers.map((m) => m.option_name).join(' · ')}
-                        </div>
-                      )}
-                      {item.notes && (
-                        <div
-                          style={{
-                            fontSize: 11,
-                            color: D.amber,
-                            marginTop: 3,
-                            fontStyle: 'italic',
-                          }}
-                        >
-                          „{item.notes}"
-                        </div>
-                      )}
+                      <OrderLineDetails
+                        item={{
+                          selected_modifiers: item.selected_modifiers,
+                          notes: item.notes,
+                          extras_added: item._extras,
+                        }}
+                      />
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ color: D.gold, fontWeight: 600, fontSize: 14 }}>

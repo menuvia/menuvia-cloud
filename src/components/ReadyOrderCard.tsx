@@ -7,6 +7,7 @@ import { memo } from 'react'
 import type { Order } from '../lib/orders'
 import { D } from '../lib/constants'
 import { ActionErrorNote } from './ActionErrorNote'
+import { OrderLineDetails } from './OrderLineDetails'
 
 interface ReadyOrderCardProps {
   order: Order
@@ -49,16 +50,25 @@ function ReadyOrderCardInner({
           >
             {order.table?.name ?? 'Fără masă'}
           </div>
-          <div
-            style={{
-              fontSize: 13,
-              color: D.t2,
-              marginTop: 2,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {order.order_items.map((it) => it.product_name_snapshot).join(', ')}
+          {/* Ce se servește, cu cantitatea, opțiunile, extra-urile și nota
+              (lotul O2a): înainte doar numele, fără cantitate. */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 2 }}>
+            {order.order_items.map((it) => (
+              <div key={it.id} data-testid="order-line" style={{ minWidth: 0 }}>
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: D.t2,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {it.product_name_snapshot} ×{it.quantity}
+                </div>
+                <OrderLineDetails item={it} />
+              </div>
+            ))}
           </div>
           <div
             style={{

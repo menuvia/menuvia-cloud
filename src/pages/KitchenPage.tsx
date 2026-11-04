@@ -33,6 +33,7 @@ import { PageHeader } from '../components/ui/PageHeader'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Skeleton } from '../components/ui/Skeleton'
 import PickupDetails from '../components/PickupDetails'
+import { OrderLineDetails } from '../components/OrderLineDetails'
 import { ActionErrorNote } from '../components/ActionErrorNote'
 import { SignOutButton } from '../components/SignOutButton'
 import { isScheduledPickupAhead, sortByDue, urgencyAnchor } from '../lib/pickupOrders'
@@ -247,21 +248,10 @@ const OrderCard = memo(function OrderCard({
             <div style={{ fontSize: 15, color: D.t1, fontWeight: 600 }}>
               {item.product_name_snapshot} × {item.quantity}
             </div>
-            {/* Fără prețuri în bucătărie — bucătarul nu are nevoie de bani pe ecran */}
-            {item.selected_modifiers.map((mod, i) => (
-              <div key={i} style={{ fontSize: 12, color: D.t2, paddingLeft: 12 }}>
-                + {mod.option_name}
-              </div>
-            ))}
-            {/* Notița PER PRODUS („fără ceapă") e instrucțiune de preparare —
-                fără ea pe card, bucătarul gătea greșit deși clientul o scrisese. */}
-            {item.notes != null && item.notes.length > 0 && (
-              <div
-                style={{ fontSize: 12, color: D.amber, fontStyle: 'italic', paddingLeft: 12 }}
-              >
-                ✎ {item.notes}
-              </div>
-            )}
+            {/* Opțiunile, extra-urile plătite (lotul O2a — înainte nu apăreau
+                deloc) și nota per produs („fără ceapă"). Fără prețuri: bucătarul
+                nu are nevoie de bani pe ecran. */}
+            <OrderLineDetails item={item} variant="list" />
           </div>
         ))}
       </div>
