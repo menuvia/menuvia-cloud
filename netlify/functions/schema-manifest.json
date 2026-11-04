@@ -314,6 +314,8 @@
     "migration_313_stock_sold_out",
     "migration_314_locations_summary",
     "migration_315_create_restaurant_idempotency",
-    "migration_316_kitchen_ticket_extras"
+    "migration_316_kitchen_ticket_extras",
+    "migration_317_create_order_invalid_extras",
+    "migration_318_menu_version_options"
   ]
 }

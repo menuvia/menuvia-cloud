@@ -29,7 +29,7 @@ import type { HappyHourRule } from '../lib/qr'
 import type { Restaurant, Category, Product } from '../lib/qr'
 import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { CartItem } from '../lib/orders'
-import { lineTotal } from '../lib/orders'
+import { addOrMergeCartItem, lineTotal } from '../lib/orders'
 import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
 import { formatTimeInZone, safeTimeZone } from '../lib/dates'
 import { useMenuSeo } from '../hooks/useMenuSeo'
@@ -42,8 +42,13 @@ import {
   resolveMenuElements,
   resolveFlipbookPages,
   readableTextOn,
+  legibleOn,
 } from '../lib/themes'
 import { useDocumentLang } from '../hooks/useDocumentLang'
+import { useMenuVersionRefetch } from '../hooks/useMenuVersionRefetch'
+import { createLatestGate, freshActiveProduct } from '../lib/menuRefresh'
+import { cartIssueCounts, cartIssueNoticeKey, cartLineIssue, productIndex, repriceCart } from '../lib/cartReconcile'
+import { markUnorderableProducts } from '../lib/optionSelection'
 import { cartBarLabel, listScrollTarget, prefetchOnIdle, stickyTabsBottom } from '../lib/menuUi'
 import { FocusTrap } from '../components/ui/FocusTrap'
 import MyListSheet from '../components/MyListSheet'
@@ -338,8 +343,12 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   // Pe 'ro' întoarcem aceeași referință → memo stabil. Doar name/description
   // sunt traduse; product_id rămâne identic (coșul/comanda nu se ating).
   const localizedCategories = useMemo<Category[]>(() => {
-    if (menuLang === 'ro') return categories
-    return categories.map((c) => ({
+    // Lotul O4b: produsul pe care opțiunile îl fac necomandabil apare „Epuizat”
+    // DOAR la ridicare, unde comanda ajunge la server. În „Lista mea” nu se
+    // trimite nimic, iar fișa cu descrierea și alergenii trebuie să se deschidă.
+    const shown = pickupEnabled ? markUnorderableProducts(categories) : categories
+    if (menuLang === 'ro') return shown
+    return shown.map((c) => ({
       ...c,
       name: trName(c, menuLang),
       products: c.products.map((p) => ({
@@ -348,7 +357,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         description: trDesc(p, menuLang),
       })),
     }))
-  }, [categories, menuLang])
+  }, [categories, menuLang, pickupEnabled])
 
   // Limbile extra oferite = cele în care meniul chiar e tradus (derivate din
   // conținut, nu dintr-un flag expus prin RPC). Switcher-ul apare doar dacă
@@ -460,6 +469,55 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const cartTotal = cart.reduce((s, i) => s + lineTotal(i), 0)
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0)
 
+  // ── Meniul rămâne proaspăt (lotul O4a, OPT-14) ────────────────────────
+  // Ca pe QR: la revenirea în tab meniul se reface DOAR dacă versiunea lui
+  // s-a schimbat (mig 313/318), iar un refuz de „meniu vechi” la ridicare îl
+  // reface imediat. Liniile valide din coș trec pe prețurile de acum; cele
+  // care nu mai corespund meniului sunt marcate și blochează „Continuă”.
+  const menuGateRef = useRef(createLatestGate())
+  const menuLangRef = useRef(menuLang)
+  useEffect(() => {
+    menuLangRef.current = menuLang
+  }, [menuLang])
+  const cartRef = useRef<CartItem[]>(cart)
+  useEffect(() => {
+    cartRef.current = cart
+  }, [cart])
+  // Liniile repreluate la prețul de azi: anunțul stă cât timp una dintre ele e
+  // încă în coș (o stare booleană rămânea și după ce linia era scoasă).
+  const [repricedKeys, setRepricedKeys] = useState<ReadonlySet<string>>(() => new Set())
+  const menuRestaurantId = restaurant?.id ?? null
+  const refreshMenu = useCallback(async (): Promise<boolean> => {
+    if (!menuRestaurantId) return false
+    const isLatest = menuGateRef.current.begin()
+    try {
+      const cats = await fetchMenuForRestaurant(menuRestaurantId)
+      if (!isLatest()) return false
+      setCategories(cats)
+      // Foaia deschisă primește rândul proaspăt, în limba aleasă acum (ca
+      // produsele din listă, `localizedCategories`).
+      setActiveProduct((prev) => freshActiveProduct(prev, cats, menuLangRef.current))
+      const menu = productIndex(cats)
+      const before = cartRef.current
+      const r = repriceCart(before, menu)
+      if (r.changed) {
+        setRepricedKeys(new Set(r.cart.filter((c, i) => c !== before[i]).map((c) => c._key)))
+        setCart((prev) => repriceCart(prev, menu).cart)
+      }
+      return true
+    } catch {
+      return false
+    }
+  }, [menuRestaurantId])
+  useMenuVersionRefetch(menuRestaurantId, refreshMenu)
+  const menuIndex = useMemo(() => productIndex(categories), [categories])
+  const cartIssues = cartIssueCounts(cart, menuIndex)
+  const cartBlocked = cartIssues.sold_out + cartIssues.unavailable + cartIssues.options_changed > 0
+  const cartNoticeKey = cartIssueNoticeKey(cartIssues)
+  const pricesUpdated = cart.some((c) => repricedKeys.has(c._key))
+  // Roșul erorii, lizibil pe fundalul foii de coș în orice temă.
+  const errorInk = legibleOn(theme.colors.error, PUB.bg)
+
   // Ultima adăugare, anunțată de regiunea role="status" (ux-guest-12): fără
   // ea, adăugarea în coș / „Lista mea" nu era confirmată deloc pentru
   // cititorul de ecran. `n` crește la fiecare adăugare, ca același produs
@@ -467,7 +525,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const [lastAdded, setLastAdded] = useState<{ n: number; name: string } | null>(null)
 
   const addToCart = useCallback((item: CartItem): void => {
-    setCart((prev) => [...prev, item])
+    // O linie identică își crește cantitatea (lotul O4b, OPT-8).
+    setCart((prev) => addOrMergeCartItem(prev, item))
     setLastAdded((prev) => ({ n: (prev?.n ?? 0) + 1, name: item.product_name_snapshot }))
   }, [])
 
@@ -1152,6 +1211,22 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                     <div style={{ fontSize: 14, fontWeight: 600, color: PUB.text }}>
                       {item.quantity}× {item.product_name_snapshot}
                     </div>
+                    {(() => {
+                      const issue = cartLineIssue(item, menuIndex)
+                      if (!issue) return null
+                      return (
+                        <div style={{ fontSize: 12, fontWeight: 700, color: errorInk, marginTop: 3 }}>
+                          {T(
+                            lang,
+                            issue === 'sold_out'
+                              ? 'sold_out'
+                              : issue === 'unavailable'
+                                ? 'cart_line_unavailable'
+                                : 'cart_line_options_changed',
+                          )}
+                        </div>
+                      )
+                    })()}
                     {item.selected_modifiers.length > 0 && (
                       <div style={{ fontSize: 11, color: PUB.text3, marginTop: 3 }}>
                         {item.selected_modifiers.map((m) => m.option_name).join(', ')}
@@ -1223,12 +1298,28 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                   {fmtPrice(cartTotal, menuCurrency)}
                 </span>
               </div>
+              {cartNoticeKey && (
+                <div
+                  role="status"
+                  style={{ color: errorInk, fontSize: 13, lineHeight: 1.5, textAlign: 'center', marginBottom: 10 }}
+                >
+                  {T(lang, cartNoticeKey)}
+                </div>
+              )}
+              {!cartBlocked && pricesUpdated && (
+                <div
+                  role="status"
+                  style={{ color: PUB.text2, fontSize: 13, lineHeight: 1.5, textAlign: 'center', marginBottom: 10 }}
+                >
+                  {T(lang, 'cart_prices_updated')}
+                </div>
+              )}
               <button
                 onClick={() => {
                   setShowCart(false)
                   setShowPickup(true)
                 }}
-                disabled={cart.length === 0}
+                disabled={cart.length === 0 || cartBlocked}
                 style={{
                   width: '100%',
                   padding: '15px',
@@ -1240,9 +1331,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                   fontFamily: theme.fonts.body,
                   fontSize: 15,
                   fontWeight: 700,
-                  cursor: cart.length === 0 ? 'not-allowed' : 'pointer',
-                  opacity: cart.length === 0 ? 0.5 : 1,
-                  boxShadow: cart.length === 0 ? 'none' : `0 4px 14px ${accent}55`,
+                  cursor: cart.length === 0 || cartBlocked ? 'not-allowed' : 'pointer',
+                  opacity: cart.length === 0 || cartBlocked ? 0.5 : 1,
+                  boxShadow: cart.length === 0 || cartBlocked ? 'none' : `0 4px 14px ${accent}55`,
                 }}
               >
                 {T(lang, 'continue_to_pickup')} →
@@ -1265,6 +1356,10 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             currency={menuCurrency}
             lang={lang}
             onClose={() => setShowPickup(false)}
+            onStaleMenu={() => void refreshMenu()}
+            // Coșul nu mai corespunde meniului (marcat după refuz): „Trimite”
+            // se blochează până oaspetele îl repară în coș (recenzia O4a).
+            blocked={cartBlocked}
             onSuccess={(short_id, pickup_time, total) => {
               setShowPickup(false)
               setCart([])

@@ -26,7 +26,9 @@ import { fetchOnlinePaymentEnabled } from '../lib/payments'
 import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
 import { T } from '../lib/publicMenuStrings'
 import { Tf } from '../lib/guestI18n'
-import { describeGuestError, isNetworkGuestError, isSoldOutGuestError } from '../lib/guestErrors'
+import { describeGuestError, isNetworkGuestError, isStaleMenuGuestError } from '../lib/guestErrors'
+import { productIndex, repriceCart } from '../lib/cartReconcile'
+import { markUnorderableProducts } from '../lib/optionSelection'
 import { createLatestGate, freshActiveProduct, localizeProduct } from '../lib/menuRefresh'
 import { trName, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
@@ -44,7 +46,7 @@ import {
   tablePaymentReturnCleanUrl,
   type TablePaymentReturn,
 } from '../lib/tablePaymentConfirm'
-import { callWaiter } from '../lib/orders'
+import { addOrMergeCartItem, callWaiter, MAX_LINE_QTY } from '../lib/orders'
 import {
   fetchLoyaltyState,
   attachOrderToLoyalty,
@@ -132,6 +134,12 @@ export default function QrMenuPage({ token }: Props) {
   const [networkError, setNetworkError] = useState(false)
   const [activeProduct, setActiveProduct] = useState<Product | null>(null)
   const [cart, setCart] = useState<CartItem[]>([])
+  // Coșul curent pentru reîmprospătarea meniului (refreshMenu e un callback
+  // stabil, nu trebuie re-creat la fiecare linie adăugată).
+  const cartRef = useRef<CartItem[]>(cart)
+  useEffect(() => {
+    cartRef.current = cart
+  }, [cart])
   const [showCart, setShowCart] = useState(false)
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -350,12 +358,20 @@ export default function QrMenuPage({ token }: Props) {
       if (!isLatest()) return false
       setCategories(cats)
       setActiveProduct((prev) => freshActiveProduct(prev, cats, langRef.current))
+      // Lotul O4a: liniile valide din coș trec pe prețurile de acum — serverul
+      // le taxează oricum la prețul din baza de date, deci un total vechi în
+      // coș ar minți. Liniile care nu mai corespund meniului rămân marcate.
+      const menu = productIndex(cats)
+      if (repriceCart(cartRef.current, menu).changed) {
+        setCart((prev) => repriceCart(prev, menu).cart)
+        toast.info(T(langRef.current, 'cart_prices_updated'))
+      }
       return true
     } catch {
       /* meniul vechi rămâne; serverul respinge oricum produsele epuizate */
       return false
     }
-  }, [menuRestaurantId])
+  }, [menuRestaurantId, toast])
   useMenuVersionRefetch(menuRestaurantId, refreshMenu)
 
   // Ultima adăugare, anunțată de regiunea role="status" (ux-guest-12): fără
@@ -367,10 +383,13 @@ export default function QrMenuPage({ token }: Props) {
   }, [])
 
   function addToCart(item: CartItem): void {
-    setCart((p) => [...p, item])
+    // O linie identică își crește cantitatea (lotul O4b, OPT-8).
+    setCart((p) => addOrMergeCartItem(p, item))
     announceAdded(item.product_name_snapshot)
-    // Trigger pairing popup if product has pairings and they're not already in cart
-    const allProducts = categories.flatMap((c) => c.products)
+    // Trigger pairing popup if product has pairings and they're not already in cart.
+    // Din meniul LOCALIZAT (OPT-9): fereastra și fișa deschisă din ea erau în
+    // română pe un meniu în altă limbă.
+    const allProducts = localizedCategories.flatMap((c) => c.products)
     const sourceProduct = allProducts.find((p) => p.id === item.product_id)
     if (sourceProduct && sourceProduct.pairings && sourceProduct.pairings.length > 0) {
       const cartProductIds = new Set(cart.map((c) => c.product_id).concat([item.product_id]))
@@ -386,7 +405,12 @@ export default function QrMenuPage({ token }: Props) {
 
   function updateQty(key: string, delta: number): void {
     setCart((p) =>
-      p.map((i) => (i._key === key ? { ...i, quantity: Math.max(1, i.quantity + delta) } : i)),
+      p.map((i) =>
+        i._key === key
+          ? // Între 1 și plafonul serverului pe linie (OPT-13).
+            { ...i, quantity: Math.min(MAX_LINE_QTY, Math.max(1, i.quantity + delta)) }
+          : i,
+      ),
     )
   }
 
@@ -457,10 +481,11 @@ export default function QrMenuPage({ token }: Props) {
       }
     }
 
-    // Un produs din coș s-a epuizat între timp (mig 313): meniul se reface, ca
-    // linia lui din coș să primească badge-ul „Epuizat” — mesajul singur nu
-    // spune CARE produs.
-    if (isSoldOutGuestError(lastError)) void refreshMenu()
+    // Meniul din telefon e vechi (mig 313 + lotul O4a): un produs epuizat sau
+    // scos, opțiuni/extra-uri care nu mai sunt valabile. Meniul se reface, ca
+    // linia din coș să fie marcată — mesajul singur nu spune CARE produs, iar
+    // fără reîmprospătare oaspetele relua aceeași foaie veche și același refuz.
+    if (isStaleMenuGuestError(lastError)) void refreshMenu()
     // Hint-ul/mesajul serverului → text în limba oaspetelui; niciodată brut
     // (mesajele create_order sunt amestecate RO/EN — mig 191).
     setSubmitError(describeGuestError(lang, lastError, { fallback: 'err_order_not_sent' }))
@@ -597,14 +622,19 @@ export default function QrMenuPage({ token }: Props) {
   // Categorii localizate pentru AFIȘARE (tab-uri, liste, search). Pe 'ro'
   // întoarcem aceeași referință → memo stabil, zero re-render inutil. Doar
   // name/description sunt traduse; product_id rămâne identic (coșul nu se atinge).
+  const orderingAllowed = ctx?.orderingAllowed ?? false
   const localizedCategories = useMemo<Category[]>(() => {
-    if (lang === 'ro') return categories
-    return categories.map((c) => ({
+    // Lotul O4b: produsul pe care opțiunile îl fac necomandabil apare „Epuizat”
+    // DOAR unde se poate comanda. Pe meniul doar de citit (Plan 1 / comenzi
+    // oprite) fișa cu descrierea și alergenii trebuie să rămână deschisă.
+    const shown = orderingAllowed ? markUnorderableProducts(categories) : categories
+    if (lang === 'ro') return shown
+    return shown.map((c) => ({
       ...c,
       name: trName(c, lang),
       products: c.products.map((p) => localizeProduct(p, lang)),
     }))
-  }, [categories, lang])
+  }, [categories, lang, orderingAllowed])
   // Limbile extra oferite = cele în care meniul chiar e tradus (derivate din
   // conținut, nu dintr-un flag expus prin RPC). Switcher-ul apare doar dacă
   // există măcar o traducere reală.
@@ -667,7 +697,6 @@ export default function QrMenuPage({ token }: Props) {
     () => categories.reduce((s, c) => s + (c.products?.length ?? 0), 0),
     [categories],
   )
-  const orderingAllowed = ctx?.orderingAllowed ?? false
   const themeSettings = ctx?.restaurant.theme_settings
   // Memoizate pe theme_settings (ca în PublicMenuPage) — nu recalculăm la fiecare
   // re-render (tastă în search, add-to-cart, tick realtime).
@@ -693,9 +722,8 @@ export default function QrMenuPage({ token }: Props) {
   const quickAddProductQr = useCallback(
     (p: Product): void => {
       // Quick-add: direct în coș (fără pairing popup — la fel ca butonul „+" vechi).
-      setCart((prev) => [
-        ...prev,
-        {
+      setCart((prev) =>
+        addOrMergeCartItem(prev, {
           _key: crypto.randomUUID(),
           product_id: p.id,
           product_name_snapshot: p.name,
@@ -703,8 +731,8 @@ export default function QrMenuPage({ token }: Props) {
           quantity: 1,
           selected_modifiers: [],
           notes: null,
-        },
-      ])
+        }),
+      )
       announceAdded(p.name)
     },
     [announceAdded],
@@ -1764,7 +1792,7 @@ export default function QrMenuPage({ token }: Props) {
                             notes: null,
                             upsell_source: 'pairing',
                           }
-                          setCart((prev) => [...prev, newItem])
+                          setCart((prev) => addOrMergeCartItem(prev, newItem))
                           announceAdded(p.name)
                         }
                       }}
@@ -1848,7 +1876,7 @@ export default function QrMenuPage({ token }: Props) {
               setActiveProduct(product)
             }}
             onAddToCart={(item) => {
-              setCart((prev) => [...prev, item])
+              setCart((prev) => addOrMergeCartItem(prev, item))
               announceAdded(item.product_name_snapshot)
             }}
             sentOrders={previousOrders}

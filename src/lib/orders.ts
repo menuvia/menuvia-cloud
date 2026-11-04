@@ -15,6 +15,13 @@ export type OrderStatus =
 export type OrderSource = 'qr' | 'waiter' | 'pickup'
 export type PaymentMethod = 'cash' | 'card_pos' | 'other' | 'meal_voucher' | 'card_online'
 
+// Plafoanele serverului pe o linie (create_order 191: cantitate 1–20, nota
+// liniei ≤ 300, nota comenzii ≤ 500). Clientul le oglindește ca omul să afle
+// înainte de trimitere, nu printr-un refuz al întregii comenzi.
+export const MAX_LINE_QTY = 20
+export const MAX_ITEM_NOTE = 300
+export const MAX_ORDER_NOTE = 500
+
 export interface SelectedExtra {
   id: string
   name: string
@@ -48,6 +55,33 @@ export function lineTotal(item: CartItem): number {
   const md = item.selected_modifiers.reduce((s, m) => s + m.price_delta, 0)
   const ex = (item.selected_extras ?? []).reduce((s, e) => s + e.price, 0)
   return (item.unit_price_snapshot + md + ex) * item.quantity
+}
+
+// Aceeași linie = același produs, aceleași opțiuni și extra-uri, aceeași notă,
+// același preț și aceeași sursă de upsell (atribuirea rămâne corectă).
+function cartLineIdentity(item: CartItem): string {
+  return JSON.stringify([
+    item.product_id,
+    [...item.selected_modifiers.map((m) => m.option_id)].sort(),
+    [...(item.selected_extras ?? []).map((e) => e.id)].sort(),
+    (item.notes ?? '').trim(),
+    Math.round(item.unit_price_snapshot * 100),
+    item.upsell_source ?? null,
+  ])
+}
+
+/**
+ * Adaugă în coș; o linie IDENTICĂ își crește cantitatea în loc să apară a doua
+ * oară (lotul O4b, OPT-8 — trei atingeri pe „+" la Espresso dădeau trei rânduri
+ * „Espresso ×1", iar bucătăria vedea trei tichete-linie). Peste plafonul unei
+ * linii (MAX_LINE_QTY, limita serverului) pornește o linie nouă, ca nimic să nu
+ * se piardă tăcut.
+ */
+export function addOrMergeCartItem(cart: CartItem[], item: CartItem): CartItem[] {
+  const id = cartLineIdentity(item)
+  const i = cart.findIndex((c) => cartLineIdentity(c) === id && c.quantity + item.quantity <= MAX_LINE_QTY)
+  if (i < 0) return [...cart, item]
+  return cart.map((c, n) => (n === i ? { ...c, quantity: c.quantity + item.quantity } : c))
 }
 
 // ── Idempotență comanda QR (per token de masă) ──────────────────

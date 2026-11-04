@@ -50,6 +50,14 @@ export function fmtPrice(amount: number, currency: MenuCurrency = 'RON'): string
 }
 
 /**
+ * Diferența de preț a unei opțiuni/extra, cu semn: „+3.00 lei”, „−5.00 lei”
+ * (lotul O4b, OPT-12 — o opțiune care scade prețul nu mai apare fără preț).
+ */
+export function fmtPriceDelta(delta: number, currency: MenuCurrency = 'RON'): string {
+  return `${delta < 0 ? '−' : '+'}${fmtPrice(Math.abs(delta), currency)}`
+}
+
+/**
  * Eticheta de monedă pentru layout-ul „split" al cardurilor de produs
  * (întreg mare + zecimale mici + etichetă). În carduri eticheta stă mereu
  * DUPĂ număr, indiferent de monedă — lizibil universal; formatul canonic

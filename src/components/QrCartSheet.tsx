@@ -8,8 +8,10 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
+import { MAX_LINE_QTY, MAX_ORDER_NOTE } from '../lib/orders'
 import type { Category, Product } from '../lib/qr'
 import { hasMandatoryModifierGroups } from '../lib/qr'
+import { cartIssueCounts, cartIssueNoticeKey, cartLineIssue } from '../lib/cartReconcile'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import { thumbUrlFor } from '../lib/images'
 import { T } from '../lib/publicMenuStrings'
@@ -227,11 +229,14 @@ export default function QrCartSheet({
     })
   }
 
-  // mig 313: un produs din coș epuizat între timp (meniul s-a reîmprospătat la
-  // revenirea în tab) blochează trimiterea până e scos — serverul l-ar respinge
-  // oricum (product_sold_out), dar oaspetele trebuie să vadă CARE linie.
-  const soldOutInCart = cart.filter((c) => productById.get(c.product_id)?.is_sold_out === true).length
-  const canSubmit = cart.length > 0 && !submitting && soldOutInCart === 0
+  // mig 313 + lotul O4a: o linie care nu mai corespunde meniului de acum
+  // (produs epuizat sau scos, opțiuni/extra-uri care nu mai sunt valabile,
+  // grup devenit obligatoriu) blochează trimiterea până e scoasă — serverul ar
+  // respinge-o oricum, dar oaspetele trebuie să vadă CARE linie.
+  const issueCounts = cartIssueCounts(cart, productById)
+  const soldOutInCart = issueCounts.sold_out
+  const changedInCart = issueCounts.unavailable + issueCounts.options_changed
+  const canSubmit = cart.length > 0 && !submitting && soldOutInCart === 0 && changedInCart === 0
   // O SINGURĂ cale de trimitere, cu aceeași gardă pentru CTA și pentru
   // „Reîncearcă” din eroare: altfel reîncercarea trimitea un coș cu produs
   // epuizat (sau a doua oară, în timpul trimiterii).
@@ -432,7 +437,10 @@ export default function QrCartSheet({
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {cart.map((item) => {
             const prod = productById.get(item.product_id)
-            const lineSoldOut = prod?.is_sold_out === true
+            const lineIssue = cartLineIssue(item, productById)
+            // „+” n-are sens pe o linie care trebuie scoasă, nici peste
+            // plafonul serverului pe linie (OPT-13).
+            const plusBlocked = lineIssue !== null || item.quantity >= MAX_LINE_QTY
             // Personalizările item-ului (modificatori + extra), afișate discret
             // sub nume — clientul trebuie să poată verifica ce a ales („fără
             // ceapă", extra sos) înainte să trimită comanda.
@@ -504,9 +512,16 @@ export default function QrCartSheet({
                   >
                     {item.product_name_snapshot}
                   </div>
-                  {lineSoldOut && (
+                  {lineIssue && (
                     <div style={{ color: errorInk, fontSize: 12, fontWeight: 700 }}>
-                      {T(lang, 'sold_out')}
+                      {T(
+                        lang,
+                        lineIssue === 'sold_out'
+                          ? 'sold_out'
+                          : lineIssue === 'unavailable'
+                            ? 'cart_line_unavailable'
+                            : 'cart_line_options_changed',
+                      )}
                     </div>
                   )}
                   {customizations.length > 0 && (
@@ -581,12 +596,12 @@ export default function QrCartSheet({
                     type="button"
                     onClick={() => onUpdateQty(item._key, 1)}
                     aria-label={T(lang, 'qty_inc')}
-                    disabled={lineSoldOut}
-                    className={lineSoldOut ? undefined : 'pressable'}
+                    disabled={plusBlocked}
+                    className={plusBlocked ? undefined : 'pressable'}
                     style={{
                       background: 'transparent',
                       border: 'none',
-                      opacity: lineSoldOut ? 0.35 : 1,
+                      opacity: plusBlocked ? 0.35 : 1,
                       color: PUB.text,
                       borderRadius: '50%',
                       // Țintă de atingere 44x44 (a11y); glyph-ul rămâne mic vizual.
@@ -640,6 +655,7 @@ export default function QrCartSheet({
             value={localNotes}
             onChange={(e) => setLocalNotes(e.target.value)}
             onBlur={() => onNotesChange(localNotes)}
+            maxLength={MAX_ORDER_NOTE}
             rows={2}
             style={{
               background: PUB.surface,
@@ -836,9 +852,9 @@ export default function QrCartSheet({
           {T(lang, 'qc_total_note')}
         </div>
 
-        {soldOutInCart > 0 && (
+        {cartIssueNoticeKey(issueCounts) && (
           <div role="status" style={{ color: errorInk, fontSize: 13, lineHeight: 1.5, textAlign: 'center' }}>
-            {T(lang, 'cart_sold_out_notice')}
+            {T(lang, cartIssueNoticeKey(issueCounts) ?? 'cart_sold_out_notice')}
           </div>
         )}
 

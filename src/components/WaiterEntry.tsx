@@ -5,13 +5,13 @@
 // =============================================================
 
 import { useState, useEffect, useRef } from 'react'
-import { fetchTables, createOrder, lineTotal } from '../lib/orders'
-import { loadStaffMenu } from '../lib/staffMenuCache'
+import { fetchTables, createOrder, lineTotal, MAX_LINE_QTY, MAX_ORDER_NOTE } from '../lib/orders'
+import { invalidateStaffMenu, loadStaffMenu } from '../lib/staffMenuCache'
 import type { RestaurantTable, CartItem, OrderConfirmationPayload } from '../lib/orders'
 import type { Category, Product } from '../lib/qr'
 import { D } from '../lib/constants'
 import { isNetworkError } from '../lib/networkError'
-import { describeGuestError } from '../lib/guestErrors'
+import { describeGuestError, isStaleMenuGuestError } from '../lib/guestErrors'
 import { toUserMessage } from '../lib/userMessages'
 import ModifierSheet from './ModifierSheet'
 import { OrderLineDetails } from './OrderLineDetails'
@@ -136,7 +136,13 @@ export default function WaiterEntry({
 
   function updateQty(key: string, delta: number): void {
     setCart((prev) =>
-      prev.map((i) => (i._key === key ? { ...i, quantity: Math.max(1, i.quantity + delta) } : i)),
+      // Același plafon ca serverul (create_order: 1–20 pe linie): „+" din coș
+      // nu mai poate duce linia la 21, ca toată comanda să fie apoi refuzată.
+      prev.map((i) =>
+        i._key === key
+          ? { ...i, quantity: Math.min(MAX_LINE_QTY, Math.max(1, i.quantity + delta)) }
+          : i,
+      ),
     )
   }
 
@@ -183,6 +189,18 @@ export default function WaiterEntry({
       toUserMessage(lastError, '') ||
         describeGuestError('ro', lastError, { fallback: 'err_order_not_sent' }),
     )
+    // Refuz pe meniu învechit (epuizat, produs scos, opțiune/extra
+    // indisponibil): meniul ținut un minut în cache e cel greșit. Îl uităm și
+    // îl cerem din nou, ca la „scoate și adaugă din nou" ospătarul să vadă ce
+    // se poate comanda ACUM (recenzia O2b). Coșul rămâne neatins.
+    if (isStaleMenuGuestError(lastError)) {
+      invalidateStaffMenu(restaurantId)
+      loadStaffMenu(restaurantId)
+        .then((cats) => setCategories(cats))
+        .catch(() => {
+          /* meniul vechi rămâne; următoarea alegere de masă reîncearcă */
+        })
+    }
     setSubmitting(false)
   }
 
@@ -490,6 +508,7 @@ export default function WaiterEntry({
           product={activeProduct}
           onAdd={addToCart}
           onClose={() => setActiveProduct(null)}
+          allowExtras
         />
       )}
 
@@ -581,6 +600,7 @@ export default function WaiterEntry({
                   </span>
                   <button
                     onClick={() => updateQty(item._key, 1)}
+                    disabled={item.quantity >= MAX_LINE_QTY}
                     style={{
                       background: D.s3,
                       border: 'none',
@@ -588,7 +608,8 @@ export default function WaiterEntry({
                       borderRadius: '50%',
                       width: 28,
                       height: 28,
-                      cursor: 'pointer',
+                      cursor: item.quantity >= MAX_LINE_QTY ? 'not-allowed' : 'pointer',
+                      opacity: item.quantity >= MAX_LINE_QTY ? 0.4 : 1,
                     }}
                   >
                     +
@@ -624,6 +645,7 @@ export default function WaiterEntry({
               placeholder="Mențiuni comandă (opțional)"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
+              maxLength={MAX_ORDER_NOTE}
               rows={2}
               style={{
                 background: D.s2,

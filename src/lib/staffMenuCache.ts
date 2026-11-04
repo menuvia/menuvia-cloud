@@ -30,3 +30,12 @@ export function loadStaffMenu(restaurantId: string, now: number = Date.now()): P
   })
   return entry.promise
 }
+
+/**
+ * Uită meniul ținut pentru restaurant. Se cheamă când serverul refuză comanda
+ * pe un meniu învechit (produs epuizat/scos, opțiune sau extra indisponibil —
+ * lotul O2b): altfel ospătarul ar mai primi un minut aceleași opțiuni moarte.
+ */
+export function invalidateStaffMenu(restaurantId: string): void {
+  cache.delete(restaurantId)
+}

@@ -201,8 +201,10 @@ describe('isSoldOutGuestError — reîncărcarea meniului în QrMenuPage', () =>
 
   it('SL7b QrMenuPage reface meniul pe refuzul de epuizare (cablajul, nu doar predicatul)', () => {
     // Mutația care pică: apelul scos din handleSubmit — predicatul ar rămâne
-    // corect, dar coșul n-ar mai arăta CARE linie s-a epuizat.
+    // corect, dar coșul n-ar mai arăta CARE linie s-a epuizat. Din lotul O4a
+    // predicatul e cel larg (`isStaleMenuGuestError`), care include epuizarea
+    // (testul CM7 din cartReconcile.test.ts).
     const src = readFileSync(resolve(process.cwd(), 'src/pages/QrMenuPage.tsx'), 'utf8')
-    expect(src).toMatch(/if \(isSoldOutGuestError\(lastError\)\) (void )?refreshMenu\(\)/)
+    expect(src).toMatch(/if \(isStaleMenuGuestError\(lastError\)\) (void )?refreshMenu\(\)/)
   })
 })

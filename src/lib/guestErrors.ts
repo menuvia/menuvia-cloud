@@ -32,6 +32,8 @@ const HINT_KEYS: Readonly<Record<string, PublicMenuStringKey>> = {
   invalid_options: 'err_invalid_options',
   too_many_in_group: 'err_invalid_options',
   duplicate_extras: 'err_invalid_options',
+  // create_order (mig 317): un extra indisponibil e respins, nu sărit tăcut.
+  invalid_extras: 'err_invalid_extras',
   notes_too_long: 'err_notes_too_long',
   item_notes_too_long: 'err_notes_too_long',
   // sesiunea mesei / tokenul QR (mig 088/092/191)
@@ -87,6 +89,7 @@ const MESSAGE_PATTERNS: ReadonlyArray<{ re: RegExp; key: PublicMenuStringKey }> 
   { re: /invalid quantity/i, key: 'err_invalid_quantity' },
   { re: /too many lines|too many items/i, key: 'err_too_many_items' },
   { re: /at least one item/i, key: 'err_no_items' },
+  { re: /extra indisponibil/i, key: 'err_invalid_extras' },
   { re: /modifier|opțiuni (modificatoare|selectate)|extra-uri duplicate/i, key: 'err_invalid_options' },
   { re: /notes too long/i, key: 'err_notes_too_long' },
   { re: /pickup.*(dezactivate|disabled)/i, key: 'err_pickup_disabled' },
@@ -173,6 +176,26 @@ export function guestErrorKey(err: unknown, opts: GuestErrorOptions = {}): Publi
  */
 export function isSoldOutGuestError(err: unknown): boolean {
   return rawKey(err) === 'err_product_sold_out'
+}
+
+/**
+ * Refuzul spune că meniul din telefon e VECHI (lotul O4a): un produs epuizat
+ * sau scos din meniu, opțiuni sau extra-uri care nu mai sunt valabile, un grup
+ * devenit obligatoriu. Apelantul reîncarcă atunci meniul, ca linia din coș să
+ * fie marcată (lib/cartReconcile) — altfel oaspetele primea același mesaj
+ * generic la fiecare trimitere, până reîncărca pagina (și pierdea coșul).
+ */
+const STALE_MENU_KEYS: ReadonlySet<PublicMenuStringKey> = new Set<PublicMenuStringKey>([
+  'err_product_sold_out',
+  'err_product_unavailable',
+  'err_missing_required_group',
+  'err_invalid_options',
+  'err_invalid_extras',
+])
+
+export function isStaleMenuGuestError(err: unknown): boolean {
+  const k = rawKey(err)
+  return k != null && STALE_MENU_KEYS.has(k)
 }
 
 /** Textul erorii în limba oaspetelui — NICIODATĂ mesajul brut al serverului. */
