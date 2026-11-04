@@ -2290,6 +2290,11 @@ export default function ProductsTab({
   // lista goală ar spune „Niciun produs încă” pe un meniu plin (recenzia #346).
   const activeCat =
     activeCatRaw === UNCATEGORIZED && uncategorizedCount === 0 ? 'all' : activeCatRaw
+  // Și filtrul memorat trece pe „Toate” (recenzia CodeRabbit pe #346): altfel,
+  // la următorul produs fără categorie, lista sărea singură înapoi pe filtru.
+  useEffect(() => {
+    if (activeCatRaw === UNCATEGORIZED && uncategorizedCount === 0) setActiveCat('all')
+  }, [activeCatRaw, uncategorizedCount])
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
     return products
