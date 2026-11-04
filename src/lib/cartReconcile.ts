@@ -83,6 +83,20 @@ export function cartIssueCounts(
   return counts
 }
 
+/**
+ * Textul de sub coș pentru problemele lui: opțiuni schimbate → „scoate și
+ * adaugă din nou”; produs scos din meniu → doar „scoate” (nu se mai poate
+ * adăuga); epuizat → mesajul de epuizare. Null = nimic de spus.
+ */
+export function cartIssueNoticeKey(
+  counts: Record<CartLineIssue, number>,
+): 'cart_changed_notice' | 'cart_unavailable_notice' | 'cart_sold_out_notice' | null {
+  if (counts.options_changed > 0) return 'cart_changed_notice'
+  if (counts.unavailable > 0) return 'cart_unavailable_notice'
+  if (counts.sold_out > 0) return 'cart_sold_out_notice'
+  return null
+}
+
 function samePrice(a: number, b: number): boolean {
   return Math.round(a * 100) === Math.round(b * 100)
 }

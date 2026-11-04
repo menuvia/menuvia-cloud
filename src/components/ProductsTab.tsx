@@ -2461,7 +2461,7 @@ export default function ProductsTab({
   const [csvImportOpen, setCsvImportOpen] = useState(false)
   const [aiImportOpen, setAiImportOpen] = useState(false)
   const [aiBulkOpen, setAiBulkOpen] = useState(false)
-  const [activeCat, setActiveCat] = useState('all')
+  const [activeCatRaw, setActiveCat] = useState('all')
   const [search, setSearch] = useState('')
   const canAdd = canAddProduct(products.length)
   const mob = useIsMobile()
@@ -2476,6 +2476,22 @@ export default function ProductsTab({
   )
   // Lista filtrată se recalculează DOAR când se schimbă produsele / categoria /
   // căutarea — nu la fiecare re-randare (togglingId, modal, delId etc.).
+  // Produsele fără categorie NU apar în meniul clienților (lotul O1a): le
+  // numărăm ca să le arătăm un filtru și un avertisment, nu să dispară tăcut.
+  const uncategorizedCount = useMemo(
+    () => products.filter((p) => !p.category_id).length,
+    [products],
+  )
+  // Filtrul „Fără categorie” revine pe „Toate” când nu mai e niciun produs
+  // acolo (ultimul a primit o categorie sau a fost șters): chip-ul dispare, iar
+  // lista goală ar spune „Niciun produs încă” pe un meniu plin (recenzia #346).
+  const activeCat =
+    activeCatRaw === UNCATEGORIZED && uncategorizedCount === 0 ? 'all' : activeCatRaw
+  // Și filtrul memorat trece pe „Toate” (recenzia CodeRabbit pe #346): altfel,
+  // la următorul produs fără categorie, lista sărea singură înapoi pe filtru.
+  useEffect(() => {
+    if (activeCatRaw === UNCATEGORIZED && uncategorizedCount === 0) setActiveCat('all')
+  }, [activeCatRaw, uncategorizedCount])
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
     return products
@@ -2488,12 +2504,6 @@ export default function ProductsTab({
       )
       .filter((p) => p.name.toLowerCase().includes(q))
   }, [products, activeCat, search])
-  // Produsele fără categorie NU apar în meniul clienților (lotul O1a): le
-  // numărăm ca să le arătăm un filtru și un avertisment, nu să dispară tăcut.
-  const uncategorizedCount = useMemo(
-    () => products.filter((p) => !p.category_id).length,
-    [products],
-  )
   // Un produs nou pornește în categoria filtrată acum, altfel în prima.
   const defaultCategoryId =
     activeCat !== 'all' && activeCat !== UNCATEGORIZED
@@ -2689,53 +2699,41 @@ export default function ProductsTab({
             paddingBottom: 2,
           }}
         >
-          <button
-            onClick={() => setActiveCat('all')}
-            aria-pressed={activeCat === 'all'}
-            style={btn({
-              height: 44,
-              padding: '0 14px',
-              fontSize: '0.78rem',
-              background: activeCat === 'all' ? D.goldA : D.s2,
-              color: activeCat === 'all' ? D.goldL : D.t2,
-              border: `1px solid ${activeCat === 'all' ? D.goldBorder : D.border}`,
-            })}
-          >
-            Toate
-          </button>
-          {uncategorizedCount > 0 && (
-            <button
-              onClick={() => setActiveCat(UNCATEGORIZED)}
-              aria-pressed={activeCat === UNCATEGORIZED}
-              style={btn({
-                height: 44,
-                padding: '0 14px',
-                fontSize: '0.78rem',
-                background: activeCat === UNCATEGORIZED ? D.amberA : D.s2,
-                color: D.amber,
-                border: `1px solid ${activeCat === UNCATEGORIZED ? D.amber : D.amberBorder}`,
-              })}
-            >
-              Fără categorie ({uncategorizedCount})
-            </button>
-          )}
-          {categories.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setActiveCat(c.id)}
-              aria-pressed={activeCat === c.id}
-              style={btn({
-                height: 44,
-                padding: '0 14px',
-                fontSize: '0.78rem',
-                background: activeCat === c.id ? D.goldA : D.s2,
-                color: activeCat === c.id ? D.goldL : D.t2,
-                border: `1px solid ${activeCat === c.id ? D.goldBorder : D.border}`,
-              })}
-            >
-              {c.emoji} {c.name}
-            </button>
-          ))}
+          {/* O singură formă de chip pentru „Toate", „Fără categorie" și
+              categoriile reale; „Fără categorie" e chihlimbar fiindcă e un
+              avertisment (produsele de acolo nu apar în meniu), nu o categorie. */}
+          {[
+            { id: 'all', label: 'Toate', warn: false },
+            ...(uncategorizedCount > 0
+              ? [{ id: UNCATEGORIZED, label: `Fără categorie (${uncategorizedCount})`, warn: true }]
+              : []),
+            ...categories.map((c) => ({
+              id: c.id,
+              label: [c.emoji, c.name].filter(Boolean).join(' '),
+              warn: false,
+            })),
+          ].map((chip) => {
+            const on = activeCat === chip.id
+            return (
+              <button
+                key={chip.id}
+                onClick={() => setActiveCat(chip.id)}
+                aria-pressed={on}
+                style={btn({
+                  height: 44,
+                  padding: '0 14px',
+                  fontSize: '0.78rem',
+                  background: on ? (chip.warn ? D.amberA : D.goldA) : D.s2,
+                  color: chip.warn ? D.amber : on ? D.goldL : D.t2,
+                  border: `1px solid ${
+                    chip.warn ? (on ? D.amber : D.amberBorder) : on ? D.goldBorder : D.border
+                  }`,
+                })}
+              >
+                {chip.label}
+              </button>
+            )
+          })}
         </div>
       </div>
       {/* Ordinea produselor din categoria aleasă (MENU-10): niciun ecran nu o

@@ -773,20 +773,26 @@ export function describeEditOrderError(err: unknown): string {
   ) {
     return plain
   }
-  // mig 313: produsul s-a epuizat între timp. Cantitatea DEJA comandată se
-  // poate păstra; doar surplusul (sau un produs epuizat nou) e respins.
-  if (hint === 'product_sold_out' || /este epuizat/i.test(plain)) {
+  // mig 313: produsul s-a epuizat între timp; mig 320: sau a fost scos din
+  // meniu / trecut în ciornă. Cantitatea DEJA comandată se poate păstra; doar
+  // surplusul (sau un produs nou de felul ăsta) e respins. Fără ramura de
+  // „scos din meniu”, mesajul cădea pe „Reîncearcă” și fiecare reîncercare
+  // pica la fel (recenzia O3a).
+  const soldOut = hint === 'product_sold_out' || /este epuizat/i.test(plain)
+  const offMenu =
+    hint === 'product_inactive' || hint === 'product_draft' || /nu mai e în meniu/i.test(plain)
+  if (soldOut || offMenu) {
     const name = /"([^"]+)"/.exec(plain)?.[1]
     const kept = /\((\d+)\)\s*$/.exec(plain)?.[1]
     const who = name ? `Produsul „${name}”` : 'Un produs din comandă'
     if (kept === '0') {
-      return `${who} e epuizat și nu mai poate fi adăugat. Scoate-l din comandă și salvează din nou.`
+      return `${who} ${soldOut ? 'e epuizat' : 'nu mai e în meniu'} și nu mai poate fi adăugat. Scoate-l din comandă și salvează din nou.`
     }
     const keep =
       kept != null
         ? `Poți păstra cel mult cantitatea deja comandată (${kept}).`
         : 'Poți păstra doar cantitatea deja comandată.'
-    return `${who} s-a epuizat între timp. ${keep} Scade cantitatea sau scoate-l și salvează din nou.`
+    return `${who} ${soldOut ? 's-a epuizat între timp' : 'nu mai e în meniu'}. ${keep} Scade cantitatea sau scoate-l și salvează din nou.`
   }
   if (/partial payments/i.test(plain)) {
     return 'Comanda are plăți înregistrate și nu mai poate fi editată.'
@@ -802,7 +808,12 @@ export function describeEditOrderError(err: unknown): string {
   if (/invalid options|extras invalide/i.test(plain)) {
     return 'O opțiune aleasă nu mai e disponibilă. Reverifică produsul și salvează din nou.'
   }
-  if (/invalid quantity/i.test(plain)) return 'Cantitatea trebuie să fie între 1 și 99.'
+  if (hint === 'invalid_quantity' || /invalid quantity/i.test(plain)) {
+    // Plafonul vine din mesajul serverului: 20 pe linie (mig 320), cantitatea
+    // veche pentru o linie păstrată peste 20, 99 pe un server mai vechi.
+    const cap = /invalid quantity \(1-(\d+)\)/i.exec(plain)?.[1] ?? String(MAX_LINE_QTY)
+    return `Cantitatea pe o linie trebuie să fie între 1 și ${cap}.`
+  }
   if (/too many items/i.test(plain)) return 'Comanda poate avea cel mult 100 de produse.'
   return 'Modificarea nu a fost salvată. Reîncearcă.'
 }

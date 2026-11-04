@@ -622,16 +622,19 @@ export default function QrMenuPage({ token }: Props) {
   // Categorii localizate pentru AFIȘARE (tab-uri, liste, search). Pe 'ro'
   // întoarcem aceeași referință → memo stabil, zero re-render inutil. Doar
   // name/description sunt traduse; product_id rămâne identic (coșul nu se atinge).
+  const orderingAllowed = ctx?.orderingAllowed ?? false
   const localizedCategories = useMemo<Category[]>(() => {
-    // Lotul O4b: produsul pe care opțiunile îl fac necomandabil apare „Epuizat”.
-    const shown = markUnorderableProducts(categories)
+    // Lotul O4b: produsul pe care opțiunile îl fac necomandabil apare „Epuizat”
+    // DOAR unde se poate comanda. Pe meniul doar de citit (Plan 1 / comenzi
+    // oprite) fișa cu descrierea și alergenii trebuie să rămână deschisă.
+    const shown = orderingAllowed ? markUnorderableProducts(categories) : categories
     if (lang === 'ro') return shown
     return shown.map((c) => ({
       ...c,
       name: trName(c, lang),
       products: c.products.map((p) => localizeProduct(p, lang)),
     }))
-  }, [categories, lang])
+  }, [categories, lang, orderingAllowed])
   // Limbile extra oferite = cele în care meniul chiar e tradus (derivate din
   // conținut, nu dintr-un flag expus prin RPC). Switcher-ul apare doar dacă
   // există măcar o traducere reală.
@@ -694,7 +697,6 @@ export default function QrMenuPage({ token }: Props) {
     () => categories.reduce((s, c) => s + (c.products?.length ?? 0), 0),
     [categories],
   )
-  const orderingAllowed = ctx?.orderingAllowed ?? false
   const themeSettings = ctx?.restaurant.theme_settings
   // Memoizate pe theme_settings (ca în PublicMenuPage) — nu recalculăm la fiecare
   // re-render (tastă în search, add-to-cart, tick realtime).
