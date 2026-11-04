@@ -50,7 +50,7 @@ const COLORED_CEILING = 0
 
 const MIGRATED_CEILINGS = {
   'src/components/_dashboard/HomeTab.tsx': 3,
-  'src/components/ProductsTab.tsx': 28,
+  'src/components/ProductsTab.tsx': 27,
   'src/components/_dashboard/ProductsToolbar.tsx': 2,
   'src/components/SettingsTab.tsx': 5,
   'src/components/TablesManager.tsx': 3,

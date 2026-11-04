@@ -2481,53 +2481,41 @@ export default function ProductsTab({
             paddingBottom: 2,
           }}
         >
-          <button
-            onClick={() => setActiveCat('all')}
-            aria-pressed={activeCat === 'all'}
-            style={btn({
-              height: 44,
-              padding: '0 14px',
-              fontSize: '0.78rem',
-              background: activeCat === 'all' ? D.goldA : D.s2,
-              color: activeCat === 'all' ? D.goldL : D.t2,
-              border: `1px solid ${activeCat === 'all' ? D.goldBorder : D.border}`,
-            })}
-          >
-            Toate
-          </button>
-          {uncategorizedCount > 0 && (
-            <button
-              onClick={() => setActiveCat(UNCATEGORIZED)}
-              aria-pressed={activeCat === UNCATEGORIZED}
-              style={btn({
-                height: 44,
-                padding: '0 14px',
-                fontSize: '0.78rem',
-                background: activeCat === UNCATEGORIZED ? D.amberA : D.s2,
-                color: D.amber,
-                border: `1px solid ${activeCat === UNCATEGORIZED ? D.amber : D.amberBorder}`,
-              })}
-            >
-              Fără categorie ({uncategorizedCount})
-            </button>
-          )}
-          {categories.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setActiveCat(c.id)}
-              aria-pressed={activeCat === c.id}
-              style={btn({
-                height: 44,
-                padding: '0 14px',
-                fontSize: '0.78rem',
-                background: activeCat === c.id ? D.goldA : D.s2,
-                color: activeCat === c.id ? D.goldL : D.t2,
-                border: `1px solid ${activeCat === c.id ? D.goldBorder : D.border}`,
-              })}
-            >
-              {c.emoji} {c.name}
-            </button>
-          ))}
+          {/* O singură formă de chip pentru „Toate", „Fără categorie" și
+              categoriile reale; „Fără categorie" e chihlimbar fiindcă e un
+              avertisment (produsele de acolo nu apar în meniu), nu o categorie. */}
+          {[
+            { id: 'all', label: 'Toate', warn: false },
+            ...(uncategorizedCount > 0
+              ? [{ id: UNCATEGORIZED, label: `Fără categorie (${uncategorizedCount})`, warn: true }]
+              : []),
+            ...categories.map((c) => ({
+              id: c.id,
+              label: [c.emoji, c.name].filter(Boolean).join(' '),
+              warn: false,
+            })),
+          ].map((chip) => {
+            const on = activeCat === chip.id
+            return (
+              <button
+                key={chip.id}
+                onClick={() => setActiveCat(chip.id)}
+                aria-pressed={on}
+                style={btn({
+                  height: 44,
+                  padding: '0 14px',
+                  fontSize: '0.78rem',
+                  background: on ? (chip.warn ? D.amberA : D.goldA) : D.s2,
+                  color: chip.warn ? D.amber : on ? D.goldL : D.t2,
+                  border: `1px solid ${
+                    chip.warn ? (on ? D.amber : D.amberBorder) : on ? D.goldBorder : D.border
+                  }`,
+                })}
+              >
+                {chip.label}
+              </button>
+            )
+          })}
         </div>
       </div>
       {singleVatGroup != null && (
