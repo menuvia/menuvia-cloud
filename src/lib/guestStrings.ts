@@ -555,6 +555,15 @@ export const GUEST_STRINGS = {
     hu: 'A kosár néhány tétele már nem felel meg az étlapnak. Vedd ki, majd tedd vissza őket a rendelés elküldéséhez.',
     es: 'Algunos productos del carrito ya no coinciden con la carta. Quítalos y vuelve a añadirlos para enviar el pedido.',
   },
+  cart_unavailable_notice: {
+    ro: 'Unele produse din coș nu mai sunt în meniu. Scoate-le ca să poți trimite comanda.',
+    en: 'Some items in your cart are no longer on the menu. Remove them to send your order.',
+    de: 'Einige Artikel im Warenkorb sind nicht mehr auf der Karte. Entferne sie, um die Bestellung zu senden.',
+    fr: 'Certains articles du panier ne sont plus à la carte. Retirez-les pour envoyer la commande.',
+    it: 'Alcuni prodotti nel carrello non sono più nel menu. Rimuovili per inviare l’ordine.',
+    hu: 'A kosár néhány tétele már nincs az étlapon. Vedd ki őket a rendelés elküldéséhez.',
+    es: 'Algunos productos del carrito ya no están en la carta. Quítalos para enviar el pedido.',
+  },
   cart_prices_updated: {
     ro: 'Prețurile din coș s-au actualizat după meniul de acum.',
     en: 'Cart prices were updated to match the current menu.',

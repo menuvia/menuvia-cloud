@@ -39,6 +39,8 @@ export interface PickupCheckoutProps {
    *  opțiuni sau extra-uri care nu mai sunt valabile): pagina reface meniul,
    *  ca linia din coș să fie marcată (lotul O4a). */
   onStaleMenu?: () => void
+  /** Coșul are linii care nu mai corespund meniului: trimiterea e blocată. */
+  blocked?: boolean
   // Moneda meniului (mig 205) — default RON, ca la call-site-urile istorice.
   currency?: MenuCurrency
   // Limba aleasă de oaspete — toate textele sheet-ului. NU decide prefixul
@@ -56,6 +58,7 @@ export default function PickupCheckoutSheet({
   onClose,
   onSuccess,
   onStaleMenu,
+  blocked = false,
   currency = 'RON',
   lang = 'ro',
 }: PickupCheckoutProps) {
@@ -115,9 +118,10 @@ export default function PickupCheckoutSheet({
     [restaurant.pickup_settings, tz],
   )
 
-  const submitBlocked = submitting || (slots.length > 0 && !pickupTime)
+  const submitBlocked = submitting || blocked || (slots.length > 0 && !pickupTime)
 
   async function submitOrder() {
+    if (blocked) return
     if (slots.length === 0) {
       setError(T(lang, 'pk_closed_now'))
       return
