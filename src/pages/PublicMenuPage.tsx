@@ -27,7 +27,7 @@ import {
 } from '../lib/qr'
 import type { HappyHourRule } from '../lib/qr'
 import type { Restaurant, Category, Product } from '../lib/qr'
-import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
+import { trName, trDesc, availableMenuLangs, detectBrowserLang, menuBaseLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { CartItem } from '../lib/orders'
 import { addOrMergeCartItem, lineTotal } from '../lib/orders'
 import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
@@ -120,8 +120,11 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const [showReservation, setShowReservation] = useState(false)
   const [reservationsModuleEnabled, setReservationsModuleEnabled] = useState<boolean | null>(null)
   const [search, setSearch] = useState('')
-  // Limba activă a meniului ('ro' = originalul din name/description).
-  const [menuLang, setMenuLang] = useState('ro')
+  // Limba activă a meniului: cea aleasă de vizitator sau, implicit, limba de
+  // BAZĂ a localului (`restaurants.language`, lotul O6a).
+  const baseLang = menuBaseLang(restaurant?.language)
+  const [pickedLang, setPickedLang] = useState<string | null>(null)
+  const menuLang = pickedLang ?? baseLang
   // true după ce vizitatorul alege manual o limbă → auto-detectul nu mai
   // suprascrie. Declarat aici (nu jos) ca efectul de reset pe restaurant să-l
   // poată curăța la navigarea între restaurante.
@@ -181,10 +184,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const t = useMemo(() => menuType(theme.fonts), [theme])
 
   const pickupEnabled = restaurant?.pickup_settings?.enabled ?? false
-  // Limba chrome-ului (tab-uri, „Caută…", bara „Lista mea") urmează limba ALEASĂ
-  // de vizitator când e non-RO (T dă fallback EN pentru de/fr/it/hu/es); altfel
-  // păstrează limba implicită a restaurantului — fără regresie pe localuri RO/EN.
-  const lang = menuLang !== 'ro' ? menuLang : (restaurant?.language ?? 'ro')
+  // Limba chrome-ului (tab-uri, „Caută…", bara „Lista mea") = limba afișată a
+  // meniului: cea aleasă, altfel baza localului (care era deja regula aici).
+  const lang = menuLang
   // `<html lang>` = limba afișată (WCAG 3.1.1, a11y-guest-html-lang).
   useDocumentLang(lang)
 
@@ -208,7 +210,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     // Resetează și limba: altfel o limbă auto/aleasă pe restaurantul anterior
     // se scurge la următorul (switcher cu pastilă activă inexistentă +
     // auto-detect suprimat). Simetric cu resetul coșului.
-    setMenuLang('ro')
+    setPickedLang(null)
     userPickedLangRef.current = false
     if (!listMode || !listKey) return
     try {
@@ -345,45 +347,48 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const localizedCategories = useMemo<Category[]>(() => {
     // Lotul O4b: produsul pe care opțiunile îl fac necomandabil apare „Epuizat”.
     const shown = markUnorderableProducts(categories)
-    if (menuLang === 'ro') return shown
+    if (menuLang === baseLang) return shown
     return shown.map((c) => ({
       ...c,
-      name: trName(c, menuLang),
+      name: trName(c, menuLang, baseLang),
       products: c.products.map((p) => ({
         ...p,
-        name: trName(p, menuLang),
-        description: trDesc(p, menuLang),
+        name: trName(p, menuLang, baseLang),
+        description: trDesc(p, menuLang, baseLang),
       })),
     }))
-  }, [categories, menuLang])
+  }, [categories, menuLang, baseLang])
 
   // Limbile extra oferite = cele în care meniul chiar e tradus (derivate din
   // conținut, nu dintr-un flag expus prin RPC). Switcher-ul apare doar dacă
   // există măcar o traducere reală.
   const availableLangs = useMemo(
-    () => availableMenuLangs(categories, restaurant?.menu_languages),
-    [categories, restaurant?.menu_languages],
+    () => availableMenuLangs(categories, restaurant?.menu_languages, baseLang),
+    [categories, restaurant?.menu_languages, baseLang],
   )
   // Auto-selectează limba browserului DOAR dacă meniul e tradus în ea și
   // vizitatorul n-a ales manual încă (ex. turist german → meniul în germană).
-  const handleMenuLangChange = useCallback((code: string) => {
-    userPickedLangRef.current = true
-    setMenuLang(code)
-  }, [])
+  const handleMenuLangChange = useCallback(
+    (code: string) => {
+      userPickedLangRef.current = true
+      setPickedLang(code === baseLang ? null : code)
+    },
+    [baseLang],
+  )
   useEffect(() => {
     // Reset defensiv: dacă limba curentă nu mai e disponibilă (ex. nav SPA către
     // un restaurant care n-o oferă, sau limbă deselectată din setări), revenim la
     // `ro` și redeschidem auto-detectul — altfel switcher-ul ar avea o pastilă
     // activă inexistentă și localizarea ar cădea tăcut pe original.
-    if (menuLang !== 'ro' && !availableLangs.includes(menuLang)) {
-      setMenuLang('ro')
+    if (menuLang !== baseLang && !availableLangs.includes(menuLang)) {
+      setPickedLang(null)
       userPickedLangRef.current = false
       return
     }
-    if (userPickedLangRef.current || menuLang !== 'ro') return
-    const detected = detectBrowserLang(availableLangs)
-    if (detected) setMenuLang(detected)
-  }, [availableLangs, menuLang])
+    if (userPickedLangRef.current || menuLang !== baseLang) return
+    const detected = detectBrowserLang(availableLangs, baseLang)
+    if (detected) setPickedLang(detected)
+  }, [availableLangs, menuLang, baseLang])
 
   const allProducts = useMemo(
     () => localizedCategories.flatMap((c) => c.products),
@@ -474,9 +479,11 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   // care nu mai corespund meniului sunt marcate și blochează „Continuă”.
   const menuGateRef = useRef(createLatestGate())
   const menuLangRef = useRef(menuLang)
+  const baseLangRef = useRef(baseLang)
   useEffect(() => {
     menuLangRef.current = menuLang
-  }, [menuLang])
+    baseLangRef.current = baseLang
+  }, [menuLang, baseLang])
   const cartRef = useRef<CartItem[]>(cart)
   useEffect(() => {
     cartRef.current = cart
@@ -492,7 +499,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
       setCategories(cats)
       // Foaia deschisă primește rândul proaspăt, în limba aleasă acum (ca
       // produsele din listă, `localizedCategories`).
-      setActiveProduct((prev) => freshActiveProduct(prev, cats, menuLangRef.current))
+      setActiveProduct((prev) =>
+        freshActiveProduct(prev, cats, menuLangRef.current, baseLangRef.current),
+      )
       const menu = productIndex(cats)
       if (repriceCart(cartRef.current, menu).changed) {
         setCart((prev) => repriceCart(prev, menu).cart)
@@ -694,6 +703,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         <div style={{ padding: '14px 20px 0' }}>
           <LangSwitcher
             languages={availableLangs}
+            baseLang={baseLang}
             activeLang={menuLang}
             onLangChange={handleMenuLangChange}
             accent={accent}

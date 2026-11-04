@@ -14,11 +14,14 @@ import { toUserMessage, zeroRowsAsDenied } from '../lib/userMessages'
 function CategoryModal({
   category,
   menuLanguages,
+  baseLang,
   onSave,
   onClose,
 }: {
   category: Category | null
   menuLanguages: readonly string[]
+  // Limba originalului (lotul O6a): nu i se cere traducere.
+  baseLang: string
   // Întoarce mesajul de eroare (afișat în modal) sau null la succes.
   onSave: (f: Partial<Category>) => Promise<string | null>
   onClose: () => void
@@ -27,7 +30,7 @@ function CategoryModal({
   // Traduceri MANUALE ale numelui, doar pentru limbile ACTIVE din setări.
   // Limbile neactive deja scrise în `translations` (de mână sau de AI) nu se
   // afișează și nu se pierd: mergeTranslations le păstrează la salvare.
-  const langs = activeTranslationLangs(menuLanguages)
+  const langs = activeTranslationLangs(menuLanguages, baseLang)
   const [names, setNames] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {}
     for (const code of langs) {
@@ -204,10 +207,13 @@ function CategoryModal({
 export default function CategoriesTab({
   restaurantId,
   menuLanguages = [],
+  baseLang = 'ro',
 }: {
   restaurantId: string
   // `restaurant.menu_languages` — limbile active ale meniului (mig 197).
   menuLanguages?: readonly string[]
+  // `restaurants.language` — limba originalului (lotul O6a).
+  baseLang?: string
 }) {
   const {
     categories,
@@ -513,6 +519,7 @@ export default function CategoriesTab({
         <CategoryModal
           category={modal === 'add' ? null : (modal as Category)}
           menuLanguages={menuLanguages}
+          baseLang={baseLang}
           onSave={handleSave}
           onClose={() => setModal(null)}
         />

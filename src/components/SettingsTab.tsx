@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { changeRestaurantSlug } from '../lib/restaurants'
 import { D, PLAN_LABELS, AMENITIES, type AmenityId } from '../lib/constants'
 import { THEMES, FLIPBOOK_MAX_PAGES, resolveEffectiveMenuLayout } from '../lib/themes'
-import { MENU_LANGS } from '../lib/i18nMenu'
+import { MENU_LANGS, menuBaseLang } from '../lib/i18nMenu'
 import { MENU_CURRENCIES, resolveMenuCurrency } from '../lib/currency'
 import type { PlanSurface } from '../lib/planSurface'
 import { pickupCardDescription, pickupOnlyToggleDescription } from '../lib/pickupCopy'
@@ -20,7 +20,7 @@ import SmsNotificationsCard from './SmsNotificationsCard'
 import MenuPreview from './menu/MenuPreview'
 import type { Restaurant } from '../hooks/useData'
 import type { useRestaurantModules } from '../hooks/useRestaurantModules'
-import { useToast, Toast, Inp, Toggle, AutoSaveHint } from './_dashboard/sharedUI'
+import { useToast, Toast, Inp, Sel, Toggle, AutoSaveHint } from './_dashboard/sharedUI'
 import { Button } from './ui/Button'
 import { Card } from './ui/Card'
 import { ACCENT_SWATCHES } from '../lib/accentPalette'
@@ -1497,14 +1497,45 @@ export default function SettingsTab({
               </div>
             </SettingsCard>
 
-            {/* Limbi meniu — limbile suplimentare oferite clientului (fără 'ro'). */}
+            {/* Limbi meniu (lotul O6a): limba în care e SCRIS meniul + limbile
+                suplimentare oferite clientului. Înainte româna era presupusă
+                peste tot: un meniu scris în franceză apărea „Română”. */}
             <SettingsCard
               icon="info"
               title="Limbi meniu"
-              desc="Limbi în care clientul poate vedea meniul. Româna e mereu disponibilă."
+              desc="Limba în care e scris meniul și limbile în plus în care clientul îl poate vedea."
             >
+              <div style={{ marginBottom: 12, maxWidth: 320 }}>
+                <label
+                  htmlFor="menu-base-lang"
+                  style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}
+                >
+                  Limba originală a meniului
+                </label>
+                <Sel
+                  id="menu-base-lang"
+                  label="Limba originală a meniului"
+                  value={menuBaseLang(form.language)}
+                  onChange={(v) => {
+                    upd('language', v)
+                    // Limba originală nu mai e și „în plus”.
+                    const extra = ((form.menu_languages ?? []) as string[]).filter((c) => c !== v)
+                    upd('menu_languages', extra)
+                  }}
+                >
+                  {MENU_LANGS.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.flag} {l.label}
+                    </option>
+                  ))}
+                </Sel>
+                <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 5, lineHeight: 1.5 }}>
+                  Limba în care ai scris numele și descrierile produselor. Traducerile se adaugă pentru
+                  celelalte limbi.
+                </div>
+              </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {MENU_LANGS.filter((l) => l.code !== 'ro').map((l) => {
+                {MENU_LANGS.filter((l) => l.code !== menuBaseLang(form.language)).map((l) => {
                   const active = (form.menu_languages ?? []).includes(l.code)
                   return (
                     <button

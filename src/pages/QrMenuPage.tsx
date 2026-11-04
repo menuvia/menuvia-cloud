@@ -30,7 +30,7 @@ import { describeGuestError, isNetworkGuestError, isStaleMenuGuestError } from '
 import { productIndex, repriceCart } from '../lib/cartReconcile'
 import { markUnorderableProducts } from '../lib/optionSelection'
 import { createLatestGate, freshActiveProduct, localizeProduct } from '../lib/menuRefresh'
-import { trName, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
+import { trName, availableMenuLangs, detectBrowserLang, menuBaseLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import {
@@ -118,8 +118,16 @@ export default function QrMenuPage({ token }: Props) {
   const [ctx, setCtx] = useState<ResolvedQrToken | null>(null)
   const toast = useToast()
   const [categories, setCategories] = useState<Category[]>([])
-  // Limba activă a meniului ('ro' = originalul din name/description).
-  const [lang, setLang] = useState('ro')
+  // Limba activă a meniului: cea aleasă de oaspete sau, implicit, limba de
+  // BAZĂ a localului (`restaurants.language`, lotul O6a — originalul din
+  // name/description nu mai e presupus românesc).
+  const baseLang = menuBaseLang(ctx?.restaurant.language)
+  const [pickedLang, setPickedLang] = useState<string | null>(null)
+  const lang = pickedLang ?? baseLang
+  const baseLangRef = useRef(baseLang)
+  useEffect(() => {
+    baseLangRef.current = baseLang
+  }, [baseLang])
   // Limba curentă pentru callback-urile asincrone (refetch-ul meniului).
   const langRef = useRef(lang)
   useEffect(() => {
@@ -357,7 +365,7 @@ export default function QrMenuPage({ token }: Props) {
       // rămâne pe loc, iar cea nouă decide.
       if (!isLatest()) return false
       setCategories(cats)
-      setActiveProduct((prev) => freshActiveProduct(prev, cats, langRef.current))
+      setActiveProduct((prev) => freshActiveProduct(prev, cats, langRef.current, baseLangRef.current))
       // Lotul O4a: liniile valide din coș trec pe prețurile de acum — serverul
       // le taxează oricum la prețul din baza de date, deci un total vechi în
       // coș ar minți. Liniile care nu mai corespund meniului rămân marcate.
@@ -625,40 +633,43 @@ export default function QrMenuPage({ token }: Props) {
   const localizedCategories = useMemo<Category[]>(() => {
     // Lotul O4b: produsul pe care opțiunile îl fac necomandabil apare „Epuizat”.
     const shown = markUnorderableProducts(categories)
-    if (lang === 'ro') return shown
+    if (lang === baseLang) return shown
     return shown.map((c) => ({
       ...c,
-      name: trName(c, lang),
-      products: c.products.map((p) => localizeProduct(p, lang)),
+      name: trName(c, lang, baseLang),
+      products: c.products.map((p) => localizeProduct(p, lang, baseLang)),
     }))
-  }, [categories, lang])
+  }, [categories, lang, baseLang])
   // Limbile extra oferite = cele în care meniul chiar e tradus (derivate din
   // conținut, nu dintr-un flag expus prin RPC). Switcher-ul apare doar dacă
   // există măcar o traducere reală.
   const availableLangs = useMemo(
-    () => availableMenuLangs(categories, ctx?.restaurant.menu_languages),
-    [categories, ctx?.restaurant.menu_languages],
+    () => availableMenuLangs(categories, ctx?.restaurant.menu_languages, baseLang),
+    [categories, ctx?.restaurant.menu_languages, baseLang],
   )
   // Auto-selectează limba browserului turistului DOAR dacă meniul e tradus în
   // ea și clientul n-a ales manual încă. Un client german vede meniul direct în
   // germană la scanare.
   const userPickedLangRef = useRef(false)
-  const handleLangChange = useCallback((code: string) => {
-    userPickedLangRef.current = true
-    setLang(code)
-  }, [])
+  const handleLangChange = useCallback(
+    (code: string) => {
+      userPickedLangRef.current = true
+      setPickedLang(code === baseLang ? null : code)
+    },
+    [baseLang],
+  )
   useEffect(() => {
     // Reset defensiv: limbă devenită indisponibilă (deselectată din setări) →
-    // revenim la `ro` + redeschidem auto-detectul.
-    if (lang !== 'ro' && !availableLangs.includes(lang)) {
-      setLang('ro')
+    // revenim la limba de bază + redeschidem auto-detectul.
+    if (lang !== baseLang && !availableLangs.includes(lang)) {
+      setPickedLang(null)
       userPickedLangRef.current = false
       return
     }
-    if (userPickedLangRef.current || lang !== 'ro') return
-    const detected = detectBrowserLang(availableLangs)
-    if (detected) setLang(detected)
-  }, [availableLangs, lang])
+    if (userPickedLangRef.current || lang !== baseLang) return
+    const detected = detectBrowserLang(availableLangs, baseLang)
+    if (detected) setPickedLang(detected)
+  }, [availableLangs, lang, baseLang])
   // Index de căutare precalculat pe limba activă: haystack normalizat (fără
   // diacritice) per produs, recalculat doar la schimbarea meniului/limbii — nu
   // la fiecare tastă. Diacritic-insensitive ca pe meniul public (un client
@@ -849,6 +860,7 @@ export default function QrMenuPage({ token }: Props) {
         PUB={PUB}
         theme={theme}
         languages={availableLangs}
+        baseLang={baseLang}
         activeLang={lang}
         onLangChange={handleLangChange}
       />

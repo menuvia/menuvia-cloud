@@ -1,10 +1,14 @@
 // ─────────────────────────────────────────────────────────────
 // i18nMenu — meniu multilingv (traduceri manuale)
 //
-// Româna (`ro`) e ÎNTOTDEAUNA baza: originalul stă în coloanele
-// `name` / `description` ale produselor și categoriilor. Traducerile
-// manuale pentru celelalte limbi trăiesc în coloana jsonb `translations`
-// (cheia = codul de limbă → { name?, description? }).
+// Originalul stă în coloanele `name` / `description` ale produselor și
+// categoriilor, în LIMBA DE BAZĂ a restaurantului (`restaurants.language`,
+// editabilă din mig 298; implicit `ro`). Lotul O6a: înainte româna era fixată
+// ca bază peste tot, deci un local cu meniul scris în franceză apărea
+// oaspeților ca „Română” și nu-și putea adăuga o traducere în română.
+// Traducerile pentru celelalte limbi trăiesc în coloana jsonb `translations`
+// (cheia = codul de limbă → { name?, description? }), inclusiv `ro` când
+// baza e alta.
 //
 // Helper-ele de mai jos sunt PURE și fac fallback la original când
 // traducerea lipsește sau e goală — clientul nu rămâne niciodată cu un
@@ -25,7 +29,7 @@ export function normalizeMenuSearch(s: string): string {
   return s.normalize('NFD').replace(MENU_DIACRITICS_RE, '').toLowerCase()
 }
 
-// Limbile disponibile în switcher. `ro` e mereu prima (baza / originalul).
+// Limbile cunoscute ale meniului (CHECK-ul din mig 298 are aceleași 7).
 export const MENU_LANGS: MenuLang[] = [
   { code: 'ro', label: 'Română', flag: '🇷🇴' },
   { code: 'en', label: 'English', flag: '🇬🇧' },
@@ -35,6 +39,11 @@ export const MENU_LANGS: MenuLang[] = [
   { code: 'hu', label: 'Magyar', flag: '🇭🇺' },
   { code: 'es', label: 'Español', flag: '🇪🇸' },
 ]
+
+/** Limba de bază a meniului: `restaurants.language` dacă e cunoscută, altfel `ro`. */
+export function menuBaseLang(language: string | null | undefined): string {
+  return MENU_LANGS.some((l) => l.code === language) ? (language as string) : 'ro'
+}
 
 // Structura coloanei `translations` (products/categories): cheia = cod de
 // limbă (`en`, `de`, …), valoarea = câmpurile traduse (opționale).
@@ -46,8 +55,9 @@ export type Translations = Record<string, { name?: string; description?: string 
 export function trName(
   item: { name: string; translations?: Translations | null },
   lang: string,
+  base = 'ro',
 ): string {
-  if (lang === 'ro') return item.name
+  if (lang === base) return item.name
   const t = item.translations?.[lang]?.name
   if (typeof t === 'string' && t.trim().length > 0) return t
   return item.name
@@ -59,8 +69,9 @@ export function trName(
 export function trDesc(
   item: { description: string | null; translations?: Translations | null },
   lang: string,
+  base = 'ro',
 ): string | null {
-  if (lang === 'ro') return item.description
+  if (lang === base) return item.description
   const t = item.translations?.[lang]?.description
   if (typeof t === 'string' && t.trim().length > 0) return t
   return item.description
@@ -83,13 +94,14 @@ export function availableMenuLangs(
     products?: { translations?: Translations | null }[]
   }[],
   allowed?: string[] | null,
+  base = 'ro',
 ): string[] {
   const allow = allowed && allowed.length > 0 ? new Set(allowed) : null
   const found = new Set<string>()
   const scan = (tr: Translations | null | undefined): void => {
     if (!tr) return
     for (const code of Object.keys(tr)) {
-      if (code === 'ro') continue
+      if (code === base) continue
       const v = tr[code]
       if (
         (typeof v?.name === 'string' && v.name.trim().length > 0) ||
@@ -103,10 +115,10 @@ export function availableMenuLangs(
     scan(c.translations)
     for (const p of c.products ?? []) scan(p.translations)
   }
-  // Păstrează doar limbile cunoscute, în ordinea din MENU_LANGS (fără `ro`),
+  // Păstrează doar limbile cunoscute, în ordinea din MENU_LANGS (fără bază),
   // intersectate cu limbile oferite de restaurant dacă lista e configurată.
   return MENU_LANGS.filter(
-    (l) => l.code !== 'ro' && found.has(l.code) && (!allow || allow.has(l.code)),
+    (l) => l.code !== base && found.has(l.code) && (!allow || allow.has(l.code)),
   ).map((l) => l.code)
 }
 
@@ -114,7 +126,7 @@ export function availableMenuLangs(
 // e tradus în ea (e printre `available`). Astfel un client german care scanează
 // QR-ul vede meniul direct în germană, fără să caute switcher-ul. `ro` nu se
 // auto-selectează (e deja baza). Întoarce null dacă nicio potrivire.
-export function detectBrowserLang(available: string[]): string | null {
+export function detectBrowserLang(available: string[], base = 'ro'): string | null {
   if (typeof navigator === 'undefined') return null
   const nav = navigator as Navigator & { languages?: readonly string[] }
   const prefs = nav.languages && nav.languages.length > 0 ? nav.languages : [nav.language]
@@ -122,7 +134,7 @@ export function detectBrowserLang(available: string[]): string | null {
   for (const raw of prefs) {
     if (!raw) continue
     const code = raw.toLowerCase().split('-')[0] // 'de-DE' → 'de'
-    if (code !== 'ro' && avail.has(code)) return code
+    if (code !== base && avail.has(code)) return code
   }
   return null
 }
@@ -133,10 +145,11 @@ export function detectBrowserLang(available: string[]): string | null {
 // Listă vidă/null → zero câmpuri (restaurantul n-a configurat limbi).
 export function activeTranslationLangs(
   menuLanguages: readonly string[] | null | undefined,
+  base = 'ro',
 ): string[] {
   if (!menuLanguages || menuLanguages.length === 0) return []
   const wanted = new Set(menuLanguages)
-  return MENU_LANGS.filter((l) => l.code !== 'ro' && wanted.has(l.code)).map((l) => l.code)
+  return MENU_LANGS.filter((l) => l.code !== base && wanted.has(l.code)).map((l) => l.code)
 }
 
 // Editorul MANUAL de traduceri pentru categorii (CategoriesTab): aplică numele

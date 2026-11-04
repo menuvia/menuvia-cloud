@@ -58,6 +58,7 @@ import { EmptyState } from '../components/ui/EmptyState'
 import { PageHeader } from '../components/ui/PageHeader'
 import { PlanUnknownBanner } from '../components/_dashboard/PlanBanners'
 import { confirm as confirmDialog } from '../components/ui/confirm'
+import { menuBaseLang } from '../lib/i18nMenu'
 import {
   dashboardPathFor,
   settingsSectionOf,
@@ -1614,6 +1615,7 @@ export default function DashboardPage({
                   <CategoriesTab
                     restaurantId={restaurant.id}
                     menuLanguages={restaurant.menu_languages ?? []}
+                    baseLang={menuBaseLang(restaurant.language)}
                   />
                 </Suspense>
               )}
