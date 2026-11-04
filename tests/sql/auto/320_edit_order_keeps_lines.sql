@@ -24,6 +24,11 @@
 --        două ori → `invalid_source_item`; comanda rămâne neatinsă.
 --   EO6  Clientul vechi (fără niciun `source_item_id`) păstrează comportamentul
 --        de dinainte: extra-ul rămâne pe produs (euristica M1).
+--   EO7  Plafonul pe linie (recenzia O3a): clientul vechi rămâne pe 1–99 (o
+--        comandă cu o linie de 25 se poate edita din clientul instalat); clientul
+--        nou păstrează linia de 25 cu sursa ei, dar n-o poate crește, iar o linie
+--        NOUĂ peste 20 e refuzată, cu plafonul real în mesaj.
+--        [PICĂ: plafonul fix de 20 pe ambele căi — pasul 1 și pasul 2 refuzate]
 -- =============================================================================
 
 \set ON_ERROR_STOP on
@@ -244,7 +249,7 @@ begin
   v_hint := null;
   begin
     perform public.update_order_items(v_oid,
-      '[{"product_id":"320d0000-0000-4000-8000-000000000002","quantity":21}]'::jsonb, null);
+      '[{"product_id":"320d0000-0000-4000-8000-000000000002","quantity":21,"source_item_id":null}]'::jsonb, null);
   exception when others then get stacked diagnostics v_hint = pg_exception_hint;
   end;
   if v_hint is distinct from 'invalid_quantity' then
@@ -297,6 +302,59 @@ begin
     raise exception 'EO6 FAIL: clientul vechi a pierdut extra-ul: %', pg_temp.eo_lines(v_oid);
   end if;
   raise notice 'EO6 PASS: fără source_item_id, comportamentul de dinainte';
+end $$;
+
+-- ── EO7: plafonul pe linie, pe ambele căi ──────────────────────────────────
+do $$
+declare v_oid uuid := pg_temp.eo_order(); v_line uuid; v_hint text; v_msg text; v_total numeric;
+begin
+  -- 1) Clientul vechi: o linie de 25 trece (plafonul 1–99 din 313).
+  perform public.update_order_items(v_oid,
+    '[{"product_id":"320d0000-0000-4000-8000-000000000002","quantity":25}]'::jsonb, null);
+  select id into v_line from public.order_items where order_id = v_oid;
+  if pg_temp.eo_lines(v_oid) <> 'Cola EO×25@8' then
+    raise exception 'EO7 FAIL: clientul vechi nu mai poate scrie 25: %', pg_temp.eo_lines(v_oid);
+  end if;
+
+  -- 2) Clientul nou păstrează linia de 25 cu sursa ei și adaugă o pizza.
+  perform public.update_order_items(v_oid, jsonb_build_array(
+    jsonb_build_object('product_id', '320d0000-0000-4000-8000-000000000002', 'quantity', 25, 'source_item_id', v_line),
+    jsonb_build_object('product_id', '320d0000-0000-4000-8000-000000000003', 'quantity', 1, 'source_item_id', null,
+                       'option_ids', jsonb_build_array('320f0000-0000-4000-8000-000000000002'))), null);
+  select total into v_total from public.orders where id = v_oid;
+  if v_total is distinct from 230.00 then
+    raise exception 'EO7 FAIL: linia păstrată de 25 (aștept total 230), %: %', v_total, pg_temp.eo_lines(v_oid);
+  end if;
+  select id into v_line from public.order_items
+   where order_id = v_oid and product_id = '320d0000-0000-4000-8000-000000000002';
+
+  -- 3) …dar n-o poate crește peste cantitatea veche.
+  v_hint := null; v_msg := null;
+  begin
+    perform public.update_order_items(v_oid, jsonb_build_array(
+      jsonb_build_object('product_id', '320d0000-0000-4000-8000-000000000002', 'quantity', 26, 'source_item_id', v_line)), null);
+  exception when others then get stacked diagnostics v_hint = pg_exception_hint, v_msg = message_text;
+  end;
+  if v_hint is distinct from 'invalid_quantity' or v_msg not like '%(1-25)%' then
+    raise exception 'EO7 FAIL: 25 → 26 trebuia invalid_quantity (1-25): hint=% msg=%', coalesce(v_hint, 'TRECUT'), v_msg;
+  end if;
+
+  -- 4) O linie NOUĂ peste 20 e refuzată, cu plafonul 20 în mesaj.
+  v_hint := null; v_msg := null;
+  begin
+    perform public.update_order_items(v_oid, jsonb_build_array(
+      jsonb_build_object('product_id', '320d0000-0000-4000-8000-000000000002', 'quantity', 25, 'source_item_id', v_line),
+      jsonb_build_object('product_id', '320d0000-0000-4000-8000-000000000001', 'quantity', 21, 'source_item_id', null)), null);
+  exception when others then get stacked diagnostics v_hint = pg_exception_hint, v_msg = message_text;
+  end;
+  if v_hint is distinct from 'invalid_quantity' or v_msg not like '%(1-20)%' then
+    raise exception 'EO7 FAIL: linia nouă de 21 trebuia invalid_quantity (1-20): hint=% msg=%', coalesce(v_hint, 'TRECUT'), v_msg;
+  end if;
+  select total into v_total from public.orders where id = v_oid;
+  if v_total is distinct from 230.00 then
+    raise exception 'EO7 FAIL: refuzurile au modificat comanda (total %)', v_total;
+  end if;
+  raise notice 'EO7 PASS: clientul vechi pe 1–99, linia păstrată își ține cantitatea, linia nouă ≤ 20';
 end $$;
 
 rollback;

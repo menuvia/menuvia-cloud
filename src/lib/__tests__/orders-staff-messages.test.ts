@@ -92,7 +92,35 @@ describe('describeEditOrderError', () => {
         { message: 'update_order_items: invalid options for product "Pizza"' },
         /opțiune aleasă/i,
       ],
-      ['cantitate', { message: 'update_order_items: invalid quantity (1-99)' }, /între 1 și 99/],
+      [
+        'cantitate (mig 320)',
+        { message: 'update_order_items: invalid quantity (1-20)', hint: 'invalid_quantity' },
+        /între 1 și 20\./,
+      ],
+      [
+        'cantitate, linie păstrată peste 20',
+        { message: 'update_order_items: invalid quantity (1-25)', hint: 'invalid_quantity' },
+        /între 1 și 25\./,
+      ],
+      ['cantitate (server vechi)', { message: 'update_order_items: invalid quantity (1-99)' }, /între 1 și 99\./],
+      [
+        'produs scos din meniu (mig 320)',
+        {
+          message:
+            'update_order_items: produsul "Cola" nu mai e în meniu — poți păstra cel mult cantitatea deja comandată (2)',
+          hint: 'product_inactive',
+        },
+        /„Cola” nu mai e în meniu\. Poți păstra cel mult cantitatea deja comandată \(2\)/,
+      ],
+      [
+        'produs nou scos din meniu (mig 320)',
+        {
+          message:
+            'update_order_items: produsul "Cola" nu mai e în meniu — poți păstra cel mult cantitatea deja comandată (0)',
+          hint: 'product_inactive',
+        },
+        /„Cola” nu mai e în meniu și nu mai poate fi adăugat/,
+      ],
       [
         'necunoscut',
         { message: 'update_order_items: something new and unexpected' },
