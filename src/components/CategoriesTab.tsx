@@ -253,6 +253,12 @@ export default function CategoriesTab({
   // e ON DELETE SET NULL, iar un produs fără categorie NU apare în meniu.
   const [moveTo, setMoveTo] = useState('')
   const [deleting, setDeleting] = useState(false)
+  // Numărul din dialog se reîmprospătează la deschidere (lista e citită o dată,
+  // la montare; alt dispozitiv poate fi adăugat produse între timp). Cât
+  // durează citirea, dialogul nu promite „nu are produse” și „Șterge” stă
+  // blocat — altfel produsele ar fi plecat în categoria implicită fără ca omul
+  // s-o fi ales (recenzia CodeRabbit pe #346).
+  const [countRefreshing, setCountRefreshing] = useState(false)
   // Lotul O5b (MENU-08): săgețile stau blocate cât se salvează o mutare — două
   // apăsări rapide porneau de la aceeași ordine veche și se suprapuneau.
   const [reordering, setReordering] = useState(false)
@@ -269,6 +275,8 @@ export default function CategoriesTab({
   const openDelete = (id: string) => {
     setDelId(id)
     setMoveTo(categories.find((c) => c.id !== id)?.id ?? '')
+    setCountRefreshing(true)
+    void refetchProds().finally(() => setCountRefreshing(false))
   }
   const delCount = delId ? prodCounts.filter((p) => p.category_id === delId).length : 0
 
@@ -305,17 +313,32 @@ export default function CategoriesTab({
     try {
       // Întâi mutăm produsele: dacă mutarea e refuzată, categoria rămâne și
       // produsele nu ajung tăcut în „Fără categorie" (invizibile în meniu).
-      if (moveTo && delCount > 0) {
-        const res = await supabase
+      // Câte sunt se citește ACUM din server, nu din numărătoarea de la montare
+      // (recenzia #346): una veche de 0 sărea mutarea și lăsa produsele
+      // orfane, una veche de N făcea ca „nimic de mutat” să pară refuz.
+      if (moveTo) {
+        const inCat = await supabase
           .from('products')
-          .update({ category_id: moveTo })
+          .select('id')
           .eq('restaurant_id', restaurantId)
           .eq('category_id', delId)
-          .select('id')
-        const denied = zeroRowsAsDenied(res)
-        if (denied) {
-          toast(toUserMessage(denied, 'Produsele nu au putut fi mutate.'), 'error')
+        if (inCat.error) {
+          toast(toUserMessage(inCat.error, 'Produsele nu au putut fi mutate.'), 'error')
           return
+        }
+        if ((inCat.data ?? []).length > 0) {
+          const res = await supabase
+            .from('products')
+            .update({ category_id: moveTo })
+            .eq('restaurant_id', restaurantId)
+            .eq('category_id', delId)
+            .select('id')
+          const denied = zeroRowsAsDenied(res)
+          if (denied) {
+            toast(toUserMessage(denied, 'Produsele nu au putut fi mutate.'), 'error')
+            void refetchProds()
+            return
+          }
         }
       }
       const { error: e } = await remove(delId)
@@ -526,7 +549,9 @@ export default function CategoriesTab({
       )}
       {delId && (
         <Modal title="Șterge categorie" onClose={() => setDelId(null)} width={380}>
-          {delCount === 0 ? (
+          {countRefreshing ? (
+            <p style={{ color: D.t2, marginBottom: 22 }}>Verific produsele categoriei…</p>
+          ) : delCount === 0 ? (
             <p style={{ color: D.t2, marginBottom: 22 }}>Categoria nu are produse.</p>
           ) : (
             <div style={{ marginBottom: 22 }}>
@@ -564,9 +589,13 @@ export default function CategoriesTab({
             </button>
             <button
               onClick={handleDelete}
-              disabled={deleting}
+              disabled={deleting || countRefreshing}
               aria-busy={deleting}
-              style={btn({ background: D.red, color: '#fff', opacity: deleting ? 0.6 : 1 })}
+              style={btn({
+                background: D.red,
+                color: '#fff',
+                opacity: deleting || countRefreshing ? 0.6 : 1,
+              })}
             >
               {deleting ? 'Se șterge…' : 'Șterge'}
             </button>

@@ -11,7 +11,7 @@ import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import { MAX_LINE_QTY, MAX_ORDER_NOTE } from '../lib/orders'
 import type { Category, Product } from '../lib/qr'
 import { hasMandatoryModifierGroups } from '../lib/qr'
-import { cartIssueCounts, cartLineIssue } from '../lib/cartReconcile'
+import { cartIssueCounts, cartIssueNoticeKey, cartLineIssue } from '../lib/cartReconcile'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import { thumbUrlFor } from '../lib/images'
 import { T } from '../lib/publicMenuStrings'
@@ -855,9 +855,9 @@ export default function QrCartSheet({
           {T(lang, 'qc_total_note')}
         </div>
 
-        {(soldOutInCart > 0 || changedInCart > 0) && (
+        {cartIssueNoticeKey(issueCounts) && (
           <div role="status" style={{ color: errorInk, fontSize: 13, lineHeight: 1.5, textAlign: 'center' }}>
-            {T(lang, changedInCart > 0 ? 'cart_changed_notice' : 'cart_sold_out_notice')}
+            {T(lang, cartIssueNoticeKey(issueCounts) ?? 'cart_sold_out_notice')}
           </div>
         )}
 

@@ -27,9 +27,21 @@ const m = vi.hoisted(() => ({
   updates: 0,
 }))
 
+interface ListQuery {
+  order: () => ListQuery
+  then: (resolve: (v: { data: unknown[]; error: null }) => unknown) => Promise<unknown>
+}
+
 vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }))
 vi.mock('../../lib/founder', () => ({ getFounderView: () => null }))
 vi.mock('../../lib/supabase', () => {
+  function listQuery(): ListQuery {
+    const q: ListQuery = {
+      order: () => q,
+      then: (resolve) => Promise.resolve({ data: m.list, error: null }).then(resolve),
+    }
+    return q
+  }
   // Fiecare scriere se termină în `.select(...)` (fără `.single()`).
   const write = () => ({
     eq: () => ({ select: () => Promise.resolve({ data: m.rows, error: null }) }),
@@ -41,9 +53,9 @@ vi.mock('../../lib/supabase', () => {
   return {
     supabase: {
       from: () => ({
-        select: () => ({
-          eq: () => ({ order: () => Promise.resolve({ data: m.list, error: null }) }),
-        }),
+        // Citirea listei: `.order(...)` se înlănțuie (produsele se ordonează pe
+        // poziție, apoi pe nume — lotul O5b), iar capătul e thenable.
+        select: () => ({ eq: () => listQuery() }),
         delete: write,
         update,
       }),

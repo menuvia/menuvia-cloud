@@ -391,7 +391,7 @@ describe('ProductsTab — cotele din fișa produsului nu se mai încarcă la nes
     expect(nameAlert).toHaveTextContent('Numele produsului e obligatoriu')
     expect(api.error).not.toHaveBeenCalled()
     const nameInput = within(dlg).getByRole('textbox', { name: 'Nume' })
-    const priceInput = within(dlg).getByRole('spinbutton', { name: 'Preț (lei)' })
+    const priceInput = within(dlg).getByRole('textbox', { name: 'Preț (lei)' })
     expect(nameAlert.id).not.toBe('')
     expect(nameInput).toHaveAttribute('aria-invalid', 'true')
     expect(nameInput).toHaveAttribute('aria-describedby', nameAlert.id)
@@ -408,14 +408,14 @@ describe('ProductsTab — cotele din fișa produsului nu se mai încarcă la nes
     // Editarea numelui stinge alerta; un preț negativ o readuce, tot în dialog.
     await user.type(within(dlg).getByRole('textbox', { name: 'Nume' }), 'Ciorbă')
     expect(within(dlg).queryByRole('alert')).toBeNull()
-    fireEvent.change(within(dlg).getByRole('spinbutton', { name: 'Preț (lei)' }), {
+    fireEvent.change(within(dlg).getByRole('textbox', { name: 'Preț (lei)' }), {
       target: { value: '-5' },
     })
     await user.click(within(dlg).getByRole('button', { name: 'Salvează' }))
     const priceAlert = within(dlg).getByRole('alert')
     expect(priceAlert).toHaveTextContent('Prețul nu poate fi negativ')
     expect(api.error).not.toHaveBeenCalled()
-    const priceAfter = within(dlg).getByRole('spinbutton', { name: 'Preț (lei)' })
+    const priceAfter = within(dlg).getByRole('textbox', { name: 'Preț (lei)' })
     expect(priceAfter).toHaveAttribute('aria-invalid', 'true')
     expect(priceAfter).toHaveAttribute('aria-describedby', priceAlert.id)
     const nameAfter = within(dlg).getByRole('textbox', { name: 'Nume' })

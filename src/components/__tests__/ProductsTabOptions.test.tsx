@@ -12,16 +12,22 @@
 //   PG4  (lotul O5a, MENU-07) prețul tastat cu virgulă („12,5”) rămâne pe ecran
 //        și pleacă 12.5; un preț fără formă de număr e refuzat cu mesaj, nu
 //        salvat 0. [PICĂ: `type="number"` + parseFloat la fiecare tastă]
+//   PG5  (recenzia O5a, MENU-12) o pereche al cărei produs lipsește din listă
+//        apare „scoasă din meniu” DOAR când lista produselor a fost citită;
+//        o citire picată nu marchează perechile reale (iar „Scoate” le-ar fi
+//        șters). [PICĂ: filtrul fără `allProductsComplete`]
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Product, Category } from '../../hooks/useData'
 import type { DbPlan } from '../../lib/__tests__/planFeatureMatrix.fixture'
 
-const { data, calls, linkState } = vi.hoisted(() => ({
+const { data, calls, linkState, supa } = vi.hoisted(() => ({
   data: { products: [] as Product[], categories: [] as Category[] },
   calls: { setGroups: [] as [string, string[]][], updates: [] as Partial<Product>[] },
   linkState: { linked: [] as string[], fail: false },
+  // Rândurile tabelelor citite direct de fișă și tabelele a căror citire pică.
+  supa: { rows: {} as Record<string, unknown[]>, fail: new Set<string>() },
 }))
 
 vi.mock('../ui/confirm', () => ({ confirm: async () => true }))
@@ -57,7 +63,7 @@ vi.mock('../../hooks/usePlanLimits', () => ({
 }))
 vi.mock('../../lib/vat', () => ({ fetchVatRates: async () => [] }))
 vi.mock('../../lib/supabase', () => {
-  const rows: Record<string, unknown[]> = {
+  const base: Record<string, unknown[]> = {
     modifier_groups: [
       { id: 'g-blat', name: 'Blat', is_required: true, display_order: 0 },
       { id: 'g-sos', name: 'Sos', is_required: false, display_order: 1 },
@@ -67,8 +73,12 @@ vi.mock('../../lib/supabase', () => {
   function builder(table: string) {
     const b: Record<string, unknown> = {}
     for (const m of ['select', 'eq', 'neq', 'order']) b[m] = () => b
-    b.then = (resolve: (v: { data: unknown[]; error: null }) => unknown) =>
-      Promise.resolve({ data: rows[table] ?? [], error: null }).then(resolve)
+    b.then = (resolve: (v: { data: unknown[] | null; error: { message: string } | null }) => unknown) =>
+      Promise.resolve(
+        supa.fail.has(table)
+          ? { data: null, error: { message: 'boom' } }
+          : { data: supa.rows[table] ?? base[table] ?? [], error: null },
+      ).then(resolve)
     return b
   }
   return { supabase: { from: (t: string) => builder(t) } }
@@ -154,6 +164,8 @@ beforeEach(() => {
   calls.updates = []
   linkState.linked = ['g-top']
   linkState.fail = false
+  supa.rows = {}
+  supa.fail.clear()
 })
 
 async function openEdit() {
@@ -211,6 +223,32 @@ describe('ProductsTab — prețul se tastează ca preț (lotul O5a)', () => {
     await user.type(price, '12,5')
     expect(price).toHaveValue('12,5')
     await user.click(within(dlg).getByRole('button', { name: 'Salvează' }))
-    expect(calls.updates.at(-1)?.price).toBe(12.5)
+    expect(calls.updates[calls.updates.length - 1]?.price).toBe(12.5)
+  })
+})
+
+describe('ProductsTab — perechile cu produse scoase din meniu', () => {
+  async function openUpsell() {
+    const user = userEvent.setup()
+    renderTab()
+    await user.click(screen.getAllByRole('button', { name: 'Editează produsul' })[0])
+    const dlg = await screen.findByRole('dialog', { name: 'Editează produs' })
+    await user.click(within(dlg).getByRole('button', { name: /Extras & Pereche/ }))
+    await within(dlg).findByText(/Pereche \(sugestii/)
+    return dlg
+  }
+
+  it('PG5 lista citită: perechea fără produs e „scoasă din meniu”', async () => {
+    supa.rows.product_pairings = [{ id: 'pr1', paired_product_id: 'p-gone', display_order: 0 }]
+    supa.rows.products = [{ id: 'p2', name: 'Vin', emoji: '🍷', price: 20 }]
+    const dlg = await openUpsell()
+    expect(within(dlg).getByText('Produs scos din meniu (ocupă un loc)')).toBeInTheDocument()
+  })
+
+  it('PG5b lista de produse picată: nicio pereche nu e marcată „scoasă”', async () => {
+    supa.rows.product_pairings = [{ id: 'pr1', paired_product_id: 'p2', display_order: 0 }]
+    supa.fail.add('products')
+    const dlg = await openUpsell()
+    expect(within(dlg).queryByText('Produs scos din meniu (ocupă un loc)')).toBeNull()
   })
 })

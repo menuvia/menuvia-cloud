@@ -30,7 +30,9 @@
 --   - un produs devenit indisponibil (epuizat, scos, ciornă) rămâne pe comandă
 --     până la cantitatea deja comandată (regula 313, lărgită de la epuizat la
 --     toate trei — trigger-ul 130 primește aceeași scutire prin GUC);
---   - cantitatea pe linie: 1–20 (ca create_order), hint `invalid_quantity`.
+--   - cantitatea pe linie: 1–20 (ca create_order), hint `invalid_quantity`; o linie
+--     păstrată își poate ține cantitatea veche peste 20, iar clientul vechi
+--     (fără source_item_id) rămâne pe plafonul 1–99 din 313.
 -- Compatibilitate: un client care NU trimite niciun `source_item_id` (versiunea
 -- dinainte) primește comportamentul de până acum (euristica pe produs, prețul
 -- de azi), ca deploy-ul să meargă în orice ordine.
@@ -152,6 +154,7 @@ declare
   v_strict        boolean;
   v_src           jsonb;
   v_src_ids       uuid[] := '{}';
+  v_qty_cap       integer;
   v_same_config   boolean;
   v_unavailable   boolean;
   v_kept_part     integer;
@@ -264,8 +267,8 @@ begin
   for v_item in select * from jsonb_array_elements(p_items)
   loop
     v_item_qty := (v_item ->> 'quantity')::integer;
-    if v_item_qty is null or v_item_qty < 1 or v_item_qty > 20 then
-      raise exception 'update_order_items: invalid quantity (1-20)'
+    if v_item_qty is null or v_item_qty < 1 then
+      raise exception 'update_order_items: invalid quantity (1-%)', case when v_strict then 20 else 99 end
         using errcode = 'P0001', hint = 'invalid_quantity';
     end if;
 
@@ -295,6 +298,23 @@ begin
           using errcode = 'P0001', hint = 'invalid_source_item';
       end if;
       v_src_ids := v_src_ids || (v_item ->> 'source_item_id')::uuid;
+    end if;
+
+    -- ── Plafonul pe linie (recenzia O3a) ───────────────────────────────────
+    -- Clientul vechi (fără source_item_id) păstrează plafonul din 313 (1–99):
+    -- altfel o comandă cu o linie de 25, scrisă înainte de 320, nu mai putea
+    -- fi editată deloc din clientul deja instalat. Clientul nou: 20 pe linie
+    -- (ca create_order), dar o linie PĂSTRATĂ își poate ține cantitatea veche
+    -- chiar peste 20 — fără excepția asta ar fi trebuit ruptă în două, cu
+    -- surplusul re-prețuit la azi.
+    v_qty_cap := case
+      when not v_strict then 99
+      when v_src is not null then greatest(20, coalesce((v_src ->> 'quantity')::int, 0))
+      else 20
+    end;
+    if v_item_qty > v_qty_cap then
+      raise exception 'update_order_items: invalid quantity (1-%)', v_qty_cap
+        using errcode = 'P0001', hint = 'invalid_quantity';
     end if;
 
     -- ── Produs indisponibil: rămâne DOAR cantitatea deja comandată (313 → 320:

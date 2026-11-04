@@ -192,13 +192,19 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
     }
   }, [order.id])
 
+  /** Plafonul serverului pe linie: 20, sau cantitatea veche a liniei păstrate. */
+  function lineQtyCap(item: EditCartItem): number {
+    return Math.max(MAX_LINE_QTY, item._srcQty ?? 0)
+  }
+
   function updateQty(key: string, delta: number): void {
     dirtyRef.current = true
     setCart((prev) =>
       prev.map((i) =>
         i._key === key
-          ? // Între 1 și plafonul serverului pe linie (mig 320: 20).
-            { ...i, quantity: Math.min(MAX_LINE_QTY, Math.max(1, i.quantity + delta)) }
+          ? // Între 1 și plafonul serverului pe linie (mig 320): 20, iar o linie
+            // păstrată își poate ține cantitatea veche chiar peste 20.
+            { ...i, quantity: Math.min(lineQtyCap(i), Math.max(1, i.quantity + delta)) }
           : i,
       ),
     )
@@ -412,7 +418,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                       </span>
                       <button
                         onClick={() => updateQty(item._key, 1)}
-                        disabled={item._orphan || item.quantity >= MAX_LINE_QTY}
+                        disabled={item._orphan || item.quantity >= lineQtyCap(item)}
                         style={{
                           width: 30,
                           height: 30,
@@ -420,8 +426,8 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                           background: D.s3,
                           border: 'none',
                           color: D.t1,
-                          cursor: item._orphan || item.quantity >= MAX_LINE_QTY ? 'not-allowed' : 'pointer',
-                          opacity: item._orphan || item.quantity >= MAX_LINE_QTY ? 0.4 : 1,
+                          cursor: item._orphan || item.quantity >= lineQtyCap(item) ? 'not-allowed' : 'pointer',
+                          opacity: item._orphan || item.quantity >= lineQtyCap(item) ? 0.4 : 1,
                           fontSize: 16,
                         }}
                       >

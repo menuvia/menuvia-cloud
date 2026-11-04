@@ -47,7 +47,7 @@ import {
 import { useDocumentLang } from '../hooks/useDocumentLang'
 import { useMenuVersionRefetch } from '../hooks/useMenuVersionRefetch'
 import { createLatestGate, freshActiveProduct, localizeProduct } from '../lib/menuRefresh'
-import { cartIssueCounts, cartLineIssue, productIndex, repriceCart } from '../lib/cartReconcile'
+import { cartIssueCounts, cartIssueNoticeKey, cartLineIssue, productIndex, repriceCart } from '../lib/cartReconcile'
 import { markUnorderableProducts } from '../lib/optionSelection'
 import { cartBarLabel, listScrollTarget, prefetchOnIdle, stickyTabsBottom } from '../lib/menuUi'
 import { FocusTrap } from '../components/ui/FocusTrap'
@@ -345,8 +345,10 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   // Pe 'ro' întoarcem aceeași referință → memo stabil. Doar name/description
   // sunt traduse; product_id rămâne identic (coșul/comanda nu se ating).
   const localizedCategories = useMemo<Category[]>(() => {
-    // Lotul O4b: produsul pe care opțiunile îl fac necomandabil apare „Epuizat”.
-    const shown = markUnorderableProducts(categories)
+    // Lotul O4b: produsul pe care opțiunile îl fac necomandabil apare „Epuizat”
+    // DOAR la ridicare, unde comanda ajunge la server. În „Lista mea” nu se
+    // trimite nimic, iar fișa cu descrierea și alergenii trebuie să se deschidă.
+    const shown = pickupEnabled ? markUnorderableProducts(categories) : categories
     if (menuLang === baseLang) return shown
     return shown.map((c) => ({
       ...c,
@@ -355,7 +357,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
       // Lotul O6b: aceeași localizare ca pe QR (și opțiunile, grupurile, extra-urile).
       products: c.products.map((p) => localizeProduct(p, menuLang, baseLang)),
     }))
-  }, [categories, menuLang, baseLang])
+  }, [categories, menuLang, baseLang, pickupEnabled])
 
   // Limbile extra oferite = cele în care meniul chiar e tradus (derivate din
   // conținut, nu dintr-un flag expus prin RPC). Switcher-ul apare doar dacă
@@ -486,7 +488,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   useEffect(() => {
     cartRef.current = cart
   }, [cart])
-  const [pricesUpdated, setPricesUpdated] = useState(false)
+  // Liniile repreluate la prețul de azi: anunțul stă cât timp una dintre ele e
+  // încă în coș (o stare booleană rămânea și după ce linia era scoasă).
+  const [repricedKeys, setRepricedKeys] = useState<ReadonlySet<string>>(() => new Set())
   const menuRestaurantId = restaurant?.id ?? null
   const refreshMenu = useCallback(async (): Promise<boolean> => {
     if (!menuRestaurantId) return false
@@ -501,9 +505,11 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         freshActiveProduct(prev, cats, menuLangRef.current, baseLangRef.current),
       )
       const menu = productIndex(cats)
-      if (repriceCart(cartRef.current, menu).changed) {
+      const before = cartRef.current
+      const r = repriceCart(before, menu)
+      if (r.changed) {
+        setRepricedKeys(new Set(r.cart.filter((c, i) => c !== before[i]).map((c) => c._key)))
         setCart((prev) => repriceCart(prev, menu).cart)
-        setPricesUpdated(true)
       }
       return true
     } catch {
@@ -514,6 +520,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const menuIndex = useMemo(() => productIndex(categories), [categories])
   const cartIssues = cartIssueCounts(cart, menuIndex)
   const cartBlocked = cartIssues.sold_out + cartIssues.unavailable + cartIssues.options_changed > 0
+  const cartNoticeKey = cartIssueNoticeKey(cartIssues)
+  const pricesUpdated = cart.some((c) => repricedKeys.has(c._key))
   // Roșul erorii, lizibil pe fundalul foii de coș în orice temă.
   const errorInk = legibleOn(theme.colors.error, PUB.bg)
 
@@ -1298,17 +1306,12 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                   {fmtPrice(cartTotal, menuCurrency)}
                 </span>
               </div>
-              {cartBlocked && (
+              {cartNoticeKey && (
                 <div
                   role="status"
                   style={{ color: errorInk, fontSize: 13, lineHeight: 1.5, textAlign: 'center', marginBottom: 10 }}
                 >
-                  {T(
-                    lang,
-                    cartIssues.unavailable + cartIssues.options_changed > 0
-                      ? 'cart_changed_notice'
-                      : 'cart_sold_out_notice',
-                  )}
+                  {T(lang, cartNoticeKey)}
                 </div>
               )}
               {!cartBlocked && pricesUpdated && (
@@ -1362,10 +1365,12 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             lang={lang}
             onClose={() => setShowPickup(false)}
             onStaleMenu={() => void refreshMenu()}
+            // Coșul nu mai corespunde meniului (marcat după refuz): „Trimite”
+            // se blochează până oaspetele îl repară în coș (recenzia O4a).
+            blocked={cartBlocked}
             onSuccess={(short_id, pickup_time, total) => {
               setShowPickup(false)
               setCart([])
-              setPricesUpdated(false)
               setConfirmation({ short_id, pickup_time, total })
             }}
           />
