@@ -19,6 +19,7 @@ import type { Ingredient as StocksIngredient, Recipe as StocksRecipe } from '../
 import { QueryError } from './PageLoader'
 import { btn, inp, useToast, Toast, Modal, Inp, Sel, Toggle } from './_dashboard/sharedUI'
 import { ProductsToolbar } from './_dashboard/ProductsToolbar'
+import { ProductOrderModal } from './_dashboard/ProductOrderModal'
 import { generateNutrition, generateProductImage } from '../lib/ai'
 import { encodeForUpload, encodeSameFormat, mayHaveAlpha } from '../lib/imageEncode'
 import { track } from '../lib/analytics'
@@ -2439,8 +2440,11 @@ export default function ProductsTab({
     toggleActive,
     toggleSoldOut,
     toggleDailySpecial,
+    reorder: reorderProducts,
     refetch: refetchProducts,
   } = useProducts(restaurantId)
+  // Fereastra „Ordonează produsele” (lotul O5b, MENU-10).
+  const [orderOpen, setOrderOpen] = useState(false)
   const {
     categories,
     error: catError,
@@ -2495,6 +2499,17 @@ export default function ProductsTab({
     activeCat !== 'all' && activeCat !== UNCATEGORIZED
       ? activeCat
       : (categories[0]?.id ?? null)
+  // Categoria a cărei ordine se poate edita: doar una reală, aleasă în filtru.
+  const orderCategory = categories.find((c) => c.id === activeCat) ?? null
+  const orderCategoryProducts = useMemo(
+    () =>
+      orderCategory
+        ? products
+            .filter((p) => p.category_id === orderCategory.id)
+            .map((p) => ({ id: p.id, name: p.name }))
+        : [],
+    [products, orderCategory],
+  )
 
   if (error || catError)
     return (
@@ -2723,6 +2738,31 @@ export default function ProductsTab({
           ))}
         </div>
       </div>
+      {/* Ordinea produselor din categoria aleasă (MENU-10): niciun ecran nu o
+          putea schimba. Doar pe o categorie reală, fără căutare. */}
+      {orderCategory && !search.trim() && orderCategoryProducts.length >= 2 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+          <Button variant="secondary" size="sm" onClick={() => setOrderOpen(true)}>
+            Ordonează produsele
+          </Button>
+        </div>
+      )}
+      {orderOpen && orderCategory && (
+        <ProductOrderModal
+          categoryName={orderCategory.name}
+          products={orderCategoryProducts}
+          onClose={() => setOrderOpen(false)}
+          onSave={async (ids) => {
+            const { error: e } = await reorderProducts(ids)
+            if (e) {
+              toast(toUserMessage(e, 'Ordinea nu a putut fi salvată.'), 'error')
+              return false
+            }
+            toast('Ordinea a fost salvată')
+            return true
+          }}
+        />
+      )}
       {singleVatGroup != null && (
         <div
           role="note"

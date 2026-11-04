@@ -395,20 +395,26 @@ export function useCategories(restaurantId: string | null) {
     return { error }
   }
 
-  const reorder = async (ordered: Category[]) => {
+  // Lotul O5b (MENU-08): ordinea nouă apare IMEDIAT (o a doua apăsare pornește
+  // de la ea, nu de la cea veche), se scriu doar rândurile care chiar își
+  // schimbă poziția, iar un refuz RLS (0 rânduri, FĂRĂ eroare) nu mai arată
+  // „salvat” — orice eșec reîncarcă ordinea reală și întoarce eroarea.
+  const reorder = async (ordered: Category[]): Promise<{ error: Error | null }> => {
+    setCategories(ordered.map((c, i) => ({ ...c, display_order: i })))
+    const changed = ordered
+      .map((c, i) => ({ id: c.id, from: c.display_order, to: i }))
+      .filter((x) => x.from !== x.to)
     const results = await Promise.all(
-      ordered.map((c, i) =>
-        supabase.from('categories').update({ display_order: i }).eq('id', c.id),
+      changed.map((x) =>
+        supabase.from('categories').update({ display_order: x.to }).eq('id', x.id).select('id'),
       ),
     )
-    // Dacă vreun update a eșuat, ordinea optimistă din UI ar diverge de DB
-    // (unele rânduri actualizate, altele nu). Resincronizăm din server în loc
-    // să afișăm o stare pe jumătate aplicată.
-    if (results.some((r) => r.error)) {
+    const denied = results.map((r) => zeroRowsAsDenied(r)).find((e) => e != null) ?? null
+    if (denied) {
       await load()
-      return
+      return { error: denied }
     }
-    setCategories(ordered.map((c, i) => ({ ...c, display_order: i })))
+    return { error: null }
   }
 
   return { categories, loading, error, refetch: load, create, update, remove, reorder }
@@ -435,6 +441,9 @@ export function useProducts(restaurantId: string | null) {
       .select('*')
       .eq('restaurant_id', restaurantId)
       .order('display_order')
+      // Departajare stabilă (MENU-10): produsele cu aceeași poziție (importul
+      // CSV vechi le dădea tuturor 0) nu mai sar între încărcări.
+      .order('name')
     if (seq !== loadSeqRef.current) return
     if (err) {
       setError(err.message)
@@ -552,6 +561,24 @@ export function useProducts(restaurantId: string | null) {
   const toggleDailySpecial = async (id: string, current: boolean) =>
     toggleProductFlag(id, { is_daily_special: !current })
 
+  // Ordinea produselor dintr-o categorie (lotul O5b, MENU-10): se scriu doar
+  // pozițiile schimbate; un refuz RLS (0 rânduri, fără eroare) e raportat, iar
+  // lista se reîncarcă oricum din server.
+  const reorder = async (orderedIds: readonly string[]): Promise<{ error: Error | null }> => {
+    const byId = new Map(products.map((p) => [p.id, p] as const))
+    const changed = orderedIds
+      .map((id, i) => ({ id, to: i, from: byId.get(id)?.display_order }))
+      .filter((x) => x.from !== x.to)
+    const results = await Promise.all(
+      changed.map((x) =>
+        supabase.from('products').update({ display_order: x.to }).eq('id', x.id).select('id'),
+      ),
+    )
+    const denied = results.map((r) => zeroRowsAsDenied(r)).find((e) => e != null) ?? null
+    await load()
+    return { error: denied }
+  }
+
   return {
     products,
     loading,
@@ -564,5 +591,6 @@ export function useProducts(restaurantId: string | null) {
     toggleActive,
     toggleSoldOut,
     toggleDailySpecial,
+    reorder,
   }
 }
