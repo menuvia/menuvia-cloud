@@ -250,6 +250,9 @@ export default function CategoriesTab({
   const openDelete = (id: string) => {
     setDelId(id)
     setMoveTo(categories.find((c) => c.id !== id)?.id ?? '')
+    // Numărul din dialog trebuie să fie cel de acum (lista e citită o dată, la
+    // montare; alt dispozitiv poate fi adăugat produse între timp).
+    void refetchProds()
   }
   const delCount = delId ? prodCounts.filter((p) => p.category_id === delId).length : 0
 
@@ -286,17 +289,32 @@ export default function CategoriesTab({
     try {
       // Întâi mutăm produsele: dacă mutarea e refuzată, categoria rămâne și
       // produsele nu ajung tăcut în „Fără categorie" (invizibile în meniu).
-      if (moveTo && delCount > 0) {
-        const res = await supabase
+      // Câte sunt se citește ACUM din server, nu din numărătoarea de la montare
+      // (recenzia #346): una veche de 0 sărea mutarea și lăsa produsele
+      // orfane, una veche de N făcea ca „nimic de mutat” să pară refuz.
+      if (moveTo) {
+        const inCat = await supabase
           .from('products')
-          .update({ category_id: moveTo })
+          .select('id')
           .eq('restaurant_id', restaurantId)
           .eq('category_id', delId)
-          .select('id')
-        const denied = zeroRowsAsDenied(res)
-        if (denied) {
-          toast(toUserMessage(denied, 'Produsele nu au putut fi mutate.'), 'error')
+        if (inCat.error) {
+          toast(toUserMessage(inCat.error, 'Produsele nu au putut fi mutate.'), 'error')
           return
+        }
+        if ((inCat.data ?? []).length > 0) {
+          const res = await supabase
+            .from('products')
+            .update({ category_id: moveTo })
+            .eq('restaurant_id', restaurantId)
+            .eq('category_id', delId)
+            .select('id')
+          const denied = zeroRowsAsDenied(res)
+          if (denied) {
+            toast(toUserMessage(denied, 'Produsele nu au putut fi mutate.'), 'error')
+            void refetchProds()
+            return
+          }
         }
       }
       const { error: e } = await remove(delId)

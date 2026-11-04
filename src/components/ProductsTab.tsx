@@ -2264,7 +2264,7 @@ export default function ProductsTab({
   const [csvImportOpen, setCsvImportOpen] = useState(false)
   const [aiImportOpen, setAiImportOpen] = useState(false)
   const [aiBulkOpen, setAiBulkOpen] = useState(false)
-  const [activeCat, setActiveCat] = useState('all')
+  const [activeCatRaw, setActiveCat] = useState('all')
   const [search, setSearch] = useState('')
   const canAdd = canAddProduct(products.length)
   const mob = useIsMobile()
@@ -2279,6 +2279,17 @@ export default function ProductsTab({
   )
   // Lista filtrată se recalculează DOAR când se schimbă produsele / categoria /
   // căutarea — nu la fiecare re-randare (togglingId, modal, delId etc.).
+  // Produsele fără categorie NU apar în meniul clienților (lotul O1a): le
+  // numărăm ca să le arătăm un filtru și un avertisment, nu să dispară tăcut.
+  const uncategorizedCount = useMemo(
+    () => products.filter((p) => !p.category_id).length,
+    [products],
+  )
+  // Filtrul „Fără categorie” revine pe „Toate” când nu mai e niciun produs
+  // acolo (ultimul a primit o categorie sau a fost șters): chip-ul dispare, iar
+  // lista goală ar spune „Niciun produs încă” pe un meniu plin (recenzia #346).
+  const activeCat =
+    activeCatRaw === UNCATEGORIZED && uncategorizedCount === 0 ? 'all' : activeCatRaw
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
     return products
@@ -2291,12 +2302,6 @@ export default function ProductsTab({
       )
       .filter((p) => p.name.toLowerCase().includes(q))
   }, [products, activeCat, search])
-  // Produsele fără categorie NU apar în meniul clienților (lotul O1a): le
-  // numărăm ca să le arătăm un filtru și un avertisment, nu să dispară tăcut.
-  const uncategorizedCount = useMemo(
-    () => products.filter((p) => !p.category_id).length,
-    [products],
-  )
   // Un produs nou pornește în categoria filtrată acum, altfel în prima.
   const defaultCategoryId =
     activeCat !== 'all' && activeCat !== UNCATEGORIZED
