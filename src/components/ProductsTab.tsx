@@ -31,6 +31,7 @@ import { toUserMessage, zeroRowsAsDenied } from '../lib/userMessages'
 import { soldOutSourceLabel, soldOutFormTarget } from '../lib/soldOut'
 import { confirm as confirmDialog } from './ui/confirm'
 import { fetchProductGroupIds, setProductModifierGroups } from '../lib/modifierLinks'
+import { parseDecimalInput, priceInputText } from '../lib/decimal'
 
 const ProductsCsvImport = lazy(() => import('./ProductsCsvImport'))
 const AiMenuImport = lazy(() => import('./AiMenuImport'))
@@ -78,6 +79,7 @@ function ProductModal({
   showVat,
   showExtras,
   onOpenVatRates,
+  onServerChange,
   defaultCategoryId = null,
 }: {
   product: Product | null
@@ -111,6 +113,9 @@ function ProductModal({
   // Deschide Setări → Comenzi & plăți (cotele TVA) când cotele lipsesc sau
   // n-au putut fi citite; partenerul n-are Setările, deci n-o primește.
   onOpenVatRates?: () => void
+  // O scriere făcută de server din fișă (imaginea AI, rețeta → „Epuizat”):
+  // lista se reîmprospătează, altfel arăta starea veche (MENU-05).
+  onServerChange?: () => void
 }) {
   const isMobile = useIsMobile()
   // Scroll-lock-ul e gestionat acum de <Modal> (sharedUI) — nu-l mai dublăm aici.
@@ -259,6 +264,21 @@ function ProductModal({
   // Se reface după „Salvează și adaugă următorul”: fișa nouă pornește curată
   // (recenzie CodeRabbit pe #335).
   const [initialFormJson, setInitialFormJson] = useState(() => JSON.stringify(form))
+  // Textul câmpului de preț, separat de număr (MENU-07): „12.” și „12,5” rămân
+  // pe ecran cât omul tastează; numărul intră în formular doar când e valid.
+  const [priceText, setPriceText] = useState(() => priceInputText(form.price))
+  // Închiderea prin fundal / Escape / ✕ cu modificări nesalvate întreabă întâi
+  // (MENU-06: un tap pe margine pierdea toată fișa).
+  async function confirmDiscard(): Promise<boolean> {
+    if (JSON.stringify(form) === initialFormJson) return true
+    return confirmDialog({
+      title: 'Renunți la modificări?',
+      description: 'Modificările din fișă nu sunt salvate și se pierd.',
+      confirmLabel: 'Renunță',
+      cancelLabel: 'Rămân în fișă',
+      destructive: true,
+    })
+  }
   async function openVatRatesFromForm() {
     if (!onOpenVatRates) return
     if (JSON.stringify(form) !== initialFormJson) {
@@ -349,7 +369,10 @@ function ProductModal({
       setImgPreview(image_url)
       setForm((prev) => ({ ...prev, image_url }))
       markAiFields(['image_url'])
-      pmToast('Imagine generată de AI — verifică-o.', 'success')
+      // Serverul a salvat DEJA imaginea pe produs (ai-generate-image): lista se
+      // reîmprospătează, iar mesajul spune că e publicată (MENU-05).
+      onServerChange?.()
+      pmToast('Imagine generată de AI și publicată în meniu — verifică-o.', 'success')
     } catch (e) {
       pmToast(toUserMessage(e, 'Eroare la generarea imaginii.'), 'error')
     } finally {
@@ -559,6 +582,8 @@ function ProductModal({
       await setRecipeItem(product.id, ingredientId, quantity)
       const refreshed = await fetchRecipesForProduct(product.id)
       setRecipeRows(refreshed)
+      // Rețeta schimbată poate epuiza/debloca produsul pe server (mig 313).
+      onServerChange?.()
     } catch (err) {
       pmToast(toUserMessage(err, 'Nu am putut salva rețeta.'), 'error')
     }
@@ -569,6 +594,7 @@ function ProductModal({
     try {
       await removeRecipeItem(product.id, ingredientId)
       setRecipeRows((prev) => prev.filter((r) => r.ingredient_id !== ingredientId))
+      onServerChange?.()
     } catch (err) {
       pmToast(toUserMessage(err, 'Nu am putut șterge ingredientul.'), 'error')
     }
@@ -636,6 +662,11 @@ function ProductModal({
       setFormErrorField('name')
       return
     }
+    if (Number.isNaN(parseDecimalInput(priceText))) {
+      setFormError('Prețul nu e un număr valid (ex. 12,50)')
+      setFormErrorField('price')
+      return
+    }
     if (form.price != null && form.price < 0) {
       setFormError('Prețul nu poate fi negativ')
       setFormErrorField('price')
@@ -673,6 +704,7 @@ function ProductModal({
         }
         setForm(next)
         setInitialFormJson(JSON.stringify(next))
+        setPriceText('')
         setImgPreview(null)
         setAiAllergenSuggestions([])
         nameWrapRef.current?.querySelector('input')?.focus()
@@ -724,7 +756,11 @@ function ProductModal({
     clearAiFlag('dietary_tags')
   }
   return (
-    <Modal title={product ? 'Editează produs' : 'Adaugă produs'} onClose={onClose}>
+    <Modal
+      title={product ? 'Editează produs' : 'Adaugă produs'}
+      onClose={onClose}
+      confirmClose={confirmDiscard}
+    >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
         <div ref={nameWrapRef}>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
@@ -746,12 +782,16 @@ function ProductModal({
             </label>
             <Inp
               label="Preț (lei)"
-              value={form.price != null ? String(form.price) : ''}
+              value={priceText}
               invalid={formErrorField === 'price'}
               describedBy={formErrorField === 'price' ? formErrorId : undefined}
-              onChange={(v) => upd('price', v.trim() === '' ? 0 : parseFloat(v) || 0)}
-              type="number"
-              placeholder="32.00"
+              onChange={(v) => {
+                setPriceText(v)
+                const n = parseDecimalInput(v)
+                upd('price', n == null || Number.isNaN(n) ? 0 : n)
+              }}
+              inputMode="decimal"
+              placeholder="32,00"
             />
           </div>
           <div>
@@ -1778,6 +1818,33 @@ function ProductModal({
                       coș. Ex: friptură → vin, cartofi pai.
                     </div>
 
+                    {/* Perechi cu produse scoase din meniu (MENU-12): ocupau unul
+                        din cele 3 locuri fără să apară în listă, deci nici nu
+                        se puteau scoate. */}
+                    {pairings
+                      .filter((pr) => !allProducts.some((p) => p.id === pr.paired_product_id))
+                      .map((pr) => (
+                        <div
+                          key={pr.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            fontSize: '0.75rem',
+                            color: D.t3,
+                            marginBottom: 6,
+                          }}
+                        >
+                          <span style={{ flex: 1 }}>Produs scos din meniu (ocupă un loc)</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => void togglePairing(pr.paired_product_id)}
+                          >
+                            Scoate
+                          </Button>
+                        </div>
+                      ))}
                     {allProducts.length === 0 ? (
                       <div
                         style={{
@@ -1935,7 +2002,11 @@ function ProductModal({
               <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>(opțional)</span>
             </span>
             <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>
-              {recipeRows.length} ingrediente
+              {/* Contorul doar după ce rețeta s-a încărcat (MENU-14): înainte
+                  „0 ingrediente” pe o rețetă plină îl făcea pe om s-o refacă. */}
+              {showRecipe && !recipeLoading
+                ? `${recipeRows.length} ${recipeRows.length === 1 ? 'ingredient' : 'ingrediente'}`
+                : null}
             </span>
           </button>
 
@@ -3220,6 +3291,7 @@ export default function ProductsTab({
           canManageRecipes={showRecipes}
           showVat={showVat}
           showExtras={showExtras}
+          onServerChange={() => void refetchProducts()}
           // Ieșirea spre cote: închide fișa (nesalvată) și deschide Setările.
           onOpenVatRates={
             onOpenVatRates

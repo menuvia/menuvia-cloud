@@ -21,8 +21,12 @@
 //        provider mesajul rămâne în arborele componentei — într-un dialog
 //        `aria-modal`, viewport-ul global e în afara modalului și VoiceOver îl
 //        ignoră. Mutația care pică: opțiunea `local` ignorată (delegare mereu).
+//   SU10 (lotul O5a, MENU-06) fundalul închide DOAR un click început pe el (o
+//        selecție de text trasă din panou și eliberată afară nu mai închide), iar
+//        `confirmClose` care întoarce false ține fișa deschisă pe fundal, Escape
+//        și ✕. Mutația care pică: `onClick={onClose}` vechi pe fundal.
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Modal, Toggle, Inp, Sel, Toast, useToast, inp } from '../sharedUI'
 import { ToastContext, type ToastApi } from '../../ui/useToast'
@@ -228,5 +232,44 @@ describe('Toast — lista locală (în dialog)', () => {
 describe('stilul câmpurilor', () => {
   it('SU7: `inp` nu mai conține outline (inline ar bate :focus-visible)', () => {
     expect('outline' in inp).toBe(false)
+  })
+})
+
+describe('Modal — închiderea nu pierde munca (lotul O5a)', () => {
+  it('SU10 fundalul închide doar un click început pe el; confirmClose poate opri', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    const { unmount } = render(
+      <Modal title="Editează produs" onClose={onClose}>
+        <p>Conținut</p>
+      </Modal>,
+    )
+    const dialog = await screen.findByRole('dialog', { name: 'Editează produs' })
+    const backdrop = dialog.parentElement as HTMLElement
+    // Selecție începută în panou, eliberată pe fundal → rămâne deschis.
+    fireEvent.pointerDown(dialog)
+    fireEvent.click(backdrop)
+    expect(onClose).not.toHaveBeenCalled()
+    // Click real pe fundal → se închide.
+    await user.click(backdrop)
+    expect(onClose).toHaveBeenCalledTimes(1)
+    unmount()
+
+    const onClose2 = vi.fn()
+    let allow = false
+    render(
+      <Modal title="Adaugă produs" onClose={onClose2} confirmClose={async () => allow}>
+        <p>Conținut</p>
+      </Modal>,
+    )
+    const dlg2 = await screen.findByRole('dialog', { name: 'Adaugă produs' })
+    await user.keyboard('{Escape}')
+    await user.click(screen.getByRole('button', { name: 'Închide' }))
+    await user.click(dlg2.parentElement as HTMLElement)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(onClose2).not.toHaveBeenCalled()
+    allow = true
+    await user.click(screen.getByRole('button', { name: 'Închide' }))
+    await waitFor(() => expect(onClose2).toHaveBeenCalledTimes(1))
   })
 })

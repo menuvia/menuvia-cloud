@@ -9,6 +9,9 @@
 //   PG2  salvarea refuzată revine la bifele de dinainte și spune de ce.
 //   PG3  pe planul fără comenzi secțiunea nu apare (opțiunile se aleg doar la
 //        comandă); pe un produs nou cere salvarea întâi.
+//   PG4  (lotul O5a, MENU-07) prețul tastat cu virgulă („12,5”) rămâne pe ecran
+//        și pleacă 12.5; un preț fără formă de număr e refuzat cu mesaj, nu
+//        salvat 0. [PICĂ: `type="number"` + parseFloat la fiecare tastă]
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -17,7 +20,7 @@ import type { DbPlan } from '../../lib/__tests__/planFeatureMatrix.fixture'
 
 const { data, calls, linkState } = vi.hoisted(() => ({
   data: { products: [] as Product[], categories: [] as Category[] },
-  calls: { setGroups: [] as [string, string[]][] },
+  calls: { setGroups: [] as [string, string[]][], updates: [] as Partial<Product>[] },
   linkState: { linked: [] as string[], fail: false },
 }))
 
@@ -28,7 +31,10 @@ vi.mock('../../hooks/useData', () => ({
     loading: false,
     error: null,
     create: async () => ({ data: null, error: null }),
-    update: async () => ({ data: null, error: null }),
+    update: async (_id: string, f: Partial<Product>) => {
+      calls.updates.push(f)
+      return { data: null, error: null }
+    },
     remove: vi.fn(),
     toggleActive: vi.fn(),
     toggleSoldOut: vi.fn(),
@@ -145,6 +151,7 @@ beforeEach(() => {
   data.categories = [{ id: 'cat-a', restaurant_id: 'rest-1', name: 'Pizza', emoji: '🍕', display_order: 0, meta_text: null }]
   data.products = [product()]
   calls.setGroups = []
+  calls.updates = []
   linkState.linked = ['g-top']
   linkState.fail = false
 })
@@ -185,5 +192,25 @@ describe('ProductsTab — opțiunile produsului', () => {
     await user.click(screen.getAllByRole('button', { name: 'Editează produsul' })[0])
     const dlg = await screen.findByRole('dialog', { name: 'Editează produs' })
     expect(within(dlg).queryByRole('region', { name: 'Opțiuni' })).toBeNull()
+  })
+})
+
+describe('ProductsTab — prețul se tastează ca preț (lotul O5a)', () => {
+  it('PG4 „12.5.3” e refuzat; „12,5” pleacă 12.5', async () => {
+    const { user } = await openEdit()
+    const dlg = screen.getByRole('dialog', { name: 'Editează produs' })
+    const price = within(dlg).getByRole('textbox', { name: 'Preț (lei)' })
+    // Întâi forma invalidă: refuz cu mesaj, nimic salvat, fișa rămâne.
+    await user.clear(price)
+    await user.type(price, '12.5.3')
+    await user.click(within(dlg).getByRole('button', { name: 'Salvează' }))
+    expect(calls.updates).toEqual([])
+    expect(within(dlg).getByRole('alert')).toHaveTextContent(/nu e un număr valid/)
+    // Apoi virgula: rămâne pe ecran și pleacă 12.5.
+    await user.clear(price)
+    await user.type(price, '12,5')
+    expect(price).toHaveValue('12,5')
+    await user.click(within(dlg).getByRole('button', { name: 'Salvează' }))
+    expect(calls.updates.at(-1)?.price).toBe(12.5)
   })
 })

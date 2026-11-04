@@ -7,7 +7,7 @@
 // follow-up — pentru acum dezactivăm regula react-refresh local.
 /* eslint-disable react-refresh/only-export-components */
 
-import { useState, useCallback, useContext, useId } from 'react'
+import { useState, useCallback, useContext, useId, useRef } from 'react'
 import type React from 'react'
 import { createPortal } from 'react-dom'
 import { D } from '../../lib/constants'
@@ -164,16 +164,27 @@ export function Modal({
   onClose,
   children,
   width = 520,
+  confirmClose,
 }: {
   title: string
   onClose: () => void
   children: React.ReactNode
   width?: number
+  // Lotul O5a (MENU-06): închiderea prin fundal, Escape sau ✕ întreabă întâi
+  // („Renunți la modificări?”). `false` = rămâne deschis. Fără prop, ca înainte.
+  confirmClose?: () => boolean | Promise<boolean>
 }) {
   // Blocăm scroll-ul paginii cât modalul e deschis (fix #74) — hook ref-counted,
   // deci e sigur chiar dacă un caller îl mai apelează o dată în afară.
   useBodyScrollLock(true)
   const titleId = useId()
+  // Fundalul închide DOAR un click început și terminat pe el: o selecție de
+  // text trasă din panou și eliberată în afara lui închidea fișa (MENU-06).
+  const downOnBackdrop = useRef(false)
+  const requestClose = useCallback(async () => {
+    if (confirmClose && !(await confirmClose())) return
+    onClose()
+  }, [confirmClose, onClose])
   // Portal la <body>: overlay-ul `position:fixed` e ancorat la viewport, nu la
   // containerul de scroll al tab-ului (`contentScrollRef` are overflow:auto).
   // Fără portal, un ancestor cu transform/overflow ar putea deplasa modalul în
@@ -181,7 +192,14 @@ export function Modal({
   if (typeof document === 'undefined') return null
   return createPortal(
     <div
-      onClick={onClose}
+      onPointerDown={(e) => {
+        downOnBackdrop.current = e.target === e.currentTarget
+      }}
+      onClick={(e) => {
+        const fromBackdrop = downOnBackdrop.current && e.target === e.currentTarget
+        downOnBackdrop.current = false
+        if (fromBackdrop) void requestClose()
+      }}
       role="presentation"
       style={{
         position: 'fixed',
@@ -210,7 +228,7 @@ export function Modal({
           overflow: 'auto',
         }}
       >
-        <FocusTrap onEscape={onClose} />
+        <FocusTrap onEscape={() => void requestClose()} />
         <div
           style={{
             display: 'flex',
@@ -234,7 +252,7 @@ export function Modal({
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => void requestClose()}
             aria-label="Închide"
             style={{
               background: 'transparent',
@@ -272,11 +290,14 @@ export function Inp({
   id,
   invalid = false,
   describedBy,
+  inputMode,
 }: {
   value: string
   onChange: (v: string) => void
   placeholder?: string
   type?: string
+  /** Tastatura de pe telefon (ex. `decimal` pentru prețuri). */
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode']
   /** Numele accesibil al câmpului (textul etichetei vizibile). */
   label: string
   id?: string
@@ -295,6 +316,7 @@ export function Inp({
       aria-label={label}
       aria-invalid={invalid ? true : undefined}
       aria-describedby={describedBy}
+      inputMode={inputMode}
       style={inp}
       onFocus={(e) => (e.target.style.borderColor = D.gold)}
       onBlur={(e) => (e.target.style.borderColor = D.border)}
