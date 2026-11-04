@@ -9,7 +9,7 @@ import { Modal } from './_dashboard/sharedUI'
 import { toUserMessage, zeroRowsAsDenied } from '../lib/userMessages'
 import { Button } from './ui/Button'
 import { modifierGroupMin } from '../lib/qr'
-import { fetchModifierGroupLinks, setModifierGroupProducts } from '../lib/modifierLinks'
+import { fetchLinkableProducts, fetchModifierGroupLinks, setModifierGroupProducts } from '../lib/modifierLinks'
 
 interface ModifierOption {
   id: string
@@ -114,24 +114,23 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
       opts = oData ?? []
       oErr = e2
     }
-    const { data: pData, error: pErr } = await supabase
-      .from('products')
-      .select('id,name')
-      .eq('restaurant_id', restaurantId)
-      .order('name')
+    // Produsele și legăturile pe pagini, legăturile citite pe GRUPURI: o
+    // citire trunchiată aici ar fi pornit „Alege produsele” cu bife lipsă, iar
+    // salvarea ar fi dezlegat tăcut produsele nebifate (recenzia O1b).
+    let pData: { id: string; name: string }[] = []
     let links: { product_id: string; modifier_group_id: string }[] = []
     let lErr: unknown = null
     try {
-      links = await fetchModifierGroupLinks(((pData ?? []) as { id: string }[]).map((p) => p.id))
+      ;[pData, links] = await Promise.all([fetchLinkableProducts(restaurantId), fetchModifierGroupLinks(gIds)])
     } catch (e) {
       lErr = e
     }
-    if (gErr || oErr || pErr || lErr) {
+    if (gErr || oErr || lErr) {
       setLoadError(true)
       setLoading(false)
       return
     }
-    setProducts((pData ?? []) as { id: string; name: string }[])
+    setProducts(pData)
     const byGroup: Record<string, string[]> = {}
     for (const l of links) (byGroup[l.modifier_group_id] ??= []).push(l.product_id)
     setGroupProducts(byGroup)

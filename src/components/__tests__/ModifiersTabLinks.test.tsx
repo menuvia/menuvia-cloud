@@ -37,6 +37,7 @@ vi.mock('../../lib/supabase', () => {
 })
 vi.mock('../../lib/modifierLinks', () => ({
   fetchModifierGroupLinks: async () => tables.product_modifier_groups ?? [],
+  fetchLinkableProducts: async () => tables.products ?? [],
   setModifierGroupProducts: async (gid: string, pids: string[]) => {
     calls.setGroupProducts.push([gid, pids])
   },
