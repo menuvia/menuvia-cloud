@@ -484,6 +484,7 @@ export default function WaiterEntry({
           product={activeProduct}
           onAdd={addToCart}
           onClose={() => setActiveProduct(null)}
+          allowExtras
         />
       )}
 

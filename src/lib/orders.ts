@@ -15,6 +15,13 @@ export type OrderStatus =
 export type OrderSource = 'qr' | 'waiter' | 'pickup'
 export type PaymentMethod = 'cash' | 'card_pos' | 'other' | 'meal_voucher' | 'card_online'
 
+// Plafoanele serverului pe o linie (create_order 191: cantitate 1–20, nota
+// liniei ≤ 300, nota comenzii ≤ 500). Clientul le oglindește ca omul să afle
+// înainte de trimitere, nu printr-un refuz al întregii comenzi.
+export const MAX_LINE_QTY = 20
+export const MAX_ITEM_NOTE = 300
+export const MAX_ORDER_NOTE = 500
+
 export interface SelectedExtra {
   id: string
   name: string

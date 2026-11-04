@@ -563,6 +563,15 @@ export const GUEST_STRINGS = {
     hu: 'Egy tétel opciói már nem érvényesek. Vedd ki a kosárból, és add hozzá újra.',
     es: 'Las opciones de un producto ya no son válidas. Quítalo del carrito y vuelve a añadirlo.',
   },
+  err_invalid_extras: {
+    ro: 'Un extra ales nu mai e disponibil. Scoate produsul din coș și adaugă-l din nou.',
+    en: 'An extra you chose is no longer available. Remove the item from the cart and add it again.',
+    de: 'Ein gewähltes Extra ist nicht mehr verfügbar. Entferne den Artikel und füge ihn erneut hinzu.',
+    fr: 'Un supplément choisi n’est plus disponible. Retirez l’article du panier et ajoutez-le à nouveau.',
+    it: 'Un extra scelto non è più disponibile. Rimuovi il prodotto dal carrello e aggiungilo di nuovo.',
+    hu: 'Egy választott extra már nem elérhető. Vedd ki a tételt a kosárból, és add hozzá újra.',
+    es: 'Un extra elegido ya no está disponible. Quita el producto del carrito y vuelve a añadirlo.',
+  },
   err_notes_too_long: {
     ro: 'Mențiunea e prea lungă. Scurteaz-o și încearcă din nou.',
     en: 'Your note is too long. Shorten it and try again.',

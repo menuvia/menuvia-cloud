@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
-import type { CartItem } from '../lib/orders'
+import { MAX_ITEM_NOTE, MAX_LINE_QTY, type CartItem } from '../lib/orders'
 import type { Product } from '../lib/qr'
 import { modifierGroupMin, modifierGroupHint } from '../lib/qr'
 import { D } from '../lib/constants'
@@ -28,6 +28,11 @@ export interface ModifierSheetProps {
   initialNotes?: string
   initialSelections?: { group_id: string; option_id: string }[]
   submitLabel?: string
+  // Extra-urile plătite ale produsului (lotul O2b, STAFF-OPT-8): ospătarul nu le
+  // putea adăuga deloc — „burger cu bacon" ajungea doar ca notă, gătit dar
+  // neîncasat. Doar unde apelantul chiar le trimite la server (comanda nouă);
+  // editarea comenzii le primește odată cu lotul O3.
+  allowExtras?: boolean
 }
 
 export default function ModifierSheet({
@@ -38,8 +43,22 @@ export default function ModifierSheet({
   initialNotes = '',
   initialSelections = [],
   submitLabel,
+  allowExtras = false,
 }: ModifierSheetProps) {
   const groups = product.modifier_groups
+  const availableExtras = allowExtras
+    ? (product.extras ?? []).filter((e) => e.is_available !== false)
+    : []
+  const [extraIds, setExtraIds] = useState<ReadonlySet<string>>(() => new Set())
+  const chosenExtras = availableExtras.filter((e) => extraIds.has(e.id))
+  function toggleExtra(id: string): void {
+    setExtraIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   useBodyScrollLock(true)
   const [selections, setSelections] = useState<Selections>(() => {
@@ -180,7 +199,7 @@ export default function ModifierSheet({
     })
   }
 
-  const unitTotal = product.price + modDelta()
+  const unitTotal = product.price + modDelta() + chosenExtras.reduce((s, e) => s + e.price, 0)
   const labelDefault = `Adaugă în comandă — ${(unitTotal * qty).toFixed(2)} lei`
 
   return (
@@ -303,6 +322,38 @@ export default function ModifierSheet({
             )
           })}
 
+          {availableExtras.length > 0 && (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: D.t2, marginBottom: 8 }}>Extra</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {availableExtras.map((ex) => {
+                  const on = extraIds.has(ex.id)
+                  return (
+                    <button
+                      key={ex.id}
+                      aria-pressed={on}
+                      onClick={() => toggleExtra(ex.id)}
+                      style={{
+                        background: on ? D.goldA : D.s3,
+                        border: `1px solid ${on ? D.gold : D.s3}`,
+                        borderRadius: 20,
+                        padding: '6px 14px',
+                        color: on ? D.gold : D.t2,
+                        fontFamily: 'DM Sans, sans-serif',
+                        fontSize: 13,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {ex.emoji ? `${ex.emoji} ` : ''}
+                      {ex.name}
+                      {ex.price > 0 ? ` +${ex.price}` : ''}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Quantity stepper */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <span style={{ color: D.t2, fontSize: 13 }}>Cantitate</span>
@@ -326,7 +377,8 @@ export default function ModifierSheet({
                 {qty}
               </span>
               <button
-                onClick={() => setQty((q) => q + 1)}
+                onClick={() => setQty((q) => Math.min(MAX_LINE_QTY, q + 1))}
+                disabled={qty >= MAX_LINE_QTY}
                 style={{
                   width: 32,
                   height: 32,
@@ -347,6 +399,7 @@ export default function ModifierSheet({
             placeholder="Mențiuni (opțional)"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
+            maxLength={MAX_ITEM_NOTE}
             rows={2}
             style={{
               background: D.s3,
@@ -372,6 +425,15 @@ export default function ModifierSheet({
                 quantity: qty,
                 selected_modifiers: selectedMods,
                 notes: notes.length > 0 ? notes : null,
+                ...(chosenExtras.length > 0
+                  ? {
+                      selected_extras: chosenExtras.map((e) => ({
+                        id: e.id,
+                        name: e.name,
+                        price: e.price,
+                      })),
+                    }
+                  : {}),
               })
               onClose()
             }}

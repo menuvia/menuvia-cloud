@@ -32,6 +32,8 @@ const HINT_KEYS: Readonly<Record<string, PublicMenuStringKey>> = {
   invalid_options: 'err_invalid_options',
   too_many_in_group: 'err_invalid_options',
   duplicate_extras: 'err_invalid_options',
+  // create_order (mig 317): un extra indisponibil e respins, nu sărit tăcut.
+  invalid_extras: 'err_invalid_extras',
   notes_too_long: 'err_notes_too_long',
   item_notes_too_long: 'err_notes_too_long',
   // sesiunea mesei / tokenul QR (mig 088/092/191)
@@ -87,6 +89,7 @@ const MESSAGE_PATTERNS: ReadonlyArray<{ re: RegExp; key: PublicMenuStringKey }> 
   { re: /invalid quantity/i, key: 'err_invalid_quantity' },
   { re: /too many lines|too many items/i, key: 'err_too_many_items' },
   { re: /at least one item/i, key: 'err_no_items' },
+  { re: /extra indisponibil/i, key: 'err_invalid_extras' },
   { re: /modifier|opțiuni (modificatoare|selectate)|extra-uri duplicate/i, key: 'err_invalid_options' },
   { re: /notes too long/i, key: 'err_notes_too_long' },
   { re: /pickup.*(dezactivate|disabled)/i, key: 'err_pickup_disabled' },
