@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
+import { MAX_LINE_QTY, MAX_ORDER_NOTE } from '../lib/orders'
 import type { Category, Product } from '../lib/qr'
 import { hasMandatoryModifierGroups } from '../lib/qr'
 import { cartIssueCounts, cartLineIssue } from '../lib/cartReconcile'
@@ -437,8 +438,9 @@ export default function QrCartSheet({
           {cart.map((item) => {
             const prod = productById.get(item.product_id)
             const lineIssue = cartLineIssue(item, productById)
-            // „+” n-are sens pe o linie care trebuie scoasă.
-            const lineSoldOut = lineIssue !== null
+            // „+” n-are sens pe o linie care trebuie scoasă, nici peste
+            // plafonul serverului pe linie (OPT-13).
+            const plusBlocked = lineIssue !== null || item.quantity >= MAX_LINE_QTY
             // Personalizările item-ului (modificatori + extra), afișate discret
             // sub nume — clientul trebuie să poată verifica ce a ales („fără
             // ceapă", extra sos) înainte să trimită comanda.
@@ -594,12 +596,12 @@ export default function QrCartSheet({
                     type="button"
                     onClick={() => onUpdateQty(item._key, 1)}
                     aria-label={T(lang, 'qty_inc')}
-                    disabled={lineSoldOut}
-                    className={lineSoldOut ? undefined : 'pressable'}
+                    disabled={plusBlocked}
+                    className={plusBlocked ? undefined : 'pressable'}
                     style={{
                       background: 'transparent',
                       border: 'none',
-                      opacity: lineSoldOut ? 0.35 : 1,
+                      opacity: plusBlocked ? 0.35 : 1,
                       color: PUB.text,
                       borderRadius: '50%',
                       // Țintă de atingere 44x44 (a11y); glyph-ul rămâne mic vizual.
@@ -653,6 +655,7 @@ export default function QrCartSheet({
             value={localNotes}
             onChange={(e) => setLocalNotes(e.target.value)}
             onBlur={() => onNotesChange(localNotes)}
+            maxLength={MAX_ORDER_NOTE}
             rows={2}
             style={{
               background: PUB.surface,

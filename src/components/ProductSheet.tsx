@@ -12,20 +12,33 @@ import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { ModifierGroup, Product } from '../lib/qr'
 import { modifierGroupMin } from '../lib/qr'
-import type { CartItem, SelectedModifier } from '../lib/orders'
-import { fmtPrice, type MenuCurrency } from '../lib/currency'
+import type { CartItem } from '../lib/orders'
+import { MAX_ITEM_NOTE, MAX_LINE_QTY } from '../lib/orders'
+import { fmtPrice, fmtPriceDelta, type MenuCurrency } from '../lib/currency'
+import {
+  buildSelectedModifiers,
+  groupMax,
+  isMultiSelection,
+  missingGroups,
+  productOptionsUnavailable,
+  pruneSelections,
+  selectedCount as countSelected,
+  selectionDelta,
+  selectionsComplete,
+  toggleOption,
+  type OptionSelections,
+} from '../lib/optionSelection'
 import { ALLERGENS, DIETARY_TAGS } from '../lib/constants'
 import { allergenEntries } from '../lib/allergens'
 import { readableTextOn, type MenuTheme } from '../lib/themes'
 import Icon, { type IconName } from './ui/Icon'
 import { T } from '../lib/publicMenuStrings'
-import { dietaryLabel, modifierGroupHintT } from '../lib/guestI18n'
+import { dietaryLabel, modifierGroupHintT, Tf } from '../lib/guestI18n'
 
-type Selections = Record<string, string | Set<string> | null>
-
-function isSet(val: string | Set<string> | null): val is Set<string> {
-  return val instanceof Set
-}
+// Regulile de selecție (min/max, ce se numără, deselectarea pe un grup
+// opțional single) vin din motorul comun, ca la ospătar (lotul O4b).
+type Selections = OptionSelections
+const isSet = isMultiSelection
 
 /**
  * Ce face fișa (ux-guest-2):
@@ -103,95 +116,45 @@ function ProductSheet({
 
   const groups = product.modifier_groups
 
-  // Numărul de opțiuni selectate dintr-un grup (0/1 pe single, size pe multiple).
+  // Doar opțiunile care EXISTĂ și sunt disponibile se numără: după o
+  // reîmprospătare a meniului cu fișa deschisă, un id dispărut nu mai poate
+  // „satisface” un grup obligatoriu (OPT-10).
   function selectedCount(g: ModifierGroup): number {
-    const sel = selections[g.id]
-    if (sel == null) return 0
-    if (isSet(sel)) return sel.size
-    return sel.length > 0 ? 1 : 0
+    return countSelected(g, selections)
   }
 
-  // min_select/max_select respectate real (paritate cu serverul, mig 191):
-  // fiecare grup cere cel puțin minimul lui efectiv — is_required SAU
-  // min_select > 0 (vezi modifierGroupMin din lib/qr.ts).
+  // Alegerile rămase fără opțiune (meniul s-a schimbat) se curăță, ca prețul
+  // și butonul să spună adevărul. La fel extra-urile scoase.
+  useEffect(() => {
+    setSelections((prev) => pruneSelections(product.modifier_groups, prev))
+    setSelectedExtras((prev) => {
+      const valid = new Set((product.extras ?? []).filter((e) => e.is_available !== false).map((e) => e.id))
+      const kept = [...prev].filter((id) => valid.has(id))
+      return kept.length === prev.size ? prev : new Set(kept)
+    })
+  }, [product.modifier_groups, product.extras])
+
+  // min_select/max_select respectate real (paritate cu serverul, mig 191).
   // mig 313: un produs epuizat (din stoc sau de personal) nu se adaugă, chiar
-  // dacă foaia era deja deschisă când meniul s-a reîmprospătat.
+  // dacă foaia era deja deschisă când meniul s-a reîmprospătat. Lotul O4b: nici
+  // unul al cărui grup obligatoriu nu mai are opțiuni disponibile (OPT-4).
   const soldOut = product.is_sold_out === true
-  const canAdd = !soldOut && groups.every((g) => selectedCount(g) >= modifierGroupMin(g))
+  const optionsBlocked = productOptionsUnavailable(product)
+  const canAdd = !soldOut && !optionsBlocked && selectionsComplete(groups, selections)
+  const firstMissing = missingGroups(groups, selections)[0] ?? null
 
   function modDelta(): number {
-    return groups.reduce((sum, g) => {
-      const sel = selections[g.id]
-      if (sel == null) return sum
-      if (g.selection_type === 'single' && !isSet(sel)) {
-        const opt = g.modifier_options.find((o) => o.id === sel)
-        return sum + (opt?.price_delta ?? 0)
-      }
-      if (isSet(sel)) {
-        return (
-          sum +
-          g.modifier_options.filter((o) => sel.has(o.id)).reduce((s, o) => s + o.price_delta, 0)
-        )
-      }
-      return sum
-    }, 0)
+    return selectionDelta(groups, selections)
   }
 
-  function buildModifiers(): SelectedModifier[] {
-    return groups.flatMap((g): SelectedModifier[] => {
-      const sel = selections[g.id]
-      if (sel == null) return []
-      if (g.selection_type === 'single' && !isSet(sel)) {
-        const opt = g.modifier_options.find((o) => o.id === sel)
-        if (opt == null) return []
-        return [
-          {
-            group_id: g.id,
-            group_name: g.name,
-            option_id: opt.id,
-            option_name: opt.name,
-            price_delta: opt.price_delta,
-          },
-        ]
-      }
-      if (isSet(sel)) {
-        return g.modifier_options
-          .filter((o) => sel.has(o.id))
-          .map(
-            (o): SelectedModifier => ({
-              group_id: g.id,
-              group_name: g.name,
-              option_id: o.id,
-              option_name: o.name,
-              price_delta: o.price_delta,
-            }),
-          )
-      }
-      return []
-    })
+  function buildModifiers() {
+    return buildSelectedModifiers(groups, selections)
   }
 
-  function toggleSingle(gid: string, oid: string): void {
-    setSelections((prev) => ({ ...prev, [gid]: oid }))
-  }
-
-  function toggleMultiple(gid: string, oid: string): void {
-    const group = groups.find((g) => g.id === gid)
-    const maxSelect = group?.max_select ?? null
-    setSelections((prev) => {
-      const existing = prev[gid]
-      const s = isSet(existing) ? new Set(existing) : new Set<string>()
-      if (s.has(oid)) {
-        // Deselectarea e mereu permisă.
-        s.delete(oid)
-      } else {
-        // Blocăm bifarea peste max_select (paritate cu serverul, mig 145 #9 —
-        // altfel comanda ar fi respinsă abia la finalizare, cu 'too_many_in_group').
-        if (maxSelect != null && s.size >= maxSelect) return prev
-        s.add(oid)
-      }
-      return { ...prev, [gid]: s }
-    })
+  // Single: alege; a doua atingere deselectează DOAR pe un grup opțional
+  // (OPT-6). Multiple: bifează/debifează, fără să treacă de maxim.
+  function toggle(g: ModifierGroup, oid: string): void {
+    setSelections((prev) => toggleOption(g, prev, oid))
   }
 
   function extrasDelta(): number {
@@ -608,7 +571,7 @@ function ProductSheet({
                           }}
                         >
                           {it.label}
-                          {it.delta > 0 && ` +${fmtPrice(it.delta, currency)}`}
+                          {it.delta !== 0 && ` ${fmtPriceDelta(it.delta, currency)}`}
                         </span>
                       ))}
                     </div>
@@ -623,10 +586,8 @@ function ProductSheet({
               const groupMet = groupCount >= groupMin
               const groupHint = modifierGroupHintT(lang, g, groupMin)
               // Plafon atins pe grup multiplu → opțiunile nebifate se dezactivează.
-              const atMax =
-                g.selection_type === 'multiple' &&
-                g.max_select != null &&
-                groupCount >= g.max_select
+              const max = groupMax(g)
+              const atMax = g.selection_type === 'multiple' && max != null && groupCount >= max
 
               return (
                 <div key={g.id} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -703,11 +664,7 @@ function ProductSheet({
                           role={g.selection_type === 'single' ? 'radio' : undefined}
                           aria-checked={g.selection_type === 'single' ? isSel : undefined}
                           aria-pressed={g.selection_type === 'single' ? undefined : isSel}
-                          onClick={() =>
-                            g.selection_type === 'single'
-                              ? toggleSingle(g.id, opt.id)
-                              : toggleMultiple(g.id, opt.id)
-                          }
+                          onClick={() => toggle(g, opt.id)}
                           style={{
                             background: isSel ? `${accent}14` : PUB.surface,
                             border: `1.5px solid ${isSel ? accent : PUB.border}`,
@@ -777,7 +734,7 @@ function ProductSheet({
                               {opt.name}
                             </span>
                           </div>
-                          {opt.price_delta > 0 && (
+                          {opt.price_delta !== 0 && (
                             <span
                               style={{
                                 fontSize: 13,
@@ -787,7 +744,7 @@ function ProductSheet({
                                 flexShrink: 0,
                               }}
                             >
-                              +{fmtPrice(opt.price_delta, currency)}
+                              {fmtPriceDelta(opt.price_delta, currency)}
                             </span>
                           )}
                         </button>
@@ -973,8 +930,10 @@ function ProductSheet({
                     {qty}
                   </span>
                   <button
-                    onClick={() => setQty((q) => q + 1)}
+                    onClick={() => setQty((q) => Math.min(MAX_LINE_QTY, q + 1))}
                     aria-label={T(lang, 'qty_inc')}
+                    // Serverul primește cel mult 20 pe linie (OPT-13).
+                    disabled={qty >= MAX_LINE_QTY}
                     style={{
                       width: 44,
                       height: 44,
@@ -985,7 +944,8 @@ function ProductSheet({
                       fontSize: 20,
                       lineHeight: 1,
                       paddingBottom: 2,
-                      cursor: 'pointer',
+                      cursor: qty >= MAX_LINE_QTY ? 'not-allowed' : 'pointer',
+                      opacity: qty >= MAX_LINE_QTY ? 0.4 : 1,
                       fontFamily: 'DM Sans, sans-serif',
                     }}
                   >
@@ -1003,6 +963,7 @@ function ProductSheet({
                 aria-label={T(lang, 'special_requests_opt')}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
+                maxLength={MAX_ITEM_NOTE}
                 rows={2}
                 style={{
                   background: PUB.surface,
@@ -1244,9 +1205,13 @@ function ProductSheet({
               <span>
                 {soldOut
                   ? T(lang, 'sold_out')
-                  : canAdd
-                    ? T(lang, mode === 'list' ? 'add_to_list' : 'add_to_cart')
-                    : T(lang, 'select_required')}
+                  : optionsBlocked
+                    ? T(lang, 'options_unavailable_now')
+                    : canAdd
+                      ? T(lang, mode === 'list' ? 'add_to_list' : 'add_to_cart')
+                      : firstMissing
+                        ? Tf(lang, 'select_group_named', { group: firstMissing.name })
+                        : T(lang, 'select_required')}
               </span>
               {canAdd && <span style={{ fontFamily: 'Fraunces, Georgia, serif' }}>·</span>}
               {canAdd && (

@@ -1747,6 +1747,26 @@ export const GUEST_STRINGS = {
     hu: 'Válaszd ki a kötelező opciókat',
     es: 'Elige las opciones obligatorias',
   },
+  // Lotul O4b: butonul spune CE grup mai cere o alegere.
+  select_group_named: {
+    ro: 'Alege: {group}',
+    en: 'Choose: {group}',
+    de: 'Wähle: {group}',
+    fr: 'Choisissez : {group}',
+    it: 'Scegli: {group}',
+    hu: 'Válassz: {group}',
+    es: 'Elige: {group}',
+  },
+  // Un grup obligatoriu nu mai are nicio opțiune disponibilă.
+  options_unavailable_now: {
+    ro: 'Indisponibil acum',
+    en: 'Not available right now',
+    de: 'Derzeit nicht verfügbar',
+    fr: 'Indisponible pour le moment',
+    it: 'Non disponibile al momento',
+    hu: 'Jelenleg nem elérhető',
+    es: 'No disponible ahora',
+  },
   // ── Coșul la masă (QrCartSheet) ──
   qc_upsell: {
     ro: 'Ai vrea ceva în plus înainte să trimiți?',

@@ -11,14 +11,22 @@ import { MAX_ITEM_NOTE, MAX_LINE_QTY, type CartItem } from '../lib/orders'
 import type { Product } from '../lib/qr'
 import { modifierGroupMin, modifierGroupHint } from '../lib/qr'
 import { D } from '../lib/constants'
+import {
+  availableOptions as groupAvailableOptions,
+  buildSelectedModifiers as buildFromSelections,
+  groupMax,
+  initialSelections as seedSelections,
+  isMultiSelection,
+  missingGroups,
+  selectedCount,
+  selectionDelta,
+  selectionsComplete,
+  toggleOption,
+  type OptionSelections,
+} from '../lib/optionSelection'
 
-type SingleSelection = string | null
-type MultiSelection = Set<string>
-type Selections = Record<string, SingleSelection | MultiSelection>
-
-function isSingleSel(val: SingleSelection | MultiSelection): val is SingleSelection {
-  return !(val instanceof Set)
-}
+// Regulile de selecție vin din motorul comun, ca la oaspete (lotul O4b).
+type Selections = OptionSelections
 
 export interface ModifierSheetProps {
   product: Product
@@ -61,23 +69,12 @@ export default function ModifierSheet({
   }
 
   useBodyScrollLock(true)
-  const [selections, setSelections] = useState<Selections>(() => {
-    const init: Selections = {}
-    for (const g of groups) {
-      const optsForGroup = initialSelections
-        .filter((s) => s.group_id === g.id)
-        // Excludem opțiunile devenite indisponibile: nu le prețuim/trimitem
-        // și nu ocupă slot din min/max (serverul le respinge oricum).
-        .filter((s) => g.modifier_options.some((o) => o.id === s.option_id && o.is_available))
-        .map((s) => s.option_id)
-      if (g.selection_type === 'single') {
-        init[g.id] = optsForGroup[0] ?? null
-      } else {
-        init[g.id] = new Set(optsForGroup)
-      }
-    }
-    return init
-  })
+  // Pornim doar cu opțiunile încă disponibile: cele devenite indisponibile nu
+  // se prețuiesc, nu se trimit și nu ocupă slot din min/max (serverul le
+  // respinge oricum).
+  const [selections, setSelections] = useState<Selections>(() =>
+    seedSelections(groups, initialSelections),
+  )
   const [qty, setQty] = useState(initialQty)
   const [notes, setNotes] = useState(initialNotes)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -99,104 +96,24 @@ export default function ModifierSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Numărul de opțiuni selectate ȘI încă disponibile dintr-un grup multiplu.
-  // O opțiune devenită indisponibilă NU trebuie să conteze la min/max.
-  function availableSelectedCount(g: (typeof groups)[number], sel: MultiSelection): number {
-    return g.modifier_options.filter((o) => o.is_available && sel.has(o.id)).length
-  }
-
-  const canAdd = groups
-    .filter((g) => modifierGroupMin(g) > 0)
-    .every((g) => {
-      // Paritate cu serverul (mig 191): grupurile cu minim efectiv > 0 —
-      // is_required SAU min_select > 0 (coloane independente în schemă, mig 002)
-      // — cer cel puțin `modifierGroupMin(g)` opțiuni; serverul respinge și el
-      // sub minim (hint 'missing_required_group'), aici doar oglindim ca UX.
-      const sel = selections[g.id]
-      if (sel == null) return false
-      if (sel instanceof Set) {
-        return availableSelectedCount(g, sel) >= modifierGroupMin(g)
-      }
-      // Single: valid doar dacă opțiunea selectată e încă disponibilă.
-      return g.modifier_options.some((o) => o.id === sel && o.is_available)
-    })
+  // Paritate cu serverul (mig 191): fiecare grup între minimul efectiv
+  // (is_required SAU min_select > 0) și maxim; contează doar opțiunile care
+  // există și sunt disponibile.
+  const canAdd = selectionsComplete(groups, selections)
+  const firstMissing = missingGroups(groups, selections)[0] ?? null
 
   function modDelta(): number {
-    return groups.reduce((sum, g) => {
-      const sel = selections[g.id]
-      if (sel == null) return sum
-      if (g.selection_type === 'single' && isSingleSel(sel)) {
-        // Prețuim doar dacă opțiunea e încă disponibilă.
-        const opt = g.modifier_options.find((o) => o.id === sel && o.is_available)
-        return sum + (opt?.price_delta ?? 0)
-      }
-      if (sel instanceof Set) {
-        return (
-          sum +
-          g.modifier_options
-            .filter((o) => o.is_available && sel.has(o.id))
-            .reduce((s, o) => s + o.price_delta, 0)
-        )
-      }
-      return sum
-    }, 0)
+    return selectionDelta(groups, selections)
   }
 
   function buildSelectedModifiers(): CartItem['selected_modifiers'] {
-    return groups.flatMap((g) => {
-      const sel = selections[g.id]
-      if (sel == null) return []
-      if (g.selection_type === 'single' && isSingleSel(sel)) {
-        // Trimitem doar opțiuni disponibile (serverul le respinge oricum).
-        const opt = g.modifier_options.find((o) => o.id === sel && o.is_available)
-        if (opt == null) return []
-        return [
-          {
-            group_id: g.id,
-            group_name: g.name,
-            option_id: opt.id,
-            option_name: opt.name,
-            price_delta: opt.price_delta,
-          },
-        ]
-      }
-      if (sel instanceof Set) {
-        return g.modifier_options
-          .filter((o) => o.is_available && sel.has(o.id))
-          .map((o) => ({
-            group_id: g.id,
-            group_name: g.name,
-            option_id: o.id,
-            option_name: o.name,
-            price_delta: o.price_delta,
-          }))
-      }
-      return []
-    })
+    return buildFromSelections(groups, selections)
   }
 
-  function toggleSingle(gid: string, oid: string): void {
-    setSelections((prev) => ({ ...prev, [gid]: oid }))
-  }
-
-  function toggleMultiple(gid: string, oid: string): void {
-    const group = groups.find((g) => g.id === gid)
-    const maxSelect = group?.max_select ?? null
-    setSelections((prev) => {
-      const existing = prev[gid]
-      const s = existing instanceof Set ? new Set(existing) : new Set<string>()
-      if (s.has(oid)) {
-        // Deselectarea e mereu permisă.
-        s.delete(oid)
-      } else {
-        // max_select client-side (paritate cu mig 145 care respinge întreaga
-        // comandă la depășire). La atingerea plafonului blocăm adăugarea —
-        // opțiunile la cap sunt oricum dezactivate vizual mai jos.
-        if (maxSelect != null && s.size >= maxSelect) return prev
-        s.add(oid)
-      }
-      return { ...prev, [gid]: s }
-    })
+  // Single: alege; a doua atingere deselectează DOAR pe un grup opțional.
+  // Multiple: bifează/debifează, fără să treacă de maxim (mig 145).
+  function toggle(g: (typeof groups)[number], oid: string): void {
+    setSelections((prev) => toggleOption(g, prev, oid))
   }
 
   const unitTotal = product.price + modDelta() + chosenExtras.reduce((s, e) => s + e.price, 0)
@@ -257,14 +174,12 @@ export default function ModifierSheet({
           {groups.map((g) => {
             const sel = selections[g.id]
             // Nu randăm opțiuni indisponibile (serverul le respinge oricum).
-            const availableOptions = g.modifier_options.filter((o) => o.is_available)
+            const availableOptions = groupAvailableOptions(g)
             // Plafon atins pe grup multiplu → dezactivăm opțiunile neselectate.
             // Numărăm doar opțiunile disponibile (cele indisponibile nu ocupă slot).
-            const multiCount = sel instanceof Set ? availableSelectedCount(g, sel) : 0
+            const max = groupMax(g)
             const atMax =
-              g.selection_type === 'multiple' &&
-              g.max_select != null &&
-              multiCount >= g.max_select
+              g.selection_type === 'multiple' && max != null && selectedCount(g, selections) >= max
             const hint = modifierGroupHint(g)
             return (
               <div key={g.id}>
@@ -284,8 +199,8 @@ export default function ModifierSheet({
                   {availableOptions.map((opt) => {
                     const isSelected =
                       g.selection_type === 'single'
-                        ? isSingleSel(sel) && sel === opt.id
-                        : sel instanceof Set && sel.has(opt.id)
+                        ? !isMultiSelection(sel) && sel === opt.id
+                        : isMultiSelection(sel) && sel.has(opt.id)
                     // Blocăm opțiunile neselectate când grupul e la cap.
                     const isDisabled = atMax && !isSelected
                     return (
@@ -295,11 +210,7 @@ export default function ModifierSheet({
                         role={g.selection_type === 'single' ? 'radio' : undefined}
                         aria-checked={g.selection_type === 'single' ? isSelected : undefined}
                         aria-pressed={g.selection_type === 'single' ? undefined : isSelected}
-                        onClick={() =>
-                          g.selection_type === 'single'
-                            ? toggleSingle(g.id, opt.id)
-                            : toggleMultiple(g.id, opt.id)
-                        }
+                        onClick={() => toggle(g, opt.id)}
                         style={{
                           background: isSelected ? D.goldA : D.s3,
                           border: `1px solid ${isSelected ? D.gold : D.s3}`,
@@ -313,7 +224,9 @@ export default function ModifierSheet({
                         }}
                       >
                         {opt.name}
-                        {opt.price_delta > 0 ? ` +${opt.price_delta}` : ''}
+                        {opt.price_delta !== 0
+                          ? ` ${opt.price_delta > 0 ? '+' : '−'}${Math.abs(opt.price_delta)}`
+                          : ''}
                       </button>
                     )
                   })}
@@ -413,6 +326,13 @@ export default function ModifierSheet({
             }}
           />
 
+          {/* Ce mai trebuie ales, cu numele grupului (lotul O4b) — butonul blocat
+              singur nu spunea de ce. */}
+          {!canAdd && firstMissing && (
+            <div role="status" style={{ fontSize: 12, color: D.amber, marginBottom: -8 }}>
+              Alege: {firstMissing.name}
+            </div>
+          )}
           <button
             disabled={!canAdd}
             onClick={() => {

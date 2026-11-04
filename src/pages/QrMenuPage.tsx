@@ -28,6 +28,7 @@ import { T } from '../lib/publicMenuStrings'
 import { Tf } from '../lib/guestI18n'
 import { describeGuestError, isNetworkGuestError, isStaleMenuGuestError } from '../lib/guestErrors'
 import { productIndex, repriceCart } from '../lib/cartReconcile'
+import { markUnorderableProducts } from '../lib/optionSelection'
 import { createLatestGate, freshActiveProduct, localizeProduct } from '../lib/menuRefresh'
 import { trName, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
@@ -45,7 +46,7 @@ import {
   tablePaymentReturnCleanUrl,
   type TablePaymentReturn,
 } from '../lib/tablePaymentConfirm'
-import { callWaiter } from '../lib/orders'
+import { addOrMergeCartItem, callWaiter, MAX_LINE_QTY } from '../lib/orders'
 import {
   fetchLoyaltyState,
   attachOrderToLoyalty,
@@ -382,10 +383,13 @@ export default function QrMenuPage({ token }: Props) {
   }, [])
 
   function addToCart(item: CartItem): void {
-    setCart((p) => [...p, item])
+    // O linie identică își crește cantitatea (lotul O4b, OPT-8).
+    setCart((p) => addOrMergeCartItem(p, item))
     announceAdded(item.product_name_snapshot)
-    // Trigger pairing popup if product has pairings and they're not already in cart
-    const allProducts = categories.flatMap((c) => c.products)
+    // Trigger pairing popup if product has pairings and they're not already in cart.
+    // Din meniul LOCALIZAT (OPT-9): fereastra și fișa deschisă din ea erau în
+    // română pe un meniu în altă limbă.
+    const allProducts = localizedCategories.flatMap((c) => c.products)
     const sourceProduct = allProducts.find((p) => p.id === item.product_id)
     if (sourceProduct && sourceProduct.pairings && sourceProduct.pairings.length > 0) {
       const cartProductIds = new Set(cart.map((c) => c.product_id).concat([item.product_id]))
@@ -401,7 +405,12 @@ export default function QrMenuPage({ token }: Props) {
 
   function updateQty(key: string, delta: number): void {
     setCart((p) =>
-      p.map((i) => (i._key === key ? { ...i, quantity: Math.max(1, i.quantity + delta) } : i)),
+      p.map((i) =>
+        i._key === key
+          ? // Între 1 și plafonul serverului pe linie (OPT-13).
+            { ...i, quantity: Math.min(MAX_LINE_QTY, Math.max(1, i.quantity + delta)) }
+          : i,
+      ),
     )
   }
 
@@ -614,8 +623,10 @@ export default function QrMenuPage({ token }: Props) {
   // întoarcem aceeași referință → memo stabil, zero re-render inutil. Doar
   // name/description sunt traduse; product_id rămâne identic (coșul nu se atinge).
   const localizedCategories = useMemo<Category[]>(() => {
-    if (lang === 'ro') return categories
-    return categories.map((c) => ({
+    // Lotul O4b: produsul pe care opțiunile îl fac necomandabil apare „Epuizat”.
+    const shown = markUnorderableProducts(categories)
+    if (lang === 'ro') return shown
+    return shown.map((c) => ({
       ...c,
       name: trName(c, lang),
       products: c.products.map((p) => localizeProduct(p, lang)),
@@ -709,9 +720,8 @@ export default function QrMenuPage({ token }: Props) {
   const quickAddProductQr = useCallback(
     (p: Product): void => {
       // Quick-add: direct în coș (fără pairing popup — la fel ca butonul „+" vechi).
-      setCart((prev) => [
-        ...prev,
-        {
+      setCart((prev) =>
+        addOrMergeCartItem(prev, {
           _key: crypto.randomUUID(),
           product_id: p.id,
           product_name_snapshot: p.name,
@@ -719,8 +729,8 @@ export default function QrMenuPage({ token }: Props) {
           quantity: 1,
           selected_modifiers: [],
           notes: null,
-        },
-      ])
+        }),
+      )
       announceAdded(p.name)
     },
     [announceAdded],
@@ -1780,7 +1790,7 @@ export default function QrMenuPage({ token }: Props) {
                             notes: null,
                             upsell_source: 'pairing',
                           }
-                          setCart((prev) => [...prev, newItem])
+                          setCart((prev) => addOrMergeCartItem(prev, newItem))
                           announceAdded(p.name)
                         }
                       }}
@@ -1864,7 +1874,7 @@ export default function QrMenuPage({ token }: Props) {
               setActiveProduct(product)
             }}
             onAddToCart={(item) => {
-              setCart((prev) => [...prev, item])
+              setCart((prev) => addOrMergeCartItem(prev, item))
               announceAdded(item.product_name_snapshot)
             }}
             sentOrders={previousOrders}

@@ -29,7 +29,7 @@ import type { HappyHourRule } from '../lib/qr'
 import type { Restaurant, Category, Product } from '../lib/qr'
 import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { CartItem } from '../lib/orders'
-import { lineTotal } from '../lib/orders'
+import { addOrMergeCartItem, lineTotal } from '../lib/orders'
 import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
 import { formatTimeInZone, safeTimeZone } from '../lib/dates'
 import { useMenuSeo } from '../hooks/useMenuSeo'
@@ -48,6 +48,7 @@ import { useDocumentLang } from '../hooks/useDocumentLang'
 import { useMenuVersionRefetch } from '../hooks/useMenuVersionRefetch'
 import { createLatestGate, freshActiveProduct } from '../lib/menuRefresh'
 import { cartIssueCounts, cartLineIssue, productIndex, repriceCart } from '../lib/cartReconcile'
+import { markUnorderableProducts } from '../lib/optionSelection'
 import { cartBarLabel, listScrollTarget, prefetchOnIdle, stickyTabsBottom } from '../lib/menuUi'
 import { FocusTrap } from '../components/ui/FocusTrap'
 import MyListSheet from '../components/MyListSheet'
@@ -342,8 +343,10 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   // Pe 'ro' întoarcem aceeași referință → memo stabil. Doar name/description
   // sunt traduse; product_id rămâne identic (coșul/comanda nu se ating).
   const localizedCategories = useMemo<Category[]>(() => {
-    if (menuLang === 'ro') return categories
-    return categories.map((c) => ({
+    // Lotul O4b: produsul pe care opțiunile îl fac necomandabil apare „Epuizat”.
+    const shown = markUnorderableProducts(categories)
+    if (menuLang === 'ro') return shown
+    return shown.map((c) => ({
       ...c,
       name: trName(c, menuLang),
       products: c.products.map((p) => ({
@@ -514,7 +517,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const [lastAdded, setLastAdded] = useState<{ n: number; name: string } | null>(null)
 
   const addToCart = useCallback((item: CartItem): void => {
-    setCart((prev) => [...prev, item])
+    // O linie identică își crește cantitatea (lotul O4b, OPT-8).
+    setCart((prev) => addOrMergeCartItem(prev, item))
     setLastAdded((prev) => ({ n: (prev?.n ?? 0) + 1, name: item.product_name_snapshot }))
   }, [])
 
