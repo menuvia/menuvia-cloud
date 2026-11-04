@@ -23,6 +23,13 @@ const PUB = {
   borderStrong: '#bbb',
 }
 
+// Produsul din coș al testelor de recomandări: e în meniu (lotul O4a — o linie
+// al cărei produs lipsește din meniul de acum blochează trimiterea).
+const ALT_CATEGORY = makeCategory({
+  id: 'c-alt',
+  products: [makeProduct({ id: 'p-alt', name: 'Espresso', category_id: 'c-alt' })],
+})
+
 function renderSheet(overrides: Partial<QrCartSheetProps> = {}) {
   const cart = overrides.cart ?? [makeCartItem({ product_name_snapshot: 'Cafea', unit_price_snapshot: 10 })]
   const props: QrCartSheetProps = {
@@ -128,7 +135,7 @@ describe('QrCartSheet — coșul QR (bani + gating)', () => {
     const sugg = makeProduct({ id: 'p-sug', name: 'Limonadă', price: 12, category_id: 'c2' })
     const props = renderSheet({
       cart: [makeCartItem({ product_id: 'p-alt' })],
-      categories: [makeCategory({ id: 'c2', products: [sugg] })],
+      categories: [ALT_CATEGORY, makeCategory({ id: 'c2', products: [sugg] })],
       checkoutSuggestionSettings: { enabled: true },
     })
 
@@ -156,7 +163,7 @@ describe('QrCartSheet — coșul QR (bani + gating)', () => {
     })
     const props = renderSheet({
       cart: [makeCartItem({ product_id: 'p-alt' })],
-      categories: [makeCategory({ id: 'c2', products: [withRequired] })],
+      categories: [ALT_CATEGORY, makeCategory({ id: 'c2', products: [withRequired] })],
       checkoutSuggestionSettings: { enabled: true },
     })
 
@@ -177,7 +184,7 @@ describe('QrCartSheet — text lizibil peste accent', () => {
     const sugg = makeProduct({ id: 'p-sug', name: 'Limonadă', category_id: 'c2' })
     renderSheet({
       cart: [makeCartItem({ product_id: 'p-alt' })],
-      categories: [makeCategory({ id: 'c2', products: [sugg] })],
+      categories: [ALT_CATEGORY, makeCategory({ id: 'c2', products: [sugg] })],
       checkoutSuggestionSettings: { enabled: true },
     })
     const expected = readableTextOn('#C8963C', PUB.text)

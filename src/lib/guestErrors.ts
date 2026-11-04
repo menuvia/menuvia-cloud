@@ -178,6 +178,26 @@ export function isSoldOutGuestError(err: unknown): boolean {
   return rawKey(err) === 'err_product_sold_out'
 }
 
+/**
+ * Refuzul spune că meniul din telefon e VECHI (lotul O4a): un produs epuizat
+ * sau scos din meniu, opțiuni sau extra-uri care nu mai sunt valabile, un grup
+ * devenit obligatoriu. Apelantul reîncarcă atunci meniul, ca linia din coș să
+ * fie marcată (lib/cartReconcile) — altfel oaspetele primea același mesaj
+ * generic la fiecare trimitere, până reîncărca pagina (și pierdea coșul).
+ */
+const STALE_MENU_KEYS: ReadonlySet<PublicMenuStringKey> = new Set<PublicMenuStringKey>([
+  'err_product_sold_out',
+  'err_product_unavailable',
+  'err_missing_required_group',
+  'err_invalid_options',
+  'err_invalid_extras',
+])
+
+export function isStaleMenuGuestError(err: unknown): boolean {
+  const k = rawKey(err)
+  return k != null && STALE_MENU_KEYS.has(k)
+}
+
 /** Textul erorii în limba oaspetelui — NICIODATĂ mesajul brut al serverului. */
 export function describeGuestError(
   lang: string | null | undefined,

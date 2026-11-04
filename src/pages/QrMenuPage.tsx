@@ -26,7 +26,8 @@ import { fetchOnlinePaymentEnabled } from '../lib/payments'
 import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
 import { T } from '../lib/publicMenuStrings'
 import { Tf } from '../lib/guestI18n'
-import { describeGuestError, isNetworkGuestError, isSoldOutGuestError } from '../lib/guestErrors'
+import { describeGuestError, isNetworkGuestError, isStaleMenuGuestError } from '../lib/guestErrors'
+import { productIndex, repriceCart } from '../lib/cartReconcile'
 import { createLatestGate, freshActiveProduct, localizeProduct } from '../lib/menuRefresh'
 import { trName, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
@@ -132,6 +133,12 @@ export default function QrMenuPage({ token }: Props) {
   const [networkError, setNetworkError] = useState(false)
   const [activeProduct, setActiveProduct] = useState<Product | null>(null)
   const [cart, setCart] = useState<CartItem[]>([])
+  // Coșul curent pentru reîmprospătarea meniului (refreshMenu e un callback
+  // stabil, nu trebuie re-creat la fiecare linie adăugată).
+  const cartRef = useRef<CartItem[]>(cart)
+  useEffect(() => {
+    cartRef.current = cart
+  }, [cart])
   const [showCart, setShowCart] = useState(false)
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -350,12 +357,20 @@ export default function QrMenuPage({ token }: Props) {
       if (!isLatest()) return false
       setCategories(cats)
       setActiveProduct((prev) => freshActiveProduct(prev, cats, langRef.current))
+      // Lotul O4a: liniile valide din coș trec pe prețurile de acum — serverul
+      // le taxează oricum la prețul din baza de date, deci un total vechi în
+      // coș ar minți. Liniile care nu mai corespund meniului rămân marcate.
+      const menu = productIndex(cats)
+      if (repriceCart(cartRef.current, menu).changed) {
+        setCart((prev) => repriceCart(prev, menu).cart)
+        toast.info(T(langRef.current, 'cart_prices_updated'))
+      }
       return true
     } catch {
       /* meniul vechi rămâne; serverul respinge oricum produsele epuizate */
       return false
     }
-  }, [menuRestaurantId])
+  }, [menuRestaurantId, toast])
   useMenuVersionRefetch(menuRestaurantId, refreshMenu)
 
   // Ultima adăugare, anunțată de regiunea role="status" (ux-guest-12): fără
@@ -457,10 +472,11 @@ export default function QrMenuPage({ token }: Props) {
       }
     }
 
-    // Un produs din coș s-a epuizat între timp (mig 313): meniul se reface, ca
-    // linia lui din coș să primească badge-ul „Epuizat” — mesajul singur nu
-    // spune CARE produs.
-    if (isSoldOutGuestError(lastError)) void refreshMenu()
+    // Meniul din telefon e vechi (mig 313 + lotul O4a): un produs epuizat sau
+    // scos, opțiuni/extra-uri care nu mai sunt valabile. Meniul se reface, ca
+    // linia din coș să fie marcată — mesajul singur nu spune CARE produs, iar
+    // fără reîmprospătare oaspetele relua aceeași foaie veche și același refuz.
+    if (isStaleMenuGuestError(lastError)) void refreshMenu()
     // Hint-ul/mesajul serverului → text în limba oaspetelui; niciodată brut
     // (mesajele create_order sunt amestecate RO/EN — mig 191).
     setSubmitError(describeGuestError(lang, lastError, { fallback: 'err_order_not_sent' }))

@@ -14,7 +14,7 @@ import { legibleOn, readableTextOn } from '../lib/themes'
 import PhoneInput from './PhoneInput'
 import { DEFAULT_CALLING_CODE, toE164 } from '../lib/phone'
 import { T } from '../lib/publicMenuStrings'
-import { guestErrorKey, isPickupRefusal, PICKUP_ERROR_OPTS } from '../lib/guestErrors'
+import { guestErrorKey, isPickupRefusal, isStaleMenuGuestError, PICKUP_ERROR_OPTS } from '../lib/guestErrors'
 
 interface PUBColors {
   bg: string
@@ -35,6 +35,10 @@ export interface PickupCheckoutProps {
   PUB: PUBColors
   onClose: () => void
   onSuccess: (short_id: string, pickup_time: string | null, total: number) => void
+  /** Refuzul spune că meniul din telefon e vechi (produs epuizat/scos,
+   *  opțiuni sau extra-uri care nu mai sunt valabile): pagina reface meniul,
+   *  ca linia din coș să fie marcată (lotul O4a). */
+  onStaleMenu?: () => void
   // Moneda meniului (mig 205) — default RON, ca la call-site-urile istorice.
   currency?: MenuCurrency
   // Limba aleasă de oaspete — toate textele sheet-ului. NU decide prefixul
@@ -51,6 +55,7 @@ export default function PickupCheckoutSheet({
   PUB,
   onClose,
   onSuccess,
+  onStaleMenu,
   currency = 'RON',
   lang = 'ro',
 }: PickupCheckoutProps) {
@@ -163,6 +168,7 @@ export default function PickupCheckoutSheet({
       const key = guestErrorKey(err, PICKUP_ERROR_OPTS)
       setError(T(lang, key))
       setRefused(isPickupRefusal(key))
+      if (isStaleMenuGuestError(err)) onStaleMenu?.()
       setSubmitting(false)
     }
   }
