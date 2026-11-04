@@ -8,6 +8,8 @@
 //     la fiecare masă / redeschidere (perf-staff-2)
 //   - „✕" cu produse în coș cere confirmare (ux-staff-entry-discard)
 //   - pagina primește confirmarea (ux-staff-order-sent-feedback)
+//   - plafonul de 20 pe linie și de 500 pe notă; refuzul pe meniu învechit
+//     re-cere meniul, ocolind cache-ul (recenzia O2b, WQ1–WQ3)
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -33,6 +35,7 @@ vi.mock('../ui/confirm', () => ({ confirm: confirmMock }))
 
 import WaiterEntry from '../WaiterEntry'
 import { STAFF_MENU_TTL_MS } from '../../lib/staffMenuCache'
+import { MAX_LINE_QTY, MAX_ORDER_NOTE } from '../../lib/orders'
 import type { CreateOrderArgs } from '../../lib/orders'
 import { makeTable, makeCategory, makeProduct } from './fixtures'
 
@@ -167,6 +170,59 @@ describe('WaiterEntry — fluxul de bani al comenzii manuale', () => {
     await placeOneOrder(user)
     expect(await screen.findByText(T('ro', 'err_invalid_quantity'))).toBeInTheDocument()
     expect(screen.queryByText(/Invalid quantity/)).toBeNull()
+  })
+})
+
+describe('WaiterEntry — plafoanele serverului și meniul învechit (recenzia O2b)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fetchTablesMock.mockResolvedValue([TABLE])
+    fetchMenuMock.mockResolvedValue(MENU)
+  })
+
+  it('WQ1 „+" din coș se oprește la 20 pe linie; nota comenzii are plafonul de 500', async () => {
+    // Mutație: `Math.max(1, …)` fără `Math.min(MAX_LINE_QTY, …)` → linia ajunge
+    // la 21 și create_order refuză toată comanda (invalid_quantity).
+    const user = userEvent.setup()
+    render(<WaiterEntry restaurantId="r-wq1" onClose={vi.fn()} onOrderCreated={vi.fn()} />)
+    await user.click(await screen.findByRole('button', { name: 'Masa 7' }))
+    await user.click(await screen.findByRole('button', { name: /ciorbă de burtă/i }))
+    await user.click(screen.getByRole('button', { name: /adaugă în comandă/i }))
+    await user.click(screen.getByRole('button', { name: /coș \(1\)/i }))
+    const plus = screen.getByRole('button', { name: '+' })
+    for (let i = 0; i < 19; i++) await user.click(plus)
+    expect(screen.getByText(`Total: ${(22 * MAX_LINE_QTY).toFixed(2)} lei`)).toBeInTheDocument()
+    expect(plus).toBeDisabled()
+    expect(screen.getByPlaceholderText(/mențiuni comandă/i)).toHaveAttribute(
+      'maxLength',
+      String(MAX_ORDER_NOTE),
+    )
+  })
+
+  it('WQ2 refuz pe meniu învechit (invalid_extras): meniul se cere din nou, ocolind cache-ul', async () => {
+    // Mutație: fără invalidateStaffMenu + reîncărcare → 1 apel (meniul din
+    // cache, cu extra-ul mort), iar „adaugă din nou" oferă aceeași greșeală.
+    const user = userEvent.setup()
+    createOrderMock.mockRejectedValue(
+      Object.assign(new Error('Extra indisponibil pentru produsul "Ciorbă de burtă"'), {
+        hint: 'invalid_extras',
+      }),
+    )
+    render(<WaiterEntry restaurantId="r-wq2" onClose={vi.fn()} onOrderCreated={vi.fn()} />)
+    await placeOneOrder(user)
+    await screen.findByText(/extra indisponibil/i)
+    await waitFor(() => expect(fetchMenuMock).toHaveBeenCalledTimes(2))
+  })
+
+  it('WQ3 control: un refuz care NU ține de meniu (sesiune, rețea) nu re-descarcă meniul', async () => {
+    const user = userEvent.setup()
+    createOrderMock.mockRejectedValue(
+      Object.assign(new Error('Sesiunea mesei s-a închis între timp.'), { hint: 'session_closed' }),
+    )
+    render(<WaiterEntry restaurantId="r-wq3" onClose={vi.fn()} onOrderCreated={vi.fn()} />)
+    await placeOneOrder(user)
+    await screen.findByText(/sesiunea mesei s-a închis/i)
+    expect(fetchMenuMock).toHaveBeenCalledTimes(1)
   })
 })
 

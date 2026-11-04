@@ -343,8 +343,10 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   // Pe 'ro' întoarcem aceeași referință → memo stabil. Doar name/description
   // sunt traduse; product_id rămâne identic (coșul/comanda nu se ating).
   const localizedCategories = useMemo<Category[]>(() => {
-    // Lotul O4b: produsul pe care opțiunile îl fac necomandabil apare „Epuizat”.
-    const shown = markUnorderableProducts(categories)
+    // Lotul O4b: produsul pe care opțiunile îl fac necomandabil apare „Epuizat”
+    // DOAR la ridicare, unde comanda ajunge la server. În „Lista mea” nu se
+    // trimite nimic, iar fișa cu descrierea și alergenii trebuie să se deschidă.
+    const shown = pickupEnabled ? markUnorderableProducts(categories) : categories
     if (menuLang === 'ro') return shown
     return shown.map((c) => ({
       ...c,
@@ -355,7 +357,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         description: trDesc(p, menuLang),
       })),
     }))
-  }, [categories, menuLang])
+  }, [categories, menuLang, pickupEnabled])
 
   // Limbile extra oferite = cele în care meniul chiar e tradus (derivate din
   // conținut, nu dintr-un flag expus prin RPC). Switcher-ul apare doar dacă

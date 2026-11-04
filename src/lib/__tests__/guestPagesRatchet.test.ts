@@ -28,6 +28,8 @@
 //        sub bara de categorii (ținta e testată în menuUi, BL3), iar pe /q
 //        căutarea se golește (ux-guest-6). Fără clichet, `onSelect` putea
 //        reveni la setter-ul gol fără ca vreun test să pice.
+//   GA9  produsul făcut necomandabil de opțiuni apare „Epuizat” DOAR unde se
+//        poate comanda (/q cu comenzi, /m cu ridicare) — recenzia O4b.
 //
 // Fiecare verificare pică pe codul de dinainte (alb fix pe bară, condiția
 // `&& orderingAllowed`, lista inline `msg.includes('fetch')`, foaia inline cu
@@ -146,13 +148,17 @@ describe('clichete pe sursa paginilor oaspetelui', () => {
     // adăugare fără anunț ar lăsa cititorul de ecran fără confirmare exact pe
     // ea. Anti-vacuitate: /q are patru căi (quick-add, fișă, asocieri,
     // sugestiile din coș), /m una (addToCart, prin care trec toate).
+    // Din lotul O4b adăugarea trece prin `addOrMergeCartItem` (linii identice
+    // unite), deci se numără ambele forme.
     const ANNOUNCE = /announceAdded\(|setLastAdded\(/
     for (const [file, source, min] of [
       [FILES.qr, src.qr, 4],
       [FILES.pub, src.pub, 1],
     ] as const) {
       const lines = source.split('\n')
-      const appends = [...source.matchAll(/setCart\(\((\w+)\) => \[\s*\.\.\.\1,/g)].map(
+      const appends = [
+        ...source.matchAll(/setCart\(\((\w+)\) => (?:\[\s*\.\.\.\1,|addOrMergeCartItem\(\1,)/g),
+      ].map(
         (m) => source.slice(0, m.index).split('\n').length - 1,
       )
       const silent = appends.filter((ln) => !ANNOUNCE.test(lines.slice(ln, ln + 20).join('\n')))
@@ -237,6 +243,17 @@ describe('clichete pe sursa paginilor oaspetelui', () => {
     // Pe /q căutarea caută în TOT meniul și ascunde categoria: fără golirea
     // ei, tabul atins în timpul căutării nu schimba nimic pe ecran.
     expect(qr).toMatch(/setSearch\(''\)/)
+  })
+
+  it('GA9 „Epuizat” din opțiuni doar unde se comandă: meniul de citit își păstrează fișa', () => {
+    // Recenzia O4b: marcajul pe toate meniurile închidea fișa cu alergenii pe
+    // Planul 1 și în „Lista mea”, unde nu pleacă nicio comandă. Mutația care
+    // pică: `markUnorderableProducts(categories)` necondiționat.
+    expect(src.qr).toMatch(/orderingAllowed \? markUnorderableProducts\(categories\) : categories/)
+    expect(src.pub).toMatch(/pickupEnabled \? markUnorderableProducts\(categories\) : categories/)
+    for (const s of [src.qr, src.pub]) {
+      expect(s.match(/markUnorderableProducts\(/g)?.length).toBe(1)
+    }
   })
 })
 
