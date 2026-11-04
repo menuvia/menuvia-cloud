@@ -9,6 +9,7 @@ import { Modal } from './_dashboard/sharedUI'
 import { toUserMessage, zeroRowsAsDenied } from '../lib/userMessages'
 import { Button } from './ui/Button'
 import { modifierGroupMin } from '../lib/qr'
+import { MENU_LANGS, activeTranslationLangs, mergeTranslations, type Translations } from '../lib/i18nMenu'
 import { fetchModifierGroupLinks, setModifierGroupProducts } from '../lib/modifierLinks'
 
 interface ModifierOption {
@@ -17,6 +18,7 @@ interface ModifierOption {
   price_delta: number
   is_available: boolean
   display_order: number
+  translations?: Translations | null
 }
 interface ModifierGroup {
   id: string
@@ -27,6 +29,7 @@ interface ModifierGroup {
   max_select: number | null
   display_order: number
   modifier_options: ModifierOption[]
+  translations?: Translations | null
 }
 
 const btn = (e: React.CSSProperties = {}): React.CSSProperties => ({
@@ -58,7 +61,22 @@ const inp: React.CSSProperties = {
   boxSizing: 'border-box',
 }
 
-export default function ModifiersTab({ restaurantId }: { restaurantId: string }) {
+export default function ModifiersTab({
+  restaurantId,
+  menuLanguages = [],
+  baseLang = 'ro',
+}: {
+  restaurantId: string
+  // Lotul O6b: limbile active ale meniului și limba originalului — grupurile
+  // și opțiunile se traduc în aceleași limbi ca produsele.
+  menuLanguages?: readonly string[]
+  baseLang?: string
+}) {
+  const trLangs = activeTranslationLangs(menuLanguages, baseLang)
+  // Traducerile din dialogul de grup: numele grupului și ale opțiunilor lui.
+  const [gTr, setGTr] = useState<Record<string, string>>({})
+  const [oTr, setOTr] = useState<Record<string, Record<string, string>>>({})
+  const [trDirty, setTrDirty] = useState(false)
   const [groups, setGroups] = useState<ModifierGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [editGroup, setEditGroup] = useState<ModifierGroup | 'add' | null>(null)
@@ -143,6 +161,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
       min_select: (g.min_select as number) ?? 0,
       max_select: g.max_select as number | null,
       display_order: (g.display_order as number) ?? 0,
+      translations: (g.translations as Translations | null | undefined) ?? null,
       modifier_options: opts
         .filter((o: Record<string, unknown>) => o.modifier_group_id === g.id)
         .map((o: Record<string, unknown>) => ({
@@ -151,6 +170,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
           price_delta: o.price_delta as number,
           is_available: o.is_available as boolean,
           display_order: (o.display_order as number) ?? 0,
+          translations: (o.translations as Translations | null | undefined) ?? null,
         })),
     }))
     setGroups(result)
@@ -174,6 +194,15 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
       setGRequired(g.is_required)
       setGMaxSelect(g.max_select != null ? String(g.max_select) : '')
     }
+    const nameIn = (tr: Translations | null | undefined) =>
+      Object.fromEntries(trLangs.map((l) => [l, tr?.[l]?.name ?? '']))
+    setGTr(g === 'add' ? {} : nameIn(g.translations))
+    setOTr(
+      g === 'add'
+        ? {}
+        : Object.fromEntries(g.modifier_options.map((o) => [o.id, nameIn(o.translations)])),
+    )
+    setTrDirty(false)
     setError(null)
   }
 
@@ -217,12 +246,28 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
           is_required: gRequired,
           min_select: gRequired ? 1 : 0,
           max_select: maxSelect,
+          // Traducerile pleacă DOAR dacă au fost atinse: pe o bază fără mig
+          // 321 coloana lipsește și ar strica orice salvare a grupului.
+          ...(trDirty ? { translations: mergeTranslations(editGroup.translations, gTr, trLangs) } : {}),
         })
         .eq('id', editGroup.id)
       if (e) {
         setError(toUserMessage(e))
         setSaving(false)
         return
+      }
+      if (trDirty) {
+        for (const o of editGroup.modifier_options) {
+          const { error: oe } = await supabase
+            .from('modifier_options')
+            .update({ translations: mergeTranslations(o.translations, oTr[o.id] ?? {}, trLangs) })
+            .eq('id', o.id)
+          if (oe) {
+            setError(toUserMessage(oe, `Traducerea opțiunii „${o.name}” nu a fost salvată.`))
+            setSaving(false)
+            return
+          }
+        }
       }
     }
     setSaving(false)
@@ -801,6 +846,44 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                   : 'Clientul poate sări peste această secțiune'}
               </div>
             </div>
+            {/* Traduceri (lotul O6b): numele grupului și al opțiunilor, în
+                limbile active ale meniului — altfel un oaspete englez vedea
+                „Mărime” și „Mare” în română pe un meniu tradus. */}
+            {editGroup !== 'add' && editGroup != null && trLangs.length > 0 && (
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: '0.78rem', color: D.t2, marginBottom: 8 }}>Traduceri</div>
+                {[
+                  { id: '__group__', label: gName || 'Grup' },
+                  ...editGroup.modifier_options.map((o) => ({ id: o.id, label: o.name })),
+                ].map((row) => (
+                  <div key={row.id} style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: '0.75rem', color: D.t3, marginBottom: 4 }}>{row.label}</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                      {trLangs.map((l) => {
+                        const meta = MENU_LANGS.find((x) => x.code === l)
+                        const value = row.id === '__group__' ? (gTr[l] ?? '') : (oTr[row.id]?.[l] ?? '')
+                        return (
+                          <input
+                            key={l}
+                            value={value}
+                            placeholder={`${meta?.flag ?? ''} ${meta?.label ?? l}`}
+                            aria-label={`${row.label} — ${meta?.label ?? l}`}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              setTrDirty(true)
+                              if (row.id === '__group__') setGTr((prev) => ({ ...prev, [l]: v }))
+                              else
+                                setOTr((prev) => ({ ...prev, [row.id]: { ...(prev[row.id] ?? {}), [l]: v } }))
+                            }}
+                            style={{ ...inp, height: 34, fontSize: '0.8rem' }}
+                          />
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             {error && <div style={{ color: D.red, fontSize: 13, marginBottom: 14 }}>{error}</div>}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button

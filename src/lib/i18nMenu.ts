@@ -47,7 +47,8 @@ export function menuBaseLang(language: string | null | undefined): string {
 
 // Structura coloanei `translations` (products/categories): cheia = cod de
 // limbă (`en`, `de`, …), valoarea = câmpurile traduse (opționale).
-export type Translations = Record<string, { name?: string; description?: string }>
+// `meta_text` = subtitlul categoriei (lotul O6b; doar pe categorii).
+export type Translations = Record<string, { name?: string; description?: string; meta_text?: string }>
 
 // Întoarce numele localizat al unui produs/categorie pe limba cerută.
 // Fallback la original (coloana `name`) pentru `ro`, lipsă traducere sau
@@ -75,6 +76,19 @@ export function trDesc(
   const t = item.translations?.[lang]?.description
   if (typeof t === 'string' && t.trim().length > 0) return t
   return item.description
+}
+
+// Subtitlul localizat al unei categorii (lotul O6b): `translations[lang].meta_text`,
+// altfel originalul.
+export function trMeta(
+  item: { meta_text: string | null; translations?: Translations | null },
+  lang: string,
+  base = 'ro',
+): string | null {
+  if (lang === base) return item.meta_text
+  const t = item.translations?.[lang]?.meta_text
+  if (typeof t === 'string' && t.trim().length > 0) return t
+  return item.meta_text
 }
 
 // Limbile EXTRA (fără `ro`) în care meniul chiar e tradus — derivate din

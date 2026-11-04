@@ -1621,7 +1621,11 @@ export default function DashboardPage({
               )}
               {tab === 'modificatori' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă modificatorii..." />}>
-                  <ModifiersTab restaurantId={restaurant.id} />
+                  <ModifiersTab
+                    restaurantId={restaurant.id}
+                    menuLanguages={restaurant.menu_languages ?? []}
+                    baseLang={menuBaseLang(restaurant.language)}
+                  />
                 </Suspense>
               )}
               {tab === 'mese' && (

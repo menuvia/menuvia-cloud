@@ -38,7 +38,18 @@ export function createLatestGate(): LatestGate {
 /** Numele/descrierea în limba aleasă; pe `ro` aceeași referință. */
 export function localizeProduct(p: Product, lang: string, base = 'ro'): Product {
   if (lang === base) return p
-  return { ...p, name: trName(p, lang, base), description: trDesc(p, lang, base) }
+  return {
+    ...p,
+    name: trName(p, lang, base),
+    description: trDesc(p, lang, base),
+    // Lotul O6b (mig 321): și grupurile, opțiunile și extra-urile.
+    modifier_groups: (p.modifier_groups ?? []).map((g) => ({
+      ...g,
+      name: trName(g, lang, base),
+      modifier_options: g.modifier_options.map((o) => ({ ...o, name: trName(o, lang, base) })),
+    })),
+    extras: (p.extras ?? []).map((e) => ({ ...e, name: trName(e, lang, base) })),
+  }
 }
 
 /**

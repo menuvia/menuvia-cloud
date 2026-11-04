@@ -30,7 +30,7 @@ import { describeGuestError, isNetworkGuestError, isStaleMenuGuestError } from '
 import { productIndex, repriceCart } from '../lib/cartReconcile'
 import { markUnorderableProducts } from '../lib/optionSelection'
 import { createLatestGate, freshActiveProduct, localizeProduct } from '../lib/menuRefresh'
-import { trName, availableMenuLangs, detectBrowserLang, menuBaseLang, normalizeMenuSearch } from '../lib/i18nMenu'
+import { trName, trMeta, availableMenuLangs, detectBrowserLang, menuBaseLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import {
@@ -637,6 +637,7 @@ export default function QrMenuPage({ token }: Props) {
     return shown.map((c) => ({
       ...c,
       name: trName(c, lang, baseLang),
+      meta_text: trMeta(c, lang, baseLang),
       products: c.products.map((p) => localizeProduct(p, lang, baseLang)),
     }))
   }, [categories, lang, baseLang])

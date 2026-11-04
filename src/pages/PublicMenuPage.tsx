@@ -27,7 +27,7 @@ import {
 } from '../lib/qr'
 import type { HappyHourRule } from '../lib/qr'
 import type { Restaurant, Category, Product } from '../lib/qr'
-import { trName, trDesc, availableMenuLangs, detectBrowserLang, menuBaseLang, normalizeMenuSearch } from '../lib/i18nMenu'
+import { trName, trMeta, availableMenuLangs, detectBrowserLang, menuBaseLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { CartItem } from '../lib/orders'
 import { addOrMergeCartItem, lineTotal } from '../lib/orders'
 import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
@@ -46,7 +46,7 @@ import {
 } from '../lib/themes'
 import { useDocumentLang } from '../hooks/useDocumentLang'
 import { useMenuVersionRefetch } from '../hooks/useMenuVersionRefetch'
-import { createLatestGate, freshActiveProduct } from '../lib/menuRefresh'
+import { createLatestGate, freshActiveProduct, localizeProduct } from '../lib/menuRefresh'
 import { cartIssueCounts, cartLineIssue, productIndex, repriceCart } from '../lib/cartReconcile'
 import { markUnorderableProducts } from '../lib/optionSelection'
 import { cartBarLabel, listScrollTarget, prefetchOnIdle, stickyTabsBottom } from '../lib/menuUi'
@@ -351,11 +351,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     return shown.map((c) => ({
       ...c,
       name: trName(c, menuLang, baseLang),
-      products: c.products.map((p) => ({
-        ...p,
-        name: trName(p, menuLang, baseLang),
-        description: trDesc(p, menuLang, baseLang),
-      })),
+      meta_text: trMeta(c, menuLang, baseLang),
+      // Lotul O6b: aceeași localizare ca pe QR (și opțiunile, grupurile, extra-urile).
+      products: c.products.map((p) => localizeProduct(p, menuLang, baseLang)),
     }))
   }, [categories, menuLang, baseLang])
 
