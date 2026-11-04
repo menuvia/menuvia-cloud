@@ -1876,6 +1876,7 @@ export default function QrMenuPage({ token }: Props) {
             onLineTotal={lineTotal}
             currency={menuCurrency}
             lang={lang}
+            baseLang={baseLang}
             onSubmit={(v) => {
               // Sursa de adevăr rămâne părintele (nota supraviețuiește
               // re-deschiderii sheet-ului); submit-ul primește valoarea ca

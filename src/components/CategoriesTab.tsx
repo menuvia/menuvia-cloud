@@ -52,7 +52,7 @@ function CategoryModal({
     // Fără limbi active NU trimitem `translations` deloc: nimic de schimbat.
     const payload: Partial<Category> =
       langs.length > 0
-        ? { ...form, translations: mergeTranslations(form.translations, names, langs) }
+        ? { ...form, translations: mergeTranslations(form.translations, names, langs, baseLang) }
         : form
     const err = await onSave(payload)
     // La succes părintele închide modalul; la eșec rămânem deschiși, cu

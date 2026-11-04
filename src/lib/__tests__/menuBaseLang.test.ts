@@ -9,12 +9,19 @@
 //   ML3  availableMenuLangs / detectBrowserLang / activeTranslationLangs sar
 //        BAZA, nu româna: o traducere română apare ca limbă în plus.
 //   ML4  control: fără bază dată, comportamentul de dinainte (baza = ro).
+//   ML5  mergeTranslations scrie o traducere ÎN română pe un meniu cu altă
+//        bază și ignoră câmpul bazei. [PICĂ: `code === 'ro'` fix — numele
+//        românesc tastat se pierdea tăcut la salvare, recenzia O6a]
+//   ML6  detectBrowserLang: prima preferință pe care meniul o are câștigă —
+//        dacă e chiar baza, oaspetele rămâne pe original. [PICĂ: baza sărită,
+//        un francez pe un meniu francez era mutat pe a doua lui limbă]
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   activeTranslationLangs,
   availableMenuLangs,
   detectBrowserLang,
   menuBaseLang,
+  mergeTranslations,
   trDesc,
   trName,
 } from '../i18nMenu'
@@ -53,8 +60,25 @@ describe('limba de bază a meniului', () => {
     const cats = [{ translations: null, products: [{ translations: soupe.translations }] }]
     expect(availableMenuLangs(cats, null, 'fr')).toEqual(['ro', 'en'])
     expect(activeTranslationLangs(['ro', 'fr', 'de'], 'fr')).toEqual(['ro', 'de'])
-    vi.stubGlobal('navigator', { languages: ['fr-FR', 'ro-RO'], language: 'fr-FR' })
+    vi.stubGlobal('navigator', { languages: ['de-DE', 'ro-RO'], language: 'de-DE' })
     expect(detectBrowserLang(['ro', 'en'], 'fr')).toBe('ro')
+  })
+
+  it('ML5 traducerea ÎN română se salvează pe o bază franceză; câmpul bazei nu', () => {
+    const out = mergeTranslations({ en: { name: 'Soups' } }, { ro: 'Ciorbe', fr: 'Soupes', en: 'Soups' }, ['ro', 'fr', 'en'], 'fr')
+    expect(out).toEqual({ ro: { name: 'Ciorbe' }, en: { name: 'Soups' } })
+    // Control: pe baza implicită (ro) româna rămâne originalul, deci sărită.
+    expect(mergeTranslations({}, { ro: 'Ciorbe', en: 'Soups' }, ['ro', 'en'])).toEqual({ en: { name: 'Soups' } })
+  })
+
+  it('ML6 oaspetele a cărui primă limbă e chiar baza rămâne pe original', () => {
+    vi.stubGlobal('navigator', { languages: ['fr-FR', 'en-US'], language: 'fr-FR' })
+    expect(detectBrowserLang(['ro', 'en'], 'fr')).toBeNull()
+    vi.stubGlobal('navigator', { languages: ['ro-RO', 'en-US'], language: 'ro-RO' })
+    expect(detectBrowserLang(['en'])).toBeNull()
+    // Control: o limbă pe care meniul nu o are e sărită până la una pe care o are.
+    vi.stubGlobal('navigator', { languages: ['ja-JP', 'en-US'], language: 'ja-JP' })
+    expect(detectBrowserLang(['en'])).toBe('en')
   })
 
   it('ML4 fără bază: româna e baza, ca înainte', () => {

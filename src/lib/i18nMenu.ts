@@ -148,7 +148,11 @@ export function detectBrowserLang(available: string[], base = 'ro'): string | nu
   for (const raw of prefs) {
     if (!raw) continue
     const code = raw.toLowerCase().split('-')[0] // 'de-DE' → 'de'
-    if (code !== base && avail.has(code)) return code
+    // Prima preferință pe care meniul o are câștigă: dacă e chiar originalul,
+    // oaspetele rămâne pe el (un francez pe un meniu francez nu e mutat pe a
+    // doua lui limbă, engleza).
+    if (code === base) return null
+    if (avail.has(code)) return code
   }
   return null
 }
@@ -184,13 +188,16 @@ export function mergeTranslations(
   existing: Translations | null | undefined,
   names: Readonly<Record<string, string>>,
   activeLangs: readonly string[],
+  base = 'ro',
 ): Translations {
   const out: Translations = {}
   if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
     for (const [code, entry] of Object.entries(existing)) out[code] = entry
   }
   for (const code of activeLangs) {
-    if (code === 'ro') continue
+    // Originalul stă în coloana `name`. Baza e a LOCALULUI (lotul O6a): cu
+    // `'ro'` fix, o traducere ÎN română pe un meniu francez se pierdea tăcut.
+    if (code === base) continue
     const prev = out[code]
     const entry: { name?: string; description?: string } =
       prev && typeof prev === 'object' && !Array.isArray(prev) ? { ...prev } : {}

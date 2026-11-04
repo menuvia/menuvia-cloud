@@ -1600,6 +1600,7 @@ export default function DashboardPage({
                     }}
                     userId={user?.id || ''}
                     menuLanguages={restaurant.menu_languages ?? []}
+                    baseLang={menuBaseLang(restaurant.language)}
                     canUseAi={canUseAi}
                     canUseAiMenu={canUseAiMenu}
                     canManageRecipes={!isPartner}

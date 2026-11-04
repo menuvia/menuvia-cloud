@@ -5,7 +5,7 @@ import { usePlanLimits } from '../hooks/usePlanLimits'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { supabase } from '../lib/supabase'
 import { D, DIETARY_TAGS, ALLERGENS } from '../lib/constants'
-import { MENU_LANGS } from '../lib/i18nMenu'
+import { MENU_LANGS, activeTranslationLangs } from '../lib/i18nMenu'
 import { fetchVatRates } from '../lib/vat'
 import type { VatRate } from '../lib/vat'
 import type { PlanSurface } from '../lib/planSurface'
@@ -75,6 +75,7 @@ function ProductModal({
   restaurantId,
   userId,
   menuLanguages,
+  baseLang = 'ro',
   canUseAi,
   canManageRecipes,
   showVat,
@@ -101,7 +102,9 @@ function ProductModal({
   onClose: () => void
   restaurantId: string
   userId: string
+  /** Limbile de TRADUCERE (active, fără originalul). */
   menuLanguages: string[]
+  baseLang?: string
   // Vezi ProductsTab: imaginea și nutriția AI doar cu `canUseAi` (agentul n-are
   // aceste funcții în ai-proxy), rețetele doar cu `canManageRecipes`.
   canUseAi: boolean
@@ -730,6 +733,7 @@ function ProductModal({
       else next[code] = entry
       return { ...f, translations: next }
     })
+  const baseLabel = MENU_LANGS.find((l) => l.code === baseLang)?.label ?? baseLang
   // Numărul de limbi cu cel puțin o traducere completată (pentru contorul din header).
   const translatedCount = menuLanguages.filter(
     (code) =>
@@ -1343,8 +1347,8 @@ function ProductModal({
             {showTranslations && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 14 }}>
                 <div style={{ fontSize: '0.72rem', color: D.t3, lineHeight: 1.5 }}>
-                  Numele și descrierea în alte limbi. Româna (originalul de sus) rămâne baza —
-                  câmpurile lăsate goale afișează automat varianta în română.
+                  Numele și descrierea în alte limbi. Originalul de sus ({baseLabel}) rămâne
+                  baza — câmpurile lăsate goale afișează automat originalul.
                 </div>
                 {menuLanguages.map((code) => {
                   const meta = MENU_LANGS.find((l) => l.code === code)
@@ -2381,6 +2385,7 @@ export default function ProductsTab({
   onUpgrade,
   userId,
   menuLanguages = [],
+  baseLang = 'ro',
   canUseAi,
   canUseAiMenu,
   canManageRecipes,
@@ -2392,6 +2397,8 @@ export default function ProductsTab({
   onUpgrade: () => void
   userId: string
   menuLanguages?: string[]
+  /** Limba în care e scris meniul (restaurants.language, lotul O6a). */
+  baseLang?: string
   // Obligatorii (fără implicit): fiecare apelant decide, după ce PERMITE
   // ai-proxy (netlify/functions/ai-proxy.js):
   //   - `canUseAi` = TOATE funcțiile AI (nutriție, imagine, import, traducere)
@@ -2416,7 +2423,10 @@ export default function ProductsTab({
   const showRecipes = canManageRecipes && surface?.stocks === true
   // Lotul AI are sens fără `canUseAi` doar pentru traduceri: fără limbi extra
   // configurate, agentul n-ar avea nimic de generat acolo.
-  const hasExtraLangs = menuLanguages.some((c) => c !== 'ro')
+  // Limbile de TRADUCERE: cele active, fără originalul (baza localului, nu
+  // româna fixă — recenzia O6a).
+  const trLangs = activeTranslationLangs(menuLanguages, baseLang)
+  const hasExtraLangs = trLangs.length > 0
   const canBulkAi = canUseAi || (canUseAiMenu && hasExtraLangs)
   const [vatRates, setVatRates] = useState<VatRate[]>([])
   useEffect(() => {
@@ -3325,7 +3335,8 @@ export default function ProductsTab({
           onClose={() => setModal(null)}
           restaurantId={restaurantId}
           userId={userId}
-          menuLanguages={menuLanguages}
+          menuLanguages={trLangs}
+          baseLang={baseLang}
           defaultCategoryId={defaultCategoryId}
           canUseAi={canUseAi}
           canManageRecipes={showRecipes}
@@ -3397,6 +3408,7 @@ export default function ProductsTab({
             products={products}
             categories={categories}
             menuLanguages={menuLanguages}
+            baseLang={baseLang}
             onClose={() => setAiBulkOpen(false)}
             onDone={() => refetchProducts()}
             translateOnly={!canUseAi}

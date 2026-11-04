@@ -293,6 +293,9 @@ function mapResolvedQrPayload(data: unknown): ResolvedQrToken | null {
       menu_languages: parseMenuLanguages(restaurant.menu_languages),
       // mig 206 o expune; pe un RPC vechi rămâne undefined → fmtPrice cade pe RON.
       currency: (restaurant.currency as string | null | undefined) ?? null,
+      // Limba de bază a meniului (lotul O6a): fără ea /q pornea mereu din
+      // română, chiar pe un meniu scris în franceză (recenzia O6a).
+      language: (restaurant.language as string | null | undefined) ?? undefined,
     },
     orderingAllowed: payload.orderingAllowed,
   }

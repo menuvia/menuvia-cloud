@@ -248,7 +248,7 @@ export default function ModifiersTab({
           max_select: maxSelect,
           // Traducerile pleacă DOAR dacă au fost atinse: pe o bază fără mig
           // 321 coloana lipsește și ar strica orice salvare a grupului.
-          ...(trDirty ? { translations: mergeTranslations(editGroup.translations, gTr, trLangs) } : {}),
+          ...(trDirty ? { translations: mergeTranslations(editGroup.translations, gTr, trLangs, baseLang) } : {}),
         })
         .eq('id', editGroup.id)
       if (e) {
@@ -260,7 +260,7 @@ export default function ModifiersTab({
         for (const o of editGroup.modifier_options) {
           const { error: oe } = await supabase
             .from('modifier_options')
-            .update({ translations: mergeTranslations(o.translations, oTr[o.id] ?? {}, trLangs) })
+            .update({ translations: mergeTranslations(o.translations, oTr[o.id] ?? {}, trLangs, baseLang) })
             .eq('id', o.id)
           if (oe) {
             setError(toUserMessage(oe, `Traducerea opțiunii „${o.name}” nu a fost salvată.`))

@@ -67,6 +67,8 @@ export interface QrCartSheetProps {
   onPaySplit?: () => void
   /** Limba aleasă de oaspete în meniu — default 'ro'. */
   lang?: string
+  /** Limba în care scrie localul (mesajul lui de sugestie e în ea). */
+  baseLang?: string
 }
 
 // Eyebrow mic, all-caps, cu tracking — etichetă de secțiune.
@@ -108,6 +110,7 @@ export default function QrCartSheet({
   payLabel,
   onPaySplit,
   lang = 'ro',
+  baseLang = 'ro',
 }: QrCartSheetProps) {
   const hasSent = (sentOrders?.length ?? 0) > 0
   // Index produs → pentru thumbnail-uri în rândurile de coș.
@@ -176,7 +179,7 @@ export default function QrCartSheet({
   const suggestionMsg =
     // Mesajul personalizat al localului e scris în limba lui (de regulă
     // română) — oaspetele străin primește textul tradus implicit.
-    (lang === 'ro' ? checkoutSuggestionSettings?.message : undefined) ?? T(lang, 'qc_upsell')
+    (lang === baseLang ? checkoutSuggestionSettings?.message : undefined) ?? T(lang, 'qc_upsell')
 
   // OPT-2: nota pentru bucătărie e stare LOCALĂ cât timp sheet-ul e deschis —
   // fiecare tastă re-randa altfel întreaga pagină de meniu din spatele
