@@ -149,7 +149,8 @@ describe('clichete pe sursa paginilor oaspetelui', () => {
     // ea. Anti-vacuitate: /q are patru căi (quick-add, fișă, asocieri,
     // sugestiile din coș), /m una (addToCart, prin care trec toate).
     // Din lotul O4b adăugarea trece prin `addOrMergeCartItem` (linii identice
-    // unite), deci se numără ambele forme.
+    // unite), deci se numără ambele forme, și pe o linie, și pe mai multe
+    // (quick-add-ul de pe /q are obiectul scris pe rânduri separate).
     const ANNOUNCE = /announceAdded\(|setLastAdded\(/
     for (const [file, source, min] of [
       [FILES.qr, src.qr, 4],
@@ -157,7 +158,7 @@ describe('clichete pe sursa paginilor oaspetelui', () => {
     ] as const) {
       const lines = source.split('\n')
       const appends = [
-        ...source.matchAll(/setCart\(\((\w+)\) => (?:\[\s*\.\.\.\1,|addOrMergeCartItem\(\1,)/g),
+        ...source.matchAll(/setCart\(\((\w+)\) =>\s*(?:\[\s*\.\.\.\1,|addOrMergeCartItem\(\1,)/g),
       ].map(
         (m) => source.slice(0, m.index).split('\n').length - 1,
       )
