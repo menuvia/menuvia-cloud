@@ -38,6 +38,31 @@ const AiBulkGenerate = lazy(() => import('./AiBulkGenerate'))
 // ── Product Modal ─────────────────────────────────────────────
 type ProductSaveOpts = { keepOpen?: boolean; onError?: (message: string) => void }
 
+// Valoarea filtrului „Fără categorie" (nu poate coincide cu un uuid de categorie).
+const UNCATEGORIZED = '__uncategorized__'
+
+// Un produs fără categorie e invizibil pentru clienți: meniul public (QR și
+// /m/:slug) și comanda ospătarului îl grupează doar sub categorii.
+function NotOnMenuBadge() {
+  return (
+    <span
+      title="Alege o categorie ca produsul să apară în meniu"
+      style={{
+        color: D.amber,
+        background: D.amberA,
+        border: `1px solid ${D.amberBorder}`,
+        borderRadius: 4,
+        padding: '1px 6px',
+        fontSize: '0.68rem',
+        fontWeight: 600,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      Fără categorie · nu apare în meniu
+    </span>
+  )
+}
+
 function ProductModal({
   product,
   categories,
@@ -52,9 +77,14 @@ function ProductModal({
   showVat,
   showExtras,
   onOpenVatRates,
+  defaultCategoryId = null,
 }: {
   product: Product | null
   categories: Category[]
+  // Categoria propusă pentru un produs NOU (lotul O1a): un produs fără
+  // categorie NU apare în meniul clienților (get_menu_for_restaurant îl
+  // grupează doar sub categorii), iar fișa pornea mereu pe „Fără categorie".
+  defaultCategoryId?: string | null
   // Întoarce succesul salvării; cu keepOpen (doar la create) modalul rămâne
   // deschis pentru „Salvează și adaugă următorul" — parentul NU face setModal(null).
   // `onError`: unde ajunge mesajul unui eșec — modalul trimite toast-ul LOCAL,
@@ -205,6 +235,7 @@ function ProductModal({
     product || {
       name: '',
       price: 0,
+      category_id: defaultCategoryId,
       emoji: '🍽️',
       is_active: true,
       is_draft: false,
@@ -674,7 +705,9 @@ function ProductModal({
                 // Opțiunea specială NU e o categorie: deschide input-ul inline;
                 // select-ul controlat rămâne pe valoarea curentă.
                 if (v === '__new__') setNewCatOpen(true)
-                else upd('category_id', v)
+                // „Fără categorie" are valoarea '' în select; în DB e NULL (un ''
+                // ajungea la Postgres ca uuid invalid și salvarea pica, MENU-04).
+                else upd('category_id', v === '' ? null : v)
               }}
             >
               <option value="">Fără categorie</option>
@@ -685,6 +718,16 @@ function ProductModal({
               ))}
               <option value="__new__">➕ Categorie nouă…</option>
             </Sel>
+            {!form.category_id && (
+              <div
+                role="note"
+                style={{ fontSize: '0.72rem', color: D.amber, marginTop: 5, lineHeight: 1.4 }}
+              >
+                {categories.length === 0
+                  ? 'Creează întâi o categorie: produsele fără categorie nu apar în meniul clienților.'
+                  : 'Fără categorie, produsul nu apare în meniul clienților.'}
+              </div>
+            )}
             {newCatOpen && (
               <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
                 <div style={{ flex: 1 }}>
@@ -2239,9 +2282,26 @@ export default function ProductsTab({
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
     return products
-      .filter((p) => activeCat === 'all' || p.category_id === activeCat)
+      .filter((p) =>
+        activeCat === 'all'
+          ? true
+          : activeCat === UNCATEGORIZED
+            ? !p.category_id
+            : p.category_id === activeCat,
+      )
       .filter((p) => p.name.toLowerCase().includes(q))
   }, [products, activeCat, search])
+  // Produsele fără categorie NU apar în meniul clienților (lotul O1a): le
+  // numărăm ca să le arătăm un filtru și un avertisment, nu să dispară tăcut.
+  const uncategorizedCount = useMemo(
+    () => products.filter((p) => !p.category_id).length,
+    [products],
+  )
+  // Un produs nou pornește în categoria filtrată acum, altfel în prima.
+  const defaultCategoryId =
+    activeCat !== 'all' && activeCat !== UNCATEGORIZED
+      ? activeCat
+      : (categories[0]?.id ?? null)
 
   if (error || catError)
     return (
@@ -2435,6 +2495,22 @@ export default function ProductsTab({
           >
             Toate
           </button>
+          {uncategorizedCount > 0 && (
+            <button
+              onClick={() => setActiveCat(UNCATEGORIZED)}
+              aria-pressed={activeCat === UNCATEGORIZED}
+              style={btn({
+                height: 44,
+                padding: '0 14px',
+                fontSize: '0.78rem',
+                background: activeCat === UNCATEGORIZED ? D.amberA : D.s2,
+                color: D.amber,
+                border: `1px solid ${activeCat === UNCATEGORIZED ? D.amber : D.amberBorder}`,
+              })}
+            >
+              Fără categorie ({uncategorizedCount})
+            </button>
+          )}
           {categories.map((c) => (
             <button
               key={c.id}
@@ -2672,7 +2748,11 @@ export default function ProductsTab({
                       )}
                     </div>
                     <div style={{ fontSize: '0.75rem', color: D.t3 }}>
-                      {catNameById.get(p.category_id ?? '') || '—'}
+                      {p.category_id ? (
+                        catNameById.get(p.category_id) || '—'
+                      ) : (
+                        <NotOnMenuBadge />
+                      )}
                     </div>
                   </div>
                   <div
@@ -2871,7 +2951,7 @@ export default function ProductsTab({
                   </div>
                 </div>
                 <div style={{ fontSize: '0.8rem', color: D.t2 }}>
-                  {catNameById.get(p.category_id ?? '') || '—'}
+                  {p.category_id ? catNameById.get(p.category_id) || '—' : <NotOnMenuBadge />}
                 </div>
                 <div>
                   <div style={{ fontSize: '0.875rem', color: D.t1, fontWeight: 500 }}>
@@ -3013,6 +3093,7 @@ export default function ProductsTab({
           restaurantId={restaurantId}
           userId={userId}
           menuLanguages={menuLanguages}
+          defaultCategoryId={defaultCategoryId}
           canUseAi={canUseAi}
           canManageRecipes={showRecipes}
           showVat={showVat}
