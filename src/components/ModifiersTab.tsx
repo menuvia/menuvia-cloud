@@ -7,6 +7,9 @@ import { Skeleton } from './ui/Skeleton'
 import { confirm as confirmDialog } from './ui/confirm'
 import { Modal } from './_dashboard/sharedUI'
 import { toUserMessage, zeroRowsAsDenied } from '../lib/userMessages'
+import { Button } from './ui/Button'
+import { modifierGroupMin } from '../lib/qr'
+import { fetchModifierGroupLinks, setModifierGroupProducts } from '../lib/modifierLinks'
 
 interface ModifierOption {
   id: string
@@ -76,9 +79,23 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
   // Eroare de ÎNCĂRCARE ≠ „niciun grup": fără ea, un refuz RLS/blip de rețea
   // (supabase-js nu aruncă) randa fals empty state-ul peste date existente.
   const [loadError, setLoadError] = useState(false)
+  // Produsele restaurantului și legăturile lor cu grupurile (lotul O1b): pe
+  // fiecare grup se vede câte produse îl folosesc, iar „Alege produsele” îl
+  // aplică pe cele bifate. Fără legătură, grupul nu ajunge la niciun produs.
+  const [products, setProducts] = useState<{ id: string; name: string }[]>([])
+  const [groupProducts, setGroupProducts] = useState<Record<string, string[]>>({})
+  const [pickFor, setPickFor] = useState<ModifierGroup | null>(null)
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [pickQuery, setPickQuery] = useState('')
+  const [pickSaving, setPickSaving] = useState(false)
+  // Anti dublu-click pe „Adaugă” (MENU-11): pe o conexiune lentă al doilea
+  // click crea aceeași opțiune de două ori.
+  const [addingFor, setAddingFor] = useState<Set<string>>(new Set())
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  // `quiet`: reîncărcarea de după o acțiune păstrează lista pe ecran (înainte
+  // fiecare bifă golea totul într-un schelet și pagina sărea sus).
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true)
     setLoadError(false)
     const { data: gData, error: gErr } = await supabase
       .from('modifier_groups')
@@ -97,11 +114,27 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
       opts = oData ?? []
       oErr = e2
     }
-    if (gErr || oErr) {
+    const { data: pData, error: pErr } = await supabase
+      .from('products')
+      .select('id,name')
+      .eq('restaurant_id', restaurantId)
+      .order('name')
+    let links: { product_id: string; modifier_group_id: string }[] = []
+    let lErr: unknown = null
+    try {
+      links = await fetchModifierGroupLinks(((pData ?? []) as { id: string }[]).map((p) => p.id))
+    } catch (e) {
+      lErr = e
+    }
+    if (gErr || oErr || pErr || lErr) {
       setLoadError(true)
       setLoading(false)
       return
     }
+    setProducts((pData ?? []) as { id: string; name: string }[])
+    const byGroup: Record<string, string[]> = {}
+    for (const l of links) (byGroup[l.modifier_group_id] ??= []).push(l.product_id)
+    setGroupProducts(byGroup)
     const result: ModifierGroup[] = (gData ?? []).map((g: Record<string, unknown>) => ({
       id: g.id as string,
       name: g.name as string,
@@ -194,7 +227,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
     }
     setSaving(false)
     setEditGroup(null)
-    await load()
+    await load(true)
   }
 
   async function deleteGroup(id: string) {
@@ -223,30 +256,53 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
       setError(toUserMessage(e))
       return
     }
-    await load()
+    await load(true)
   }
 
   async function addOption(groupId: string) {
     const draft = draftFor(groupId)
-    if (!draft.name.trim()) return
+    if (!draft.name.trim() || addingFor.has(groupId)) return
     setError(null)
-    const maxOrder = groups.find((g) => g.id === groupId)?.modifier_options.length ?? 0
+    setAddingFor((s) => new Set(s).add(groupId))
+    // Următoarea poziție = max + 1 (cu numărul de opțiuni, după o ștergere două
+    // opțiuni ajungeau pe aceeași poziție și ordinea devenea aleatorie).
+    const opts = groups.find((g) => g.id === groupId)?.modifier_options ?? []
+    const nextOrder = opts.reduce((m, o) => Math.max(m, o.display_order), -1) + 1
     const { error: e } = await supabase.from('modifier_options').insert({
       modifier_group_id: groupId,
       name: draft.name.trim(),
       price_delta: parseFloat(draft.price) || 0,
-      display_order: maxOrder,
+      display_order: nextOrder,
+    })
+    setAddingFor((s) => {
+      const n = new Set(s)
+      n.delete(groupId)
+      return n
     })
     if (e) {
       setError(toUserMessage(e))
       return
     }
     setOptDraft((d) => ({ ...d, [groupId]: { name: '', price: '0' } }))
-    await load()
+    await load(true)
   }
 
   async function toggleOption(id: string, current: boolean) {
     setError(null)
+    // Ultima opțiune disponibilă a unui grup OBLIGATORIU: fără ea, produsele
+    // care îl folosesc nu se mai pot comanda deloc (MENU-11).
+    const g = groups.find((x) => x.modifier_options.some((o) => o.id === id))
+    const othersAvailable = g?.modifier_options.filter((o) => o.id !== id && o.is_available).length ?? 0
+    const users = g ? (groupProducts[g.id] ?? []).length : 0
+    if (current && g && g.is_required && othersAvailable === 0 && users > 0) {
+      const ok = await confirmDialog({
+        title: `Nicio opțiune disponibilă în „${g.name}”?`,
+        description: `Grupul e obligatoriu: cele ${users} ${users === 1 ? 'produs care îl folosește nu se va' : 'produse care îl folosesc nu se vor'} mai putea comanda până marchezi din nou o opțiune disponibilă.`,
+        confirmLabel: 'Marchează indisponibil',
+        destructive: true,
+      })
+      if (!ok) return
+    }
     const { error: e } = await supabase
       .from('modifier_options')
       .update({ is_available: !current })
@@ -255,7 +311,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
       setError(toUserMessage(e))
       return
     }
-    await load()
+    await load(true)
   }
 
   async function deleteOption(id: string) {
@@ -267,14 +323,45 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
       setError(toUserMessage(e))
       return
     }
-    await load()
+    await load(true)
   }
+
+  function openPicker(g: ModifierGroup) {
+    setPickFor(g)
+    setPicked(new Set(groupProducts[g.id] ?? []))
+    setPickQuery('')
+    setError(null)
+  }
+
+  async function savePicker() {
+    if (!pickFor || pickSaving) return
+    setPickSaving(true)
+    setError(null)
+    try {
+      // Ordinea listei de produse (alfabetică) — ordinea nu contează aici:
+      // poziția grupului în fișa fiecărui produs o păstrează serverul.
+      await setModifierGroupProducts(
+        pickFor.id,
+        products.filter((p) => picked.has(p.id)).map((p) => p.id),
+      )
+      setPickFor(null)
+      await load(true)
+    } catch (e) {
+      setError(toUserMessage(e, 'Nu am putut salva produsele grupului.'))
+    } finally {
+      setPickSaving(false)
+    }
+  }
+
+  const pickVisible = products.filter((p) =>
+    p.name.toLowerCase().includes(pickQuery.trim().toLowerCase()),
+  )
 
   return (
     <div>
       {/* Banner de eroare la nivel de listă (operațiile delete/toggle/add se fac
           fără modal deschis, deci eroarea lor n-ar fi vizibilă altfel). */}
-      {error && !editGroup && (
+      {error && !editGroup && !pickFor && (
         <div
           role="alert"
           style={{
@@ -381,8 +468,29 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                     <span style={{ color: D.gold, marginLeft: 6 }}>Obligatoriu</span>
                   )}
                 </div>
+                <div
+                  style={{
+                    fontSize: '0.72rem',
+                    color: (groupProducts[g.id] ?? []).length > 0 ? D.t2 : D.amber,
+                    marginTop: 2,
+                  }}
+                >
+                  {(groupProducts[g.id] ?? []).length === 0
+                    ? 'Nu e folosit de niciun produs — clienții nu îl văd'
+                    : (groupProducts[g.id] ?? []).length === 1
+                      ? 'Folosit de 1 produs'
+                      : `Folosit de ${(groupProducts[g.id] ?? []).length} produse`}
+                </div>
+                {modifierGroupMin(g) > g.modifier_options.filter((o) => o.is_available).length && (
+                  <div role="note" style={{ fontSize: '0.72rem', color: D.red, marginTop: 2 }}>
+                    ⚠ Prea puține opțiuni disponibile: produsele cu acest grup nu se pot comanda.
+                  </div>
+                )}
               </div>
-              <div style={{ display: 'flex', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <Button variant="secondary" size="sm" onClick={() => openPicker(g)}>
+                  Alege produsele
+                </Button>
                 <button
                   onClick={() => openEdit(g)}
                   style={btn({
@@ -496,6 +604,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
               />
               <button
                 onClick={() => void addOption(g.id)}
+                disabled={addingFor.has(g.id)}
                 style={btn({
                   background: D.s4,
                   color: D.t1,
@@ -511,6 +620,76 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
             </div>
           </div>
         ))
+      )}
+
+      {pickFor != null && (
+        <Modal title={`Produsele cu „${pickFor.name}”`} onClose={() => setPickFor(null)} width={440}>
+          <div>
+            <div style={{ fontSize: '0.78rem', color: D.t2, marginBottom: 10, lineHeight: 1.5 }}>
+              Bifează produsele la care clientul și ospătarul aleg din acest grup.
+            </div>
+            <input
+              value={pickQuery}
+              onChange={(e) => setPickQuery(e.target.value)}
+              placeholder="Caută produs"
+              aria-label="Caută produs"
+              style={{ ...inp, marginBottom: 10 }}
+            />
+            <div style={{ maxHeight: 320, overflowY: 'auto', marginBottom: 14 }}>
+              {pickVisible.length === 0 ? (
+                <div style={{ fontSize: '0.8rem', color: D.t3, padding: '8px 0' }}>
+                  {products.length === 0 ? 'Nu ai încă produse.' : 'Niciun produs găsit.'}
+                </div>
+              ) : (
+                pickVisible.map((p) => (
+                  <label
+                    key={p.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      minHeight: 40,
+                      fontSize: '0.85rem',
+                      color: D.t1,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={picked.has(p.id)}
+                      onChange={() =>
+                        setPicked((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(p.id)) next.delete(p.id)
+                          else next.add(p.id)
+                          return next
+                        })
+                      }
+                      style={{ width: 18, height: 18, accentColor: D.gold }}
+                    />
+                    {p.name}
+                  </label>
+                ))
+              )}
+            </div>
+            {error && (
+              <div role="alert" style={{ color: D.red, fontSize: 13, marginBottom: 14 }}>
+                {error}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.75rem', color: D.t3, marginRight: 'auto' }}>
+                {picked.size === 1 ? '1 produs ales' : `${picked.size} produse alese`}
+              </span>
+              <Button variant="secondary" onClick={() => setPickFor(null)}>
+                Anulează
+              </Button>
+              <Button onClick={() => void savePicker()} loading={pickSaving}>
+                Salvează
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {editGroup != null && (
