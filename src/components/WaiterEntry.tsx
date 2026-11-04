@@ -5,13 +5,14 @@
 // =============================================================
 
 import { useState, useEffect, useRef } from 'react'
-import { fetchTables, createOrder } from '../lib/orders'
+import { fetchTables, createOrder, lineTotal } from '../lib/orders'
 import { loadStaffMenu } from '../lib/staffMenuCache'
 import type { RestaurantTable, CartItem, OrderConfirmationPayload } from '../lib/orders'
 import type { Category, Product } from '../lib/qr'
 import { D } from '../lib/constants'
 import { isNetworkError } from '../lib/networkError'
 import ModifierSheet from './ModifierSheet'
+import { OrderLineDetails } from './OrderLineDetails'
 import { confirm as confirmDialog } from './ui/confirm'
 
 // D imported from constants
@@ -139,11 +140,6 @@ export default function WaiterEntry({
 
   function removeFromCart(key: string): void {
     setCart((prev) => prev.filter((i) => i._key !== key))
-  }
-
-  function lineTotal(item: CartItem): number {
-    const modD = item.selected_modifiers.reduce((s, m) => s + m.price_delta, 0)
-    return (item.unit_price_snapshot + modD) * item.quantity
   }
 
   const cartTotal = cart.reduce((s, i) => s + lineTotal(i), 0)
@@ -545,6 +541,15 @@ export default function WaiterEntry({
                   <div style={{ color: D.t1, fontSize: 14, fontWeight: 600 }}>
                     {item.product_name_snapshot}
                   </div>
+                  {/* Ce pleacă la bucătărie: opțiunile, extra-urile și nota liniei
+                      (lotul O2a) — două „Pizza" se pot deosebi înainte de trimitere. */}
+                  <OrderLineDetails
+                    item={{
+                      selected_modifiers: item.selected_modifiers,
+                      notes: item.notes,
+                      extras_added: (item.selected_extras ?? []).map((e) => ({ extra_name: e.name })),
+                    }}
+                  />
                   <div style={{ color: D.gold, fontSize: 13 }}>
                     {lineTotal(item).toFixed(2)} lei
                   </div>

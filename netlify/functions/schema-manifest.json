@@ -313,6 +313,7 @@
     "migration_312_table_payment_public_status",
     "migration_313_stock_sold_out",
     "migration_314_locations_summary",
-    "migration_315_create_restaurant_idempotency"
+    "migration_315_create_restaurant_idempotency",
+    "migration_316_kitchen_ticket_extras"
   ]
 }
