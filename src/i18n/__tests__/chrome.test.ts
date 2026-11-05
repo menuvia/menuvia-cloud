@@ -12,10 +12,19 @@
 //   CR4  documentChromeLang citește `<html lang>` ACUM; browserChromeLang ia
 //        prima limbă suportată din preferințe, altfel en.
 //   CR5  modulul nu importă nimic (intră în bundle-ul de intrare).
+//   CR6  chromeFallbackLang (recenzia CodeRabbit pe #357): limba se declară pe
+//        etichetă DOAR când tabelul a căzut pe altă limbă decât a paginii.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CHROME_STRINGS, browserChromeLang, chromeLangOf, documentChromeLang, type ChromeLang } from '../chrome'
+import {
+  CHROME_STRINGS,
+  browserChromeLang,
+  chromeFallbackLang,
+  chromeLangOf,
+  documentChromeLang,
+  type ChromeLang,
+} from '../chrome'
 import { MSG_NETWORK } from '../../lib/userMessages'
 
 const LANGS: ChromeLang[] = ['ro', 'en', 'fr', 'de']
@@ -72,5 +81,17 @@ describe('cromul comun — limba', () => {
   it('CR5 modulul nu importă nimic', () => {
     const src = readFileSync(resolve(process.cwd(), 'src/i18n/chrome.ts'), 'utf8')
     expect(src).not.toMatch(/^\s*import\s/m)
+  })
+})
+
+describe('cromul comun — limba declarată pe etichete', () => {
+  it('CR6 chromeFallbackLang', () => {
+    expect(chromeFallbackLang('it', chromeLangOf('it'))).toBe('en')
+    expect(chromeFallbackLang('hu-HU', chromeLangOf('hu-HU'))).toBe('en')
+    // Aceeași limbă (cu sau fără regiune) → moștenește.
+    expect(chromeFallbackLang('de', chromeLangOf('de'))).toBeUndefined()
+    expect(chromeFallbackLang('fr-CA', chromeLangOf('fr-CA'))).toBeUndefined()
+    expect(chromeFallbackLang('', chromeLangOf(''))).toBeUndefined()
+    expect(chromeFallbackLang(null, 'ro')).toBeUndefined()
   })
 })

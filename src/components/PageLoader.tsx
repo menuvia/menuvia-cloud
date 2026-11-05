@@ -2,7 +2,7 @@ import { Component, ReactNode, CSSProperties } from 'react'
 import { D } from '../lib/constants'
 import { toUserMessage, userErrorKind } from '../lib/userMessages'
 import { chromeT, documentChromeLang, type ChromeLang } from '../i18n/chrome'
-import { useChromeLang } from '../i18n/useChromeLang'
+import { useChrome } from '../i18n/useChromeLang'
 
 const center: CSSProperties = {
   minHeight: '100vh',
@@ -18,7 +18,7 @@ const spinKeyframes = `@keyframes mvia-spin{to{transform:rotate(360deg)}}`
 export function PageSpinner({ label }: { label?: string }) {
   // Fallback-ul de Suspense al paginilor leneșe, deci și al meniului QR: în
   // limba paginii (`<html lang>`, lotul L1), nu mereu „Se încarcă…”.
-  const lang = useChromeLang()
+  const { lang, fallback } = useChrome()
   return (
     <div style={center}>
       <div style={{ textAlign: 'center' }}>
@@ -33,7 +33,9 @@ export function PageSpinner({ label }: { label?: string }) {
             margin: '0 auto 16px',
           }}
         />
-        <div style={{ color: D.t3, fontSize: 14 }}>{label ?? chromeT(lang, 'loading')}</div>
+        <div style={{ color: D.t3, fontSize: 14 }} lang={label == null ? fallback : undefined}>
+          {label ?? chromeT(lang, 'loading')}
+        </div>
       </div>
       <style>{spinKeyframes}</style>
     </div>
@@ -77,7 +79,7 @@ export function QueryError({
   /** Eticheta butonului — implicit „Reîncearcă” (în limba paginii); altă acțiune = alt text. */
   retryLabel?: string
 }) {
-  const lang = useChromeLang()
+  const { lang, fallback } = useChrome()
   return (
     <div style={{ textAlign: 'center', padding: '40px 20px' }}>
       <div style={{ fontSize: 28, marginBottom: 8 }}>&#x26a0;&#xfe0f;</div>
@@ -97,7 +99,7 @@ export function QueryError({
             fontFamily: 'inherit',
           }}
         >
-          {retryLabel ?? chromeT(lang, 'retry')}
+          {retryLabel ?? <span lang={fallback}>{chromeT(lang, 'retry')}</span>}
         </button>
       )}
     </div>

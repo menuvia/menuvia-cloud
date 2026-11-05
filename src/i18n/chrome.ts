@@ -181,6 +181,17 @@ export function browserChromeLang(): ChromeLang {
   return 'en'
 }
 
+/**
+ * Limba de DECLARAT pe o etichetă a cromului când tabelul a căzut pe altă
+ * limbă decât a paginii: pe o pagină `lang="it"`, „Cancel” e în engleză, iar
+ * moștenit ar fi citit de cititorul de ecran cu pronunția italiană (recenzia
+ * CodeRabbit pe #357). `undefined` = aceeași limbă, eticheta moștenește.
+ */
+export function chromeFallbackLang(pageLang: string | null | undefined, chrome: ChromeLang): ChromeLang | undefined {
+  const tag = primaryTag(pageLang)
+  return tag !== '' && tag !== chrome ? chrome : undefined
+}
+
 export function chromeT(lang: ChromeLang, key: ChromeKey): string {
   return CHROME_STRINGS[lang][key]
 }

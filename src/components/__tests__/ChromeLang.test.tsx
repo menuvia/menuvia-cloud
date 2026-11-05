@@ -10,6 +10,12 @@
 //        Mutația care pică: limba citită în `render()`, nu la eroare.
 //   CL3  butoanele implicite din Confirm și eticheta de închidere a notificării.
 //   CL4  fallback-ul de încărcare și „Reîncearcă” implicit.
+//   CL5  (recenzia CodeRabbit pe #357) pe o pagină fără tabel (`it`), etichetele
+//        căzute pe engleză își declară `lang="en"`, iar textul paginii (mesajul
+//        notificării, titlul din Confirm) rămâne în limba paginii. Control: pe
+//        o pagină `de` nimic nu-și declară limba (moștenește). Mutația care
+//        pică: `lang` pus pe tot dialogul (titlul italian marcat engleză) sau
+//        deloc.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen, within } from '@testing-library/react'
 import CookieBanner from '../CookieBanner'
@@ -175,5 +181,43 @@ describe('cromul comun — încărcarea', () => {
     )
     expect(screen.getByText('Loading…')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+  })
+})
+
+describe('cromul comun — limba declarată pe etichetele căzute pe engleză', () => {
+  it('CL5 pagină `it`: etichetele `en` își declară limba, textul paginii nu', async () => {
+    setLang('it')
+    render(
+      <>
+        <ConfirmRoot />
+        <ToastProvider>
+          <ToastButton />
+        </ToastProvider>
+      </>,
+    )
+    act(() => screen.getByRole('button', { name: 'arată' }).click())
+    const region = screen.getByRole('region', { name: 'Notifications' })
+    expect(region).toHaveAttribute('lang', 'en')
+    expect(within(region).getByText('salut')).toHaveAttribute('lang', 'it')
+    act(() => {
+      void confirm({ title: 'Domanda' })
+    })
+    const dialog = await screen.findByRole('dialog', { name: 'Domanda' })
+    expect(dialog).not.toHaveAttribute('lang')
+    expect(within(dialog).getByText('Cancel')).toHaveAttribute('lang', 'en')
+    expect(within(dialog).getByText('Confirm')).toHaveAttribute('lang', 'en')
+  })
+
+  it('CL5 control: pagină `de`, nimic nu-și declară limba', () => {
+    setLang('de')
+    render(
+      <ToastProvider>
+        <ToastButton />
+      </ToastProvider>,
+    )
+    act(() => screen.getByRole('button', { name: 'arată' }).click())
+    const region = screen.getByRole('region', { name: 'Benachrichtigungen' })
+    expect(region).not.toHaveAttribute('lang')
+    expect(within(region).getByText('salut')).not.toHaveAttribute('lang')
   })
 })
