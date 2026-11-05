@@ -45,6 +45,11 @@ export interface AddLocationProps {
   // Id-urile restaurantelor deținute deja, la deschiderea dialogului: o
   // locație găsită după un eșec ambiguu trebuie să fie NOUĂ.
   knownRestaurantIds: readonly string[]
+  // Întrebarea pusă ÎNAINTE de deschiderea dialogului (ex. „pierzi
+  // modificările nesalvate din Setări?"): `false` = dialogul nu se deschide.
+  // Trebuie pusă înainte de creare, nu după: recitirea de după creare
+  // re-sincronizează formularul Setărilor indiferent ce răspunde omul.
+  confirmBeforeOpen?: () => Promise<boolean>
 }
 
 type PendingCheck =
@@ -52,7 +57,12 @@ type PendingCheck =
   | { status: 'absent' }
   | { status: 'unknown' }
 
-export default function AddLocationCard({ onCreated, ownerId, knownRestaurantIds }: AddLocationProps) {
+export default function AddLocationCard({
+  onCreated,
+  ownerId,
+  knownRestaurantIds,
+  confirmBeforeOpen,
+}: AddLocationProps) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [saving, setSaving] = useState(false)
@@ -72,7 +82,8 @@ export default function AddLocationCard({ onCreated, ownerId, knownRestaurantIds
   const knownIdsRef = useRef<ReadonlySet<string>>(new Set())
   useBodyScrollLock(open)
 
-  const openDialog = () => {
+  const openDialog = async () => {
+    if (confirmBeforeOpen && !(await confirmBeforeOpen())) return
     // Instantaneul se ia doar când nu există o creare în curs de lămurire.
     if (pendingRef.current == null && createdRef.current == null) {
       knownIdsRef.current = new Set(knownRestaurantIds)
@@ -212,7 +223,11 @@ export default function AddLocationCard({ onCreated, ownerId, knownRestaurantIds
           Ai mai multe localuri? Adaugă o locație nouă — pornește goală, cu meniul și mesele
           ei. Câte locații poți avea depinde de planul contului.
         </div>
-        <Button variant="secondary" onClick={openDialog} icon={<Icon name="plus" size={16} />}>
+        <Button
+          variant="secondary"
+          onClick={() => void openDialog()}
+          icon={<Icon name="plus" size={16} />}
+        >
           Adaugă o locație
         </Button>
       </Card>

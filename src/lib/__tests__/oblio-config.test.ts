@@ -9,7 +9,7 @@ interface Call {
 }
 const { calls, result } = vi.hoisted(() => ({
   calls: [] as Array<{ op: string; args: unknown[] }>,
-  result: { error: null as { message: string } | null, data: null as unknown },
+  result: { error: null as { message: string; code?: string } | null, data: null as unknown },
 }))
 
 vi.mock('../supabase', () => {
@@ -58,6 +58,21 @@ describe('oblio config — mig 287', () => {
     expect(sel).not.toBe('*')
     expect(sel).not.toContain('api_secret')
     expect(sel).toContain('company_name')
+  })
+
+  // OC5 (recenzia CodeRabbit pe #353): o citire EȘUATĂ aruncă (cu `code`),
+  // doar rândul lipsă e `null`. Pe `null`, InvoicesTab trece pe „Oblio
+  // neconfigurat” și demontează formularul de factură deschis. Mutația care
+  // pică: revenirea la `if (error) return null`.
+  it('OC5 citirea eșuată aruncă; rândul lipsă e null', async () => {
+    result.error = { message: 'permission denied for table oblio_configs', code: '42501' }
+    await expect(fetchOblioConfig('r1')).rejects.toMatchObject({
+      message: expect.stringContaining('Citire config Oblio'),
+      code: '42501',
+    })
+    result.error = null
+    result.data = null
+    await expect(fetchOblioConfig('r1')).resolves.toBeNull()
   })
 
   it('OC2 config existent + secret gol → UPDATE fără api_secret', async () => {

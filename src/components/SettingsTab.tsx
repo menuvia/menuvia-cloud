@@ -414,23 +414,29 @@ export default function SettingsTab({
   // făcea dublu JSON.stringify pe tot restaurantul la fiecare tastă.
   const restaurantJson = useMemo(() => JSON.stringify(restaurant), [restaurant])
   const dirty = JSON.stringify(form) !== restaurantJson
+  // O imagine în curs de încărcare (logo, copertă, pagini Flipbook) e tot muncă
+  // nesalvată: URL-ul ei intră în formular abia la final, deci o ieșire în
+  // timpul încărcării (altă locație, alt restaurant, /pricing) ar fi trecut de
+  // confirmare și ar fi pierdut-o (recenzia CodeRabbit pe #353). Bara de
+  // salvare de jos rămâne pe `dirty`: o încărcare în zbor nu are încă ce salva.
+  const unsaved = dirty || uploadingCover || uploadingLogo || uploadingPages
   // Starea „nesalvat" urcă spre panou; la demontare formularul nu mai are
   // nimic de pierdut.
   useEffect(() => {
-    onDirtyChange?.(dirty)
+    onDirtyChange?.(unsaved)
     return () => onDirtyChange?.(false)
-  }, [dirty, onDirtyChange])
+  }, [unsaved, onDirtyChange])
   // Reîncărcarea / închiderea paginii cu formularul modificat cere confirmarea
   // browserului (recenzia #335) — singura ieșire pe care panoul n-o vede.
   useEffect(() => {
-    if (!dirty) return
+    if (!unsaved) return
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault()
       e.returnValue = ''
     }
     window.addEventListener('beforeunload', onBeforeUnload)
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [dirty])
+  }, [unsaved])
   // Cardul de ridicare se montează DOAR pe `planSurface.pickup` (= `pickup_orders`
   // activ, lotul P), deci aici feature-ul e mereu CUNOSCUT și activ: comutatorul
   // e liber, iar textele (lib/pickupCopy.ts) primesc `true`. Stările vechi ale
