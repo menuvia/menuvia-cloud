@@ -12,7 +12,7 @@
 //   5. site-ul: 'en' pe menuvia.com, 'ro' în rest (`defaultUiLang`).
 // O limbă care nu e în `enabled` se SARE (nu oprește căutarea), iar dacă
 // nimic nu se potrivește rezultatul e 'ro' — prima limbă activă mereu.
-import { ENABLED_STAFF_LANGS, isStaffLang, type StaffLang } from './langs'
+import { ENABLED_STAFF_LANGS, FUNNEL_LANGS, isStaffLang, type StaffLang } from './langs'
 
 export interface UiLangInputs {
   urlLang?: string | null
@@ -44,4 +44,19 @@ export function resolveUiLang(inp: UiLangInputs): StaffLang {
     if (hit) return hit
   }
   return ok(inp.siteLang) ?? (enabled.includes('ro') ? 'ro' : (enabled[0] ?? 'ro'))
+}
+
+/**
+ * Limba drumului de dinaintea panoului (lotul L2): aceeași ordine, cu două
+ * diferențe deliberate.
+ *   - Limbile sunt `FUNNEL_LANGS` (româna, engleza și ce s-a activat pentru
+ *     personal), nu doar cele ale panoului: engleza există aici din E4a.
+ *   - Limbile BROWSERULUI nu contează. Funnel-ul nu le-a citit niciodată, iar
+ *     pe menuvia.ro un român cu browserul în engleză vede azi formularul în
+ *     română; dacă le-am citi, l-am muta pe engleză fără să fi cerut-o.
+ * Rămâne: `?lang=` → limba contului (Termenii se cer după login) → stocarea
+ * dispozitivului (`menuvia_ui_lang`, scrisă de /en și de `?lang=`) → site-ul.
+ */
+export function resolveFunnelLang(inp: Omit<UiLangInputs, 'navigatorLangs' | 'enabled'>): StaffLang {
+  return resolveUiLang({ ...inp, navigatorLangs: null, enabled: FUNNEL_LANGS })
 }

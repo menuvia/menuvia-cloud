@@ -5,11 +5,11 @@
 // îi confirmă alegerea — nu aterizează pe un login generic.
 // Logica de auth (signup/login/reset/confirm email) e neschimbată.
 //
-// E4a — bilingv RO/EN: cine vine de pe /en (LandingPageEn.tsx) vede acest
-// ecran în engleză. Convenția de limbă (identică peste tot în funnel-ul EN):
-// cheia localStorage 'menuvia_ui_lang' ('ro' | 'en'), parametrul URL
-// ?lang=en/?lang=ro o setează la mount. Default absolut: 'ro' — fluxul RO
-// e neschimbat vizual/textual.
+// Limba (E4a → lotul L2a): textele stau în namespace-ul `auth`
+// (src/i18n/ns/auth, ro/en/fr/de), iar limba o alege `FunnelLangProvider` —
+// `?lang=` → limba contului → `menuvia_ui_lang` → site-ul, pe limbile
+// `FUNNEL_LANGS` (azi româna și engleza; franceza și germana apar odată cu
+// panoul). Default absolut: 'ro' — fluxul RO e neschimbat vizual/textual.
 // ─────────────────────────────────────────────────────────────
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
@@ -17,7 +17,7 @@ import { getPlanByInternalId } from '../lib/plans'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { Icon } from '../components/ui/Icon'
 import { track } from '../lib/analytics'
-import { authRedirectBase, browserSite, defaultUiLang } from '../lib/domain'
+import { authRedirectBase } from '../lib/domain'
 import { nextFromSearch } from '../lib/authRedirect'
 // Versiunea de Termeni (mig 042) și consemnarea trăiesc în `lib/terms` —
 // folosite și de `TermsAcceptanceGate`, care preia cazul în care sesiunea
@@ -29,6 +29,11 @@ import { TERMS_VERSION, storePendingTermsConsent } from '../lib/terms'
 import { useSignupAgentCode } from '../hooks/useSignupAgentCode'
 import { AgentCodeBanner, AgentCodeField } from '../components/auth/AgentCodeSection'
 import ConfirmEmailCodeStep from '../components/auth/ConfirmEmailCodeStep'
+import { FunnelLangProvider } from '../i18n/UiLangContext'
+import { useT } from '../i18n/useT'
+import { authNs } from '../i18n/ns/auth'
+import { fillNodes } from '../i18n/fillNodes'
+import { AUTH_FORM_ERROR_KEYS, classifyAuthFormError } from '../lib/authErrors'
 
 // Prefetch: start loading DashboardPage in the background while the user
 // types credentials. By the time login completes, the chunk is cached.
@@ -105,149 +110,9 @@ function readIntentFromUrlOrSession(): PlanIntentId | null {
   return planFromSearch(window.location.search) ?? readPlanIntent(null)
 }
 
-const UI_LANG_KEY = 'menuvia_ui_lang'
-type UiLang = 'ro' | 'en'
-
-// Limba activă: 'en' dacă ?lang=en, SAU (fără parametru și localStorage e
-// 'en'); altfel 'ro' (default absolut). Citit sincron la mount, ca formularul
-// să apară deja în limba corectă din primul render, fără flash.
-function detectLang(): UiLang {
-  const urlLang = new URLSearchParams(window.location.search).get('lang')
-  if (urlLang === 'en') return 'en'
-  if (urlLang === 'ro') return 'ro'
-  try {
-    const stored = window.localStorage.getItem(UI_LANG_KEY)
-    if (stored === 'en') return 'en'
-    // Alegere explicită RO: contează doar pe un host .com (pe .ro e oricum default).
-    if (stored === 'ro') return 'ro'
-  } catch {
-    /* ignore — localStorage indisponibil (mod privat etc.) */
-  }
-  // Default pe SITE (lib/domain.ts): 'ro' peste tot, 'en' doar pe un host .com.
-  return defaultUiLang(browserSite())
-}
-
-// Tabelul de traducere — TOATE stringurile vizibile ale acestui fișier.
-// Textele RO sunt byte-identice cu cele de dinainte de bilingv (zero
-// regresie vizuală pe fluxul RO, care rămâne default-ul absolut).
-const S = {
-  ro: {
-    brand: 'Menuvia',
-    intentContinuePrefix: 'Continui cu',
-    intentSubcopy: {
-      starter: 'Plan pentru meniu QR, fără comenzi.',
-      growth: 'Plan recomandat pentru comenzi de la masă.',
-      pro: 'Se activează cu verificare inițială — te contactăm noi.',
-    },
-    resetCheckEmailTitle: 'Verifică emailul',
-    resetSentPrefix: 'Am trimis un link de resetare la',
-    backToLogin: 'Înapoi la autentificare',
-    resetPasswordTitle: 'Resetează parola',
-    resetPasswordSubtitle: 'Introdu emailul și vei primi un link de resetare.',
-    emailLabel: 'Email',
-    emailPlaceholder: 'email@restaurant.ro',
-    emailRequiredError: 'Scrie adresa de email a contului.',
-    processingBtn: 'Se procesează...',
-    sendResetLinkBtn: 'Trimite link de resetare',
-    backToLoginArrow: '← Înapoi la autentificare',
-    // Ecranul „Verifică emailul" (cod de 6 cifre + Retrimite) e în
-    // components/auth/ConfirmEmailCodeStep.tsx, cu textele lui RO/EN.
-    brandTagline: 'Configurezi restaurantul în câteva minute.',
-    heroSubtitle: 'Adaugi meniul, generezi QR-urile și poți primi comenzi direct de la masă.',
-    heroBullets: [
-      'Meniu QR gata de folosit',
-      'QR-uri pentru mese generate automat',
-      'Poți porni simplu și activa comenzi când ai nevoie',
-    ],
-    heroFooter: '30 de zile gratuite. Anulezi oricând.',
-    loginTitle: 'Bun venit înapoi',
-    signupTitle: 'Creează cont gratuit',
-    loginSubtitle: 'Intră în contul tău Menuvia.',
-    signupSubtitle: 'Începi cu meniul digital în 30 de secunde.',
-    nameLabel: 'Nume',
-    namePlaceholder: 'Numele tău',
-    passwordLabel: 'Parolă',
-    passwordPlaceholder: 'Minimum 8 caractere',
-    loginBtn: 'Intră în cont',
-    signupBtn: 'Creează cont',
-    forgotPassword: 'Ai uitat parola?',
-    noAccount: 'Nu ai cont?',
-    hasAccount: 'Ai deja cont?',
-    createOne: 'Creează unul',
-    errorGeneric: 'Nu am putut procesa cererea. Verifică datele și reîncearcă.',
-    termsPrefix: 'Am citit și accept ',
-    termsLinkTerms: 'Termenii',
-    termsAnd: ' și ',
-    termsLinkPrivacy: 'Politica de confidențialitate',
-    termsRequiredError:
-      'Bifează acceptarea Termenilor și a Politicii de confidențialitate pentru a crea contul.',
-    mfaTitle: 'Verificare în doi pași',
-    mfaSubtitle: 'Introdu codul de 6 cifre din aplicația ta de autentificare.',
-    mfaCodeLabel: 'Cod de verificare',
-    mfaVerifyBtn: 'Verifică',
-    mfaInvalidCode: 'Cod incorect sau expirat. Încearcă din nou.',
-    mfaBack: '← Înapoi la autentificare',
-  },
-  en: {
-    brand: 'Menuvia',
-    intentContinuePrefix: 'Continuing with',
-    intentSubcopy: {
-      starter: 'Plan for a QR menu, no ordering.',
-      growth: 'Recommended plan for table ordering.',
-      pro: 'Activated after a quick verification — we’ll reach out to you.',
-    },
-    resetCheckEmailTitle: 'Check your email',
-    resetSentPrefix: 'We sent a reset link to',
-    backToLogin: 'Back to sign in',
-    resetPasswordTitle: 'Reset your password',
-    resetPasswordSubtitle: 'Enter your email and you’ll receive a reset link.',
-    emailLabel: 'Email',
-    emailPlaceholder: 'email@restaurant.com',
-    emailRequiredError: 'Enter the account email address.',
-    processingBtn: 'Processing...',
-    sendResetLinkBtn: 'Send reset link',
-    backToLoginArrow: '← Back to sign in',
-    brandTagline: 'Set up your restaurant in minutes.',
-    heroSubtitle:
-      'Add your menu, generate the QR codes, and start taking orders straight from the table.',
-    heroBullets: [
-      'Ready-to-use QR menu',
-      'Table QR codes generated automatically',
-      'Start simple and turn on ordering whenever you need it',
-    ],
-    heroFooter: '30 days free. Cancel anytime.',
-    loginTitle: 'Welcome back',
-    signupTitle: 'Create a free account',
-    loginSubtitle: 'Sign in to your Menuvia account.',
-    signupSubtitle: 'Start your digital menu in 30 seconds.',
-    nameLabel: 'Name',
-    namePlaceholder: 'Your name',
-    passwordLabel: 'Password',
-    passwordPlaceholder: 'Minimum 8 characters',
-    loginBtn: 'Sign in',
-    signupBtn: 'Create account',
-    forgotPassword: 'Forgot your password?',
-    noAccount: 'Don’t have an account?',
-    hasAccount: 'Already have an account?',
-    createOne: 'Create one',
-    errorGeneric: 'We couldn’t process your request. Please check your details and try again.',
-    termsPrefix: 'I have read and accept the ',
-    termsLinkTerms: 'Terms',
-    termsAnd: ' and the ',
-    termsLinkPrivacy: 'Privacy Policy',
-    termsRequiredError: 'Please accept the Terms and the Privacy Policy to create your account.',
-    mfaTitle: 'Two-step verification',
-    mfaSubtitle: 'Enter the 6-digit code from your authenticator app.',
-    mfaCodeLabel: 'Verification code',
-    mfaVerifyBtn: 'Verify',
-    mfaInvalidCode: 'Incorrect or expired code. Please try again.',
-    mfaBack: '← Back to sign in',
-  },
-} as const
-
-function PlanIntentPill({ intent, lang }: { intent: 'starter' | 'growth' | 'pro'; lang: UiLang }) {
+function PlanIntentPill({ intent }: { intent: 'starter' | 'growth' | 'pro' }) {
   const plan = getPlanByInternalId(intent)
-  const t = S[lang]
+  const { t } = useT(authNs)
   return (
     <div
       style={{
@@ -264,10 +129,10 @@ function PlanIntentPill({ intent, lang }: { intent: 'starter' | 'growth' | 'pro'
       <span style={{ fontSize: '1.3rem' }}>{plan.emoji}</span>
       <div>
         <div style={{ color: A.text, fontSize: '0.9rem', fontWeight: 700 }}>
-          {t.intentContinuePrefix} {plan.name}
+          {t('intentContinuePrefix')} {plan.name}
         </div>
         <div style={{ color: A.text2, fontSize: '0.76rem', marginTop: 2 }}>
-          {t.intentSubcopy[intent]}
+          {t(`intentSubcopy_${intent}`)}
         </div>
       </div>
     </div>
@@ -306,29 +171,26 @@ function CenteredCard({ children }: { children: React.ReactNode }) {
   )
 }
 
-export default function AuthPage({
-  onSuccess,
-}: {
+interface AuthPageProps {
   /** `email` = contul tocmai autentificat; App îl folosește ca să onoreze doar intenția LUI. */
   onSuccess: (email: string) => void
-}) {
-  // Limba activă e citită SINCRON la mount (URL > localStorage) ca formularul
-  // să apară din primul render în limba corectă, fără flash.
-  const [lang] = useState<UiLang>(detectLang)
-  const t = S[lang]
+}
 
-  // Persistăm alegerea de limbă dacă /auth a fost deschisă cu ?lang=en/ro
-  // (venită din /en). Citim direct URL-ul (nu folosim router).
-  useEffect(() => {
-    const urlLang = new URLSearchParams(window.location.search).get('lang')
-    if (urlLang === 'en' || urlLang === 'ro') {
-      try {
-        window.localStorage.setItem(UI_LANG_KEY, urlLang)
-      } catch {
-        /* ignore — localStorage indisponibil */
-      }
-    }
-  }, [])
+// Limba vine din `FunnelLangProvider` (citită o dată, la montare; `?lang=`
+// devine preferința dispozitivului). Româna e sincronă; o altă limbă își
+// încarcă dicționarul la prima randare — `AuthScreen` suspendă, iar
+// `<Suspense>`-ul rutei arată spinner-ul: niciun cadru în română pentru un
+// vizitator englez.
+export default function AuthPage(props: AuthPageProps) {
+  return (
+    <FunnelLangProvider>
+      <AuthScreen {...props} />
+    </FunnelLangProvider>
+  )
+}
+
+function AuthScreen({ onSuccess }: AuthPageProps) {
+  const { t, lang } = useT(authNs)
 
   // Intent-ul e citit SINCRON (URL > session) ca pill-ul să apară din primul
   // render, fără flash. Effect-ul de mai jos doar persistă URL-ul în session.
@@ -367,27 +229,14 @@ export default function AuthPage({
   const [mfaCode, setMfaCode] = useState('')
 
   // Erorile Supabase vin în ENGLEZĂ (Invalid login credentials etc.) — publicul
-  // e non-tehnic și român. Mapăm mesajele cunoscute pe română; necunoscutele cad
-  // pe un mesaj generic acționabil (nu textul brut englez). Pentru lang='en'
-  // mesajul Supabase e deja în engleză — îl întoarcem brut, cu fallback generic
-  // tradus dacă lipsește.
+  // e non-tehnic. Clasele cunoscute (`classifyAuthFormError`) au textul lor în
+  // limba omului; una necunoscută cade pe un mesaj generic acționabil, nu pe
+  // textul brut englez. Excepția e engleza: acolo mesajul GoTrue necunoscut e
+  // deja în limba omului și spune mai mult decât unul generic.
   const translateAuthError = (msg: string): string => {
-    if (lang === 'en') return msg || t.errorGeneric
-    const m = msg.toLowerCase()
-    if (m.includes('invalid login credentials')) return 'Email sau parolă greșită.'
-    if (m.includes('already registered') || m.includes('already been registered'))
-      return 'Există deja un cont cu acest email. Încearcă autentificarea sau resetarea parolei.'
-    if (m.includes('email not confirmed'))
-      return 'Emailul nu e confirmat încă. Verifică inbox-ul (și spam-ul) pentru linkul de confirmare.'
-    if (m.includes('password should be') || m.includes('password is too short'))
-      return 'Parola e prea scurtă — folosește minim 6 caractere.'
-    if (m.includes('rate limit') || m.includes('too many requests'))
-      return 'Prea multe încercări. Așteaptă un minut și reîncearcă.'
-    if (m.includes('invalid email') || m.includes('unable to validate email'))
-      return 'Adresa de email nu pare validă. Verific-o și reîncearcă.'
-    if (m.includes('network') || m.includes('fetch') || m.includes('failed to'))
-      return 'Problemă de conexiune. Verifică internetul și reîncearcă.'
-    return 'Nu am putut procesa cererea. Verifică datele și reîncearcă.'
+    const kind = classifyAuthFormError(msg)
+    if (kind !== 'other') return t(AUTH_FORM_ERROR_KEYS[kind])
+    return lang === 'en' && msg ? msg : t('errorGeneric')
   }
 
   // Destinația linkului de confirmare (și a „Retrimite"): readuce userul direct
@@ -415,7 +264,7 @@ export default function AuthPage({
     if (mode === 'signup') {
       // Plasă de siguranță pe lângă butonul dezactivat (ex. submit cu Enter).
       if (!termsAccepted) {
-        setError(t.termsRequiredError)
+        setError(t('termsRequiredError'))
         setLoading(false)
         return
       }
@@ -530,13 +379,13 @@ export default function AuthPage({
         code: mfaCode.trim(),
       })
       if (vErr) {
-        setError(t.mfaInvalidCode)
+        setError(t('mfaInvalidCode'))
         setLoading(false)
         return
       }
       onSuccess(email)
     } catch {
-      setError(t.mfaInvalidCode)
+      setError(t('mfaInvalidCode'))
       setLoading(false)
     }
   }
@@ -544,7 +393,7 @@ export default function AuthPage({
   const handleReset = async () => {
     // Email gol = feedback explicit, nu no-op tăcut (click-ul părea mort).
     if (!resetEmail.trim()) {
-      setError(t.emailRequiredError)
+      setError(t('emailRequiredError'))
       return
     }
     setLoading(true)
@@ -579,10 +428,10 @@ export default function AuthPage({
                 marginBottom: 12,
               }}
             >
-              {t.resetCheckEmailTitle}
+              {t('resetCheckEmailTitle')}
             </h2>
             <p style={{ color: A.text2, marginBottom: 24, lineHeight: 1.6 }}>
-              {t.resetSentPrefix} <strong style={{ color: A.text }}>{resetEmail}</strong>.
+              {t('resetSentPrefix')} <strong style={{ color: A.text }}>{resetEmail}</strong>.
             </p>
             <button
               onClick={() => {
@@ -592,7 +441,7 @@ export default function AuthPage({
               }}
               style={primaryBtn(false)}
             >
-              {t.backToLogin}
+              {t('backToLogin')}
             </button>
           </div>
         </CenteredCard>
@@ -609,7 +458,7 @@ export default function AuthPage({
             fontWeight: 700,
           }}
         >
-          {t.brand}
+          {t('brand')}
         </div>
         <h1
           style={{
@@ -619,10 +468,10 @@ export default function AuthPage({
             marginBottom: 6,
           }}
         >
-          {t.resetPasswordTitle}
+          {t('resetPasswordTitle')}
         </h1>
         <p style={{ color: A.text3, fontSize: '0.85rem', marginBottom: 28 }}>
-          {t.resetPasswordSubtitle}
+          {t('resetPasswordSubtitle')}
         </p>
         {/* <form> real: Enter trimite (ca formularul principal de login). */}
         <form
@@ -634,7 +483,7 @@ export default function AuthPage({
         >
           <div>
             <label htmlFor="reset-email" style={label}>
-              {t.emailLabel}
+              {t('emailLabel')}
             </label>
             <input
               id="reset-email"
@@ -642,7 +491,7 @@ export default function AuthPage({
               autoComplete="email"
               value={resetEmail}
               onChange={(e) => setResetEmail(e.target.value)}
-              placeholder={t.emailPlaceholder}
+              placeholder={t('emailPlaceholder')}
               style={inp}
               onFocus={(e) => (e.target.style.borderColor = A.accent)}
               onBlur={(e) => (e.target.style.borderColor = A.border)}
@@ -664,7 +513,7 @@ export default function AuthPage({
             </div>
           )}
           <button type="submit" disabled={loading} style={primaryBtn(loading)}>
-            {loading ? t.processingBtn : t.sendResetLinkBtn}
+            {loading ? t('processingBtn') : t('sendResetLinkBtn')}
           </button>
           <button
             type="button"
@@ -685,7 +534,7 @@ export default function AuthPage({
               margin: '-8px 0 -12px',
             }}
           >
-            {t.backToLoginArrow}
+            {t('backToLoginArrow')}
           </button>
         </form>
       </CenteredCard>
@@ -705,7 +554,7 @@ export default function AuthPage({
             fontWeight: 700,
           }}
         >
-          {t.brand}
+          {t('brand')}
         </div>
         <h1
           style={{
@@ -715,16 +564,16 @@ export default function AuthPage({
             marginBottom: 6,
           }}
         >
-          {t.mfaTitle}
+          {t('mfaTitle')}
         </h1>
-        <p style={{ color: A.text3, fontSize: '0.85rem', marginBottom: 28 }}>{t.mfaSubtitle}</p>
+        <p style={{ color: A.text3, fontSize: '0.85rem', marginBottom: 28 }}>{t('mfaSubtitle')}</p>
         <form
           onSubmit={handleMfaVerify}
           style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
         >
           <div>
             <label htmlFor="mfa-code" style={label}>
-              {t.mfaCodeLabel}
+              {t('mfaCodeLabel')}
             </label>
             <input
               id="mfa-code"
@@ -759,7 +608,7 @@ export default function AuthPage({
             disabled={loading || mfaCode.length < 6}
             style={primaryBtn(loading)}
           >
-            {loading ? t.processingBtn : t.mfaVerifyBtn}
+            {loading ? t('processingBtn') : t('mfaVerifyBtn')}
           </button>
           <button
             type="button"
@@ -782,7 +631,7 @@ export default function AuthPage({
               margin: '-8px 0 -12px',
             }}
           >
-            {t.mfaBack}
+            {t('mfaBack')}
           </button>
         </form>
       </CenteredCard>
@@ -796,7 +645,6 @@ export default function AuthPage({
       <CenteredCard>
         <ConfirmEmailCodeStep
           email={email}
-          lang={lang}
           redirectTo={confirmRedirectUrl()}
           onVerified={onSuccess}
           onBack={() => {
@@ -820,9 +668,9 @@ export default function AuthPage({
           marginBottom: 6,
         }}
       >
-        {t.brand}
+        {t('brand')}
       </div>
-      <p style={{ color: A.text2, fontSize: '0.9rem', lineHeight: 1.5 }}>{t.brandTagline}</p>
+      <p style={{ color: A.text2, fontSize: '0.9rem', lineHeight: 1.5 }}>{t('brandTagline')}</p>
     </div>
   ) : (
     <div
@@ -844,7 +692,7 @@ export default function AuthPage({
           marginBottom: 36,
         }}
       >
-        {t.brand}
+        {t('brand')}
       </div>
       <h2
         style={{
@@ -857,13 +705,13 @@ export default function AuthPage({
           marginBottom: 12,
         }}
       >
-        {t.brandTagline}
+        {t('brandTagline')}
       </h2>
       <p style={{ color: A.text2, fontSize: '1rem', lineHeight: 1.6, marginBottom: 28 }}>
-        {t.heroSubtitle}
+        {t('heroSubtitle')}
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 36 }}>
-        {t.heroBullets.map((b) => (
+        {[t('heroBullet1'), t('heroBullet2'), t('heroBullet3')].map((b) => (
           <div key={b} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span
               style={{
@@ -887,7 +735,7 @@ export default function AuthPage({
           </div>
         ))}
       </div>
-      <div style={{ color: A.text3, fontSize: '0.82rem' }}>{t.heroFooter}</div>
+      <div style={{ color: A.text3, fontSize: '0.82rem' }}>{t('heroFooter')}</div>
     </div>
   )
 
@@ -924,9 +772,9 @@ export default function AuthPage({
             boxShadow: '0 8px 32px rgba(26,18,8,0.06)',
           }}
         >
-          {planIntent && <PlanIntentPill intent={planIntent} lang={lang} />}
+          {planIntent && <PlanIntentPill intent={planIntent} />}
           {mode === 'signup' && agentCode.verifiedLinkCode && !agentCode.dismissed && (
-            <AgentCodeBanner lang={lang} onDismiss={agentCode.dismissLink} />
+            <AgentCodeBanner onDismiss={agentCode.dismissLink} />
           )}
 
           <h1
@@ -938,24 +786,24 @@ export default function AuthPage({
               letterSpacing: '-0.02em',
             }}
           >
-            {mode === 'login' ? t.loginTitle : t.signupTitle}
+            {mode === 'login' ? t('loginTitle') : t('signupTitle')}
           </h1>
           <p style={{ color: A.text3, fontSize: '0.85rem', marginBottom: 24 }}>
-            {mode === 'login' ? t.loginSubtitle : t.signupSubtitle}
+            {mode === 'login' ? t('loginSubtitle') : t('signupSubtitle')}
           </p>
 
           <form onSubmit={handle} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {mode === 'signup' && (
               <div>
                 <label htmlFor="auth-name" style={label}>
-                  {t.nameLabel}
+                  {t('nameLabel')}
                 </label>
                 <input
                   id="auth-name"
                   autoComplete="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder={t.namePlaceholder}
+                  placeholder={t('namePlaceholder')}
                   required
                   style={inp}
                   onFocus={(e) => (e.target.style.borderColor = A.accent)}
@@ -965,7 +813,7 @@ export default function AuthPage({
             )}
             <div>
               <label htmlFor="auth-email" style={label}>
-                {t.emailLabel}
+                {t('emailLabel')}
               </label>
               <input
                 id="auth-email"
@@ -973,7 +821,7 @@ export default function AuthPage({
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder={t.emailPlaceholder}
+                placeholder={t('emailPlaceholder')}
                 required
                 style={inp}
                 onFocus={(e) => (e.target.style.borderColor = A.accent)}
@@ -982,7 +830,7 @@ export default function AuthPage({
             </div>
             <div>
               <label htmlFor="auth-password" style={label}>
-                {t.passwordLabel}
+                {t('passwordLabel')}
               </label>
               <input
                 id="auth-password"
@@ -992,7 +840,7 @@ export default function AuthPage({
                 autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder={t.passwordPlaceholder}
+                placeholder={t('passwordPlaceholder')}
                 required
                 minLength={8}
                 style={inp}
@@ -1003,7 +851,6 @@ export default function AuthPage({
 
             {mode === 'signup' && (!agentCode.verifiedLinkCode || agentCode.dismissed) && (
               <AgentCodeField
-                lang={lang}
                 open={agentCode.fieldOpen}
                 onOpen={agentCode.openField}
                 value={agentCode.typed}
@@ -1040,24 +887,28 @@ export default function AuthPage({
                   }}
                 />
                 <span>
-                  {t.termsPrefix}
-                  <a
-                    href="/termeni"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: A.accent, fontWeight: 600 }}
-                  >
-                    {t.termsLinkTerms}
-                  </a>
-                  {t.termsAnd}
-                  <a
-                    href="/confidentialitate"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: A.accent, fontWeight: 600 }}
-                  >
-                    {t.termsLinkPrivacy}
-                  </a>
+                  {fillNodes(t('termsSentence'), {
+                    terms: (
+                      <a
+                        href="/termeni"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: A.accent, fontWeight: 600 }}
+                      >
+                        {t('termsLinkTerms')}
+                      </a>
+                    ),
+                    privacy: (
+                      <a
+                        href="/confidentialitate"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: A.accent, fontWeight: 600 }}
+                      >
+                        {t('termsLinkPrivacy')}
+                      </a>
+                    ),
+                  })}
                 </span>
               </label>
             )}
@@ -1086,7 +937,7 @@ export default function AuthPage({
                 marginTop: 4,
               }}
             >
-              {loading ? t.processingBtn : mode === 'login' ? t.loginBtn : t.signupBtn}
+              {loading ? t('processingBtn') : mode === 'login' ? t('loginBtn') : t('signupBtn')}
             </button>
           </form>
 
@@ -1113,10 +964,10 @@ export default function AuthPage({
                   margin: '-12px 0 -4px',
                 }}
               >
-                {t.forgotPassword}
+                {t('forgotPassword')}
               </button>
             )}
-            {mode === 'login' ? t.noAccount : t.hasAccount}{' '}
+            {mode === 'login' ? t('noAccount') : t('hasAccount')}{' '}
             <button
               onClick={() => {
                 setMode(mode === 'login' ? 'signup' : 'login')
@@ -1139,7 +990,7 @@ export default function AuthPage({
                 minHeight: 44,
               }}
             >
-              {mode === 'login' ? t.createOne : t.loginBtn}
+              {mode === 'login' ? t('createOne') : t('loginBtn')}
             </button>
           </div>
         </div>

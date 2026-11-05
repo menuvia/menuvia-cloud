@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { toUserMessage } from '../lib/userMessages'
+import { toUserMessage, userErrorKind } from '../lib/userMessages'
+import { FunnelLangProvider } from '../i18n/UiLangContext'
+import { useT } from '../i18n/useT'
+import { authNs } from '../i18n/ns/auth'
 
 // ─────────────────────────────────────────────────────────────
 // Paleta caldă-luminoasă (aliniată cu A din AuthPage.tsx — /reset-password
@@ -71,12 +74,25 @@ function passwordStrength(p: string): 0 | 1 | 2 {
 }
 
 const STRENGTH_META = {
-  0: { label: 'Slabă', color: A.error, width: '25%' },
-  1: { label: 'Acceptabilă', color: A.warning, width: '60%' },
-  2: { label: 'Puternică', color: A.success, width: '100%' },
+  0: { label: 'newPwStrength0', color: A.error, width: '25%' },
+  1: { label: 'newPwStrength1', color: A.warning, width: '60%' },
+  2: { label: 'newPwStrength2', color: A.success, width: '100%' },
+} as const
+
+type ResetPasswordProps = { navigate: (p: string) => void }
+
+// Limba: `FunnelLangProvider` (lotul L2a), ca pe /auth — omul ajunge aici din
+// emailul de resetare cerut în limba lui (`menuvia_ui_lang` pe dispozitiv).
+export default function ResetPasswordPage(props: ResetPasswordProps) {
+  return (
+    <FunnelLangProvider>
+      <ResetPasswordScreen {...props} />
+    </FunnelLangProvider>
+  )
 }
 
-export default function ResetPasswordPage({ navigate }: { navigate: (p: string) => void }) {
+function ResetPasswordScreen({ navigate }: ResetPasswordProps) {
+  const { t, lang } = useT(authNs)
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [loading, setLoading] = useState(false)
@@ -128,18 +144,24 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
   const handleSubmit = async () => {
     setError(null)
     if (password.length < 8) {
-      setError('Parola trebuie să aibă cel puțin 8 caractere.')
+      setError(t('newPwTooShort'))
       return
     }
     if (password !== confirm) {
-      setError('Parolele nu coincid.')
+      setError(t('newPwMismatch'))
       return
     }
     setLoading(true)
     const { error: updateErr } = await supabase.auth.updateUser({ password })
     if (updateErr) {
+      // În română, exact `toUserMessage` de dinainte; în altă limbă un text
+      // românesc sau englezesc brut de la server nu se afișează (ecran amestecat).
       setError(
-        toUserMessage(updateErr, 'Parola nu a putut fi schimbată. Dacă linkul a expirat, cere unul nou.'),
+        lang === 'ro'
+          ? toUserMessage(updateErr, t('newPwSaveFailed'))
+          : userErrorKind(updateErr).kind === 'network'
+            ? t('errNetwork')
+            : t('newPwSaveFailed'),
       )
       setLoading(false)
       return
@@ -157,7 +179,7 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
       <div style={pageStyle}>
         <div style={{ textAlign: 'center', color: A.text3 }}>
           <div style={{ fontSize: '1.5rem', marginBottom: 12, opacity: 0.5 }}>⏳</div>
-          <div style={{ fontSize: '0.875rem' }}>Se verifică link-ul...</div>
+          <div style={{ fontSize: '0.875rem' }}>{t('newPwChecking')}</div>
         </div>
       </div>
     )
@@ -177,11 +199,10 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
               marginBottom: 10,
             }}
           >
-            Link invalid sau expirat
+            {t('newPwInvalidTitle')}
           </h2>
           <p style={{ color: A.text2, fontSize: '0.875rem', lineHeight: 1.6, marginBottom: 24 }}>
-            Link-urile de resetare sunt valabile 1 oră și pot fi folosite o singură dată. Solicită
-            un link nou dacă ai nevoie.
+            {t('newPwInvalidBody')}
           </p>
           <button
             onClick={() => navigate('/auth')}
@@ -198,7 +219,7 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
               boxShadow: '0 4px 14px rgba(200,150,60,0.25)',
             }}
           >
-            Solicită link nou
+            {t('newPwRequestNew')}
           </button>
         </div>
       </div>
@@ -219,10 +240,10 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
               marginBottom: 10,
             }}
           >
-            Parolă schimbată
+            {t('newPwDoneTitle')}
           </h2>
           <p style={{ color: A.text2, fontSize: '0.875rem', marginBottom: 24 }}>
-            Noua parolă a fost salvată. Poți intra în panou.
+            {t('newPwDoneBody')}
           </p>
           <button
             onClick={() => navigate('/dashboard')}
@@ -239,7 +260,7 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
               boxShadow: '0 4px 14px rgba(200,150,60,0.25)',
             }}
           >
-            Intră în panou →
+            {t('newPwGoToPanel')}
           </button>
         </div>
       </div>
@@ -259,7 +280,7 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
             fontWeight: 700,
           }}
         >
-          Menuvia
+          {t('brand')}
         </div>
 
         <h1
@@ -271,10 +292,10 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
             letterSpacing: '-0.02em',
           }}
         >
-          Parolă nouă
+          {t('newPwTitle')}
         </h1>
         <p style={{ color: A.text3, fontSize: '0.85rem', marginBottom: 28, lineHeight: 1.6 }}>
-          Alege o parolă sigură pentru contul tău.
+          {t('newPwSubtitle')}
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -284,7 +305,7 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
               htmlFor="new-password"
               style={{ display: 'block', fontSize: '0.78rem', color: A.text2, marginBottom: 6 }}
             >
-              Parolă nouă
+              {t('newPwLabel')}
             </label>
             <input
               id="new-password"
@@ -292,7 +313,7 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
               autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Minimum 8 caractere"
+              placeholder={t('passwordPlaceholder')}
               autoFocus
               style={inp}
               onFocus={(e) => (e.target.style.borderColor = A.accent)}
@@ -321,7 +342,7 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
                   />
                 </div>
                 <div style={{ fontSize: '0.7rem', color: strengthMeta.color, fontWeight: 500 }}>
-                  {strengthMeta.label}
+                  {t(strengthMeta.label)}
                 </div>
               </div>
             )}
@@ -333,7 +354,7 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
               htmlFor="confirm-password"
               style={{ display: 'block', fontSize: '0.78rem', color: A.text2, marginBottom: 6 }}
             >
-              Confirmă parola
+              {t('newPwConfirmLabel')}
             </label>
             <input
               id="confirm-password"
@@ -341,7 +362,7 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
               autoComplete="new-password"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
-              placeholder="Repetă parola"
+              placeholder={t('newPwConfirmPlaceholder')}
               style={{
                 ...inp,
                 borderColor:
@@ -358,12 +379,12 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
             />
             {confirm.length > 0 && confirm !== password && (
               <div style={{ fontSize: '0.72rem', color: A.error, marginTop: 4 }}>
-                Parolele nu coincid
+                {t('newPwMismatchInline')}
               </div>
             )}
             {confirm.length > 0 && confirm === password && (
               <div style={{ fontSize: '0.72rem', color: A.success, marginTop: 4 }}>
-                ✓ Parolele coincid
+                {t('newPwMatch')}
               </div>
             )}
           </div>
@@ -408,7 +429,7 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
                   : '0 4px 14px rgba(200,150,60,0.25)',
             }}
           >
-            {loading ? 'Se salvează...' : 'Salvează parola'}
+            {loading ? t('newPwSaving') : t('newPwSave')}
           </button>
 
           <button
@@ -423,7 +444,7 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
               marginTop: -4,
             }}
           >
-            ← Înapoi la autentificare
+            {t('backToLoginArrow')}
           </button>
         </div>
       </div>
