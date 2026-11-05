@@ -17,6 +17,7 @@ import { useReservations } from '../hooks/useReservations'
 import { useOfflineOrderQueue } from '../hooks/useOfflineOrderQueue'
 import { useAudioUnlock } from '../hooks/useAudioUnlock'
 import { createTapGuard } from '../lib/tapGuard'
+import { waiterForwardStep } from '../lib/waiterSteps'
 import type { Order, PaymentMethod, OrderConfirmationPayload } from '../lib/orders'
 import { D } from '../lib/constants'
 import { playSound } from '../lib/utils'
@@ -529,6 +530,26 @@ export default function WaiterPage() {
     (order: Order): void => {
       if (user == null || !tapGuard()) return
       void advance(order.id, 'ready', { status: 'served', served_by: user.id })
+    },
+    [user, advance, tapGuard],
+  )
+
+  // Planul 3 (lotul O7b): pasul următor de pe card — un singur advance_order
+  // per tap (lib/waiterSteps.ts). Statusul REAL al comenzii, nu unul hardcodat:
+  // advanceOrderStatus derivă acțiunea (start_preparing / mark_ready /
+  // mark_served) din perechea curent → țintă. Garda de dublu-tap e pe cheia
+  // comenzii, cu domeniul pasului ('list' doar când pasul intră/iese din
+  // `ready` și cardurile se re-așază). Refuzul rămâne contractul useOrders:
+  // lacăt, rollback + refetch, mesaj în română pe card.
+  const handleForwardStep = useCallback(
+    (order: Order): void => {
+      const step = waiterForwardStep(order)
+      if (user == null || step == null || !tapGuard(order.id, step.scope)) return
+      void advance(
+        order.id,
+        order.status,
+        step.target === 'served' ? { status: 'served', served_by: user.id } : { status: step.target },
+      )
     },
     [user, advance, tapGuard],
   )
@@ -1437,6 +1458,9 @@ export default function WaiterPage() {
                       onAudit={isAdminRole ? setAuditOrder : undefined}
                       paymentsEnabled={paymentsEnabled}
                       onCloseOrder={handleCloseOrder}
+                      // `ready` are deja „Servit” în „Gata de servit” (ReadyOrderCard):
+                      // un al doilea buton pentru aceeași comandă ar fi dublură.
+                      onAdvance={order.status === 'ready' ? undefined : handleForwardStep}
                       onCloseTable={handleCloseTable}
                       sessionUnservedCount={sessionUnservedCount(order)}
                       pending={pendingIds.has(order.id)}
@@ -1471,6 +1495,9 @@ export default function WaiterPage() {
                 onAudit={isAdminRole ? setAuditOrder : undefined}
                 paymentsEnabled={paymentsEnabled}
                 onCloseOrder={handleCloseOrder}
+                // În „Stadiu mese” ReadyOrderCard NU se randează: fără pasul de
+                // pe card, o comandă `ready` n-avea „Servit”, deci nici plată.
+                onAdvance={handleForwardStep}
                 onCloseTable={handleCloseTable}
                 sessionUnservedCount={sessionUnservedCount(order)}
                 pending={pendingIds.has(order.id)}
