@@ -106,23 +106,59 @@ function isRomanianText(text: string): boolean {
 
 /** Mesajul în română, pentru om, al unei erori de orice formă. */
 export function toUserMessage(err: unknown, fallback: string = MSG_GENERIC): string {
+  const k = userErrorKind(err)
+  switch (k.kind) {
+    case 'permission':
+      return MSG_NO_PERMISSION
+    case 'not_found':
+      return MSG_NOT_FOUND
+    case 'duplicate':
+      return MSG_DUPLICATE
+    case 'network':
+      return MSG_NETWORK
+    case 'romanian':
+      return k.text
+    case 'forbidden':
+      return MSG_FORBIDDEN
+    case 'unknown':
+      return fallback
+  }
+}
+
+/**
+ * Clasa unei erori de orice formă — sursa UNICĂ a regulilor de mai sus,
+ * comună lui `toUserMessage` (română) și lui `describeStaffError`
+ * (`src/i18n/staffErrors.ts`, celelalte limbi ale personalului). Un mesaj
+ * românesc de la server e o clasă proprie: în română se afișează ca atare,
+ * în altă limbă NU (ar fi un ecran amestecat), deci cade pe mesajul generic.
+ */
+export type UserErrorKind =
+  | { kind: 'permission' }
+  | { kind: 'not_found' }
+  | { kind: 'duplicate' }
+  | { kind: 'network' }
+  | { kind: 'romanian'; text: string }
+  | { kind: 'forbidden' }
+  | { kind: 'unknown' }
+
+export function userErrorKind(err: unknown): UserErrorKind {
   const { message, code, status } = factsOf(err)
-  if (code === '42501' || PERMISSION_TEXT.test(message)) return MSG_NO_PERMISSION
-  if (code === 'PGRST116') return MSG_NOT_FOUND
-  if (code === '23505' || DUPLICATE_TEXT.test(message)) return MSG_DUPLICATE
+  if (code === '42501' || PERMISSION_TEXT.test(message)) return { kind: 'permission' }
+  if (code === 'PGRST116') return { kind: 'not_found' }
+  if (code === '23505' || DUPLICATE_TEXT.test(message)) return { kind: 'duplicate' }
   // Pe TEXT, nu pe tipul erorii: `isNetworkError` ia orice TypeError drept
   // rețea (corect pentru coada offline, unde un fetch picat e mereu TypeError),
   // dar aici un bug de cod (`TypeError: Cannot read properties of undefined`)
   // i-ar spune omului că n-are conexiune. Textele fetch-ului picat sunt toate
   // în detectorul unic (recenzie CodeRabbit pe #333).
-  if (isNetworkError(message)) return MSG_NETWORK
+  if (isNetworkError(message)) return { kind: 'network' }
   const trimmed = message.trim()
   // Un mesaj românesc câștigă și pe 403: AiError vine cu status 403 și un text
   // precis („Nu ai drepturi să folosești asistentul AI…"), mai util decât cel
   // generic. MSG_FORBIDDEN doar pentru 403 fără text sau cu text englezesc.
-  if (trimmed && isRomanianText(trimmed)) return trimmed
-  if (status === 403 || FORBIDDEN_TEXT.test(message)) return MSG_FORBIDDEN
-  return fallback
+  if (trimmed && isRomanianText(trimmed)) return { kind: 'romanian', text: trimmed }
+  if (status === 403 || FORBIDDEN_TEXT.test(message)) return { kind: 'forbidden' }
+  return { kind: 'unknown' }
 }
 
 /**
