@@ -2,7 +2,7 @@
 // Userul își alege furnizorul (OpenAI / Anthropic / Gemini / custom
 // OpenAI-compatible), modelul și cheia API. Cheia se trimite o singură dată,
 // se criptează server-side (ai-config) și NU se mai întoarce niciodată în clar.
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { D } from '../lib/constants'
 import { useIsMobile } from '../hooks/useIsMobile'
 import {
@@ -14,6 +14,7 @@ import {
   type AiQuota,
 } from '../lib/ai'
 import { toUserMessage } from '../lib/userMessages'
+import { Button } from './ui/Button'
 
 interface ProviderMeta {
   id: AiProvider
@@ -70,6 +71,12 @@ const CREDIT_PACKS: { id: 'small' | 'medium' | 'large'; tokens: string; price: s
   { id: 'large', tokens: '2.000.000 tokens', price: '249 lei' },
 ]
 
+// Starea citirii configurației salvate (tiparul LoyaltySettingsCard). Formularul
+// și „Salvează" există DOAR pe 'ready': pe 'error' nu știm ce e salvat, iar
+// valorile implicite (OpenAI, activ, fără cheie) scrise peste rândul real ar
+// șterge cheia BYO (ai-config.js o golește când se schimbă furnizorul).
+type LoadState = 'loading' | 'ready' | 'error'
+
 export default function AiSettingsTab({
   restaurantId,
   readOnly = false,
@@ -89,33 +96,66 @@ export default function AiSettingsTab({
   const [hasKey, setHasKey] = useState(false) // există deja o cheie salvată
   const [showAdvanced, setShowAdvanced] = useState(false) // secțiunea „Avansat (opțional)"
   const [quota, setQuota] = useState<AiQuota | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loadState, setLoadState] = useState<LoadState>('loading')
+  const [reloadKey, setReloadKey] = useState(0)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [buying, setBuying] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    const [cfg, q] = await Promise.all([getAiConfig(restaurantId), getAiQuota(restaurantId)])
-    if (cfg) {
-      setProvider(cfg.provider)
-      setModel(cfg.model)
-      setBaseUrl(cfg.base_url ?? '')
-      setEnabled(cfg.enabled)
-      setHasKey(true) // dacă există config, presupunem că are cheie (nu o citim)
-    } else {
-      // Fără rând salvat = starea implicită REALĂ din ai-proxy: asistentul e
-      // ACTIV pe cheia platformei. Toggle-ul reflectă asta, altfel ar apărea
-      // debifat deși AI-ul funcționează.
-      setEnabled(true)
-    }
-    setQuota(q)
-    setLoading(false)
-  }, [restaurantId])
-
   useEffect(() => {
+    let cancelled = false
+    setLoadState('loading')
+    // O cheie tastată pentru restaurantul A nu are voie să plece la B, iar
+    // mesajul lui A („Configurație salvată”, o eroare de plată) nu are ce căuta
+    // sub B sau după un „Reîncearcă” reușit (recenzia CodeRabbit pe #353).
+    setApiKey('')
+    setMsg(null)
+    async function load(): Promise<void> {
+      const [cfgRes, q] = await Promise.all([
+        // Respingerea (eroare de citire SAU de transport) devine stare, nu
+        // „fără rând": doar un răspuns reușit deblochează formularul.
+        getAiConfig(restaurantId).then(
+          (cfg) => ({ ok: true as const, cfg }),
+          () => ({ ok: false as const }),
+        ),
+        // Cota e independentă: o citire eșuată a config-ului nu ascunde
+        // consumul, iar o cotă indisponibilă nu blochează config-ul.
+        getAiQuota(restaurantId).catch(() => null),
+      ])
+      // Răspuns întârziat pentru restaurantul de dinainte (selectorul din
+      // DashboardPage schimbă restaurantul fără să demonteze tab-ul).
+      if (cancelled) return
+      setQuota(q)
+      if (!cfgRes.ok) {
+        setLoadState('error')
+        return
+      }
+      const cfg = cfgRes.cfg
+      if (cfg) {
+        setProvider(cfg.provider)
+        setModel(cfg.model)
+        setBaseUrl(cfg.base_url ?? '')
+        setEnabled(cfg.enabled)
+        setHasKey(true) // dacă există config, presupunem că are cheie (nu o citim)
+      } else {
+        // Fără rând salvat = starea implicită REALĂ din ai-proxy: asistentul e
+        // ACTIV pe cheia platformei. Toggle-ul reflectă asta, altfel ar apărea
+        // debifat deși AI-ul funcționează. Resetul e COMPLET: altfel furnizorul,
+        // modelul și „salvată ✓" ale restaurantului anterior rămâneau pe ecran
+        // și plecau la „Salvează" pentru acesta.
+        setProvider('openai')
+        setModel('')
+        setBaseUrl('')
+        setHasKey(false)
+        setEnabled(true)
+      }
+      setLoadState('ready')
+    }
     void load()
-  }, [load])
+    return () => {
+      cancelled = true
+    }
+  }, [restaurantId, reloadKey])
 
   const meta = PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0]
 
@@ -187,7 +227,7 @@ export default function AiSettingsTab({
     boxSizing: 'border-box' as const,
   }
 
-  if (loading) return <div style={{ color: D.t2, padding: 20 }}>Se încarcă...</div>
+  if (loadState === 'loading') return <div style={{ color: D.t2, padding: 20 }}>Se încarcă...</div>
 
   return (
     <div style={{ maxWidth: 720 }}>
@@ -233,7 +273,36 @@ export default function AiSettingsTab({
         </div>
       )}
 
-      {/* Config formular */}
+      {/* Config formular — DOAR pe 'ready'. Pe 'error' formularul implicit ar
+          minți (bifa „Activează" pentru un local care a dezactivat AI-ul) și un
+          „Salvează" ar suprascrie rândul real, cu tot cu cheia BYO. */}
+      {loadState === 'error' ? (
+        <div
+          role="alert"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            flexWrap: 'wrap',
+            background: D.redA,
+            border: `1px solid ${D.red}`,
+            borderRadius: 14,
+            padding: 18,
+            marginBottom: 22,
+            fontSize: '0.85rem',
+            color: D.t1,
+          }}
+        >
+          <span>
+            Nu am putut citi configurația AI salvată. Ca să nu o înlocuim cu valorile implicite (și
+            să nu se piardă cheia API salvată), salvarea e blocată până o citim.
+          </span>
+          <Button variant="secondary" size="sm" onClick={() => setReloadKey((k) => k + 1)}>
+            Reîncearcă
+          </Button>
+        </div>
+      ) : (
       <div style={{ background: D.s2, border: `1px solid ${D.border}`, borderRadius: 14, padding: 18, marginBottom: 22 }}>
         {/* Toggle principal — singurul lucru necesar pentru non-tehnici */}
         <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 8 }}>
@@ -347,6 +416,7 @@ export default function AiSettingsTab({
           </div>
         )}
       </div>
+      )}
 
       {msg && (
         <div
@@ -365,7 +435,8 @@ export default function AiSettingsTab({
         </div>
       )}
 
-      {readOnly ? (
+      {/* „Salvează" nu există în afara lui 'ready' (vezi LoadState). */}
+      {loadState === 'ready' && (readOnly ? (
         <p style={{ color: D.t2, fontSize: '0.82rem', lineHeight: 1.5 }}>
           În modul fondator vezi configurația, dar o poate salva doar echipa restaurantului, din
           contul ei.
@@ -390,7 +461,7 @@ export default function AiSettingsTab({
       >
         {saving ? 'Se salvează...' : 'Salvează configurația'}
       </button>
-      )}
+      ))}
 
       {/* Top-up credite (Faza F) */}
       {!readOnly && (

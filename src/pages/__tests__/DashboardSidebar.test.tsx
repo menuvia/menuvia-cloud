@@ -91,7 +91,35 @@
 //        1 cu 1 local deținut → lipsește; limita 2 → apare; `plan_limits` în
 //        încărcare sau planul necunoscut → lipsește. Mutația care pică:
 //        `addLocation` trimis necondiționat pentru proprietar (codul din 3dacdbd).
-import { cloneElement, type ComponentProps } from 'react'
+//
+// Lotul O7a (harta sălii, mig 322):
+//   DS21 harta salvată prin editor (`onSaved`) intră în lista de restaurante
+//        (`patchRestaurantLocal`), deci după o schimbare de tab editorul
+//        REMONTAT pornește de la harta nouă, nu de la copia de la boot.
+//        Control pozitiv: prima montare primește harta veche. Mutația care
+//        pică: DashboardPage nu mai trimite `onSaved`, sau îl leagă de un no-op
+//        ori de `refetchRestaurants` (lista recitită nu are harta nouă).
+//
+// Lotul O7a (selectorul de restaurant cu Setări nesalvate):
+//   DS22 Setări modificate + alt restaurant din selectorul barei laterale →
+//        întâi confirmarea (cu numele localului nou), fără `setActive`;
+//        select-ul rămâne pe localul curent și Setările montate; la „Rămân
+//        aici" nimic, la „Schimbă fără să salvezi" `setActive` o singură dată.
+//        Mutații care pică: `onChange={(e) => setActive(e.target.value)}`
+//        (comutare imediată, fără dialog — formularul era rescris tăcut cu
+//        datele localului nou) și `setActive` chemat indiferent de răspuns.
+//   DS22b control pozitiv: Setări deschise dar NEmodificate, și pe Acasă →
+//        comutare imediată, fără dialog. Mutații care pică: garda doar pe tab
+//        (fără `settingsDirtyRef`) pică (i); un selector care întreabă mereu
+//        pică (i) și (ii) — fără control, DS22 ar trece și pe el.
+//   DS23 „Adaugă o locație" cu Setări modificate → întrebarea vine ÎNAINTE de
+//        creare (nicio recitire, niciun `setActive`); la refuz nimic, la acord
+//        recitirile, apoi `setActive`, apoi Acasă FĂRĂ a treia întrebare.
+//        Mutații care pică: `confirmBeforeOpen` netrimis (recitirea de după
+//        creare rescrie formularul înaintea oricărei întrebări) și
+//        `settingsDirtyRef.current = false` scos din handleLocationCreated
+//        (`setTab('home')` deschide un al treilea dialog, titlul rămâne pe Setări).
+import { cloneElement, useState, type ComponentProps } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -119,20 +147,31 @@ const { state, homeProps, ctx, limits } = vi.hoisted(() => ({
     // Promisiune controlată: recitirile se termină abia la `release()`.
     hold: null as Promise<void> | null,
     openErrors: [] as string[],
+    // Fiecare MONTARE a editorului hărții (DS21): harta inițială + callback-ul.
+    floorMounts: [] as { initialLayout: unknown; onSaved: (layout: unknown) => void }[],
   },
   // Limitele planului (usePlanLimits): plafonul de restaurante + încărcarea.
   limits: { maxRestaurants: 1, loading: false },
 }))
 // Confirmarea ieșirii din Setări: răspunsul îl decide testul (`dialog.resolve`).
+type DialogCopy = {
+  title?: string
+  description?: string
+  confirmLabel?: string
+  cancelLabel?: string
+}
 const { dialog } = vi.hoisted(() => ({
   dialog: {
     calls: 0,
     resolve: null as ((ok: boolean) => void) | null,
+    // Textul ultimului dialog cerut (DS22: numele localului nou).
+    last: null as DialogCopy | null,
   },
 }))
 vi.mock('../../components/ui/confirm', () => ({
-  confirm: () => {
+  confirm: (opts: DialogCopy) => {
     dialog.calls += 1
+    dialog.last = opts
     return new Promise<boolean>((resolve) => {
       dialog.resolve = resolve
     })
@@ -237,7 +276,10 @@ vi.mock('../../components/SettingsTab', async () => {
       isOwner?: boolean
       onDirtyChange?: (d: boolean) => void
       onPricing?: () => void
-      addLocation?: { onCreated: (id: string) => Promise<void> }
+      addLocation?: {
+        onCreated: (id: string) => Promise<void>
+        confirmBeforeOpen?: () => Promise<boolean>
+      }
     }) =>
       createElement(
         'div',
@@ -247,11 +289,20 @@ vi.mock('../../components/SettingsTab', async () => {
         createElement('button', { onClick: () => p.onDirtyChange?.(true) }, 'stub-modifica'),
         // „Vezi planurile" din cardul de abonament (lotul O7c).
         createElement('button', { onClick: () => p.onPricing?.() }, 'stub-planuri'),
-        // Simulează o locație nou creată din „Adaugă o locație" (lotul A).
+        // Simulează o locație nou creată din „Adaugă o locație" (lotul A),
+        // cu întrebarea dinaintea dialogului (contractul AddLocationCard, AL9).
         p.addLocation
           ? createElement(
               'button',
-              { onClick: () => void p.addLocation?.onCreated('rest-new') },
+              {
+                onClick: () =>
+                  void (async () => {
+                    const loc = p.addLocation
+                    if (!loc) return
+                    if (loc.confirmBeforeOpen && !(await loc.confirmBeforeOpen())) return
+                    await loc.onCreated('rest-new')
+                  })(),
+              },
               'stub-locatie-creata',
             )
           : null,
@@ -294,7 +345,19 @@ vi.mock('../../components/LocationsTab', async () => {
     },
   }
 })
-vi.mock('../../components/FloorPlanEditor', () => ({ default: () => null }))
+// Editorul hărții: stub care notează fiecare MONTARE (inițializatorul useState
+// rulează o singură dată per montare, nu la fiecare randare).
+vi.mock('../../components/FloorPlanEditor', async () => {
+  const { createElement, useState: useStateReact } = await import('react')
+  function FloorEditorStub(p: { initialLayout?: unknown; onSaved: (layout: unknown) => void }) {
+    useStateReact(() => {
+      ctx.floorMounts.push({ initialLayout: p.initialLayout, onSaved: p.onSaved })
+      return null
+    })
+    return createElement('div', null, 'stub-harta')
+  }
+  return { default: FloorEditorStub }
+})
 // Reîncărcarea completă a paginii (jsdom nu navighează): o notăm.
 vi.mock('../../lib/locations', async (importOriginal) => ({
   ...((await importOriginal()) as typeof import('../../lib/locations')),
@@ -316,11 +379,11 @@ import DashboardPage from '../DashboardPage'
 import { featuresFor } from '../../lib/__tests__/planSurfaceFixtures'
 import type { DbPlan } from '../../lib/__tests__/planFeatureMatrix.fixture'
 
-function makeRestaurant(id = 'rest-1'): Restaurant {
+function makeRestaurant(id = 'rest-1', name = 'Bistro Test'): Restaurant {
   return {
     id,
     owner_id: 'owner-1',
-    name: 'Bistro Test',
+    name,
     tagline: null,
     city: 'Sibiu',
     slug: 'bistro-test',
@@ -365,9 +428,10 @@ const urls = {
 
 async function renderDashboard(
   plan: DbPlan | null,
-  opts: { url?: string; anchor?: boolean; onPricing?: () => void } = {},
+  opts: { url?: string; anchor?: boolean; restaurantIds?: string[]; onPricing?: () => void } = {},
 ) {
   state.features = plan == null ? null : featuresFor(plan)
+  const initialIds = opts.restaurantIds ?? ['rest-1']
   window.history.replaceState({}, '', opts.url ?? '/dashboard')
   const ui = (
     <DashboardPage
@@ -376,7 +440,9 @@ async function renderDashboard(
       onViewKitchen={vi.fn()}
       onPricing={opts.onPricing ?? vi.fn()}
       onSignOut={vi.fn(async () => {})}
-      restaurants={[makeRestaurant()]}
+      restaurants={initialIds.map((id) =>
+        makeRestaurant(id, id === 'rest-1' ? 'Bistro Test' : `Bistro ${id}`),
+      )}
       restaurantsLoading={false}
       updateRestaurant={
         vi.fn(async () => ({ error: null })) as unknown as ComponentProps<
@@ -390,6 +456,7 @@ async function renderDashboard(
         const ids = ctx.listIds ?? (ctx.reloadRows ?? ctx.memberships).map((m) => m.restaurant_id)
         return ids.map((id) => makeRestaurant(id))
       }}
+      patchRestaurantLocal={vi.fn()}
       navigate={urls.navigate}
       replaceUrl={urls.replaceUrl}
     />
@@ -415,11 +482,13 @@ beforeEach(() => {
   ctx.listIds = null
   ctx.hold = null
   ctx.openErrors = []
+  ctx.floorMounts = []
   limits.maxRestaurants = 1
   limits.loading = false
   state.loadError = false
   dialog.calls = 0
   dialog.resolve = null
+  dialog.last = null
   state.country = 'RO'
   state.site = 'ro'
   urls.navigate.mockClear()
@@ -809,5 +878,169 @@ describe('DashboardPage — „Toate locațiile" (lotul A)', () => {
     limits.loading = false
     await at(null)
     expect(card()).toBeNull()
+  })
+})
+
+describe('DashboardPage — harta sălii după salvare (lotul O7a, mig 322)', () => {
+  const OLD_LAYOUT = { floors: [{ id: 'OLD' }], version: 1, savedAt: '2026-10-01T10:00:00Z' }
+  const NEW_LAYOUT = { floors: [{ id: 'NEW' }], version: 1, savedAt: '2026-11-04T10:00:00Z' }
+
+  // Lista de restaurante ținută în state, ca în AppRouter (useRestaurants).
+  function StatefulDashboard() {
+    const [list, setList] = useState<Restaurant[]>(() => [
+      { ...makeRestaurant(), floor_layout: OLD_LAYOUT },
+    ])
+    return (
+      <DashboardPage
+        onViewMenu={vi.fn()}
+        onViewWaiter={vi.fn()}
+        onViewKitchen={vi.fn()}
+        onPricing={vi.fn()}
+        onSignOut={vi.fn(async () => {})}
+        restaurants={list}
+        restaurantsLoading={false}
+        updateRestaurant={
+          vi.fn(async () => ({ error: null })) as unknown as ComponentProps<
+            typeof DashboardPage
+          >['updateRestaurant']
+        }
+        // Lista recitită NU are harta nouă (ca o recitire care pică pe un blip).
+        refetchRestaurants={async () => [makeRestaurant()]}
+        patchRestaurantLocal={(id, patch) =>
+          setList((l) => l.map((r) => (r.id === id ? { ...r, ...patch } : r)))
+        }
+        navigate={urls.navigate}
+        replaceUrl={urls.replaceUrl}
+      />
+    )
+  }
+
+  const goTo = (url: string) =>
+    act(() => {
+      window.history.pushState({}, '', url)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+
+  it('DS21: după salvare și o schimbare de tab, editorul remontat primește harta nouă', async () => {
+    state.features = featuresFor('pro')
+    window.history.replaceState({}, '', '/dashboard?tab=arhitectura')
+    render(<StatefulDashboard />)
+    expect(await screen.findByText('stub-harta')).toBeInTheDocument()
+    // Control pozitiv: prima montare pornește de la harta din listă (cea veche).
+    expect(ctx.floorMounts).toHaveLength(1)
+    expect(ctx.floorMounts[0].initialLayout).toEqual(OLD_LAYOUT)
+
+    // Editorul raportează o salvare reușită.
+    act(() => {
+      ctx.floorMounts[0].onSaved(NEW_LAYOUT)
+    })
+
+    goTo('/dashboard')
+    expect(await screen.findByText('stub-acasa')).toBeInTheDocument()
+    expect(screen.queryByText('stub-harta')).toBeNull()
+
+    goTo('/dashboard?tab=arhitectura')
+    expect(await screen.findByText('stub-harta')).toBeInTheDocument()
+    expect(ctx.floorMounts).toHaveLength(2)
+    expect(ctx.floorMounts[1].initialLayout).toEqual(NEW_LAYOUT)
+  })
+})
+
+describe('DashboardPage — selectorul de restaurant cu Setări nesalvate (lotul O7a)', () => {
+  const switcher = () => screen.getByRole('combobox', { name: 'Alege restaurantul' })
+  const setActiveCalls = (id: string) => ctx.calls.filter((c) => c === `setActive:${id}`).length
+  // Un macrotask: lanțul de promisiuni de după răspunsul la dialog s-a încheiat,
+  // deci o verificare NEGATIVĂ („fără setActive") nu trece din grabă.
+  const settle = () =>
+    act(async () => {
+      await new Promise<void>((r) => setTimeout(r, 0))
+    })
+
+  it('DS22: Setări modificate + alt restaurant → întâi confirmarea; la refuz rămâi, la acord comuți o dată', async () => {
+    await renderDashboard('pro', { restaurantIds: ['rest-1', 'rest-2'] })
+    const user = userEvent.setup()
+    await openGroup(/Setări/)
+    expect(await screen.findByText('stub-setari-restaurant')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'stub-modifica' }))
+
+    await user.selectOptions(switcher(), 'rest-2')
+    expect(dialog.calls).toBe(1)
+    expect(setActiveCalls('rest-2')).toBe(0)
+    // Select-ul controlat rămâne pe localul curent, Setările rămân montate.
+    expect(switcher()).toHaveValue('rest-1')
+    expect(screen.getByText('stub-setari-restaurant')).toBeInTheDocument()
+    expect(dialog.last?.confirmLabel).toBe('Schimbă fără să salvezi')
+    expect(dialog.last?.cancelLabel).toBe('Rămân aici')
+    expect(dialog.last?.description).toContain('Bistro rest-2')
+    expect(dialog.last?.description).toContain('Bistro Test')
+
+    // „Rămân aici": nicio comutare.
+    await act(async () => dialog.resolve?.(false))
+    await settle()
+    expect(setActiveCalls('rest-2')).toBe(0)
+    expect(switcher()).toHaveValue('rest-1')
+    expect(title()).toHaveTextContent('Restaurant')
+
+    // A doua încercare, cu „Schimbă fără să salvezi".
+    await user.selectOptions(switcher(), 'rest-2')
+    expect(dialog.calls).toBe(2)
+    await act(async () => dialog.resolve?.(true))
+    await waitFor(() => expect(setActiveCalls('rest-2')).toBe(1))
+    await settle()
+    expect(setActiveCalls('rest-2')).toBe(1)
+  })
+
+  it('DS22b: control — fără modificări (Setări deschise sau Acasă) comutarea e imediată, fără dialog', async () => {
+    const first = await renderDashboard('pro', { restaurantIds: ['rest-1', 'rest-2'] })
+    const user = userEvent.setup()
+    // (i) Setări deschise, formularul NEmodificat.
+    await openGroup(/Setări/)
+    expect(await screen.findByText('stub-setari-restaurant')).toBeInTheDocument()
+    await user.selectOptions(switcher(), 'rest-2')
+    expect(setActiveCalls('rest-2')).toBe(1)
+    expect(dialog.calls).toBe(0)
+    first.unmount()
+
+    // (ii) Pe Acasă (tab-ul implicit).
+    ctx.calls = []
+    await renderDashboard('pro', { restaurantIds: ['rest-1', 'rest-2'] })
+    await user.selectOptions(switcher(), 'rest-2')
+    expect(setActiveCalls('rest-2')).toBe(1)
+    expect(dialog.calls).toBe(0)
+  })
+
+  it('DS23: „Adaugă o locație" cu Setări modificate → întrebarea vine înainte de creare și de recitiri', async () => {
+    limits.maxRestaurants = 2
+    ctx.reloadRows = [membership('rest-1', 'owner'), membership('rest-new', 'owner')]
+    await renderDashboard('pro', { url: '/dashboard?tab=settings-account', anchor: false })
+    expect(await screen.findByText('stub-setari-account')).toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'stub-modifica' }))
+
+    await user.click(screen.getByRole('button', { name: 'stub-locatie-creata' }))
+    await waitFor(() => expect(dialog.calls).toBe(1))
+    // Nicio recitire și nicio comutare înaintea răspunsului.
+    expect(ctx.calls).toEqual([])
+    expect(dialog.last?.confirmLabel).toBe('Continuă fără să salvezi')
+
+    // Refuz: nimic nu se întâmplă, Setările rămân.
+    await act(async () => dialog.resolve?.(false))
+    await settle()
+    expect(ctx.calls).toEqual([])
+    expect(screen.getByText('stub-setari-account')).toBeInTheDocument()
+
+    // Acord: recitirile, apoi `setActive`, apoi Acasă — fără o a treia întrebare.
+    await user.click(screen.getByRole('button', { name: 'stub-locatie-creata' }))
+    await waitFor(() => expect(dialog.calls).toBe(2))
+    await act(async () => dialog.resolve?.(true))
+    await waitFor(() => expect(ctx.calls).toContain('setActive:rest-new'))
+    const at = ctx.calls.indexOf('setActive:rest-new')
+    expect(ctx.calls.indexOf('refetchRestaurants:done')).toBeGreaterThanOrEqual(0)
+    expect(ctx.calls.indexOf('refetchRestaurants:done')).toBeLessThan(at)
+    expect(ctx.calls.indexOf('reloadMemberships:done')).toBeGreaterThanOrEqual(0)
+    expect(ctx.calls.indexOf('reloadMemberships:done')).toBeLessThan(at)
+    await waitFor(() => expect(title()).toHaveTextContent('Acasă'))
+    await settle()
+    expect(dialog.calls).toBe(2)
   })
 })

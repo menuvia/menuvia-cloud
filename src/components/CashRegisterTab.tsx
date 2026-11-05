@@ -121,28 +121,43 @@ export default function CashRegisterTab({ restaurantId }: Props) {
   // Guard de secvență: la schimbarea restaurantului răspunsul unui load vechi nu
   // trebuie să suprascrie tura/istoricul de casă ale restaurantului curent.
   const loadSeqRef = useRef(0)
-  const load = useCallback(async () => {
-    const seq = ++loadSeqRef.current
-    setLoading(true)
-    setErr(null)
-    try {
-      const [cur, hist, notes] = await Promise.all([
-        getCurrentShift(restaurantId),
-        listRecentShifts(restaurantId, 30),
-        // Note de reconciliere pe plățile online (mig 211) — RLS admin-only;
-        // pe planuri fără plăți online lista e pur și simplu goală.
-        listSettleNotes(restaurantId, 30),
-      ])
-      if (seq !== loadSeqRef.current) return
-      setCurrent(cur)
-      setRecent(hist)
-      setSettleNotes(notes)
-    } catch (e) {
-      if (seq === loadSeqRef.current) setErr(toUserMessage(e, 'Eroare la încărcare'))
-    } finally {
-      if (seq === loadSeqRef.current) setLoading(false)
-    }
-  }, [restaurantId])
+  // Reîmprospătarea din FUNDAL (poll-ul de 20 s și citirea de la revenirea în
+  // filă) NU reaprinde `loading`. Pe un restaurant fără nicio tură (`current`
+  // null, istoric gol) garda de spinner de mai jos înlocuia tot arborele cât
+  // cererea era în zbor: OpenShiftModal — copil ne-portal, cu fondul și nota
+  // ținute în stare LOCALĂ — se demonta și revenea cu „100" și notă goală, sub
+  // degetele omului care tasta (lotul O7a). Încărcările din prim-plan (montare,
+  // după un modal închis cu succes) păstrează spinner-ul: altfel „Nicio tură
+  // deschisă" ar clipi un RTT pe un restaurant care ARE tură deschisă.
+  // `finally` stinge spinner-ul NECONDIȚIONAT: dacă o citire din fundal o
+  // înlocuiește pe cea de la montare, guard-ul de secvență aruncă răspunsul
+  // montării, deci doar cea din fundal mai poate opri spinner-ul. `setErr(null)`
+  // rămâne și el necondiționat: o reîmprospătare reușită șterge banner-ul.
+  const load = useCallback(
+    async (opts: { background?: boolean } = {}) => {
+      const seq = ++loadSeqRef.current
+      if (opts.background !== true) setLoading(true)
+      setErr(null)
+      try {
+        const [cur, hist, notes] = await Promise.all([
+          getCurrentShift(restaurantId),
+          listRecentShifts(restaurantId, 30),
+          // Note de reconciliere pe plățile online (mig 211) — RLS admin-only;
+          // pe planuri fără plăți online lista e pur și simplu goală.
+          listSettleNotes(restaurantId, 30),
+        ])
+        if (seq !== loadSeqRef.current) return
+        setCurrent(cur)
+        setRecent(hist)
+        setSettleNotes(notes)
+      } catch (e) {
+        if (seq === loadSeqRef.current) setErr(toUserMessage(e, 'Eroare la încărcare'))
+      } finally {
+        if (seq === loadSeqRef.current) setLoading(false)
+      }
+    },
+    [restaurantId],
+  )
 
   useEffect(() => {
     void load()
@@ -152,8 +167,10 @@ export default function CashRegisterTab({ restaurantId }: Props) {
   // vizibilă (zero trafic în fundal), cu un load() complet la revenire —
   // istoricul de ture (închise de pe alt dispozitiv) și notele de reconciliere
   // (mig 211, server-side) NU sunt statice. Contractul comun e în
-  // usePollWhileVisible (perf-staff-6); înainte era scris de mână aici.
-  usePollWhileVisible(() => void load(), 20_000)
+  // usePollWhileVisible (perf-staff-6); înainte era scris de mână aici. Ambele
+  // declanșări (intervalul și revenirea în filă) trec prin acest callback, deci
+  // sunt citiri din FUNDAL: nu ascund ecranul și nu demontează modalele.
+  usePollWhileVisible(() => void load({ background: true }), 20_000)
 
   if (loading && current == null && recent.length === 0) {
     return <InlineSpinner label="Se încarcă casa..." />

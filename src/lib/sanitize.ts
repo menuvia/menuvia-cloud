@@ -13,6 +13,20 @@ import type { Restaurant, Category, Product } from '../hooks/useData'
 // `useRestaurants.update()` și PostgREST l-ar respinge cu 42501 — fail-closed
 // dar inutil. Mai bine îl excludem aici ca whitelist-ul TS să oglindească exact
 // privilegiile DB.
+//
+// `floor_layout` e OMIS deliberat (mig 322): harta sălii se scrie DOAR prin
+// RPC-ul `save_floor_layout` (gate-urile de rol + `floor_plan` + obiect JSON +
+// plafon de 1 MiB). În DB grant-ul de coloană RĂMÂNE (bundle-urile vechi cară
+// coloana în orice PATCH din Setări, iar un revoke le-ar fi blocat toată
+// salvarea cu 42501); gate-ul e trigger-ul `trg_restaurants_floor_layout_rpc_only`,
+// care păstrează valoarea veche pentru rolurile client. Excepție deliberată de la
+// regula „whitelist-ul TS oglindește privilegiile DB” de mai sus.
+// Formularul din Setări pornește de la rândul încărcat la montare și trimitea
+// rândul întreg, deci o salvare din Setări rescria harta cu copia VECHE — inclusiv
+// peste o hartă salvată între timp pe alt dispozitiv. Excluderea de aici închide
+// suprascrierea (SettingsTab rămâne neschimbat: filtrarea e în pickAllowed, ca
+// la slug), iar merge-ul local din `update()` ia acum floor_layout CURENT din
+// rândul întors de server.
 export const RESTAURANT_UPDATE_FIELDS = [
   'name',
   'tagline',
@@ -27,7 +41,6 @@ export const RESTAURANT_UPDATE_FIELDS = [
   'primary_color',
   'logo_url',
   'cover_url',
-  'floor_layout',
   'socials',
   'amenities',
   'checkout_suggestion_settings',
