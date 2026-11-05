@@ -2218,7 +2218,16 @@ function ProductModal({
         <div
           style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6, flexWrap: 'wrap' }}
         >
-          <Button variant="secondary" onClick={onClose}>
+          {/* „Anulează” trece prin aceeași întrebare ca fundalul / Escape / ✕
+              (recenzia CodeRabbit pe #352: altfel modificările se pierdeau). */}
+          <Button
+            variant="secondary"
+            onClick={() =>
+              void confirmDiscard().then((ok) => {
+                if (ok) onClose()
+              })
+            }
+          >
             Anulează
           </Button>
           {/* „Salvează și adaugă următorul" — doar la create (audit aug 2026:
@@ -2535,7 +2544,10 @@ export default function ProductsTab({
     [products, orderCategory],
   )
 
-  if (error || catError)
+  // Cu fișa deschisă, o reîmprospătare picată (după o poză AI / o rețetă
+  // salvată) NU are voie să demonteze fișa și modificările nesalvate din ea
+  // (recenzia CodeRabbit pe #352): eroarea apare după ce fișa se închide.
+  if ((error || catError) && !modal)
     return (
       <QueryError
         message={error || catError || 'Eroare necunoscută'}

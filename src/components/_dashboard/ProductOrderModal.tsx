@@ -39,6 +39,13 @@ export function ProductOrderModal({
     })
   }
 
+  // Cât salvarea e în zbor, ordinea e înghețată și fereastra nu se închide:
+  // o mutare ulterioară n-ar mai pleca, iar „Anulează” ar părea că oprește o
+  // ordine care se scrie oricum (recenzia CodeRabbit pe #352).
+  function closeIfIdle() {
+    if (!saving) onClose()
+  }
+
   async function save() {
     if (saving) return
     setSaving(true)
@@ -48,7 +55,7 @@ export function ProductOrderModal({
   }
 
   return (
-    <Modal title={`Ordinea produselor din „${categoryName}”`} onClose={onClose} width={440}>
+    <Modal title={`Ordinea produselor din „${categoryName}”`} onClose={closeIfIdle} width={440}>
       <div style={{ fontSize: '0.78rem', color: D.t2, marginBottom: 12, lineHeight: 1.5 }}>
         Așa apar produsele în meniul clienților și la ospătar.
       </div>
@@ -71,7 +78,7 @@ export function ProductOrderModal({
               variant="ghost"
               size="sm"
               aria-label={`Mută „${p.name}” mai sus`}
-              disabled={i === 0}
+              disabled={saving || i === 0}
               onClick={() => move(i, -1)}
             >
               ↑
@@ -80,7 +87,7 @@ export function ProductOrderModal({
               variant="ghost"
               size="sm"
               aria-label={`Mută „${p.name}” mai jos`}
-              disabled={i === order.length - 1}
+              disabled={saving || i === order.length - 1}
               onClick={() => move(i, 1)}
             >
               ↓
@@ -89,7 +96,7 @@ export function ProductOrderModal({
         ))}
       </ol>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
-        <Button variant="secondary" onClick={onClose}>
+        <Button variant="secondary" onClick={closeIfIdle} disabled={saving}>
           Anulează
         </Button>
         <Button onClick={() => void save()} loading={saving} disabled={!changed}>

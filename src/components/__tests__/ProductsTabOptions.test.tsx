@@ -16,26 +16,40 @@
 //        apare „scoasă din meniu” DOAR când lista produselor a fost citită;
 //        o citire picată nu marchează perechile reale (iar „Scoate” le-ar fi
 //        șters). [PICĂ: filtrul fără `allProductsComplete`]
+//   PG6  (recenzia CodeRabbit pe #352) „Anulează” din fișă întreabă ca fundalul:
+//        cu modificări, „Rămân” lasă fișa deschisă, „Renunță” o închide; fără
+//        modificări se închide direct. [PICĂ: `onClick={onClose}`]
+//   PG7  (recenzia CodeRabbit pe #352) o reîmprospătare picată cu fișa deschisă
+//        nu o demontează și nu pierde ce s-a tastat. [PICĂ: ecranul de eroare
+//        întors înaintea fișei]
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Product, Category } from '../../hooks/useData'
 import type { DbPlan } from '../../lib/__tests__/planFeatureMatrix.fixture'
 
-const { data, calls, linkState, supa } = vi.hoisted(() => ({
+const { data, calls, linkState, supa, dlg } = vi.hoisted(() => ({
   data: { products: [] as Product[], categories: [] as Category[] },
   calls: { setGroups: [] as [string, string[]][], updates: [] as Partial<Product>[] },
   linkState: { linked: [] as string[], fail: false },
   // Rândurile tabelelor citite direct de fișă și tabelele a căror citire pică.
   supa: { rows: {} as Record<string, unknown[]>, fail: new Set<string>() },
+  // Răspunsul la „Renunți la modificări?” și câte întrebări s-au pus (PG6);
+  // eroarea listei de produse (PG7).
+  dlg: { calls: 0, answer: true, productsError: null as string | null },
 }))
 
-vi.mock('../ui/confirm', () => ({ confirm: async () => true }))
+vi.mock('../ui/confirm', () => ({
+  confirm: async () => {
+    dlg.calls += 1
+    return dlg.answer
+  },
+}))
 vi.mock('../../hooks/useData', () => ({
   useProducts: () => ({
     products: data.products,
     loading: false,
-    error: null,
+    error: dlg.productsError,
     create: async () => ({ data: null, error: null }),
     update: async (_id: string, f: Partial<Product>) => {
       calls.updates.push(f)
@@ -141,8 +155,8 @@ function product(over: Partial<Product> = {}): Product {
   }
 }
 
-function renderTab(plan: DbPlan = 'growth') {
-  render(
+function tabUi(plan: DbPlan = 'growth') {
+  return (
     <ProductsTab
       restaurantId="rest-1"
       plan={plan}
@@ -153,8 +167,12 @@ function renderTab(plan: DbPlan = 'growth') {
       canManageRecipes={false}
       menuLanguages={[]}
       surface={surfaceFor(plan)}
-    />,
+    />
   )
+}
+
+function renderTab(plan: DbPlan = 'growth') {
+  return render(tabUi(plan))
 }
 
 beforeEach(() => {
@@ -166,6 +184,9 @@ beforeEach(() => {
   linkState.fail = false
   supa.rows = {}
   supa.fail.clear()
+  dlg.calls = 0
+  dlg.answer = true
+  dlg.productsError = null
 })
 
 async function openEdit() {
@@ -250,5 +271,50 @@ describe('ProductsTab — perechile cu produse scoase din meniu', () => {
     supa.fail.add('products')
     const dlg = await openUpsell()
     expect(within(dlg).queryByText('Produs scos din meniu (ocupă un loc)')).toBeNull()
+  })
+})
+
+describe('ProductsTab — fișa nu pierde munca (recenzia CodeRabbit pe #352)', () => {
+  it('PG6 „Anulează” cere confirmarea doar cu modificări nesalvate', async () => {
+    const { user } = await openEdit()
+    let fisa = screen.getByRole('dialog', { name: 'Editează produs' })
+    // Control: fără modificări, se închide direct.
+    await user.click(within(fisa).getByRole('button', { name: 'Anulează' }))
+    expect(dlg.calls).toBe(0)
+    expect(screen.queryByRole('dialog', { name: 'Editează produs' })).toBeNull()
+    // Cu modificări: întrebarea; „Rămân” → fișa rămâne, cu textul tastat.
+    await user.click(screen.getAllByRole('button', { name: 'Editează produsul' })[0])
+    fisa = await screen.findByRole('dialog', { name: 'Editează produs' })
+    const price = within(fisa).getByRole('textbox', { name: 'Preț (lei)' })
+    await user.clear(price)
+    await user.type(price, '33')
+    dlg.answer = false
+    await user.click(within(fisa).getByRole('button', { name: 'Anulează' }))
+    expect(dlg.calls).toBe(1)
+    expect(screen.getByRole('dialog', { name: 'Editează produs' })).toBeInTheDocument()
+    expect(price).toHaveValue('33')
+    // „Renunță” → abia acum se închide.
+    dlg.answer = true
+    await user.click(within(fisa).getByRole('button', { name: 'Anulează' }))
+    expect(dlg.calls).toBe(2)
+    expect(screen.queryByRole('dialog', { name: 'Editează produs' })).toBeNull()
+  })
+
+  it('PG7 eroarea listei cu fișa deschisă nu demontează fișa', async () => {
+    const user = userEvent.setup()
+    const view = renderTab()
+    await user.click(screen.getAllByRole('button', { name: 'Editează produsul' })[0])
+    const fisa = await screen.findByRole('dialog', { name: 'Editează produs' })
+    const price = within(fisa).getByRole('textbox', { name: 'Preț (lei)' })
+    await user.clear(price)
+    await user.type(price, '41')
+    dlg.productsError = 'Fără conexiune. Verifică internetul și reîncearcă.'
+    view.rerender(tabUi())
+    expect(screen.getByRole('dialog', { name: 'Editează produs' })).toBeInTheDocument()
+    expect(within(screen.getByRole('dialog', { name: 'Editează produs' })).getByRole('textbox', { name: 'Preț (lei)' })).toHaveValue('41')
+    // Control: fără fișă deschisă, eroarea apare ca de obicei.
+    dlg.answer = true
+    await user.click(within(screen.getByRole('dialog', { name: 'Editează produs' })).getByRole('button', { name: 'Anulează' }))
+    expect(await screen.findByText('Fără conexiune. Verifică internetul și reîncearcă.')).toBeInTheDocument()
   })
 })

@@ -2,8 +2,11 @@
 //   OR1  ↑/↓ mută local, „Salvează ordinea” trimite lista nouă o dată;
 //        neschimbată, salvarea e blocată.
 //   OR2  salvarea refuzată lasă fereastra deschisă (ordinea aleasă nu se pierde).
+//   OR3  (recenzia CodeRabbit pe #352) cât salvarea e în zbor, ordinea e înghețată
+//        și „Anulează” nu închide; după răspuns fereastra se închide singură.
+//        [PICĂ: mutările și închiderea active în timpul salvării]
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ProductOrderModal } from '../ProductOrderModal'
 
@@ -42,5 +45,22 @@ describe('ProductOrderModal', () => {
     await user.click(screen.getByRole('button', { name: 'Salvează ordinea' }))
     expect(onClose).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('OR3 cât se salvează: fără mutări, fără închidere', async () => {
+    const user = userEvent.setup()
+    let finish: (ok: boolean) => void = () => undefined
+    const onSave = vi.fn(() => new Promise<boolean>((r) => (finish = r)))
+    const onClose = vi.fn()
+    render(<ProductOrderModal categoryName="Supe" products={PRODUCTS} onSave={onSave} onClose={onClose} />)
+    await user.click(screen.getByRole('button', { name: 'Mută „Ciorbă” mai jos' }))
+    await user.click(screen.getByRole('button', { name: 'Salvează ordinea' }))
+    expect(screen.getByRole('button', { name: 'Mută „Supă” mai jos' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Anulează' })).toBeDisabled()
+    await user.keyboard('{Escape}')
+    expect(onClose).not.toHaveBeenCalled()
+    await act(async () => finish(true))
+    expect(onSave).toHaveBeenCalledWith(['b', 'a', 'c'])
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
