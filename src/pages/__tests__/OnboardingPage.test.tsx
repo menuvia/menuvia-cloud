@@ -9,9 +9,15 @@
 //   - Pasul 3: ridicarea doar pe planurile care o au (OB-P1, OB-P1b, OB-P2)
 //   - ecranul final: bifele din ce s-a creat real și PDF-ul cu QR-uri (OQ1–OQ3);
 //     cu plan ales înainte de cont, butonul final duce la activarea lui (RQ8)
+//   - limba (lotul L2b): OL1 engleza din `menuvia_ui_lang` parcurge tot fluxul,
+//     iar mesele create în BAZĂ se numesc „Table N” (subtitlul pasului 3 o
+//     promite); OL2 germana stocată rămâne română cât timp nu e activată pentru
+//     personal (`FUNNEL_LANGS`); OL3 numărătoarea e plural pe regulile limbii —
+//     „Creează 1 masă”, nu „1 mese” (mutația care pică: textul vechi `{n} mese`)
 // Pattern de mock-uri ca în ReservePage.test.tsx (supabase + module).
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { Suspense } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -41,6 +47,7 @@ const {
   // token-urilor QR pică.
   db: {
     updates: [] as Array<{ table: string; payload: Record<string, unknown> }>,
+    inserts: [] as Array<{ table: string; rows: Array<Record<string, unknown>> }>,
     failTokens: false,
   },
 }))
@@ -59,6 +66,7 @@ vi.mock('../../lib/supabase', () => ({
       // Pasul 3: mesele (id + nume) și token-urile lor QR se întorc la inserare.
       insert: (rows: Array<Record<string, unknown>>) => ({
         select: () => {
+          db.inserts.push({ table, rows })
           if (table === 'tables')
             return Promise.resolve({
               data: rows.map((r, i) => ({ id: `t${i + 1}`, name: r.name })),
@@ -97,6 +105,8 @@ vi.mock('../../components/AiMenuImport', () => ({
 }))
 
 import OnboardingPage from '../OnboardingPage'
+import { preloadNamespace } from '../../i18n/core'
+import { onboardingNs } from '../../i18n/ns/onboarding'
 
 // Din process.cwd(), NU din import.meta.url (capcana din qr-scan.test.ts, #269).
 const ONBOARDING_SRC = readFileSync(resolve(process.cwd(), 'src/pages/OnboardingPage.tsx'), 'utf8')
@@ -107,6 +117,7 @@ beforeEach(() => {
   fetchFeaturesMock.mockImplementation(() => Promise.resolve({}))
   hasFeatureMock.mockImplementation(() => true)
   db.updates.length = 0
+  db.inserts.length = 0
   db.failTokens = false
   downloadQrPdfMock.mockImplementation(() => Promise.resolve('qr.pdf'))
   window.localStorage.clear()
@@ -336,5 +347,46 @@ describe('OnboardingPage — ecranul final', () => {
     const cta = await screen.findByRole('button', { name: /continuă cu planul meniu \+ comenzi/i })
     await user.click(cta)
     await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1))
+  })
+})
+
+describe('OnboardingPage — limba (lotul L2b)', () => {
+  it('OL1 engleza din stocare: tot fluxul în engleză, mesele se numesc „Table N”', async () => {
+    await preloadNamespace(onboardingNs, 'en')
+    window.localStorage.setItem('menuvia_ui_lang', 'en')
+    const user = userEvent.setup()
+    createRestaurantMock.mockResolvedValue({ restaurant_id: 'r1', restaurant_slug: 'the-fork' })
+    render(
+      <Suspense fallback={null}>
+        <OnboardingPage onComplete={vi.fn()} />
+      </Suspense>,
+    )
+    expect(await screen.findByText('Set up your restaurant')).toBeInTheDocument()
+    expect(screen.getByText('Step 1 of 4')).toBeInTheDocument()
+    await user.type(screen.getByLabelText(/restaurant name/i), 'The Fork')
+    await user.click(screen.getByRole('button', { name: /continue/i }))
+    await screen.findByText('Add your first product')
+    await user.click(screen.getByRole('button', { name: /skip this step/i }))
+    await screen.findByText('How many tables does your restaurant have?')
+    await user.click(screen.getByRole('button', { name: /create 5 tables/i }))
+    expect(await screen.findByTestId('ob-summary-tables-qr')).toHaveTextContent('5 tables with QR codes')
+    const tables = db.inserts.find((i) => i.table === 'tables')
+    expect(tables?.rows.map((r) => r.name)).toEqual(['Table 1', 'Table 2', 'Table 3', 'Table 4', 'Table 5'])
+    expect(tables?.rows[0]?.slug).toBe('table-1')
+  })
+
+  it('OL2 germana stocată rămâne română până la activarea ei pentru personal', () => {
+    window.localStorage.setItem('menuvia_ui_lang', 'de')
+    render(<OnboardingPage onComplete={vi.fn()} />)
+    expect(screen.getByText('Configurează restaurantul')).toBeInTheDocument()
+  })
+
+  it('OL3 plural: o singură masă e „1 masă”', async () => {
+    const user = await reachStep3()
+    for (let i = 0; i < 4; i++) await user.click(screen.getByRole('button', { name: 'Scade numărul de mese' }))
+    expect(screen.getByRole('button', { name: /creează 1 masă →/i })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /creează 1 masă →/i }))
+    expect(await screen.findByTestId('ob-summary-tables-qr')).toHaveTextContent('1 masă cu QR')
+    expect(db.inserts.find((i) => i.table === 'tables')?.rows.map((r) => r.name)).toEqual(['Masa 1'])
   })
 })
