@@ -15,7 +15,6 @@ import { OrderLineDetails } from './OrderLineDetails'
 import { confirm as confirmDialog } from './ui/confirm'
 import { ActionErrorNote } from './ActionErrorNote'
 import { toUserMessage } from '../lib/userMessages'
-import { Button } from './ui/Button'
 import { waiterForwardStep } from '../lib/waiterSteps'
 
 // FIX: vechiul cod calcula elapsed() o dată la render → timer înghețat
