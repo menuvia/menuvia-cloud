@@ -5,6 +5,8 @@
 // - eroarea Supabase (venită în `{error}`, supabase-js nu aruncă) e afișată în
 //   modal, fără toast de succes;
 // - fără limbi configurate nu apare niciun câmp de traducere.
+// - CR1 (lotul O5b, MENU-08): cât se salvează o mutare, săgețile sunt blocate —
+//   două apăsări rapide porneau de la aceeași ordine veche și se suprapuneau.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -14,6 +16,7 @@ import type { Category } from '../../hooks/useData'
 const h = vi.hoisted(() => ({
   update: vi.fn(),
   create: vi.fn(),
+  reorder: vi.fn(),
   categories: [] as Category[],
 }))
 
@@ -25,7 +28,7 @@ vi.mock('../../hooks/useData', () => ({
     create: h.create,
     update: h.update,
     remove: vi.fn(async () => ({ error: null })),
-    reorder: vi.fn(),
+    reorder: h.reorder,
     refetch: vi.fn(),
   }),
 }))
@@ -150,5 +153,31 @@ describe('CategoriesTab — traduceri manuale', () => {
     expect(payload.name).toBe('Deserturi')
     expect(payload.translations).toEqual({ de: { name: 'Nachspeisen' } })
     expect(await screen.findByText('Categorie adăugată')).toBeInTheDocument()
+  })
+})
+
+describe('CategoriesTab — ordinea categoriilor', () => {
+  it('CR1 o a doua apăsare cât se salvează nu pornește a doua mutare', async () => {
+    const user = userEvent.setup()
+    h.categories = [
+      makeCategory({ id: 'cat-1', name: 'Supe', display_order: 0 }),
+      makeCategory({ id: 'cat-2', name: 'Deserturi', display_order: 1 }),
+    ]
+    let release: (v: { error: null }) => void = () => {}
+    h.reorder.mockReset()
+    h.reorder.mockImplementation(
+      () =>
+        new Promise<{ error: null }>((r) => {
+          release = r
+        }),
+    )
+    render(<CategoriesTab restaurantId="rest-1" menuLanguages={[]} />)
+    const up = (await screen.findAllByRole('button', { name: 'Mută mai sus' }))[1]
+    await user.click(up)
+    await user.click(up)
+    expect(h.reorder).toHaveBeenCalledTimes(1)
+    expect(up).toBeDisabled()
+    release({ error: null })
+    await waitFor(() => expect(up).toBeEnabled())
   })
 })
