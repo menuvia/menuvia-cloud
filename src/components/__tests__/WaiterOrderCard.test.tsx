@@ -384,3 +384,153 @@ describe('OrderCard — vârsta colorată (lotul G)', () => {
     expect(screen.queryByText(/întârziată/)).toBeNull()
   })
 })
+
+// Lotul O7b: pe Planul 3 cardul ospătarului poartă PASUL URMĂTOR
+// (lib/waiterSteps.ts). Înainte plata apărea doar pe `served`, „Închide
+// comanda” e interzisă pe Plan 3, iar new → … → ready îl făcea doar Bucătăria
+// — un local fără ecran de bucătărie avea comenzile blocate pe „Nou”.
+//   T18  new / confirmed → „Marchează în pregătire”; click → onAdvance(order);
+//        niciun buton de plată / închidere. [PICĂ: codul vechi — butonul lipsea]
+//   T19  preparing (ospătar) → „Servit”; preparing (pickup) → „Gata”; ready →
+//        „Servit”; served → FĂRĂ pas, dar cu Plată integrală + parțială.
+//        [PICĂ: un pas pe served, sau dublura lângă butoanele de plată]
+//   T20  Plan 1/2 (false) și plan necunoscut (null) → niciun pas pe nicio stare
+//        deschisă; control: aceeași randare cu true îl arată.
+//        [PICĂ: gate `paymentsEnabled !== false` (apare pe necunoscut) sau
+//         gate-ul de plan scos]
+//   T21  pending → pasul dezactivat („Se salvează…”), click fără apel.
+//        [PICĂ: `loading={pending}` scos]
+//   T22  onAdvance omis (Plan 3, `new`) → fără pas: contractul call-site-ului
+//        din listă pentru `ready` (acolo „Servit” stă în „Gata de servit”).
+describe('OrderCard — pasul următor pe Planul 3 (lotul O7b)', () => {
+  const FORWARD = /^(marchează în pregătire|servit|gata|se salvează…)$/i
+  const OPEN = ['new', 'confirmed', 'preparing', 'ready'] as const
+
+  function renderStep(
+    order: Order,
+    paymentsEnabled: boolean | null,
+    opts: { pending?: boolean; withAdvance?: boolean } = {},
+  ) {
+    const onAdvance = vi.fn()
+    const onPayOpen = vi.fn()
+    const utils = render(
+      <OrderCard
+        order={order}
+        onPayOpen={onPayOpen}
+        onSplitOpen={vi.fn()}
+        onCloseOrder={vi.fn()}
+        onAdvance={opts.withAdvance === false ? undefined : onAdvance}
+        paymentsEnabled={paymentsEnabled}
+        pending={opts.pending ?? false}
+      />,
+    )
+    return { ...utils, onAdvance, onPayOpen }
+  }
+
+  it('T18 new / confirmed → „Marchează în pregătire”, fără plată sau închidere', async () => {
+    for (const status of ['new', 'confirmed'] as const) {
+      const order = makeOrder({ id: `o-${status}`, status })
+      const { onAdvance, unmount } = renderStep(order, true)
+      await userEvent.click(screen.getByRole('button', { name: /^marchează în pregătire$/i }))
+      expect(onAdvance, status).toHaveBeenCalledTimes(1)
+      expect(onAdvance, status).toHaveBeenCalledWith(order)
+      expect(screen.queryByRole('button', { name: FINAL_BUTTON }), status).toBeNull()
+      unmount()
+    }
+  })
+
+  it('T19 preparing → „Servit” / „Gata” (pickup); ready → „Servit”; served → doar plata', async () => {
+    const cases: [Order, RegExp][] = [
+      [makeOrder({ status: 'preparing', source: 'waiter' }), /^servit$/i],
+      [makeOrder({ status: 'preparing', source: 'qr' }), /^servit$/i],
+      [makeOrder({ status: 'preparing', source: 'pickup' }), /^gata$/i],
+      [makeOrder({ status: 'ready', source: 'waiter' }), /^servit$/i],
+      [makeOrder({ status: 'ready', source: 'pickup' }), /^servit$/i],
+    ]
+    for (const [order, name] of cases) {
+      const label = `${order.status}/${order.source}`
+      const { onAdvance, unmount } = renderStep(order, true)
+      // exact UN pas pe card
+      expect(screen.getAllByRole('button', { name: FORWARD }), label).toHaveLength(1)
+      await userEvent.click(screen.getByRole('button', { name }))
+      expect(onAdvance, label).toHaveBeenCalledWith(order)
+      expect(screen.queryByRole('button', { name: FINAL_BUTTON }), label).toBeNull()
+      unmount()
+    }
+    // served: plata, fără pas (T1 rămâne adevărat și cu onAdvance prezent)
+    const served = makeOrder({ status: 'served' })
+    const servedCard = renderStep(served, true)
+    expect(screen.queryByRole('button', { name: FORWARD })).toBeNull()
+    expect(screen.getByRole('button', { name: /^plată parțială$/i })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /^plată integrală$/i }))
+    expect(servedCard.onPayOpen).toHaveBeenCalledWith(served)
+    expect(servedCard.onAdvance).not.toHaveBeenCalled()
+  })
+
+  it('T20 Plan 1/2 și plan necunoscut → niciun pas; control: Plan 3 îl arată', () => {
+    for (const pe of [false, null] as const) {
+      for (const status of OPEN) {
+        const { unmount } = renderStep(makeOrder({ status }), pe)
+        expect(screen.queryByRole('button', { name: FORWARD }), `${String(pe)}/${status}`).toBeNull()
+        unmount()
+      }
+    }
+    for (const status of OPEN) {
+      const { unmount } = renderStep(makeOrder({ status }), true)
+      expect(screen.getAllByRole('button', { name: FORWARD }), `true/${status}`).toHaveLength(1)
+      unmount()
+    }
+  })
+
+  it('T21 pending → pasul dezactivat („Se salvează…”), fără al doilea apel', async () => {
+    const { onAdvance } = renderStep(makeOrder({ status: 'new' }), true, { pending: true })
+    expect(screen.queryByRole('button', { name: /^marchează în pregătire$/i })).toBeNull()
+    const btn = screen.getByRole('button', { name: /se salvează/i })
+    expect(btn).toBeDisabled()
+    await userEvent.click(btn)
+    expect(onAdvance).not.toHaveBeenCalled()
+  })
+
+  it('T22 onAdvance omis → fără pas, chiar pe Plan 3', () => {
+    renderStep(makeOrder({ status: 'new' }), true, { withAdvance: false })
+    expect(screen.queryByRole('button', { name: FORWARD })).toBeNull()
+  })
+})
+
+describe('OrderCard — „Retipărește la bucătărie” (lotul O3b)', () => {
+  it('RP1 cât retipărirea e în curs, butonul e blocat; altfel cheamă handlerul o dată', async () => {
+    // Recenzia CodeRabbit pe #349: kitchen_ticket_reprint ocolește
+    // deduplicarea și scoate un tichet NOU la fiecare apel, deci un dublu-tap
+    // tipărea de două ori. Mutația care pică: `reprinting` ignorat de buton.
+    const order = makeOrder({ status: 'preparing' })
+    const onReprint = vi.fn()
+    const { rerender } = render(
+      <OrderCard
+        order={order}
+        paymentsEnabled={null}
+        onPayOpen={vi.fn()}
+        onSplitOpen={vi.fn()}
+        onReprint={onReprint}
+        reprinting
+      />,
+    )
+    const busy = screen.getByRole('button', { name: /retipărește la bucătărie/i })
+    expect(busy).toBeDisabled()
+    await userEvent.click(busy)
+    expect(onReprint).not.toHaveBeenCalled()
+    // Control pozitiv: fără retipărire în curs, un tap cheamă handlerul.
+    rerender(
+      <OrderCard
+        order={order}
+        paymentsEnabled={null}
+        onPayOpen={vi.fn()}
+        onSplitOpen={vi.fn()}
+        onReprint={onReprint}
+        reprinting={false}
+      />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: /retipărește la bucătărie/i }))
+    expect(onReprint).toHaveBeenCalledTimes(1)
+    expect(onReprint).toHaveBeenCalledWith(order)
+  })
+})

@@ -665,6 +665,13 @@ export interface EditOrderItemPayload {
   quantity: number
   option_ids: string[]
   notes: string | null
+  // Lotul O3b (mig 320): linia din comandă din care provine. Cu ea, serverul
+  // păstrează prețul, opțiunile și extra-urile liniei neschimbate, iar
+  // extra-urile nu mai „sar” pe altă linie a aceluiași produs.
+  source_item_id?: string
+  // Extra-urile liniei (ale ei, pentru o linie existentă; cele alese, pentru
+  // una nouă). Lipsă = serverul vechi le ghicea după produs.
+  extra_ids?: string[]
 }
 
 /**
@@ -690,6 +697,23 @@ export function describeWaiterOrderSent(c: Pick<OrderConfirmationPayload, 'short
 // Edit items pe comandă non-terminală, fără plăți parțiale.
 // Server validează rol + status + plăți + produs/modificatori; client doar
 // trimite snapshot-ul nou complet.
+/**
+ * Retipărește tichetul de bucătărie al comenzii (kitchen_ticket_reprint, mig
+ * 227 — RPC-ul exista, dar n-avea niciun apelant). Nu aruncă pe refuzurile de
+ * business: întoarce de ce n-a mers, ca ecranul să spună asta.
+ */
+export async function reprintKitchenTicket(
+  orderId: string,
+): Promise<'ok' | 'no_kitchen_printer' | 'not_found' | 'unavailable'> {
+  const { data, error } = await supabase.rpc('kitchen_ticket_reprint', { p_order_id: orderId })
+  if (error) return 'unavailable'
+  const r = data as { ok?: boolean; reason?: string } | null
+  if (r?.ok) return 'ok'
+  if (r?.reason === 'no_kitchen_printer') return 'no_kitchen_printer'
+  if (r?.reason === 'not_found') return 'not_found'
+  return 'unavailable'
+}
+
 export async function updateOrderItems(
   orderId: string,
   items: EditOrderItemPayload[],
@@ -700,6 +724,8 @@ export async function updateOrderItems(
     quantity: item.quantity,
     option_ids: item.option_ids,
     notes: item.notes,
+    ...(item.source_item_id ? { source_item_id: item.source_item_id } : {}),
+    ...(item.extra_ids ? { extra_ids: item.extra_ids } : {}),
   }))
   const { data, error } = await supabase.rpc('update_order_items', {
     p_order_id: orderId,
@@ -737,7 +763,16 @@ export function describeEditOrderError(err: unknown): string {
   if (isNetworkError(err)) return 'Fără conexiune — modificarea nu a fost salvată. Reîncearcă.'
   const { message, hint, code } = errorParts(err)
   const plain = message.replace(/^update_order_items:\s*/i, '').trim()
-  if (code === '40001' || /modificată între timp/i.test(plain)) {
+  // mig 320: fiecare salvare recreează liniile (id-uri noi). O editare
+  // concurentă cu ACELAȘI total trece de lock-ul optimist, dar sursele trimise
+  // nu mai există, iar reîncercarea ar pica identic: se redeschide comanda
+  // (recenzia CodeRabbit pe #349).
+  if (
+    code === '40001' ||
+    /modificată între timp/i.test(plain) ||
+    hint === 'invalid_source_item' ||
+    /linia sursă/i.test(plain)
+  ) {
     return 'Comanda a fost modificată între timp de altcineva. Închide și redeschide comanda, apoi reîncearcă.'
   }
   if (
@@ -747,20 +782,26 @@ export function describeEditOrderError(err: unknown): string {
   ) {
     return plain
   }
-  // mig 313: produsul s-a epuizat între timp. Cantitatea DEJA comandată se
-  // poate păstra; doar surplusul (sau un produs epuizat nou) e respins.
-  if (hint === 'product_sold_out' || /este epuizat/i.test(plain)) {
+  // mig 313: produsul s-a epuizat între timp; mig 320: sau a fost scos din
+  // meniu / trecut în ciornă. Cantitatea DEJA comandată se poate păstra; doar
+  // surplusul (sau un produs nou de felul ăsta) e respins. Fără ramura de
+  // „scos din meniu”, mesajul cădea pe „Reîncearcă” și fiecare reîncercare
+  // pica la fel (recenzia O3a).
+  const soldOut = hint === 'product_sold_out' || /este epuizat/i.test(plain)
+  const offMenu =
+    hint === 'product_inactive' || hint === 'product_draft' || /nu mai e în meniu/i.test(plain)
+  if (soldOut || offMenu) {
     const name = /"([^"]+)"/.exec(plain)?.[1]
     const kept = /\((\d+)\)\s*$/.exec(plain)?.[1]
     const who = name ? `Produsul „${name}”` : 'Un produs din comandă'
     if (kept === '0') {
-      return `${who} e epuizat și nu mai poate fi adăugat. Scoate-l din comandă și salvează din nou.`
+      return `${who} ${soldOut ? 'e epuizat' : 'nu mai e în meniu'} și nu mai poate fi adăugat. Scoate-l din comandă și salvează din nou.`
     }
     const keep =
       kept != null
         ? `Poți păstra cel mult cantitatea deja comandată (${kept}).`
         : 'Poți păstra doar cantitatea deja comandată.'
-    return `${who} s-a epuizat între timp. ${keep} Scade cantitatea sau scoate-l și salvează din nou.`
+    return `${who} ${soldOut ? 's-a epuizat între timp' : 'nu mai e în meniu'}. ${keep} Scade cantitatea sau scoate-l și salvează din nou.`
   }
   if (/partial payments/i.test(plain)) {
     return 'Comanda are plăți înregistrate și nu mai poate fi editată.'
@@ -776,7 +817,12 @@ export function describeEditOrderError(err: unknown): string {
   if (/invalid options|extras invalide/i.test(plain)) {
     return 'O opțiune aleasă nu mai e disponibilă. Reverifică produsul și salvează din nou.'
   }
-  if (/invalid quantity/i.test(plain)) return 'Cantitatea trebuie să fie între 1 și 99.'
+  if (hint === 'invalid_quantity' || /invalid quantity/i.test(plain)) {
+    // Plafonul vine din mesajul serverului: 20 pe linie (mig 320), cantitatea
+    // veche pentru o linie păstrată peste 20, 99 pe un server mai vechi.
+    const cap = /invalid quantity \(1-(\d+)\)/i.exec(plain)?.[1] ?? String(MAX_LINE_QTY)
+    return `Cantitatea pe o linie trebuie să fie între 1 și ${cap}.`
+  }
   if (/too many items/i.test(plain)) return 'Comanda poate avea cel mult 100 de produse.'
   return 'Modificarea nu a fost salvată. Reîncearcă.'
 }
