@@ -9,7 +9,20 @@ export interface Profile {
   plan: string
   /** Consimțământul la Termeni (mig 042). `null` = nu s-a consemnat niciodată. */
   terms_accepted_at: string | null
+  /**
+   * Limba interfeței aleasă de cont (mig 323): 'ro' | 'en' | 'fr' | 'de', sau
+   * `null` = nealeasă (decide `resolveUiLang`: URL → stocare → browser → site).
+   * Tot `null` pe o bază fără mig 323 — clientul se poate deploya înainte.
+   */
+  ui_language: string | null
 }
+
+const PROFILE_COLUMNS = 'id, email, full_name, plan, terms_accepted_at'
+// Coloana mig 323 cerută doar cât timp baza o are: pe o bază veche (client
+// deployat ÎNAINTEA migrației) PostgREST răspunde 42703 la ORICE select care o
+// numește, iar fără reîncercare profilul n-ar mai încărca deloc — gate-ul de
+// Termeni ar rămâne orb. După primul 42703 nu o mai cerem în această sesiune.
+let profileHasUiLanguage = true
 
 interface AuthContextValue {
   user: User | null
@@ -46,19 +59,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function loadProfile(userId: string) {
     profileReqRef.current = userId
     try {
-      const { data } = await supabase
-        .from('profiles')
-        .select('id, email, full_name, plan, terms_accepted_at')
-        .eq('id', userId)
-        .single()
+      const ask = (withLang: boolean) => {
+        const cols: string = withLang ? `${PROFILE_COLUMNS}, ui_language` : PROFILE_COLUMNS
+        return supabase.from('profiles').select(cols).eq('id', userId).single()
+      }
+      let { data, error } = await ask(profileHasUiLanguage)
+      if (profileHasUiLanguage && error?.code === '42703') {
+        profileHasUiLanguage = false
+        ;({ data, error } = await ask(false))
+      }
       if (data && profileReqRef.current === userId) {
-        const row = data as Record<string, unknown>
+        const row = data as unknown as Record<string, unknown>
         setProfile({
           id: row.id as string,
           email: row.email as string,
           full_name: (row.full_name as string | null) ?? null,
           plan: (row.plan as string) ?? 'free',
           terms_accepted_at: (row.terms_accepted_at as string | null) ?? null,
+          ui_language: typeof row.ui_language === 'string' ? row.ui_language : null,
         })
       }
     } catch (err) {

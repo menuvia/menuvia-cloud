@@ -285,7 +285,9 @@ do $$
 declare
   v_extra text; v_lipsa text; v_role text;
   v_whitelist text[] := array[
-    'full_name','deletion_requested_at','terms_accepted_at','terms_accepted_version'];
+    'full_name','deletion_requested_at','terms_accepted_at','terms_accepted_version',
+    -- mig 323: limba interfeței, aleasă de cont (CHECK pe ro/en/fr/de).
+    'ui_language'];
 begin
   select string_agg(w, ', ') into v_lipsa from unnest(v_whitelist) w
    where not has_column_privilege('authenticated', 'public.profiles', w, 'UPDATE');
