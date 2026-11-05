@@ -112,6 +112,10 @@
 //        comutare imediată, fără dialog. Mutații care pică: garda doar pe tab
 //        (fără `settingsDirtyRef`) pică (i); un selector care întreabă mereu
 //        pică (i) și (ii) — fără control, DS22 ar trece și pe el.
+//   DS24 (lotul G1) locația nouă primește țara, moneda, fusul și limba celei
+//        din care a fost creată, ÎNAINTE de comutare; control: dintr-un local
+//        românesc nu pleacă niciun UPDATE. Mutația care pică: patch-ul scos
+//        din handleLocationCreated (locația nouă rămânea în România, RON).
 //   DS23 „Adaugă o locație" cu Setări modificate → întrebarea vine ÎNAINTE de
 //        creare (nicio recitire, niciun `setActive`); la refuz nimic, la acord
 //        recitirile, apoi `setActive`, apoi Acasă FĂRĂ a treia întrebare.
@@ -130,6 +134,10 @@ const { state, homeProps, ctx, limits } = vi.hoisted(() => ({
   state: {
     features: null as RestaurantFeatures | null,
     country: 'RO' as string | null,
+    // Setările regionale ale restaurantelor din test (lotul G1, DS24).
+    currency: 'RON',
+    timezone: 'Europe/Bucharest',
+    language: 'ro',
     site: 'ro' as 'ro' | 'com',
     loadError: false,
   },
@@ -255,7 +263,17 @@ vi.mock('../../lib/founder', () => ({
   clearFounderView: vi.fn(),
   getFounderViewOrigin: () => null,
 }))
-vi.mock('../../lib/pendingCountry', () => ({ retryPendingCountry: async () => 'noop' }))
+vi.mock('../../lib/pendingCountry', () => ({
+  retryPendingCountry: async () => 'noop',
+  retryPendingRegional: async () => 'noop',
+  // Lotul G1 (DS24): intenția regională a locației noi, observată prin `ctx.calls`.
+  storePendingRegional: (id: string, patch: unknown) => {
+    ctx.calls.push(`storePendingRegional:${id}:${JSON.stringify(patch)}`)
+  },
+  clearPendingRegional: (id: string) => {
+    ctx.calls.push(`clearPendingRegional:${id}`)
+  },
+}))
 vi.mock('../../components/HelpButton', () => ({ HelpButton: () => null }))
 vi.mock('../../components/SignOutButton', () => ({ SignOutButton: () => null }))
 vi.mock('../../components/AiChatbot', () => ({ default: () => null }))
@@ -276,6 +294,7 @@ vi.mock('../../components/SettingsTab', async () => {
       isOwner?: boolean
       onDirtyChange?: (d: boolean) => void
       onPricing?: () => void
+      onUpdate?: (id: string, f: Record<string, unknown>) => Promise<{ error: unknown }>
       addLocation?: {
         onCreated: (id: string) => Promise<void>
         confirmBeforeOpen?: () => Promise<boolean>
@@ -289,6 +308,17 @@ vi.mock('../../components/SettingsTab', async () => {
         createElement('button', { onClick: () => p.onDirtyChange?.(true) }, 'stub-modifica'),
         // „Vezi planurile" din cardul de abonament (lotul O7c).
         createElement('button', { onClick: () => p.onPricing?.() }, 'stub-planuri'),
+        // Salvări din Setări (lotul G1, DS25): una regională, una nu.
+        createElement(
+          'button',
+          { onClick: () => void p.onUpdate?.('rest-1', { currency: 'EUR' }) },
+          'stub-salveaza-moneda',
+        ),
+        createElement(
+          'button',
+          { onClick: () => void p.onUpdate?.('rest-1', { name: 'Alt nume' }) },
+          'stub-salveaza-nume',
+        ),
         // Simulează o locație nou creată din „Adaugă o locație" (lotul A),
         // cu întrebarea dinaintea dialogului (contractul AddLocationCard, AL9).
         p.addLocation
@@ -400,15 +430,16 @@ function makeRestaurant(id = 'rest-1', name = 'Bistro Test'): Restaurant {
     amenities: [],
     hours_structured: null,
     wifi_password: null,
-    timezone: 'Europe/Bucharest',
+    timezone: state.timezone,
     checkout_suggestion_settings: null,
     theme_settings: null,
     pickup_settings: null,
     google_place_id: null,
     google_review_url: null,
     menu_languages: [],
-    currency: 'RON',
+    currency: state.currency,
     country: state.country,
+    language: state.language,
     created_at: '2026-10-01T10:00:00Z',
     updated_at: '2026-10-01T10:00:00Z',
   }
@@ -445,9 +476,10 @@ async function renderDashboard(
       )}
       restaurantsLoading={false}
       updateRestaurant={
-        vi.fn(async () => ({ error: null })) as unknown as ComponentProps<
-          typeof DashboardPage
-        >['updateRestaurant']
+        vi.fn(async (id: string, patch: unknown) => {
+          ctx.calls.push(`update:${id}:${JSON.stringify(patch)}`)
+          return { error: null }
+        }) as unknown as ComponentProps<typeof DashboardPage>['updateRestaurant']
       }
       refetchRestaurants={async () => {
         ctx.calls.push('refetchRestaurants')
@@ -490,6 +522,9 @@ beforeEach(() => {
   dialog.resolve = null
   dialog.last = null
   state.country = 'RO'
+  state.currency = 'RON'
+  state.timezone = 'Europe/Bucharest'
+  state.language = 'ro'
   state.site = 'ro'
   urls.navigate.mockClear()
   urls.replaceUrl.mockClear()
@@ -821,6 +856,61 @@ describe('DashboardPage — „Toate locațiile" (lotul A)', () => {
     expect(ctx.calls.indexOf('refetchRestaurants:done')).toBeLessThan(at)
     expect(ctx.calls.some((c) => c.startsWith('hardReload'))).toBe(false)
     await waitFor(() => expect(title()).toHaveTextContent('Acasă'))
+  })
+
+  it('DS24: locația nouă copiază țara, moneda, fusul și limba înainte de comutare', async () => {
+    limits.maxRestaurants = 2
+    ctx.reloadRows = [membership('rest-1', 'owner'), membership('rest-new', 'owner')]
+    state.country = 'DE'
+    state.currency = 'EUR'
+    state.timezone = 'Europe/Berlin'
+    state.language = 'de'
+    await renderDashboard('growth', { url: '/dashboard?tab=settings-account', anchor: false })
+    expect(await screen.findByText('stub-setari-account')).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'stub-locatie-creata' }))
+    await waitFor(() => expect(ctx.calls).toContain('setActive:rest-new'))
+    const upd = ctx.calls.find((c) => c.startsWith('update:rest-new:'))
+    if (!upd) throw new Error('niciun UPDATE pe locația nouă')
+    expect(JSON.parse(upd.slice('update:rest-new:'.length))).toEqual({
+      country: 'DE',
+      currency: 'EUR',
+      timezone: 'Europe/Berlin',
+      language: 'de',
+    })
+    expect(ctx.calls.indexOf(upd)).toBeLessThan(ctx.calls.indexOf('setActive:rest-new'))
+    // Patch-ul ÎNTREG se păstrează ca intenție ÎNAINTE de UPDATE și se șterge
+    // după succes (recenzia CodeRabbit pe #358: nu doar țara).
+    const stored = ctx.calls.find((c) => c.startsWith('storePendingRegional:rest-new:'))
+    if (!stored) throw new Error('nicio intenție regională păstrată')
+    expect(JSON.parse(stored.slice('storePendingRegional:rest-new:'.length))).toEqual({
+      country: 'DE',
+      currency: 'EUR',
+      timezone: 'Europe/Berlin',
+      language: 'de',
+    })
+    expect(ctx.calls.indexOf(stored)).toBeLessThan(ctx.calls.indexOf(upd))
+    expect(ctx.calls.indexOf('clearPendingRegional:rest-new')).toBeGreaterThan(ctx.calls.indexOf(upd))
+  })
+
+  it('DS25: o salvare regională din Setări șterge intenția de copiere; una nereginală nu', async () => {
+    await renderDashboard('growth', { url: '/dashboard?tab=settings', anchor: false })
+    expect(await screen.findByText('stub-setari-restaurant')).toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'stub-salveaza-nume' }))
+    await waitFor(() => expect(ctx.calls.some((c) => c.startsWith('update:rest-1:'))).toBe(true))
+    expect(ctx.calls).not.toContain('clearPendingRegional:rest-1')
+    await user.click(screen.getByRole('button', { name: 'stub-salveaza-moneda' }))
+    await waitFor(() => expect(ctx.calls).toContain('clearPendingRegional:rest-1'))
+  })
+
+  it('DS24 control: dintr-un local românesc nu pleacă niciun UPDATE', async () => {
+    limits.maxRestaurants = 2
+    ctx.reloadRows = [membership('rest-1', 'owner'), membership('rest-new', 'owner')]
+    await renderDashboard('growth', { url: '/dashboard?tab=settings-account', anchor: false })
+    expect(await screen.findByText('stub-setari-account')).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'stub-locatie-creata' }))
+    await waitFor(() => expect(ctx.calls).toContain('setActive:rest-new'))
+    expect(ctx.calls.some((c) => c.startsWith('update:'))).toBe(false)
   })
 
   it('DS18: „Deschide" pe un id necunoscut → întâi recitire; dacă lipsește, eroare fără comutare', async () => {

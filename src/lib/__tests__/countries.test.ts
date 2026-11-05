@@ -13,6 +13,9 @@ import {
   countrySettingVisible,
   normalizeCountry,
   restaurantCountryPatch,
+  regionalPatchFrom,
+  followCountryDefaults,
+  timeZoneOptions,
 } from '../countries'
 import { MENU_CURRENCIES } from '../currency'
 
@@ -60,5 +63,65 @@ describe('countrySettingVisible', () => {
     expect(countrySettingVisible('ro', 'DE')).toBe(true)
     expect(countrySettingVisible('ro', 'CH')).toBe(true) // țară setată de suport, în afara listei
     for (const c of ['RO', 'DE', null]) expect(countrySettingVisible('com', c)).toBe(true)
+  })
+})
+
+// Lotul G1 — setările regionale.
+//   CN6  regionalPatchFrom: o locație nouă copiază doar câmpurile VALIDE care
+//        diferă de default-urile din DB; un local românesc nu copiază nimic
+//        (null = niciun apel). Mutația care pică: patch-ul întreg mereu (un
+//        local RO ar face un UPDATE în plus la fiecare creare).
+//   CN7  followCountryDefaults: moneda și fusul urmează țara nouă DOAR dacă
+//        erau default-urile țării vechi; o alegere de mână rămâne.
+//        Mutația care pică: suprascrierea necondiționată (prețurile în lei ale
+//        unui local din Germania ar trece pe EUR la orice schimbare de țară).
+//   CN8  timeZoneOptions: valoarea curentă primul, fusurile țărilor, fără
+//        duplicate.
+describe('setările regionale (lotul G1)', () => {
+  it('CN6 regionalPatchFrom', () => {
+    expect(regionalPatchFrom(null)).toBeNull()
+    expect(
+      regionalPatchFrom({ country: 'RO', currency: 'RON', timezone: 'Europe/Bucharest', language: 'ro' }),
+    ).toBeNull()
+    expect(
+      regionalPatchFrom({ country: 'de', currency: 'EUR', timezone: 'Europe/Berlin', language: 'de' }),
+    ).toEqual({ country: 'DE', currency: 'EUR', timezone: 'Europe/Berlin', language: 'de' })
+    // Doar câmpurile care diferă; cele invalide se sar.
+    expect(
+      regionalPatchFrom({ country: 'RO', currency: 'EUR', timezone: 'Mars/Olympus', language: 'xx' }),
+    ).toEqual({ currency: 'EUR' })
+    expect(regionalPatchFrom({ country: 'ZZ', currency: 'JPY', timezone: '', language: null })).toBeNull()
+  })
+
+  it('CN7 followCountryDefaults', () => {
+    // Default-urile României → ale Germaniei.
+    expect(followCountryDefaults('RO', 'DE', { currency: 'RON', timezone: 'Europe/Bucharest' })).toEqual({
+      currency: 'EUR',
+      timezone: 'Europe/Berlin',
+    })
+    // Moneda aleasă de mână rămâne; fusul implicit urmează.
+    expect(followCountryDefaults('RO', 'DE', { currency: 'USD', timezone: 'Europe/Bucharest' })).toEqual({
+      currency: 'USD',
+      timezone: 'Europe/Berlin',
+    })
+    // Țara veche necunoscută = România.
+    expect(followCountryDefaults(null, 'GB', { currency: 'RON', timezone: 'Europe/Bucharest' })).toEqual({
+      currency: 'GBP',
+      timezone: 'Europe/London',
+    })
+    // Țara nouă necunoscută: nimic nu se schimbă.
+    expect(followCountryDefaults('RO', 'ZZ', { currency: 'RON', timezone: 'Europe/Bucharest' })).toEqual({
+      currency: 'RON',
+      timezone: 'Europe/Bucharest',
+    })
+  })
+
+  it('CN8 timeZoneOptions', () => {
+    const opts = timeZoneOptions('America/Los_Angeles')
+    expect(opts[0]).toBe('America/Los_Angeles')
+    expect(opts).toContain('Europe/Bucharest')
+    expect(opts).toContain('Asia/Nicosia')
+    expect(new Set(opts).size).toBe(opts.length)
+    expect(timeZoneOptions(null)[0]).toBe('Europe/Bucharest')
   })
 })
