@@ -364,6 +364,7 @@ describe('SettingsTab — o încărcare în zbor e nesalvată (recenzia CodeRabb
         onUpdate={vi.fn(async () => ({ error: null }))}
         plan="growth"
         onSignOut={() => {}}
+        onPricing={() => {}}
         modulesState={modulesState}
         surface={surfaceFor('growth')}
         onDirtyChange={onDirtyChange}
