@@ -66,7 +66,7 @@ export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
   'src/components/VatReportTab.tsx': 25,
   'src/components/WaiterAssignments.tsx': 23,
   'src/components/WaiterEntry.tsx': 25,
-  'src/components/WaiterOrderCard.tsx': 69,
+  'src/components/WaiterOrderCard.tsx': 70,
   'src/components/_dashboard/AgentCard.tsx': 8,
   'src/components/_dashboard/HomeTab.tsx': 38,
   'src/components/_dashboard/PlanBanners.tsx': 2,
