@@ -105,7 +105,16 @@ export function trMeta(
 export function availableMenuLangs(
   categories: {
     translations?: Translations | null
-    products?: { translations?: Translations | null }[]
+    products?: {
+      translations?: Translations | null
+      // Lotul O6b (mig 321): o limbă tradusă doar pe grupuri / opțiuni /
+      // extra-uri e tot o limbă a meniului (recenzia CodeRabbit pe #355).
+      modifier_groups?: {
+        translations?: Translations | null
+        modifier_options?: { translations?: Translations | null }[]
+      }[]
+      extras?: { translations?: Translations | null }[]
+    }[]
   }[],
   allowed?: string[] | null,
   base = 'ro',
@@ -119,7 +128,8 @@ export function availableMenuLangs(
       const v = tr[code]
       if (
         (typeof v?.name === 'string' && v.name.trim().length > 0) ||
-        (typeof v?.description === 'string' && v.description.trim().length > 0)
+        (typeof v?.description === 'string' && v.description.trim().length > 0) ||
+        (typeof v?.meta_text === 'string' && v.meta_text.trim().length > 0)
       ) {
         found.add(code)
       }
@@ -127,7 +137,14 @@ export function availableMenuLangs(
   }
   for (const c of categories) {
     scan(c.translations)
-    for (const p of c.products ?? []) scan(p.translations)
+    for (const p of c.products ?? []) {
+      scan(p.translations)
+      for (const g of p.modifier_groups ?? []) {
+        scan(g.translations)
+        for (const o of g.modifier_options ?? []) scan(o.translations)
+      }
+      for (const e of p.extras ?? []) scan(e.translations)
+    }
   }
   // Păstrează doar limbile cunoscute, în ordinea din MENU_LANGS (fără bază),
   // intersectate cu limbile oferite de restaurant dacă lista e configurată.
