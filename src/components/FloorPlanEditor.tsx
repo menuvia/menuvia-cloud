@@ -158,9 +158,18 @@ const sectionLabel: React.CSSProperties = {
 interface FloorPlanEditorProps {
   restaurantId: string
   initialLayout?: FloorLayout | null
+  // Chemat DOAR după ce RPC-ul `save_floor_layout` a reușit, cu harta salvată:
+  // panoul actualizează restaurantul în lista partajată (useRestaurants). Fără
+  // el, o schimbare de tab remonta editorul cu harta VECHE din listă, iar o
+  // nouă salvare de acolo suprascria harta mai nouă (mig 322).
+  onSaved: (layout: FloorLayout) => void
 }
 
-export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPlanEditorProps) {
+export default function FloorPlanEditor({
+  restaurantId,
+  initialLayout,
+  onSaved,
+}: FloorPlanEditorProps) {
   const [floors, setFloors] = useState<Floor[]>(initialLayout?.floors ?? [emptyFloor()])
   const [fi, setFi] = useState(0)
   const [tool, setTool] = useState<ToolType>('select')
@@ -478,6 +487,8 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
       setSaveError(hint)
       return
     }
+    // Doar pe succes: o salvare respinsă NU are voie să schimbe harta din listă.
+    onSaved(payload)
     setSavedOk(true)
     setSaveError(null)
     setTimeout(() => setSavedOk(false), 2200)

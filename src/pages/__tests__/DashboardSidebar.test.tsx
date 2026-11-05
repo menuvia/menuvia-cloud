@@ -91,7 +91,15 @@
 //        1 cu 1 local deținut → lipsește; limita 2 → apare; `plan_limits` în
 //        încărcare sau planul necunoscut → lipsește. Mutația care pică:
 //        `addLocation` trimis necondiționat pentru proprietar (codul din 3dacdbd).
-import { cloneElement, type ComponentProps } from 'react'
+//
+// Lotul O7a (harta sălii, mig 322):
+//   DS21 harta salvată prin editor (`onSaved`) intră în lista de restaurante
+//        (`patchRestaurantLocal`), deci după o schimbare de tab editorul
+//        REMONTAT pornește de la harta nouă, nu de la copia de la boot.
+//        Control pozitiv: prima montare primește harta veche. Mutația care
+//        pică: DashboardPage nu mai trimite `onSaved`, sau îl leagă de un no-op
+//        ori de `refetchRestaurants` (lista recitită nu are harta nouă).
+import { cloneElement, useState, type ComponentProps } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -119,6 +127,8 @@ const { state, homeProps, ctx, limits } = vi.hoisted(() => ({
     // Promisiune controlată: recitirile se termină abia la `release()`.
     hold: null as Promise<void> | null,
     openErrors: [] as string[],
+    // Fiecare MONTARE a editorului hărții (DS21): harta inițială + callback-ul.
+    floorMounts: [] as { initialLayout: unknown; onSaved: (layout: unknown) => void }[],
   },
   // Limitele planului (usePlanLimits): plafonul de restaurante + încărcarea.
   limits: { maxRestaurants: 1, loading: false },
@@ -290,7 +300,19 @@ vi.mock('../../components/LocationsTab', async () => {
     },
   }
 })
-vi.mock('../../components/FloorPlanEditor', () => ({ default: () => null }))
+// Editorul hărții: stub care notează fiecare MONTARE (inițializatorul useState
+// rulează o singură dată per montare, nu la fiecare randare).
+vi.mock('../../components/FloorPlanEditor', async () => {
+  const { createElement, useState: useStateReact } = await import('react')
+  function FloorEditorStub(p: { initialLayout?: unknown; onSaved: (layout: unknown) => void }) {
+    useStateReact(() => {
+      ctx.floorMounts.push({ initialLayout: p.initialLayout, onSaved: p.onSaved })
+      return null
+    })
+    return createElement('div', null, 'stub-harta')
+  }
+  return { default: FloorEditorStub }
+})
 // Reîncărcarea completă a paginii (jsdom nu navighează): o notăm.
 vi.mock('../../lib/locations', async (importOriginal) => ({
   ...((await importOriginal()) as typeof import('../../lib/locations')),
@@ -386,6 +408,7 @@ async function renderDashboard(
         const ids = ctx.listIds ?? (ctx.reloadRows ?? ctx.memberships).map((m) => m.restaurant_id)
         return ids.map((id) => makeRestaurant(id))
       }}
+      patchRestaurantLocal={vi.fn()}
       navigate={urls.navigate}
       replaceUrl={urls.replaceUrl}
     />
@@ -411,6 +434,7 @@ beforeEach(() => {
   ctx.listIds = null
   ctx.hold = null
   ctx.openErrors = []
+  ctx.floorMounts = []
   limits.maxRestaurants = 1
   limits.loading = false
   state.loadError = false
@@ -781,5 +805,70 @@ describe('DashboardPage — „Toate locațiile" (lotul A)', () => {
     limits.loading = false
     await at(null)
     expect(card()).toBeNull()
+  })
+})
+
+describe('DashboardPage — harta sălii după salvare (lotul O7a, mig 322)', () => {
+  const OLD_LAYOUT = { floors: [{ id: 'OLD' }], version: 1, savedAt: '2026-10-01T10:00:00Z' }
+  const NEW_LAYOUT = { floors: [{ id: 'NEW' }], version: 1, savedAt: '2026-11-04T10:00:00Z' }
+
+  // Lista de restaurante ținută în state, ca în AppRouter (useRestaurants).
+  function StatefulDashboard() {
+    const [list, setList] = useState<Restaurant[]>(() => [
+      { ...makeRestaurant(), floor_layout: OLD_LAYOUT },
+    ])
+    return (
+      <DashboardPage
+        onViewMenu={vi.fn()}
+        onViewWaiter={vi.fn()}
+        onViewKitchen={vi.fn()}
+        onPricing={vi.fn()}
+        onSignOut={vi.fn(async () => {})}
+        restaurants={list}
+        restaurantsLoading={false}
+        updateRestaurant={
+          vi.fn(async () => ({ error: null })) as unknown as ComponentProps<
+            typeof DashboardPage
+          >['updateRestaurant']
+        }
+        // Lista recitită NU are harta nouă (ca o recitire care pică pe un blip).
+        refetchRestaurants={async () => [makeRestaurant()]}
+        patchRestaurantLocal={(id, patch) =>
+          setList((l) => l.map((r) => (r.id === id ? { ...r, ...patch } : r)))
+        }
+        navigate={urls.navigate}
+        replaceUrl={urls.replaceUrl}
+      />
+    )
+  }
+
+  const goTo = (url: string) =>
+    act(() => {
+      window.history.pushState({}, '', url)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+
+  it('DS21: după salvare și o schimbare de tab, editorul remontat primește harta nouă', async () => {
+    state.features = featuresFor('pro')
+    window.history.replaceState({}, '', '/dashboard?tab=arhitectura')
+    render(<StatefulDashboard />)
+    expect(await screen.findByText('stub-harta')).toBeInTheDocument()
+    // Control pozitiv: prima montare pornește de la harta din listă (cea veche).
+    expect(ctx.floorMounts).toHaveLength(1)
+    expect(ctx.floorMounts[0].initialLayout).toEqual(OLD_LAYOUT)
+
+    // Editorul raportează o salvare reușită.
+    act(() => {
+      ctx.floorMounts[0].onSaved(NEW_LAYOUT)
+    })
+
+    goTo('/dashboard')
+    expect(await screen.findByText('stub-acasa')).toBeInTheDocument()
+    expect(screen.queryByText('stub-harta')).toBeNull()
+
+    goTo('/dashboard?tab=arhitectura')
+    expect(await screen.findByText('stub-harta')).toBeInTheDocument()
+    expect(ctx.floorMounts).toHaveLength(2)
+    expect(ctx.floorMounts[1].initialLayout).toEqual(NEW_LAYOUT)
   })
 })

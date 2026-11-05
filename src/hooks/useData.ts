@@ -302,6 +302,15 @@ export function useRestaurants() {
     }
     return result
   }
+  // Aplică LOCAL o scriere făcută deja printr-un RPC (`save_floor_layout`,
+  // mig 322 — harta nu mai trece prin `update()`), la fel cum `update()`
+  // face merge cu rândul întors (OPT-R2), fără refetch de rețea. Un merge local
+  // e determinist; un refetch ar lăsa copia VECHE exact când recitirea pică pe
+  // un blip (load() întoarce null) — iar atunci următoarea salvare din editorul
+  // remontat ar suprascrie harta mai nouă.
+  const patchLocal = useCallback((id: string, patch: Partial<Restaurant>) => {
+    setRestaurants((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)))
+  }, [])
   // useRestaurants.remove() retras: mig 096B REVOKE delete pe `restaurants`
   // pentru anon/authenticated. Ștergerea restaurantelor nu există în UI;
   // ar fi un flow admin separat, sub RPC dedicat dacă va apărea cândva.
@@ -317,6 +326,7 @@ export function useRestaurants() {
     refetch: load,
     create,
     update,
+    patchLocal,
   }
 }
 

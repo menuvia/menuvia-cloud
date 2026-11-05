@@ -426,6 +426,7 @@ export default function DashboardPage({
   restaurantsLoading,
   updateRestaurant,
   refetchRestaurants,
+  patchRestaurantLocal,
   navigate,
   replaceUrl,
 }: {
@@ -442,6 +443,10 @@ export default function DashboardPage({
   // Întoarce lista recitită (`null` = citirea a eșuat), ca apelantul să verifice
   // pe ea, nu pe prop-ul încă nerandat.
   refetchRestaurants: ReturnType<typeof useRestaurants>['refetch']
+  // Merge LOCAL în aceeași listă după o scriere prin RPC (harta sălii,
+  // `save_floor_layout`, mig 322): editorul remontat la revenirea pe tab
+  // pornește de la harta tocmai salvată, nu de la copia încărcată la boot.
+  patchRestaurantLocal: ReturnType<typeof useRestaurants>['patchLocal']
   // Navigarea din App (pushState + rutare): tab-ul curent stă în URL
   // (`?tab=…`), deci refresh-ul și Back-ul păstrează locul (lotul R2).
   navigate: (path: string) => void
@@ -1648,6 +1653,11 @@ export default function DashboardPage({
                     restaurantId={restaurant.id}
                     initialLayout={
                       (restaurant.floor_layout as unknown as FloorLayout | null) ?? null
+                    }
+                    onSaved={(layout) =>
+                      patchRestaurantLocal(restaurant.id, {
+                        floor_layout: layout as unknown as Record<string, unknown>,
+                      })
                     }
                   />
                 </Suspense>

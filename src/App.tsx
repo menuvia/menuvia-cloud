@@ -364,7 +364,7 @@ function PwaPromptMount() {
 
 function AppRouter() {
   const { user, loading, signOut } = useAuth()
-  const { restaurants, loading: rLoading, refetch, update } = useRestaurants()
+  const { restaurants, loading: rLoading, refetch, update, patchLocal } = useRestaurants()
   // Rolul restaurantului ACTIV — garda de rol pe /dashboard (mai jos).
   const { activeRole, loading: ctxLoading } = useRestaurantCtx()
   const [state, setState] = useState<RouteState>(parsePath)
@@ -933,6 +933,7 @@ function AppRouter() {
         restaurantsLoading={rLoading}
         updateRestaurant={update}
         refetchRestaurants={refetch}
+        patchRestaurantLocal={patchLocal}
         // Tab-ul panoului stă în URL (`/dashboard?tab=…`, lotul R2): push la
         // fiecare schimbare de tab, replace pentru corecții (tab nepermis).
         navigate={navigate}

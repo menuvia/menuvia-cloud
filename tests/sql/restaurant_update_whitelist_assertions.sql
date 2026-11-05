@@ -35,7 +35,9 @@ declare
   v_whitelist text[] := array[
     'name','tagline','city','description','address','phone','hours',
     'hours_structured','timezone','wifi_password','primary_color','logo_url',
-    'cover_url','floor_layout','socials','amenities',
+    -- `floor_layout` NU mai e aici (mig 322): harta se scrie DOAR prin
+    -- save_floor_layout (rol + floor_plan + obiect + 1 MiB).
+    'cover_url','socials','amenities',
     'checkout_suggestion_settings','theme_settings','pickup_settings',
     'google_place_id','google_review_url',
     -- mig 197 — meniu multilingv: grant update (menu_languages) pe restaurants.
@@ -71,17 +73,21 @@ begin
                     'și sincronizează RESTAURANT_UPDATE_FIELDS din src/lib/sanitize.ts)', v_extra;
   end if;
 
-  -- (c) Sanity expliciți pe cele două coloane cu cale dedicată: `slug` se
-  --     schimbă exclusiv prin `change_restaurant_slug` (RPC), iar `owner_id` e
-  --     imuabil (trg_restaurants_owner_id_immutable). Redundanți cu (b), dar
-  --     dau un mesaj de eroare care spune imediat ce s-a rupt.
+  -- (c) Sanity expliciți pe coloanele cu cale dedicată: `slug` se schimbă
+  --     exclusiv prin `change_restaurant_slug` (RPC), `floor_layout` exclusiv
+  --     prin `save_floor_layout` (mig 322), iar `owner_id` e imuabil
+  --     (trg_restaurants_owner_id_immutable). Redundanți cu (b), dar dau un
+  --     mesaj de eroare care spune imediat ce s-a rupt.
   if has_column_privilege('authenticated', 'public.restaurants', 'owner_id', 'UPDATE') then
     raise exception 'RW1 FAIL: authenticated poate scrie restaurants.owner_id (owner_id e imuabil)';
   end if;
   if has_column_privilege('authenticated', 'public.restaurants', 'slug', 'UPDATE') then
     raise exception 'RW1 FAIL: authenticated poate scrie restaurants.slug (doar prin change_restaurant_slug)';
   end if;
+  if has_column_privilege('authenticated', 'public.restaurants', 'floor_layout', 'UPDATE') then
+    raise exception 'RW1 FAIL: authenticated poate scrie restaurants.floor_layout (doar prin save_floor_layout, mig 322)';
+  end if;
 
-  raise notice 'RW1 OK: whitelist EXACT de % coloane UPDATE pe restaurants; owner_id/slug excluse',
+  raise notice 'RW1 OK: whitelist EXACT de % coloane UPDATE pe restaurants; owner_id/slug/floor_layout excluse',
     array_length(v_whitelist, 1);
 end $$;

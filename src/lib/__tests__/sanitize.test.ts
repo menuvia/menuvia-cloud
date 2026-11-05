@@ -4,6 +4,14 @@
 // schimbarea slug-ului trece exclusiv prin RPC-ul `change_restaurant_slug`.
 // Dacă cineva re-adaugă `slug` în `RESTAURANT_UPDATE_FIELDS`, testul ăsta
 // pică imediat și prinde regresia înainte ca PostgREST să returneze 42501.
+//
+// La fel `floor_layout` (mig 322): harta se scrie DOAR prin `save_floor_layout`,
+// iar salvarea din Setări (rândul întreg, încărcat la montare) o rescria cu
+// copia VECHE.
+//   FL1  whitelist-ul NU conține floor_layout (mutația care pică: 'floor_layout'
+//        readus în RESTAURANT_UPDATE_FIELDS — pică și lista exactă de 24).
+//   FL2  un payload vechi din Setări pierde harta, dar păstrează restul
+//        (wifi_password = controlul pozitiv din același apel; aceeași mutație).
 
 import { describe, it, expect } from 'vitest'
 import type { Product, Restaurant } from '../../hooks/useData'
@@ -19,6 +27,10 @@ describe('RESTAURANT_UPDATE_FIELDS', () => {
     expect((RESTAURANT_UPDATE_FIELDS as readonly string[]).includes('slug')).toBe(false)
   })
 
+  it('FL1: does NOT contain floor_layout (written only by save_floor_layout RPC, mig 322)', () => {
+    expect((RESTAURANT_UPDATE_FIELDS as readonly string[]).includes('floor_layout')).toBe(false)
+  })
+
   it('does NOT contain ownership / billing / entitlement fields', () => {
     const forbidden = ['id', 'owner_id', 'created_at', 'updated_at', 'qr_token', 'is_active']
     for (const f of forbidden) {
@@ -26,8 +38,8 @@ describe('RESTAURANT_UPDATE_FIELDS', () => {
     }
   })
 
-  it('contains exactly the 25 columns granted UPDATE (mig 096B + menu_languages mig 197 + currency mig 205 + country mig 296 + language mig 298)', () => {
-    expect(RESTAURANT_UPDATE_FIELDS.length).toBe(25)
+  it('contains exactly the 24 columns granted UPDATE (mig 096B + menu_languages mig 197 + currency mig 205 + country mig 296 + language mig 298 − floor_layout mig 322)', () => {
+    expect(RESTAURANT_UPDATE_FIELDS.length).toBe(24)
     expect([...RESTAURANT_UPDATE_FIELDS].sort()).toEqual(
       [
         'name',
@@ -43,7 +55,7 @@ describe('RESTAURANT_UPDATE_FIELDS', () => {
         'primary_color',
         'logo_url',
         'cover_url',
-        'floor_layout',
+        // `floor_layout` scos în mig 322 (doar prin save_floor_layout).
         'socials',
         'amenities',
         'checkout_suggestion_settings',
@@ -76,6 +88,17 @@ describe('pickAllowed', () => {
     const safe = pickAllowed(dirty, RESTAURANT_UPDATE_FIELDS)
     expect(safe).toEqual({ name: 'X', primary_color: '#000' })
     expect((safe as Record<string, unknown>).slug).toBeUndefined()
+  })
+
+  it('FL2: strips floor_layout from a stale Settings payload, keeps the rest', () => {
+    const staleSettings: Partial<Restaurant> = {
+      name: 'X',
+      wifi_password: 'w',
+      floor_layout: { floors: [] },
+    }
+    const safe = pickAllowed(staleSettings, RESTAURANT_UPDATE_FIELDS)
+    expect(safe).toEqual({ name: 'X', wifi_password: 'w' })
+    expect(Object.prototype.hasOwnProperty.call(safe, 'floor_layout')).toBe(false)
   })
 
   it('strips owner_id even if injected in the payload', () => {
