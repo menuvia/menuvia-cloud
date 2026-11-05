@@ -3,29 +3,39 @@ import { supabase } from '../lib/supabase'
 import { D } from '../lib/constants'
 import type { MemberRole } from '../lib/constants'
 import { Icon } from '../components/ui/Icon'
+import { FunnelLangProvider } from '../i18n/UiLangContext'
+import { useT } from '../i18n/useT'
+import { fillNodes } from '../i18n/fillNodes'
+import { staffLocale } from '../i18n/format'
+import { inviteNs } from '../i18n/ns/invite'
 
-const ROLE_LABELS: Record<MemberRole, string> = {
-  owner: 'Proprietar',
-  manager: 'Manager',
-  waiter: 'Ospătar',
-  kitchen: 'Bucătărie',
-}
+const ROLE_KEYS = {
+  owner: 'roleOwner',
+  manager: 'roleManager',
+  waiter: 'roleWaiter',
+  kitchen: 'roleKitchen',
+} as const satisfies Record<MemberRole, string>
+
+type InviteErrorKey =
+  | 'errInvalidCredentials'
+  | 'errAlreadyRegistered'
+  | 'errPasswordShort'
+  | 'errEmailNotConfirmed'
+  | 'errRateLimit'
+  | 'errGeneric'
 
 // Mesajele AuthError de la supabase-js vin în engleză („Invalid login
-// credentials", „User already registered"…) — le mapăm pe română pentru
-// publicul non-tehnic; fallback generic pentru orice altceva (eroarea brută
-// rămâne în console pentru diagnoză).
-function authErrorRo(err: unknown): string {
+// credentials", „User already registered"…) — le mapăm pe clase, cu textul
+// lor în limba omului (dicționarul `invite`); fallback generic pentru orice
+// altceva (eroarea brută rămâne în console pentru diagnoză).
+function authErrorKey(err: unknown): InviteErrorKey {
   const msg = err instanceof Error ? err.message : ''
-  if (/invalid login credentials/i.test(msg)) return 'Email sau parolă greșită.'
-  if (/already (registered|exists)/i.test(msg))
-    return 'Există deja un cont cu acest email — alege „Am deja cont".'
-  if (/password should be at least/i.test(msg)) return 'Parola trebuie să aibă minim 8 caractere.'
-  if (/email not confirmed/i.test(msg))
-    return 'Emailul nu e confirmat încă — deschide linkul de confirmare primit pe email.'
-  if (/rate limit|too many requests/i.test(msg))
-    return 'Prea multe încercări. Așteaptă puțin și încearcă din nou.'
-  return 'Nu am putut procesa cererea. Încearcă din nou.'
+  if (/invalid login credentials/i.test(msg)) return 'errInvalidCredentials'
+  if (/already (registered|exists)/i.test(msg)) return 'errAlreadyRegistered'
+  if (/password should be at least/i.test(msg)) return 'errPasswordShort'
+  if (/email not confirmed/i.test(msg)) return 'errEmailNotConfirmed'
+  if (/rate limit|too many requests/i.test(msg)) return 'errRateLimit'
+  return 'errGeneric'
 }
 
 const inp: React.CSSProperties = {
@@ -50,13 +60,20 @@ interface InviteData {
 
 type Step = 'loading' | 'invalid' | 'error' | 'expired' | 'form' | 'confirm-email' | 'done'
 
-export default function InviteAcceptPage({
-  token,
-  navigate,
-}: {
-  token: string
-  navigate: (p: string) => void
-}) {
+type InviteAcceptProps = { token: string; navigate: (p: string) => void }
+
+// Limba: `FunnelLangProvider` (lotul L2b), ca pe /auth — omul invitat e adesea
+// personal (ospătar, bucătar) și poate fi străin.
+export default function InviteAcceptPage(props: InviteAcceptProps) {
+  return (
+    <FunnelLangProvider>
+      <InviteAcceptScreen {...props} />
+    </FunnelLangProvider>
+  )
+}
+
+function InviteAcceptScreen({ token, navigate }: InviteAcceptProps) {
+  const { t, lang } = useT(inviteNs)
   const [invite, setInvite] = useState<InviteData | null>(null)
   const [step, setStep] = useState<Step>('loading')
   const [isNew, setIsNew] = useState(true)
@@ -147,21 +164,19 @@ export default function InviteAcceptPage({
     if (!r?.ok) {
       switch (r?.reason) {
         case 'already_accepted':
-          setFormError('Această invitație a fost deja folosită.')
+          setFormError(t('alreadyUsed'))
           break
         case 'expired':
           setStep('expired')
           break
         case 'email_mismatch':
-          setFormError(
-            'Emailul contului tău nu corespunde cu emailul pentru care a fost trimisă invitația.',
-          )
+          setFormError(t('emailMismatch'))
           break
         case 'invalid':
           setStep('invalid')
           break
         default:
-          setFormError('Nu am putut accepta invitația. Încearcă din nou.')
+          setFormError(t('acceptFailed'))
       }
       setSubmitting(false)
       return
@@ -177,7 +192,7 @@ export default function InviteAcceptPage({
       await acceptInvite()
     } catch (err) {
       console.error('[InviteAcceptPage] direct accept error:', err)
-      setFormError(authErrorRo(err))
+      setFormError(t(authErrorKey(err)))
       setSubmitting(false)
     }
   }
@@ -185,7 +200,7 @@ export default function InviteAcceptPage({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (password.length < 8) {
-      setFormError('Parola trebuie să aibă minim 8 caractere.')
+      setFormError(t('errPasswordShort'))
       return
     }
     setSubmitting(true)
@@ -217,7 +232,7 @@ export default function InviteAcceptPage({
       await acceptInvite()
     } catch (err) {
       console.error('[InviteAcceptPage] submit error:', err)
-      setFormError(authErrorRo(err))
+      setFormError(t(authErrorKey(err)))
       setSubmitting(false)
     }
   }
@@ -243,13 +258,13 @@ export default function InviteAcceptPage({
   const expiresDate = invite?.expires_at ? new Date(invite.expires_at) : null
   const expiresLabel =
     expiresDate && !Number.isNaN(expiresDate.getTime())
-      ? expiresDate.toLocaleDateString('ro-RO', { day: 'numeric', month: 'long', year: 'numeric' })
+      ? expiresDate.toLocaleDateString(staffLocale(lang), { day: 'numeric', month: 'long', year: 'numeric' })
       : null
 
   if (step === 'loading')
     return (
       <div style={wrap}>
-        <div style={{ color: D.t2 }}>Se verifică invitația...</div>
+        <div style={{ color: D.t2 }}>{t('checking')}</div>
       </div>
     )
   if (step === 'invalid')
@@ -259,10 +274,10 @@ export default function InviteAcceptPage({
           <div
             style={{ fontFamily: 'Fraunces,serif', fontSize: 22, color: D.t1, marginBottom: 12 }}
           >
-            Link invalid
+            {t('invalidTitle')}
           </div>
           <p style={{ color: D.t2, marginBottom: 24 }}>
-            Acest link nu există sau a fost deja folosit.
+            {t('invalidBody')}
           </p>
           <button
             onClick={() => navigate('/')}
@@ -276,7 +291,7 @@ export default function InviteAcceptPage({
               cursor: 'pointer',
             }}
           >
-            Acasă
+            {t('home')}
           </button>
         </div>
       </div>
@@ -288,10 +303,10 @@ export default function InviteAcceptPage({
           <div
             style={{ fontFamily: 'Fraunces,serif', fontSize: 22, color: D.t1, marginBottom: 12 }}
           >
-            Nu am putut verifica invitația
+            {t('errorTitle')}
           </div>
           <p style={{ color: D.t2, marginBottom: 24 }}>
-            Pare o problemă de conexiune, nu un link greșit. Reîncearcă.
+            {t('errorBody')}
           </p>
           <button
             onClick={() => {
@@ -309,7 +324,7 @@ export default function InviteAcceptPage({
               cursor: 'pointer',
             }}
           >
-            Reîncearcă
+            {t('retry')}
           </button>
         </div>
       </div>
@@ -321,10 +336,10 @@ export default function InviteAcceptPage({
           <div
             style={{ fontFamily: 'Fraunces,serif', fontSize: 22, color: D.t1, marginBottom: 12 }}
           >
-            Invitație expirată
+            {t('expiredTitle')}
           </div>
           <p style={{ color: D.t2, marginBottom: 24 }}>
-            Cere un nou link de invitație de la managerul restaurantului.
+            {t('expiredBody')}
           </p>
           <button
             onClick={() => navigate('/')}
@@ -338,7 +353,7 @@ export default function InviteAcceptPage({
               cursor: 'pointer',
             }}
           >
-            Acasă
+            {t('home')}
           </button>
         </div>
       </div>
@@ -350,12 +365,12 @@ export default function InviteAcceptPage({
           <div
             style={{ fontFamily: 'Fraunces,serif', fontSize: 22, color: D.t1, marginBottom: 12 }}
           >
-            Verifică emailul
+            {t('confirmTitle')}
           </div>
           <p style={{ color: D.t2, marginBottom: 24 }}>
-            Ți-am trimis un link de confirmare la{' '}
-            <strong style={{ color: D.t1 }}>{invite?.email}</strong>. Confirmă contul, apoi revino
-            la acest link pentru a-ți accepta invitația.
+            {fillNodes(t('confirmBody'), {
+              email: <strong style={{ color: D.t1 }}>{invite?.email}</strong>,
+            })}
           </p>
           <button
             onClick={() => {
@@ -379,7 +394,7 @@ export default function InviteAcceptPage({
               fontFamily: 'DM Sans,sans-serif',
             }}
           >
-            Am confirmat — continuă
+            {t('confirmContinue')}
           </button>
         </div>
       </div>
@@ -400,11 +415,12 @@ export default function InviteAcceptPage({
             }}
           >
             <Icon name="check" size={22} color={D.green} />
-            Invitație acceptată
+            {t('doneTitle')}
           </div>
           <p style={{ color: D.t2, marginBottom: 24 }}>
-            Acum faci parte din echipa{' '}
-            <strong style={{ color: D.t1 }}>{invite?.restaurant_name}</strong>.
+            {fillNodes(t('doneBody'), {
+              restaurant: <strong style={{ color: D.t1 }}>{invite?.restaurant_name}</strong>,
+            })}
           </p>
           <button
             onClick={() => navigate('/dashboard')}
@@ -420,7 +436,7 @@ export default function InviteAcceptPage({
               fontFamily: 'DM Sans,sans-serif',
             }}
           >
-            Intră în panou
+            {t('goToPanel')}
           </button>
         </div>
       </div>
@@ -437,25 +453,28 @@ export default function InviteAcceptPage({
             marginBottom: 24,
           }}
         >
-          Menuvia
+          {t('brand')}
         </div>
         <h1
           style={{ fontFamily: 'Fraunces,serif', fontSize: '1.4rem', color: D.t1, marginBottom: 6 }}
         >
-          Invitație la {invite?.restaurant_name}
+          {t('title', { restaurant: invite?.restaurant_name ?? '' })}
         </h1>
         <p style={{ color: D.t3, fontSize: '0.85rem', marginBottom: expiresLabel ? 6 : 20 }}>
-          Ai fost invitat(ă) ca{' '}
-          <strong style={{ color: D.gold }}>
-            {/* Rol neprevăzut din RPC → afișăm valoarea brută, nu string gol
-                (același fallback ca WaiterAssignments). */}
-            {invite ? (ROLE_LABELS[invite.role] ?? invite.role) : ''}
-          </strong>{' '}
-          la <strong style={{ color: D.t1 }}>{invite?.restaurant_name}</strong>.
+          {fillNodes(t('invitedAs'), {
+            role: (
+              <strong style={{ color: D.gold }}>
+                {/* Rol neprevăzut din RPC → afișăm valoarea brută, nu string gol
+                    (același fallback ca WaiterAssignments). */}
+                {invite ? (invite.role in ROLE_KEYS ? t(ROLE_KEYS[invite.role]) : invite.role) : ''}
+              </strong>
+            ),
+            restaurant: <strong style={{ color: D.t1 }}>{invite?.restaurant_name}</strong>,
+          })}
         </p>
         {expiresLabel && (
           <p style={{ color: D.t3, fontSize: '0.78rem', marginBottom: 20 }}>
-            Invitația expiră la {expiresLabel}.
+            {t('expiresOn', { date: expiresLabel })}
           </p>
         )}
 
@@ -465,8 +484,9 @@ export default function InviteAcceptPage({
         sessionEmail.toLowerCase() === invite.email.toLowerCase() ? (
           <div>
             <p style={{ color: D.t2, fontSize: '0.85rem', marginBottom: 16, lineHeight: 1.5 }}>
-              Ești conectat ca <strong style={{ color: D.t1 }}>{sessionEmail}</strong> — exact
-              contul invitat. Nu mai e nevoie de parolă.
+              {fillNodes(t('signedInAsInvited'), {
+                email: <strong style={{ color: D.t1 }}>{sessionEmail}</strong>,
+              })}
             </p>
             {formError && (
               <div
@@ -500,7 +520,7 @@ export default function InviteAcceptPage({
                 opacity: submitting ? 0.6 : 1,
               }}
             >
-              {submitting ? 'Se acceptă…' : 'Acceptă invitația →'}
+              {submitting ? t('accepting') : t('acceptBtn')}
             </button>
           </div>
         ) : sessionEmail != null && invite != null ? (
@@ -518,9 +538,10 @@ export default function InviteAcceptPage({
                 marginBottom: 14,
               }}
             >
-              Ești conectat ca <strong style={{ color: D.t1 }}>{sessionEmail}</strong>, dar
-              invitația e pentru <strong style={{ color: D.t1 }}>{invite.email}</strong>.
-              Deconectează-te și acceptă invitația cu contul potrivit.
+              {fillNodes(t('signedInAsOther'), {
+                email: <strong style={{ color: D.t1 }}>{sessionEmail}</strong>,
+                invited: <strong style={{ color: D.t1 }}>{invite.email}</strong>,
+              })}
             </div>
             <button
               onClick={() => {
@@ -540,13 +561,13 @@ export default function InviteAcceptPage({
                 fontFamily: 'DM Sans,sans-serif',
               }}
             >
-              Deconectează-mă
+              {t('signOutBtn')}
             </button>
           </div>
         ) : (
           <>
         <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
-          {['Cont nou', 'Am deja cont'].map((label, i) => (
+          {[t('tabNew'), t('tabExisting')].map((label, i) => (
             <button
               key={label}
               type="button"
@@ -581,7 +602,7 @@ export default function InviteAcceptPage({
               htmlFor="invite-email"
               style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}
             >
-              Email
+              {t('emailLabel')}
             </label>
             <input
               id="invite-email"
@@ -597,13 +618,13 @@ export default function InviteAcceptPage({
                 htmlFor="invite-name"
                 style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}
               >
-                Nume
+                {t('nameLabel')}
               </label>
               <input
                 id="invite-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Numele tău"
+                placeholder={t('namePlaceholder')}
                 autoComplete="name"
                 style={inp}
               />
@@ -615,14 +636,14 @@ export default function InviteAcceptPage({
               htmlFor="invite-password"
               style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}
             >
-              Parolă
+              {t('passwordLabel')}
             </label>
             <input
               id="invite-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Minim 8 caractere"
+              placeholder={t('passwordPlaceholder')}
               autoComplete={isNew ? 'new-password' : 'current-password'}
               required
               minLength={8}
@@ -661,11 +682,7 @@ export default function InviteAcceptPage({
               marginTop: 4,
             }}
           >
-            {submitting
-              ? 'Se procesează...'
-              : isNew
-                ? 'Creează cont și acceptă'
-                : 'Autentifică-te și acceptă'}
+            {submitting ? t('processing') : isNew ? t('submitNew') : t('submitExisting')}
           </button>
         </form>
           </>
