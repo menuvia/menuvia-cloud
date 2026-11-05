@@ -141,7 +141,9 @@ export function ProductTranslations({
           >
             ▸
           </span>
-          <span>Traduceri</span>
+          {/* Spațiul explicit: într-un container flex nu se vede (gap-ul face
+              distanța), dar fără el numele accesibil e „Traduceri(opțional)”. */}
+          <span>Traduceri</span>{' '}
           <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>(opțional)</span>
         </span>
         <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>
