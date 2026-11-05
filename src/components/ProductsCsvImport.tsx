@@ -362,6 +362,10 @@ export default function ProductsCsvImport({
     // pe ACELAȘI CSV păstrează cursorul și sare peste ce s-a inserat deja.
     if (importedCsvRef.current !== csvText) {
       insertedCursorRef.current = 0
+      // Și poziția de pornire se recitește: dedup-ul scoate nume fără să
+      // renumeroteze, deci un CSV editat ar fi refolosit pozițiile primei
+      // încercări (recenzia CodeRabbit pe #352). Un retry pe ACELAȘI CSV o păstrează.
+      baseOrderRef.current = null
       createdCatsRef.current = new Map()
       importedCsvRef.current = csvText
     }

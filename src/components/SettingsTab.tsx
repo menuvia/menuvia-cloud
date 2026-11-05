@@ -154,6 +154,7 @@ export default function SettingsTab({
   onUpdate,
   plan,
   onSignOut,
+  onPricing,
   modulesState,
   founderView = false,
   surface,
@@ -179,6 +180,10 @@ export default function SettingsTab({
   // singurul „nu știu".
   plan: string
   onSignOut: () => void
+  // Calea „Vezi planurile" a cardului de abonament, când serverul răspunde
+  // `no_customer` (proprietar fără client Stripe). Obligatoriu: fără el,
+  // cardul ar redeveni o fundătură.
+  onPricing: () => void
   modulesState?: ReturnType<typeof useRestaurantModules>
   // Fondatorul în vizită: acțiunile pe care serverul le leagă de membership-ul
   // REAL (conectarea Stripe) nu i se arată.
@@ -1962,11 +1967,13 @@ export default function SettingsTab({
             {/* Abonament & facturare (mutat de pe Acasă, lotul R2) — ORICE plan:
                 deschide Portalul Stripe, destinația CTA-urilor din emailurile de
                 facturare (`/dashboard?tab=billing` → aici, cu scroll pe id). Doar
-                PROPRIETARUL: managerul primea „gestionat de contul
-                proprietarului", adică o fundătură. */}
+                PROPRIETARUL: managerul n-are client Stripe (abonamentul e pe
+                contul proprietarului). Un proprietar FĂRĂ client Stripe
+                (`no_customer`) primește „Vezi planurile" → /pricing — contractul
+                din lib/billing.ts. */}
             {isOwner && (
               <div id="billing-card">
-                <SubscriptionCard />
+                <SubscriptionCard onSeePlans={onPricing} />
               </div>
             )}
 
