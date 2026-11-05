@@ -16,7 +16,14 @@ import {
 
 describe('PARTNER_TAB_IDS / isPartnerTab', () => {
   it('conține EXACT suprafața acoperită în DB: meniu + mese/QR', () => {
-    expect([...PARTNER_TAB_IDS].sort()).toEqual(['categories', 'mese', 'modificatori', 'products'])
+    // „traduceri” (lotul O6c) scrie doar tabelele de meniu din mig 286.
+    expect([...PARTNER_TAB_IDS].sort()).toEqual([
+      'categories',
+      'mese',
+      'modificatori',
+      'products',
+      'traduceri',
+    ])
   })
 
   it('tab-urile sensibile NU sunt ale partenerului', () => {
@@ -44,7 +51,7 @@ describe('PARTNER_TAB_IDS / isPartnerTab', () => {
   })
 
   it('tab-urile de meniu și mese sunt ale partenerului', () => {
-    for (const id of ['products', 'categories', 'modificatori', 'mese']) {
+    for (const id of ['products', 'categories', 'modificatori', 'traduceri', 'mese']) {
       expect(isPartnerTab(id), id).toBe(true)
     }
   })

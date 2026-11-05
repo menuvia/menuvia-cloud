@@ -50,7 +50,14 @@ const COLORED_CEILING = 0
 
 const MIGRATED_CEILINGS = {
   'src/components/_dashboard/HomeTab.tsx': 3,
-  'src/components/ProductsTab.tsx': 27,
+  // 27 → 26 (lotul O6c): comutatorul „Traduceri” din fișă a devenit <Button>
+  // în _dashboard/ProductTranslations.tsx.
+  'src/components/ProductsTab.tsx': 26,
+  // Ecranul Traduceri (lotul O6c) s-a născut doar cu <Button>.
+  'src/components/TranslationsTab.tsx': 0,
+  'src/components/_dashboard/TranslationRow.tsx': 0,
+  'src/components/_dashboard/ProductTranslations.tsx': 0,
+  'src/components/_dashboard/ExtraTranslations.tsx': 0,
   'src/components/_dashboard/ProductsToolbar.tsx': 2,
   'src/components/SettingsTab.tsx': 5,
   'src/components/TablesManager.tsx': 3,
