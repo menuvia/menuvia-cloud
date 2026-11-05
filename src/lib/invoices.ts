@@ -59,9 +59,12 @@ export async function fetchOblioConfig(restaurantId: string): Promise<OblioConfi
     .eq('restaurant_id', restaurantId)
     .maybeSingle()
 
+  // `null` = rândul chiar LIPSEȘTE. O citire eșuată ARUNCĂ (cu `code`, pentru
+  // toUserMessage): întoarsă ca `null`, o reîmprospătare picată era luată drept
+  // „Oblio neconfigurat”, iar ramura aceea demonta formularul de factură
+  // deschis, cu datele clientului (recenzia CodeRabbit pe #353).
   if (error) {
-    console.error('[invoices] fetchOblioConfig:', error.message)
-    return null
+    throw Object.assign(new Error(`Citire config Oblio: ${error.message}`), { code: error.code })
   }
   return data as OblioConfig | null
 }

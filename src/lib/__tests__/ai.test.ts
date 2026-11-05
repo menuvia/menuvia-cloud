@@ -15,22 +15,38 @@
 //         funcției) ca `bad_response`, nu ca SyntaxError brut;
 //   AIC6  ofere un mesaj românesc pentru FIECARE status (describeAiError pur);
 //   AIC7  clasifice corect erorile pentru loturi: cotă vs. configurare.
+//
+// getAiConfig — eroare ≠ fără rând (lotul O7a). supabase-js pune eroarea în
+// `{ error }`; vechiul `if (error || !data) return null` o făcea identică cu
+// „restaurantul n-are rând salvat", iar AiSettingsTab arăta formularul implicit
+// — un „Salvează" după un blip ștergea cheia BYO.
+//   AIR1  o citire eșuată RESPINGE cu un Error real care păstrează `code`.
+//         Mutația care pică: revenirea la `if (error || !data) return null`.
+//   AIR2  „fără rând" (`data: null`, fără eroare) rezolvă la `null`, nu aruncă
+//         — un cont nou rămâne pe implicitul documentat (activ, cheia
+//         platformei). Mutația care pică: `if (error || !data) throw`.
+//   AIR3  control pozitiv: rândul trece neatins, iar SELECT-ul cere EXACT
+//         coloanele cu grant (fără `api_key_encrypted`, revocată pentru
+//         authenticated — 42501, care cu noul fail-closed ar bloca salvarea pe
+//         VECI). Mutația care pică: `api_key_encrypted` adăugat în select.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
-const { getSessionMock } = vi.hoisted(() => ({
+const { getSessionMock, fromMock } = vi.hoisted(() => ({
   getSessionMock: vi.fn(async () => ({ data: { session: { access_token: 'tok' } } })),
+  fromMock: vi.fn(),
 }))
 vi.mock('../supabase', () => ({
   supabase: {
     auth: { getSession: getSessionMock },
     rpc: vi.fn(),
-    from: vi.fn(),
+    from: fromMock,
   },
 }))
 
 import {
   describeAiError,
   generateProductImage,
+  getAiConfig,
   isAiConfigError,
   isAiQuotaError,
   type AiError,
@@ -192,5 +208,75 @@ describe('describeAiError — pur', () => {
     }
     expect(isAiConfigError(null)).toBe(false)
     expect(isAiConfigError('provider_no_images')).toBe(false)
+  })
+})
+
+// Builder minimal pentru `from().select().eq().maybeSingle()`; păstrează
+// argumentele ca AIR3 să poată verifica SELECT-ul.
+interface ConfigRead {
+  data: unknown
+  error: { message: string; code: string } | null
+}
+interface ConfigBuilder {
+  select: (cols: string) => ConfigBuilder
+  eq: (col: string, val: string) => ConfigBuilder
+  maybeSingle: () => Promise<ConfigRead>
+}
+function configBuilder(result: ConfigRead) {
+  const select = vi.fn()
+  const eq = vi.fn()
+  const builder: ConfigBuilder = {
+    select: (cols: string) => {
+      select(cols)
+      return builder
+    },
+    eq: (col: string, val: string) => {
+      eq(col, val)
+      return builder
+    },
+    maybeSingle: async () => result,
+  }
+  fromMock.mockReturnValue(builder)
+  return { select, eq }
+}
+
+describe('getAiConfig — eroare ≠ fără rând', () => {
+  beforeEach(() => {
+    fromMock.mockReset()
+  })
+
+  it('AIR1: citirea eșuată RESPINGE cu Error real, cu `code` păstrat', async () => {
+    configBuilder({
+      data: null,
+      error: { message: 'canceling statement due to statement timeout', code: '57014' },
+    })
+    let caught: unknown = null
+    try {
+      await getAiConfig('r1')
+    } catch (e) {
+      caught = e
+    }
+    expect(caught).toBeInstanceOf(Error)
+    expect((caught as Error & { code?: string }).code).toBe('57014')
+  })
+
+  it('AIR2: fără rând salvat → null, fără excepție', async () => {
+    configBuilder({ data: null, error: null })
+    await expect(getAiConfig('r1')).resolves.toBeNull()
+  })
+
+  it('AIR3: control pozitiv — rândul trece neatins, SELECT fără coloana cheii', async () => {
+    const row = {
+      restaurant_id: 'r1',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+      base_url: null,
+      enabled: false,
+    }
+    const { select, eq } = configBuilder({ data: row, error: null })
+    await expect(getAiConfig('r1')).resolves.toEqual(row)
+    expect(fromMock).toHaveBeenCalledWith('ai_provider_configs')
+    expect(select).toHaveBeenCalledWith('restaurant_id, provider, model, base_url, enabled')
+    expect(eq).toHaveBeenCalledWith('restaurant_id', 'r1')
   })
 })

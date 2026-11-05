@@ -11,6 +11,7 @@ import { Skeleton } from './ui/Skeleton'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { QueryError } from './PageLoader'
+import { Button } from './ui/Button'
 import {
   fetchOblioConfig,
   saveOblioConfig,
@@ -40,6 +41,17 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
   const [showConfig, setShowConfig] = useState(false)
   const [showIssue, setShowIssue] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // Restaurantul ale cărui config + facturi sunt ACUM în stare (null = nimic
+  // încă). Doar o încărcare FĂRĂ date pentru restaurantul curent ocupă tot
+  // ecranul (schelet / eroare); reîmprospătările (poll la 10 s, revenirea în
+  // filă, după emitere/anulare) păstrează lista ȘI modalele montate. Înainte,
+  // fiecare poll trecea prin `if (loading) return <Skeleton/>`, iar modalele
+  // (copii NE-portal ai arborelui principal) se demontau: formularul de factură
+  // revenea la „Alege comanda" cu numele clientului șters, iar cel Oblio pierdea
+  // secretul tastat. Cheia e restaurantul, nu un boolean: o schimbare de
+  // restaurant contează tot ca primă încărcare (tiparul „schelet doar fără
+  // date" din CashRegisterTab / BridgeTab / HappyHourTab).
+  const [loadedFor, setLoadedFor] = useState<string | null>(null)
 
   // Guard de secvență: la schimbarea restaurantului, răspunsul unui load vechi nu
   // trebuie să suprascrie configul/facturile Oblio ale restaurantului curent.
@@ -47,7 +59,9 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
   const load = useCallback(async () => {
     const seq = ++loadSeqRef.current
     setLoading(true)
-    setErr(null)
+    // `err` NU se șterge la pornire, ci doar la succes: banner-ul unei
+    // reîmprospătări eșuate rămâne pe ecran cât timp următoarea e în zbor (nu
+    // mai clipește la fiecare 10 s).
     try {
       const [cfg, inv] = await Promise.all([
         fetchOblioConfig(restaurantId),
@@ -56,12 +70,23 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
       if (seq !== loadSeqRef.current) return
       setConfig(cfg)
       setInvoices(inv)
+      setErr(null)
+      setLoadedFor(restaurantId)
     } catch (e) {
       if (seq === loadSeqRef.current) setErr(toUserMessage(e))
     } finally {
       if (seq === loadSeqRef.current) setLoading(false)
     }
   }, [restaurantId])
+
+  // Reîncărcare CU schelet: tranzițiile configului (salvat / șters) și
+  // „Reîncearcă" de pe eroarea pe tot ecranul. Fără ea, prima salvare a
+  // configului ar arăta un RTT empty-state-ul „Configurează Oblio →", adică ar
+  // spune că Oblio nu e configurat exact după ce omul l-a configurat.
+  const reload = useCallback(async () => {
+    setLoadedFor(null)
+    await load()
+  }, [load])
 
   useEffect(() => {
     void load()
@@ -74,17 +99,29 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
   )
   usePollWhileVisible(() => void load(), 10_000, hasPendingInvoices)
 
-  if (loading)
+  const hasData = loadedFor === restaurantId
+
+  // Scheletul DOAR fără date pentru restaurantul curent. `!err` acoperă și
+  // cadrul de după o schimbare de restaurant, înainte ca efectul să pornească
+  // încărcarea (`loading` încă false): altfel s-ar randa o clipă lista și
+  // modalele restaurantului anterior sub id-ul celui nou.
+  if (!hasData && (loading || !err))
     return (
       <div style={{ padding: 24 }}>
         <Skeleton variant="table-row" count={4} />
       </div>
     )
 
-  // Eroare de încărcare: NU cădea pe empty-state-ul „configurează Oblio" (minte că
-  // fiscalizarea nu e configurată când de fapt încărcarea a eșuat) — arată eroarea
-  // cu Reîncearcă. Excepție: dacă userul e în formularul de config, nu-l ascundem.
-  if (err && !showConfig) return <QueryError message={err} onRetry={() => void load()} />
+  // Eroare pe tot ecranul (cu Reîncearcă) în două cazuri:
+  //  - nimic încărcat încă pentru restaurantul curent: NU cădem pe empty-state-ul
+  //    „configurează Oblio" (ar minți că fiscalizarea nu e configurată) și nici
+  //    pe formularul de config cu `existing`-ul altui restaurant;
+  //  - ultima stare cunoscută e „fără config" și formularul nu e deschis: același
+  //    empty-state ar minți peste o reîmprospătare eșuată.
+  // Altfel (date încărcate, config prezent sau formular deschis), eroarea unei
+  // reîmprospătări e banner-ul de deasupra listei: lista ȘI modalele rămân.
+  if (err && (!hasData || (!config && !showConfig)))
+    return <QueryError message={err} onRetry={() => void reload()} />
 
   // Empty state — no config
   if (!config && !showConfig) {
@@ -229,10 +266,16 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
         </div>
       </div>
 
+      {/* Reîmprospătare eșuată: lista de mai jos e ultima versiune citită cu
+          succes — o spunem explicit, ca o stare veche să nu pară proaspătă.
+          „Reîncearcă" folosește încărcarea SILENȚIOASĂ: un modal deschis rămâne.
+          Fără promisiuni de reîncercare automată: după emitere, fără facturi în
+          lucru, nu mai citește nimic singur. */}
       {err && (
         <div
+          role="alert"
           style={{
-            background: 'rgba(224,85,85,0.1)',
+            background: D.redA,
             color: D.red,
             padding: 12,
             borderRadius: 8,
@@ -240,7 +283,16 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
             fontSize: 14,
           }}
         >
-          {err}
+          Lista facturilor nu s-a putut actualiza — afișăm ultima versiune încărcată. {err}
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={loading}
+            onClick={() => void load()}
+            style={{ marginLeft: 8 }}
+          >
+            Reîncearcă
+          </Button>
         </div>
       )}
 
@@ -293,11 +345,11 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
           onClose={() => setShowConfig(false)}
           onSaved={async () => {
             setShowConfig(false)
-            await load()
+            await reload()
           }}
           onDeleted={async () => {
             setShowConfig(false)
-            await load()
+            await reload()
           }}
         />
       )}

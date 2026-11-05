@@ -38,8 +38,13 @@
 //   AL6  `onCreated` pică DUPĂ ce restaurantul a fost creat → reîncercarea NU
 //        mai creează încă unul (tiparul OnboardingPage). Mutația care pică:
 //        `createdRef` scos.
+//   AL9  `confirmBeforeOpen` (lotul O7a, Setări nesalvate): întrebarea vine
+//        ÎNAINTEA dialogului; `false` → dialogul nu se deschide și nimic nu
+//        pleacă la server, `true` → se deschide. Control pozitiv: AL1 (fără
+//        prop, dialogul se deschide direct). Mutații care pică: `openDialog`
+//        care ignoră prop-ul, sau care îl cheamă dar ignoră răspunsul.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 const m = vi.hoisted(() => ({ create: vi.fn(), find: vi.fn(), reload: vi.fn() }))
@@ -50,7 +55,7 @@ vi.mock('../../lib/locations', async (importOriginal) => ({
   hardReloadTo: m.reload,
 }))
 
-import AddLocationCard from '../AddLocationCard'
+import AddLocationCard, { type AddLocationProps } from '../AddLocationCard'
 import {
   MSG_CREATE_UNCERTAIN,
   MSG_LOCATION_LIMIT,
@@ -64,9 +69,17 @@ beforeEach(() => {
   m.reload.mockReset()
 })
 
-function renderCard(onCreated: (id: string) => Promise<void>) {
+function renderCard(
+  onCreated: (id: string) => Promise<void>,
+  extra: Partial<AddLocationProps> = {},
+) {
   return render(
-    <AddLocationCard onCreated={onCreated} ownerId="owner-1" knownRestaurantIds={['rest-1']} />,
+    <AddLocationCard
+      onCreated={onCreated}
+      ownerId="owner-1"
+      knownRestaurantIds={['rest-1']}
+      {...extra}
+    />,
   )
 }
 
@@ -234,5 +247,27 @@ describe('AddLocationCard', () => {
     await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(2))
     expect(onCreated).toHaveBeenLastCalledWith('rest-new')
     expect(m.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('AL9: confirmBeforeOpen = false → dialogul nu se deschide; true → se deschide', async () => {
+    const confirmBeforeOpen = vi.fn<() => Promise<boolean>>(async () => false)
+    renderCard(vi.fn(async () => {}), { confirmBeforeOpen })
+    const user = userEvent.setup()
+    const openBtn = () => screen.getByRole('button', { name: /Adaugă o locație/ })
+    await user.click(openBtn())
+    await waitFor(() => expect(confirmBeforeOpen).toHaveBeenCalledTimes(1))
+    // Lasă să se termine `openDialog` (răspunsul e așteptat asincron): un
+    // macrotask, ca „dialogul lipsește" să nu treacă din grabă.
+    await act(async () => {
+      await new Promise<void>((r) => setTimeout(r, 0))
+    })
+    expect(screen.queryByRole('dialog', { name: 'Adaugă o locație' })).toBeNull()
+    expect(m.create).not.toHaveBeenCalled()
+
+    confirmBeforeOpen.mockResolvedValueOnce(true)
+    await user.click(openBtn())
+    expect(await screen.findByRole('dialog', { name: 'Adaugă o locație' })).toBeInTheDocument()
+    expect(confirmBeforeOpen).toHaveBeenCalledTimes(2)
+    expect(m.create).not.toHaveBeenCalled()
   })
 })

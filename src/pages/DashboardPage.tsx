@@ -58,6 +58,7 @@ import { EmptyState } from '../components/ui/EmptyState'
 import { PageHeader } from '../components/ui/PageHeader'
 import { PlanUnknownBanner } from '../components/_dashboard/PlanBanners'
 import { confirm as confirmDialog } from '../components/ui/confirm'
+import type { ConfirmOptions } from '../components/ui/confirm'
 import { menuBaseLang } from '../lib/i18nMenu'
 import {
   dashboardPathFor,
@@ -417,6 +418,17 @@ function OrdersHub({
   )
 }
 
+// Textul întrebării „pierzi modificările din Setări?" — fiecare drum care
+// părăsește formularul (alt tab, alt restaurant, locație nouă) își are
+// formularea lui; butonul de confirmare e mereu distructiv.
+type DiscardCopy = Omit<ConfirmOptions, 'destructive'>
+const LEAVE_SETTINGS_COPY: DiscardCopy = {
+  title: 'Ai modificări nesalvate în Setări',
+  description: 'Dacă pleci acum, modificările se pierd. Salvează-le întâi din Setări.',
+  confirmLabel: 'Pleacă fără să salvezi',
+  cancelLabel: 'Rămân în Setări',
+}
+
 export default function DashboardPage({
   onViewMenu,
   onViewWaiter,
@@ -427,6 +439,7 @@ export default function DashboardPage({
   restaurantsLoading,
   updateRestaurant,
   refetchRestaurants,
+  patchRestaurantLocal,
   navigate,
   replaceUrl,
 }: {
@@ -443,6 +456,10 @@ export default function DashboardPage({
   // Întoarce lista recitită (`null` = citirea a eșuat), ca apelantul să verifice
   // pe ea, nu pe prop-ul încă nerandat.
   refetchRestaurants: ReturnType<typeof useRestaurants>['refetch']
+  // Merge LOCAL în aceeași listă după o scriere prin RPC (harta sălii,
+  // `save_floor_layout`, mig 322): editorul remontat la revenirea pe tab
+  // pornește de la harta tocmai salvată, nu de la copia încărcată la boot.
+  patchRestaurantLocal: ReturnType<typeof useRestaurants>['patchLocal']
   // Navigarea din App (pushState + rutare): tab-ul curent stă în URL
   // (`?tab=…`), deci refresh-ul și Back-ul păstrează locul (lotul R2).
   navigate: (path: string) => void
@@ -504,29 +521,28 @@ export default function DashboardPage({
     const path = dashboardPathFor(next)
     if (window.location.pathname + window.location.search !== path) navigateRef.current(path)
   }
-  const leavesDirtySettings = (next: Tab) =>
-    settingsDirtyRef.current &&
-    settingsSectionOf(shownTabRef.current) != null &&
-    settingsSectionOf(next) == null
-  // Cere confirmarea ieșirii din Setări; `onLeave` rulează doar pe „Pleacă".
-  const confirmLeaveSettings = (onLeave: () => void) => {
-    if (confirmPendingRef.current) return
+  // Formularul Setărilor e montat ȘI are modificări nesalvate.
+  const hasUnsavedSettings = () =>
+    settingsDirtyRef.current && settingsSectionOf(shownTabRef.current) != null
+  const leavesDirtySettings = (next: Tab) => hasUnsavedSettings() && settingsSectionOf(next) == null
+  // Doar întrebarea: `true` = omul acceptă pierderea. NU atinge
+  // `settingsDirtyRef` — apelantul decide (la „Adaugă o locație" formularul
+  // rămâne modificat dacă omul închide apoi dialogul fără să creeze nimic).
+  // O întrebare deja deschisă face ca a doua să întoarcă `false`.
+  const askDiscardSettings = (copy: DiscardCopy): Promise<boolean> => {
+    if (confirmPendingRef.current) return Promise.resolve(false)
     confirmPendingRef.current = true
-    void confirmDialog({
-      title: 'Ai modificări nesalvate în Setări',
-      description: 'Dacă pleci acum, modificările se pierd. Salvează-le întâi din Setări.',
-      confirmLabel: 'Pleacă fără să salvezi',
-      cancelLabel: 'Rămân în Setări',
-      destructive: true,
+    return confirmDialog({ ...copy, destructive: true }).finally(() => {
+      confirmPendingRef.current = false
     })
-      .then((ok) => {
-        if (!ok) return
-        settingsDirtyRef.current = false
-        onLeave()
-      })
-      .finally(() => {
-        confirmPendingRef.current = false
-      })
+  }
+  // Cere confirmarea ieșirii din Setări; `onLeave` rulează doar pe „Pleacă".
+  const confirmLeaveSettings = (onLeave: () => void, copy: DiscardCopy = LEAVE_SETTINGS_COPY) => {
+    void askDiscardSettings(copy).then((ok) => {
+      if (!ok) return
+      settingsDirtyRef.current = false
+      onLeave()
+    })
   }
   const setTab = (next: Tab) => {
     if (next === requestedTab && next === shownTabRef.current) return
@@ -606,6 +622,13 @@ export default function DashboardPage({
   // (setActive → localStorage), deci o reîncărcare completă îl deschide.
   const handleLocationCreated = async (restaurantId: string) => {
     const ok = await ensureLocationLoaded(restaurantId, true)
+    // Pierderea modificărilor nesalvate din Setări a fost acceptată ÎNAINTE de
+    // creare (`confirmBeforeOpen` pe „Adaugă o locație"), iar recitirea forțată
+    // de mai sus a re-sincronizat deja formularul: o a doua întrebare (din
+    // `setTab('home')`) n-ar mai avea nimic de salvat. Rezidual acceptat: o
+    // imagine al cărei upload se termină cât e deschis dialogul de creare poate
+    // modifica formularul după acord, iar comutarea nu mai întreabă.
+    settingsDirtyRef.current = false
     setActive(restaurantId)
     if (!ok) {
       hardReloadTo('/dashboard')
@@ -677,6 +700,27 @@ export default function DashboardPage({
   // Nu mai ținem un `selectedId` local — evita desincronizarea rol/tab pe
   // staff cu roluri diferite pe restaurante diferite.
   const restaurant = restaurants.find((r) => r.id === activeId) ?? restaurants[0] ?? null
+
+  // Selectorul de restaurant din bara laterală NU demontează formularul
+  // Setărilor (aceeași cheie `settings-form`, aceleași sub-tab-uri pe orice
+  // plan): SettingsTab primește doar alt `restaurant`, iar efectul lui pe
+  // `[restaurant]` rescrie formularul cu datele localului nou — modificările
+  // nesalvate s-ar pierde TĂCUT. Deci, cu modificări nesalvate, întrebăm
+  // întâi; la „Rămân aici" select-ul controlat revine singur pe localul curent.
+  const switchRestaurant = (nextId: string) => {
+    if (nextId === restaurant?.id) return
+    if (!hasUnsavedSettings()) {
+      setActive(nextId)
+      return
+    }
+    const nextName = restaurants.find((r) => r.id === nextId)?.name ?? 'alt restaurant'
+    confirmLeaveSettings(() => setActive(nextId), {
+      title: 'Ai modificări nesalvate în Setări',
+      description: `Dacă treci la „${nextName}”, modificările nesalvate pentru „${restaurant?.name ?? ''}” se pierd. Salvează-le întâi.`,
+      confirmLabel: 'Schimbă fără să salvezi',
+      cancelLabel: 'Rămân aici',
+    })
+  }
   const features = useFeatures(restaurant?.id ?? null)
   const modulesState = useRestaurantModules(restaurant?.id ?? null)
 
@@ -966,7 +1010,8 @@ export default function DashboardPage({
           {restaurants.length > 1 ? (
             <select
               value={restaurant.id}
-              onChange={(e) => setActive(e.target.value)}
+              onChange={(e) => switchRestaurant(e.target.value)}
+              aria-label="Alege restaurantul"
               style={{
                 width: '100%',
                 background: D.s3,
@@ -1656,6 +1701,11 @@ export default function DashboardPage({
                     initialLayout={
                       (restaurant.floor_layout as unknown as FloorLayout | null) ?? null
                     }
+                    onSaved={(layout) =>
+                      patchRestaurantLocal(restaurant.id, {
+                        floor_layout: layout as unknown as Record<string, unknown>,
+                      })
+                    }
                   />
                 </Suspense>
               )}
@@ -1766,6 +1816,21 @@ export default function DashboardPage({
                       isOwnerRole && userId && addLocationAllowed
                         ? {
                             onCreated: handleLocationCreated,
+                            // ÎNAINTE de creare: recitirea de după creare dă
+                            // restaurantului curent un obiect nou, care
+                            // re-sincronizează formularul oricum ar răspunde
+                            // omul. `askDiscardSettings` lasă formularul marcat
+                            // ca modificat dacă omul închide apoi dialogul.
+                            confirmBeforeOpen: () =>
+                              hasUnsavedSettings()
+                                ? askDiscardSettings({
+                                    title: 'Ai modificări nesalvate în Setări',
+                                    description:
+                                      'După creare, panoul trece pe locația nouă, iar modificările nesalvate se pierd. Salvează-le întâi, apoi adaugă locația.',
+                                    confirmLabel: 'Continuă fără să salvezi',
+                                    cancelLabel: 'Rămân în Setări',
+                                  })
+                                : Promise.resolve(true),
                             ownerId: userId,
                             knownRestaurantIds: ownedRestaurantIds,
                           }
