@@ -50,6 +50,11 @@
 //        (calea „Vezi planurile" pe `no_customer`). Mutația care pică:
 //        `<SubscriptionCard onSeePlans={() => {}} />` sau `onPricing` neforwardat.
 //        Control negativ: SA2 (managerul nu are cardul deloc).
+//   RG1  (lotul G1) schimbarea țării aduce moneda și fusul noii țări cât timp
+//        erau default-urile celei vechi; o monedă aleasă de mână rămâne, fusul
+//        implicit tot urmează. Câmpul „Fusul orar” apare lângă țară (local în
+//        afara României). Mutația care pică: `upd('country', …)` simplu (moneda
+//        și fusul rămân ale țării vechi).
 //   SA7  (recenzia CodeRabbit pe #353) o imagine în curs de încărcare e muncă
 //        nesalvată: `onDirtyChange(true)` (deci „Adaugă o locație” / alt
 //        restaurant / /pricing întreabă) și `beforeunload` anulat. Control:
@@ -381,5 +386,42 @@ describe('SettingsTab — o încărcare în zbor e nesalvată (recenzia CodeRabb
     window.dispatchEvent(e)
     expect(e.defaultPrevented).toBe(true)
     getContext.mockRestore()
+  })
+})
+
+describe('SettingsTab — setările regionale (lotul G1)', () => {
+  function regional(section: SettingsSection, r: Restaurant) {
+    return (
+      <SettingsTab
+        section={section}
+        isOwner
+        restaurant={r}
+        onUpdate={vi.fn(async () => ({ error: null }))}
+        plan="growth"
+        onSignOut={() => {}}
+        onPricing={() => {}}
+        modulesState={modulesState}
+        surface={surfaceFor('growth')}
+      />
+    )
+  }
+
+  it('RG1: țara nouă aduce moneda și fusul ei; o monedă aleasă de mână rămâne', async () => {
+    const user = userEvent.setup()
+    const r: Restaurant = { ...makeRestaurant(), country: 'DE', currency: 'EUR', timezone: 'Europe/Berlin' }
+    const { rerender } = render(regional('restaurant', r))
+    expect(screen.getByLabelText('Fusul orar al restaurantului')).toHaveValue('Europe/Berlin')
+    // Default-urile Germaniei → ale Marii Britanii.
+    await user.selectOptions(screen.getByLabelText('Țara restaurantului'), 'GB')
+    expect(screen.getByLabelText('Fusul orar al restaurantului')).toHaveValue('Europe/London')
+    rerender(regional('menu', r))
+    expect(screen.getByLabelText('Moneda meniului')).toHaveValue('GBP')
+    // Moneda aleasă de mână (USD) nu mai urmează țara; fusul implicit urmează.
+    await user.selectOptions(screen.getByLabelText('Moneda meniului'), 'USD')
+    rerender(regional('restaurant', r))
+    await user.selectOptions(screen.getByLabelText('Țara restaurantului'), 'FR')
+    expect(screen.getByLabelText('Fusul orar al restaurantului')).toHaveValue('Europe/Paris')
+    rerender(regional('menu', r))
+    expect(screen.getByLabelText('Moneda meniului')).toHaveValue('USD')
   })
 })

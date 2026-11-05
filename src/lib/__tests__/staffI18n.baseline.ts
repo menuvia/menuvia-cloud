@@ -54,7 +54,7 @@ export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
   'src/components/ReadyOrderCard.tsx': 3,
   'src/components/ReportsTab.tsx': 68,
   'src/components/ReservationsTab.tsx': 83,
-  'src/components/SettingsTab.tsx': 156,
+  'src/components/SettingsTab.tsx': 159,
   'src/components/SignOutButton.tsx': 7,
   'src/components/SmsNotificationsCard.tsx': 10,
   'src/components/StaffSoldOutSheet.tsx': 18,

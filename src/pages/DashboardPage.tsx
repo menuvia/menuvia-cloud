@@ -4,7 +4,8 @@ import { useFeatures } from '../hooks/useFeatures'
 import { productLimitReason, surfaceTiers } from '../lib/features'
 import { planSurface, planUpsellTarget } from '../lib/planSurface'
 import { browserSite } from '../lib/domain'
-import { retryPendingCountry } from '../lib/pendingCountry'
+import { clearPendingCountry, retryPendingCountry, storePendingCountry } from '../lib/pendingCountry'
+import { regionalPatchFrom } from '../lib/countries'
 import { getPlan as getCommercialPlan } from '../lib/plans'
 import { useRestaurantModules } from '../hooks/useRestaurantModules'
 import { useAuth } from '../contexts/AuthContext'
@@ -623,6 +624,23 @@ export default function DashboardPage({
   // nouă (useData.load doar setează `error`), restaurantul activ e deja salvat
   // (setActive → localStorage), deci o reîncărcare completă îl deschide.
   const handleLocationCreated = async (restaurantId: string) => {
+    // Lotul G1: locația nouă pornește cu țara, moneda, fusul și limba de bază
+    // ale celei din care a fost creată (`create_restaurant` pune default-urile
+    // românești). Pentru un local românesc `regionalPatchFrom` dă null, deci
+    // niciun apel în plus. Țara se păstrează ÎNTÂI ca intenție
+    // (lib/pendingCountry): dacă UPDATE-ul pică, efectul de mai jos o
+    // reîncearcă la încărcarea locației — locația nu rămâne tăcut în România.
+    const regional = regionalPatchFrom(restaurant)
+    if (regional) {
+      if (regional.country) storePendingCountry(restaurantId, regional.country)
+      try {
+        const { error } = await update(restaurantId, regional)
+        if (error) console.warn('[dashboard] setările regionale ale locației noi n-au fost copiate', error)
+        else clearPendingCountry(restaurantId)
+      } catch (e) {
+        console.warn('[dashboard] setările regionale ale locației noi n-au fost copiate', e)
+      }
+    }
     const ok = await ensureLocationLoaded(restaurantId, true)
     // Pierderea modificărilor nesalvate din Setări a fost acceptată ÎNAINTE de
     // creare (`confirmBeforeOpen` pe „Adaugă o locație"), iar recitirea forțată

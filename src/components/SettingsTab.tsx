@@ -29,7 +29,7 @@ import { Icon, type IconName } from './ui/Icon'
 import type { SettingsSection } from '../lib/dashboardNav'
 import { confirm } from './ui/confirm'
 import { browserSite, siteHost } from '../lib/domain'
-import { COUNTRIES, countrySettingVisible } from '../lib/countries'
+import { COUNTRIES, countrySettingVisible, followCountryDefaults, timeZoneOptions } from '../lib/countries'
 import { clearPendingCountry } from '../lib/pendingCountry'
 import { toUserMessage } from '../lib/userMessages'
 
@@ -413,6 +413,8 @@ export default function SettingsTab({
   // `form` (se schimbă la fiecare tastă) rămâne serializat inline. Înainte se
   // făcea dublu JSON.stringify pe tot restaurantul la fiecare tastă.
   const restaurantJson = useMemo(() => JSON.stringify(restaurant), [restaurant])
+  // ~400 de fusuri (Intl.supportedValuesOf): recalculate doar când se schimbă fusul ales.
+  const tzOptions = useMemo(() => timeZoneOptions(form.timezone), [form.timezone])
   const dirty = JSON.stringify(form) !== restaurantJson
   // O imagine în curs de încărcare (logo, copertă, pagini Flipbook) e tot muncă
   // nesalvată: URL-ul ei intră în formular abia la final, deci o ieșire în
@@ -524,7 +526,17 @@ export default function SettingsTab({
                   <select
                     aria-label="Țara restaurantului"
                     value={form.country ?? 'RO'}
-                    onChange={(e) => upd('country', e.target.value)}
+                    onChange={(e) => {
+                      // Moneda și fusul urmează țara cât timp erau încă
+                      // default-urile țării vechi (lotul G1); o alegere de mână
+                      // rămâne. Totul rămâne în formular până la „Salvează”.
+                      const next = e.target.value
+                      setForm((f) => ({
+                        ...f,
+                        country: next,
+                        ...followCountryDefaults(f.country, next, { currency: f.currency, timezone: f.timezone }),
+                      }))
+                    }}
                     disabled={user?.id !== restaurant.owner_id}
                     style={{
                       background: D.s3,
@@ -557,6 +569,42 @@ export default function SettingsTab({
                   </div>
                 )}
               </SettingsCard>
+            )}
+
+            {/* Fusul orar (lotul G1) — sub aceeași regulă ca țara: pe .ro, pentru
+                un local RO, rămâne Europe/Bucharest și câmpul nu apare. Ora
+                programului, a ridicărilor și a rezervărilor se socotește în el. */}
+            {countrySettingVisible(browserSite(), restaurant.country) && (
+              <SettingsCard
+                icon="clock"
+                title="Fusul orar"
+                desc="Ora din program, de la ridicări și de la rezervări se socotește în acest fus."
+                right={
+                  <select
+                    aria-label="Fusul orar al restaurantului"
+                    value={form.timezone ?? 'Europe/Bucharest'}
+                    onChange={(e) => upd('timezone', e.target.value)}
+                    style={{
+                      background: D.s3,
+                      border: `1px solid ${D.border}`,
+                      borderRadius: 8,
+                      color: D.t1,
+                      fontFamily: D.fontBody,
+                      fontSize: 14,
+                      padding: '10px 12px',
+                      minHeight: 44,
+                      maxWidth: 220,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {tzOptions.map((tz) => (
+                      <option key={tz} value={tz}>
+                        {tz.replace(/_/g, ' ')}
+                      </option>
+                    ))}
+                  </select>
+                }
+              />
             )}
 
             {/* PROGRAM DETALIAT — hours_structured per zi */}
