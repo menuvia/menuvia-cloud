@@ -51,14 +51,14 @@ function setup(lang: StaffLang = 'ro') {
 }
 
 function typeCode(value: string) {
-  fireEvent.change(screen.getByLabelText(/cod din email|code from the email/i), {
+  fireEvent.change(screen.getByLabelText(/cod din email|code from the email|code aus der e-mail/i), {
     target: { value },
   })
 }
 
 async function submitCode() {
   await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: /confirmă codul|confirm code/i }))
+    fireEvent.click(screen.getByRole('button', { name: /confirmă codul|confirm code|code bestätigen/i }))
   })
 }
 
