@@ -1746,7 +1746,12 @@ export default function DashboardPage({
                     onUpdate={update}
                     plan={plan}
                     onSignOut={onSignOut}
-                    onPricing={onPricing}
+                    // „Vezi planurile" pleacă din panou (/pricing): cu formularul
+                    // modificat, aceeași confirmare ca la schimbarea tab-ului
+                    // (recenzia CodeRabbit pe #351 — altfel modificările se pierdeau).
+                    onPricing={() =>
+                      settingsDirtyRef.current ? confirmLeaveSettings(onPricing) : onPricing()
+                    }
                     modulesState={modulesState}
                     founderView={inFounderView}
                     surface={surface}

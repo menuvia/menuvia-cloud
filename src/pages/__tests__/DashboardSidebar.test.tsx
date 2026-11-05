@@ -236,6 +236,7 @@ vi.mock('../../components/SettingsTab', async () => {
       section: string
       isOwner?: boolean
       onDirtyChange?: (d: boolean) => void
+      onPricing?: () => void
       addLocation?: { onCreated: (id: string) => Promise<void> }
     }) =>
       createElement(
@@ -244,6 +245,8 @@ vi.mock('../../components/SettingsTab', async () => {
         `stub-setari-${p.section}`,
         // Simulează o modificare nesalvată în formular.
         createElement('button', { onClick: () => p.onDirtyChange?.(true) }, 'stub-modifica'),
+        // „Vezi planurile" din cardul de abonament (lotul O7c).
+        createElement('button', { onClick: () => p.onPricing?.() }, 'stub-planuri'),
         // Simulează o locație nou creată din „Adaugă o locație" (lotul A).
         p.addLocation
           ? createElement(
@@ -361,7 +364,7 @@ const urls = {
 
 async function renderDashboard(
   plan: DbPlan | null,
-  opts: { url?: string; anchor?: boolean } = {},
+  opts: { url?: string; anchor?: boolean; onPricing?: () => void } = {},
 ) {
   state.features = plan == null ? null : featuresFor(plan)
   window.history.replaceState({}, '', opts.url ?? '/dashboard')
@@ -370,7 +373,7 @@ async function renderDashboard(
       onViewMenu={vi.fn()}
       onViewWaiter={vi.fn()}
       onViewKitchen={vi.fn()}
-      onPricing={vi.fn()}
+      onPricing={opts.onPricing ?? vi.fn()}
       onSignOut={vi.fn(async () => {})}
       restaurants={[makeRestaurant()]}
       restaurantsLoading={false}
@@ -650,6 +653,30 @@ describe('DashboardPage — recenzia #335', () => {
     expect(dialog.calls).toBe(1)
     await act(async () => dialog.resolve?.(true))
     expect(await screen.findByText('stub-vanzari')).toBeInTheDocument()
+  })
+
+  it('DS14b: „Vezi planurile" cu formularul modificat cere confirmare; la refuz rămâi, la „Pleacă" pleci', async () => {
+    const onPricing = vi.fn()
+    await renderDashboard('pro', { onPricing })
+    const user = userEvent.setup()
+    await openGroup(/Setări/)
+    expect(await screen.findByText('stub-setari-restaurant')).toBeInTheDocument()
+    // Control: fără modificări, pleacă direct.
+    await user.click(screen.getByRole('button', { name: 'stub-planuri' }))
+    expect(onPricing).toHaveBeenCalledTimes(1)
+    expect(dialog.calls).toBe(0)
+    // Cu modificări: confirmare, iar refuzul NU pleacă.
+    await user.click(screen.getByRole('button', { name: 'stub-modifica' }))
+    await user.click(screen.getByRole('button', { name: 'stub-planuri' }))
+    expect(dialog.calls).toBe(1)
+    await act(async () => dialog.resolve?.(false))
+    expect(onPricing).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('stub-setari-restaurant')).toBeInTheDocument()
+    // „Pleacă fără să salvezi" → abia acum pleacă.
+    await user.click(screen.getByRole('button', { name: 'stub-planuri' }))
+    expect(dialog.calls).toBe(2)
+    await act(async () => dialog.resolve?.(true))
+    expect(onPricing).toHaveBeenCalledTimes(2)
   })
 
   it('DS9c: plan necitit + `?tab=tva` → Acasă fără rescrierea URL-ului; „Reîncearcă" readuce TVA', async () => {

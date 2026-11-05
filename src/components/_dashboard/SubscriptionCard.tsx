@@ -70,8 +70,10 @@ export function SubscriptionCard({
           Abonament &amp; facturare
         </div>
         <div style={{ color: D.t2, fontSize: '0.78rem', marginTop: 4, lineHeight: 1.5 }}>
-          {planName ? `Planul tău: ${planName}. ` : ''}Actualizează cardul, schimbă planul sau
-          descarcă facturile.
+          {planName ? `Planul tău: ${planName}. ` : ''}
+          {/* Fără client Stripe nu există card de actualizat și nici facturi de
+              descărcat — textul de mai jos spune unde sunt planurile. */}
+          {noCustomer ? null : 'Actualizează cardul, schimbă planul sau descarcă facturile.'}
         </div>
         {noCustomer && (
           <div

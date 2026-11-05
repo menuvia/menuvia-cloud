@@ -62,6 +62,9 @@ describe('SubscriptionCard', () => {
     expect(screen.queryByRole('alert')).toBeNull()
     // (b) nimic despre „proprietar" — omul care citește E proprietarul.
     expect(container.textContent ?? '').not.toMatch(/proprietar/i)
+    // (b') nici promisiunea portalului: fără client Stripe nu există card de
+    // actualizat și nici facturi de descărcat (recenzia CodeRabbit pe #351).
+    expect(container.textContent ?? '').not.toMatch(/Actualizează cardul|descarcă facturile/)
     // (c) ieșirea înlocuiește butonul inutil, nu se adaugă lângă el.
     const seePlans = screen.getByRole('button', { name: SEE_PLANS })
     expect(screen.queryByRole('button', { name: MANAGE })).toBeNull()
@@ -79,6 +82,7 @@ describe('SubscriptionCard', () => {
     expect(screen.getByRole('button', { name: MANAGE })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: SEE_PLANS })).toBeNull()
     expect(screen.queryByText(NO_CUSTOMER)).toBeNull()
+    expect(screen.getByText(/Actualizează cardul, schimbă planul sau descarcă facturile/)).toBeInTheDocument()
     expect(onSeePlans).not.toHaveBeenCalled()
     // (b) calea de succes: openBillingPortal redirecționează și nu se mai întoarce.
     openBillingPortal.mockReturnValueOnce(new Promise<never>(() => {}))
