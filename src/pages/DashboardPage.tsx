@@ -58,6 +58,7 @@ import { EmptyState } from '../components/ui/EmptyState'
 import { PageHeader } from '../components/ui/PageHeader'
 import { PlanUnknownBanner } from '../components/_dashboard/PlanBanners'
 import { confirm as confirmDialog } from '../components/ui/confirm'
+import { menuBaseLang } from '../lib/i18nMenu'
 import {
   dashboardPathFor,
   settingsSectionOf,
@@ -1599,6 +1600,7 @@ export default function DashboardPage({
                     }}
                     userId={user?.id || ''}
                     menuLanguages={restaurant.menu_languages ?? []}
+                    baseLang={menuBaseLang(restaurant.language)}
                     canUseAi={canUseAi}
                     canUseAiMenu={canUseAiMenu}
                     canManageRecipes={!isPartner}
@@ -1614,12 +1616,17 @@ export default function DashboardPage({
                   <CategoriesTab
                     restaurantId={restaurant.id}
                     menuLanguages={restaurant.menu_languages ?? []}
+                    baseLang={menuBaseLang(restaurant.language)}
                   />
                 </Suspense>
               )}
               {tab === 'modificatori' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă modificatorii..." />}>
-                  <ModifiersTab restaurantId={restaurant.id} />
+                  <ModifiersTab
+                    restaurantId={restaurant.id}
+                    menuLanguages={restaurant.menu_languages ?? []}
+                    baseLang={menuBaseLang(restaurant.language)}
+                  />
                 </Suspense>
               )}
               {tab === 'mese' && (

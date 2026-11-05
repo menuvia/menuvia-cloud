@@ -36,20 +36,36 @@ export function createLatestGate(): LatestGate {
 }
 
 /** Numele/descrierea în limba aleasă; pe `ro` aceeași referință. */
-export function localizeProduct(p: Product, lang: string): Product {
-  if (lang === 'ro') return p
-  return { ...p, name: trName(p, lang), description: trDesc(p, lang) }
+export function localizeProduct(p: Product, lang: string, base = 'ro'): Product {
+  if (lang === base) return p
+  return {
+    ...p,
+    name: trName(p, lang, base),
+    description: trDesc(p, lang, base),
+    // Lotul O6b (mig 321): și grupurile, opțiunile și extra-urile.
+    modifier_groups: (p.modifier_groups ?? []).map((g) => ({
+      ...g,
+      name: trName(g, lang, base),
+      modifier_options: g.modifier_options.map((o) => ({ ...o, name: trName(o, lang, base) })),
+    })),
+    extras: (p.extras ?? []).map((e) => ({ ...e, name: trName(e, lang, base) })),
+  }
 }
 
 /**
  * Rândul proaspăt al produsului deschis, localizat; dacă produsul nu mai e în
  * meniu, rămâne cel deschis (foaia nu se închide de sub degetul oaspetelui).
  */
-export function freshActiveProduct(prev: Product | null, cats: Category[], lang: string): Product | null {
+export function freshActiveProduct(
+  prev: Product | null,
+  cats: Category[],
+  lang: string,
+  base = 'ro',
+): Product | null {
   if (!prev) return prev
   for (const c of cats) {
     const fresh = c.products?.find((p) => p.id === prev.id)
-    if (fresh) return localizeProduct(fresh, lang)
+    if (fresh) return localizeProduct(fresh, lang, base)
   }
   return prev
 }
