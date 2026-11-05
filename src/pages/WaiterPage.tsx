@@ -156,13 +156,29 @@ export default function WaiterPage() {
   // Lotul O3b: retipărirea tichetului de bucătărie (după o editare imprimanta
   // nu primea nimic). Doar pe planul cu tichete de bucătărie.
   const kitchenTickets = hasFeature(restaurantFeatures.features, 'kitchen_tickets')
+  // Retipărirea în curs, per comandă: RPC-ul ocolește deduplicarea tichetelor
+  // și inserează un rând NOU la fiecare apel, deci un dublu-tap scotea două
+  // tichete (recenzia CodeRabbit pe #349). Ref-ul blochează sincron, starea
+  // dezactivează butonul.
+  const reprintingRef = useRef<Set<string>>(new Set())
+  const [reprintingIds, setReprintingIds] = useState<ReadonlySet<string>>(() => new Set())
   const handleReprint = useCallback(
     async (o: Order) => {
-      const r = await reprintKitchenTicket(o.id)
-      if (r === 'ok') toast.success('Tichetul a plecat la bucătărie.')
-      else if (r === 'no_kitchen_printer')
-        toast.warning('Nu e conectată nicio imprimantă de bucătărie (Setări → Bridge).')
-      else toast.error('Tichetul nu a putut fi retipărit. Reîncearcă.')
+      if (reprintingRef.current.has(o.id)) return
+      reprintingRef.current.add(o.id)
+      setReprintingIds(new Set(reprintingRef.current))
+      try {
+        const r = await reprintKitchenTicket(o.id)
+        // „În coadă”, nu „a plecat”: RPC-ul doar pune tichetul în coada
+        // bridge-ului; tipărirea se vede în Setări → Bridge.
+        if (r === 'ok') toast.success('Tichetul a fost pus în coada bucătăriei.')
+        else if (r === 'no_kitchen_printer')
+          toast.warning('Nu e conectată nicio imprimantă de bucătărie (Setări → Bridge).')
+        else toast.error('Tichetul nu a putut fi retipărit. Reîncearcă.')
+      } finally {
+        reprintingRef.current.delete(o.id)
+        setReprintingIds(new Set(reprintingRef.current))
+      }
     },
     [toast],
   )
@@ -1455,6 +1471,7 @@ export default function WaiterPage() {
                       onEdit={setEditOrder}
                       onCancel={setCancelOrder}
                       onReprint={onReprint}
+                      reprinting={reprintingIds.has(order.id)}
                       onAudit={isAdminRole ? setAuditOrder : undefined}
                       paymentsEnabled={paymentsEnabled}
                       onCloseOrder={handleCloseOrder}
@@ -1490,6 +1507,7 @@ export default function WaiterPage() {
                 onEdit={setEditOrder}
                 onCancel={setCancelOrder}
                 onReprint={onReprint}
+                reprinting={reprintingIds.has(order.id)}
                 onAudit={isAdminRole ? setAuditOrder : undefined}
                 paymentsEnabled={paymentsEnabled}
                 onCloseOrder={handleCloseOrder}

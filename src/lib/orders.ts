@@ -763,7 +763,16 @@ export function describeEditOrderError(err: unknown): string {
   if (isNetworkError(err)) return 'Fără conexiune — modificarea nu a fost salvată. Reîncearcă.'
   const { message, hint, code } = errorParts(err)
   const plain = message.replace(/^update_order_items:\s*/i, '').trim()
-  if (code === '40001' || /modificată între timp/i.test(plain)) {
+  // mig 320: fiecare salvare recreează liniile (id-uri noi). O editare
+  // concurentă cu ACELAȘI total trece de lock-ul optimist, dar sursele trimise
+  // nu mai există, iar reîncercarea ar pica identic: se redeschide comanda
+  // (recenzia CodeRabbit pe #349).
+  if (
+    code === '40001' ||
+    /modificată între timp/i.test(plain) ||
+    hint === 'invalid_source_item' ||
+    /linia sursă/i.test(plain)
+  ) {
     return 'Comanda a fost modificată între timp de altcineva. Închide și redeschide comanda, apoi reîncearcă.'
   }
   if (
