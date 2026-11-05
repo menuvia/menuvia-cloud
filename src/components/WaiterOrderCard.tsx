@@ -15,6 +15,7 @@ import { OrderLineDetails } from './OrderLineDetails'
 import { confirm as confirmDialog } from './ui/confirm'
 import { ActionErrorNote } from './ActionErrorNote'
 import { toUserMessage } from '../lib/userMessages'
+import { waiterForwardStep } from '../lib/waiterSteps'
 
 // FIX: vechiul cod calcula elapsed() o dată la render → timer înghețat
 // în WaiterPage (KitchenPage folosea deja ElapsedTimer). Hook partajat acum.
@@ -611,6 +612,12 @@ interface OrderCardProps {
   // să arate „Plată integrală" pe growth sau „Închide comanda" pe Plan 3.
   paymentsEnabled?: boolean | null
   onCloseOrder?: (order: Order) => void
+  // DOAR Planul 3 (paymentsEnabled === true): pasul următor de bucătărie /
+  // servire (lib/waiterSteps.ts), un singur `advance_order` per tap. Fără el,
+  // un local pe Planul 3 fără ecran de bucătărie avea comenzile blocate pe
+  // „Nou” (plata apare abia pe `served`). Omis = fără buton (lista nu-l dă pe
+  // `ready`: acolo „Servit” e deja în „Gata de servit”).
+  onAdvance?: (order: Order) => void
   // „Închide masa": închide TOATE comenzile deschise ale sesiunii de masă
   // (close_session_orders). Apare doar când comanda are `session_id` (QR);
   // comenzile de ospătar n-au sesiune.
@@ -638,6 +645,7 @@ function OrderCardInner({
   reprinting = false,
   paymentsEnabled = null,
   onCloseOrder,
+  onAdvance,
   onCloseTable,
   sessionUnservedCount = null,
   pending = false,
@@ -662,6 +670,10 @@ function OrderCardInner({
   // exista doar din `served`, deci o comandă uitată în `new` rămânea agățată.
   const isOpen = OPEN_STATUSES.includes(order.status)
   const canCloseNonFiscal = paymentsEnabled === false && isOpen
+  // Planul 3: pasul următor (new/confirmed → preparing → served, pickup prin
+  // ready). `=== true` STRICT păstrează tristate-ul fail-closed: Planul 1/2 are
+  // „Închide comanda”, iar un plan necunoscut nu arată nimic.
+  const forward = paymentsEnabled === true && onAdvance != null ? waiterForwardStep(order) : null
   const isServed = order.status === 'served'
 
   async function handleCloseClick(): Promise<void> {
@@ -913,8 +925,18 @@ function OrderCardInner({
         </button>
       )}
 
-      {/* Acțiune finală pe comenzi servite — diferită pe plan:
-          Plan 3 (paymentsEnabled): Plată integrală / parțială (bon fiscal).
+      {/* Planul 3: pe stările ne-servite, pasul următor (lotul O7b). Nu apare
+          niciodată pe `served`, deci nu concurează cu butoanele de plată. */}
+      {forward != null && onAdvance && (
+        <Button variant="primary" fullWidth loading={pending} onClick={() => onAdvance(order)}>
+          {pending ? 'Se salvează…' : forward.label}
+        </Button>
+      )}
+
+      {/* Acțiune finală — diferită pe plan:
+          Plan 3 (paymentsEnabled): pe `served`, Plată integrală / parțială (bon
+          fiscal); stările ne-servite au doar pasul următor de mai sus — plata
+          rămâne exclusiv din `served`.
           Plan 1/2: „Închide comanda" — plata + bonul pe casa existentă. */}
       {order.status === 'served' && paymentsEnabled === true && (
         <div style={{ display: 'flex', gap: 8 }}>
