@@ -242,14 +242,25 @@ async function postFn<T>(fn: string, payload: unknown): Promise<T> {
 
 // ── Config BYO (Faza B) ──────────────────────────────────────
 // Citește config-ul curent (fără cheie — RLS column-level o ascunde).
+// `null` = restaurantul NU are rând salvat, un răspuns VALID: ai-proxy îl
+// tratează ca „activ, pe cheia platformei". O citire EȘUATĂ ARUNCĂ (Error real
+// cu `code`, ca createOrder): supabase-js pune eroarea în `{ error }`, iar
+// vechiul `if (error || !data) return null` o făcea indistinctă de „fără rând"
+// — AiSettingsTab arăta formularul implicit (OpenAI, activ, fără cheie), iar un
+// „Salvează" după un blip ștergea cheia BYO (ai-config.js, ramura non-custom:
+// furnizor schimbat + fără cheie nouă → `api_key_encrypted = null`).
 export async function getAiConfig(restaurantId: string): Promise<AiConfig | null> {
   const { data, error } = await supabase
     .from('ai_provider_configs')
     .select('restaurant_id, provider, model, base_url, enabled')
     .eq('restaurant_id', restaurantId)
     .maybeSingle()
-  if (error || !data) return null
-  return data as AiConfig
+  if (error) {
+    throw Object.assign(new Error(error.message || 'Nu am putut citi configurația AI.'), {
+      code: error.code,
+    })
+  }
+  return data as AiConfig | null
 }
 
 export async function saveAiConfig(input: {
