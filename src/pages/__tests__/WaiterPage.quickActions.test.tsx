@@ -12,6 +12,9 @@
 //     — garda de dublu-tap pe cheia comenzii, fără dublură pe `ready` în listă,
 //     iar în „Stadiu mese” (unde „Gata de servit” nu există) cardul poartă
 //     „Servit”, deci și drumul spre plată.
+//   - WP8–WP9 (recenzia O7b): după „Servit” de pe card, „Plată integrală” /
+//     „Plată parțială” apar în ACELAȘI loc — al doilea tap al unui dublu-tap
+//     nu are voie să deschidă plata (aceeași gardă, domeniul 'card').
 // Hook-urile de date sunt mock-uite; testul privește doar pagina.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
@@ -294,4 +297,51 @@ describe('WaiterPage — Planul 3: pasul următor pe card (lotul O7b)', () => {
     expect(advance).toHaveBeenCalledWith('R', 'ready', { status: 'served', served_by: 'u1' })
     // Plafon propriu: prima încărcare a chunk-ului lazy poate depăși cele 5 s implicite.
   }, 15_000)
+
+  // Recenzia O7b: „Servit” de pe card aplică optimist `served`, iar în locul
+  // butonului de pas apar, în ACELAȘI loc, „Plată integrală | Plată parțială”.
+  // Al doilea tap al unui dublu-tap deschidea plata cu mark_served încă în aer.
+  // Update-ul optimist e simulat: mock-ul useOrders trece comanda pe `served`
+  // și pagina se re-randează ÎNTRE cele două tap-uri, ca în aplicație.
+  async function serveThenTap(payLabel: 'Plată integrală' | 'Plată parțială') {
+    const advance = setOrders([
+      makeOrder({ id: 'P', status: 'preparing', created_at: '2026-07-20T09:00:00Z' }),
+    ])
+    const view = render(<WaiterPage />)
+    const servit = await screen.findByRole('button', { name: 'Servit' })
+    const now = vi.spyOn(Date, 'now')
+    now.mockReturnValue(11_000_000)
+    fireEvent.click(servit)
+    setOrders(
+      [makeOrder({ id: 'P', status: 'served', created_at: '2026-07-20T09:00:00Z' })],
+      advance,
+    )
+    view.rerender(<WaiterPage />)
+    fireEvent.click(screen.getByRole('button', { name: payLabel }))
+    return { advance, now }
+  }
+
+  it('WP8 dublu-tap „Servit” → „Plată integrală” (același card) NU deschide PayModal', async () => {
+    // Mutația care pică: `onPayOpen={setPayOrder}` (fără tapGuard) → PayModal
+    // deschis de al doilea tap.
+    const { advance, now } = await serveThenTap('Plată integrală')
+    expect(advance).toHaveBeenCalledTimes(1)
+    expect(advance).toHaveBeenCalledWith('P', 'preparing', { status: 'served', served_by: 'u1' })
+    expect(screen.queryByRole('button', { name: 'Confirmă plata' })).not.toBeInTheDocument()
+    // control pozitiv: un tap DELIBERAT, după fereastră, deschide plata
+    now.mockReturnValue(11_000_000 + STAFF_TAP_GUARD_MS + 100)
+    fireEvent.click(screen.getByRole('button', { name: 'Plată integrală' }))
+    expect(await screen.findByRole('button', { name: 'Confirmă plata' })).toBeInTheDocument()
+  })
+
+  it('WP9 dublu-tap „Servit” → „Plată parțială” (același card) NU deschide plata parțială', async () => {
+    // Mutația care pică: `onSplitOpen={openSplitBill}` (fără tapGuard) →
+    // modalul de plată parțială deschis de al doilea tap.
+    const { now } = await serveThenTap('Plată parțială')
+    expect(screen.queryByText('Rămas:')).not.toBeInTheDocument()
+    // control pozitiv: un tap DELIBERAT, după fereastră, deschide plata parțială
+    now.mockReturnValue(11_000_000 + STAFF_TAP_GUARD_MS + 100)
+    fireEvent.click(screen.getByRole('button', { name: 'Plată parțială' }))
+    expect(await screen.findByText('Rămas:')).toBeInTheDocument()
+  })
 })

@@ -554,6 +554,25 @@ export default function WaiterPage() {
     [user, advance, tapGuard],
   )
 
+  // Recenzia O7b: intrările spre plată trec prin ACEEAȘI gardă. „Servit” de pe
+  // card aplică optimist `served`, iar în locul butonului de pas apar, fix sub
+  // deget, „Plată integrală | Plată parțială”: al doilea tap al unui dublu-tap
+  // deschidea PayModal / plata parțială cu mark_served încă în aer (la un
+  // refuz, cardul revenea pe `preparing` cu modalul de plată deschis peste
+  // el). Domeniul 'card': plata pe ALT card rămâne liberă.
+  const handlePayOpen = useCallback(
+    (order: Order): void => {
+      if (tapGuard(order.id, 'card')) setPayOrder(order)
+    },
+    [tapGuard],
+  )
+  const handleSplitOpen = useCallback(
+    (order: Order): void => {
+      if (tapGuard(order.id, 'card')) openSplitBill(order)
+    },
+    [tapGuard, openSplitBill],
+  )
+
   /** Încasează comanda din PayModal; la refuz întoarce mesajul serverului (modalul rămâne deschis). */
   async function handlePay(method: PaymentMethod, amount: number, tips: number): Promise<PayResult> {
     if (payOrder == null || user == null) return { ok: false }
@@ -1451,8 +1470,8 @@ export default function WaiterPage() {
                     <OrderCard
                       key={order.id}
                       order={order}
-                      onPayOpen={setPayOrder}
-                      onSplitOpen={openSplitBill}
+                      onPayOpen={handlePayOpen}
+                      onSplitOpen={handleSplitOpen}
                       onEdit={setEditOrder}
                       onCancel={setCancelOrder}
                       onAudit={isAdminRole ? setAuditOrder : undefined}
@@ -1488,8 +1507,8 @@ export default function WaiterPage() {
             renderOrderCard={(order) => (
               <OrderCard
                 order={order}
-                onPayOpen={setPayOrder}
-                onSplitOpen={openSplitBill}
+                onPayOpen={handlePayOpen}
+                onSplitOpen={handleSplitOpen}
                 onEdit={setEditOrder}
                 onCancel={setCancelOrder}
                 onAudit={isAdminRole ? setAuditOrder : undefined}
