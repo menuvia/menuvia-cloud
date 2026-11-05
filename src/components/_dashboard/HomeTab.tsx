@@ -577,6 +577,12 @@ export default function HomeTab({
   // `done: null` = nu știm (citire eșuată / în zbor): un număr necunoscut nu
   // devine nici bifă, nici pas „de făcut" (code-health-error-ignored-guards).
   const atLeast = (n: number | null, min: number): boolean | null => (n == null ? null : n >= min)
+  // Prima comandă: `everOrdered` e citit o singură dată (efectul de setup, fără
+  // `reloadKey` — HO5), dar „Comenzi azi" se reîmprospătează. O comandă neanulată
+  // de azi implică o comandă vreodată, deci pasul se bifează și din cifra
+  // proaspătă — altfel ecranul arăta „Comenzi azi: 1" lângă „Prima comandă de
+  // test" încă de făcut, până la o remontare (recenzia O7c, HO6).
+  const orderedOnce: boolean | null = (ordersToday ?? 0) > 0 ? true : everOrdered
   const setupItems: SetupItem[] = [
     { label: 'Adaugă produse', done: atLeast(productCount, 1), target: 'products' },
     { label: 'Creează categorii', done: atLeast(categoriesCount, 1), target: 'categories' },
@@ -600,7 +606,7 @@ export default function HomeTab({
             label: pickupOnly
               ? 'Prima comandă de test — deschide meniul public și comandă'
               : 'Prima comandă de test — deschide QR-ul unei mese și comandă',
-            done: everOrdered,
+            done: orderedOnce,
             target: 'mese' as const,
           },
         ]

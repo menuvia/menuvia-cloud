@@ -556,6 +556,12 @@ describe('HomeTab — cifrele zilei (lotul D)', () => {
 //        configurare NU reapare la un local configurat. Mutațiile care pică:
 //        fix-ul naiv (`reloadKey` adăugat efectului de setup, care golește
 //        pașii la „…") și `setOrdersToday(null)` la începutul efectului de citire.
+//   HO6  prima comandă de azi, sosită cu Acasă deschisă, bifează și pasul „Prima
+//        comandă de test" (recenzia O7c): `everOrdered` e citit o singură dată,
+//        dar „Comenzi azi" se reîmprospătează — fără derivare ecranul arăta
+//        „Comenzi azi: 7" lângă pasul încă de făcut. Echipa rămâne nefăcută, ca
+//        să rămână cardul (la 6/6 dispare). Control pozitiv: întâi „0" și pasul
+//        nebifat (4/6). Mutația care pică: pasul lăsat pe `done: everOrdered`.
 describe('HomeTab — «Comenzi azi» se reîmprospătează', () => {
   afterEach(() => {
     vi.useRealTimers()
@@ -624,5 +630,22 @@ describe('HomeTab — «Comenzi azi» se reîmprospătează', () => {
     expect(screen.queryByText('Configurare restaurant')).toBeNull()
     d.resolve()
     await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^7$/))
+  })
+
+  it('HO6 prima comandă sosită cu Acasă deschisă bifează pasul de test', async () => {
+    const STEP = 'Prima comandă de test — deschide QR-ul unei mese și comandă'
+    counts.orders = 0
+    counts.restaurant_memberships = 1
+    renderHome(plan('growth'))
+    // Control pozitiv: zero comenzi → pasul e „de făcut" (nu „necunoscut").
+    expect(await screen.findByRole('button', { name: STEP })).toBeInTheDocument()
+    await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^0$/))
+    await waitFor(() => expect(metric('Configurare')).toHaveTextContent('4/6'))
+    counts.orders = 7
+    returnToPage()
+    await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^7$/))
+    expect(await screen.findByRole('button', { name: `${STEP} (completat)` })).toBeInTheDocument()
+    expect(metric('Configurare')).toHaveTextContent('5/6')
+    expect(screen.getByText('Configurare restaurant')).toBeInTheDocument()
   })
 })
