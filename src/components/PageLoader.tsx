@@ -1,6 +1,8 @@
 import { Component, ReactNode, CSSProperties } from 'react'
 import { D } from '../lib/constants'
-import { toUserMessage } from '../lib/userMessages'
+import { toUserMessage, userErrorKind } from '../lib/userMessages'
+import { chromeT, documentChromeLang, type ChromeLang } from '../i18n/chrome'
+import { useChromeLang } from '../i18n/useChromeLang'
 
 const center: CSSProperties = {
   minHeight: '100vh',
@@ -13,7 +15,10 @@ const center: CSSProperties = {
 }
 const spinKeyframes = `@keyframes mvia-spin{to{transform:rotate(360deg)}}`
 
-export function PageSpinner({ label = 'Se încarcă…' }: { label?: string }) {
+export function PageSpinner({ label }: { label?: string }) {
+  // Fallback-ul de Suspense al paginilor leneșe, deci și al meniului QR: în
+  // limba paginii (`<html lang>`, lotul L1), nu mereu „Se încarcă…”.
+  const lang = useChromeLang()
   return (
     <div style={center}>
       <div style={{ textAlign: 'center' }}>
@@ -28,7 +33,7 @@ export function PageSpinner({ label = 'Se încarcă…' }: { label?: string }) {
             margin: '0 auto 16px',
           }}
         />
-        <div style={{ color: D.t3, fontSize: 14 }}>{label}</div>
+        <div style={{ color: D.t3, fontSize: 14 }}>{label ?? chromeT(lang, 'loading')}</div>
       </div>
       <style>{spinKeyframes}</style>
     </div>
@@ -65,13 +70,14 @@ export function InlineSpinner({ label }: { label?: string }) {
 export function QueryError({
   message,
   onRetry,
-  retryLabel = 'Reîncearcă',
+  retryLabel,
 }: {
   message: string
   onRetry?: () => void
-  /** Eticheta butonului — implicit „Reîncearcă”; altă acțiune = alt text. */
+  /** Eticheta butonului — implicit „Reîncearcă” (în limba paginii); altă acțiune = alt text. */
   retryLabel?: string
 }) {
+  const lang = useChromeLang()
   return (
     <div style={{ textAlign: 'center', padding: '40px 20px' }}>
       <div style={{ fontSize: 28, marginBottom: 8 }}>&#x26a0;&#xfe0f;</div>
@@ -91,7 +97,7 @@ export function QueryError({
             fontFamily: 'inherit',
           }}
         >
-          {retryLabel}
+          {retryLabel ?? chromeT(lang, 'retry')}
         </button>
       )}
     </div>
@@ -153,12 +159,17 @@ interface EBProps {
 }
 interface EBState {
   error: Error | null
+  /** Limba paginii în CLIPA erorii. Citită aici, în faza de randare: la
+   *  commit pagina căzută se demontează, iar `useDocumentLang` reface
+   *  `<html lang>` la „ro” — un oaspete german ar fi primit ecranul de eroare
+   *  în română (lotul L1). */
+  lang: ChromeLang
 }
 
 export class ErrorBoundary extends Component<EBProps, EBState> {
-  state: EBState = { error: null }
+  state: EBState = { error: null, lang: 'ro' }
   static getDerivedStateFromError(error: Error): EBState {
-    return { error }
+    return { error, lang: documentChromeLang() }
   }
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('[Menuvia] Unhandled error:', error, info)
@@ -173,25 +184,29 @@ export class ErrorBoundary extends Component<EBProps, EBState> {
   }
   render() {
     if (this.state.error) {
+      const { lang } = this.state
+      // Textul tehnic al excepției (în engleză) nu ajunge la om. Îl învelim
+      // într-un Error simplu ca `isNetworkError` să decidă DOAR pe text: un
+      // chunk lazy care n-a putut fi descărcat („Failed to fetch dynamically
+      // imported module") e rețea, dar un TypeError dintr-un bug nu e „fără
+      // conexiune". În română, exact ca înainte (toUserMessage); în celelalte
+      // limbi, același verdict (userErrorKind), cu textul din tabel.
+      const plain = new Error(this.state.error.message)
+      const body =
+        lang === 'ro'
+          ? toUserMessage(plain, chromeT('ro', 'err_generic'))
+          : chromeT(lang, userErrorKind(plain).kind === 'network' ? 'err_network' : 'err_generic')
       return (
-        <div style={center}>
+        <div style={center} lang={lang}>
           <div style={{ textAlign: 'center', maxWidth: 480 }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>&#x26a0;&#xfe0f;</div>
             <div
               style={{ color: D.red, fontFamily: 'Georgia, serif', fontSize: 20, marginBottom: 8 }}
             >
-              Ceva nu a mers bine
+              {chromeT(lang, 'err_title')}
             </div>
             <div style={{ color: D.t2, fontSize: 14, lineHeight: 1.6, marginBottom: 20 }}>
-              {/* Textul tehnic al excepției (în engleză) nu ajunge la om. Îl
-                  învelim într-un Error simplu ca `isNetworkError` să decidă
-                  DOAR pe text: un chunk lazy care n-a putut fi descărcat
-                  („Failed to fetch dynamically imported module") e rețea, dar
-                  un TypeError dintr-un bug nu e „fără conexiune". */}
-              {toUserMessage(
-                new Error(this.state.error.message),
-                'A apărut o eroare neașteptată. Reîncarcă pagina; dacă se repetă, scrie-ne.',
-              )}
+              {body}
             </div>
             <button
               onClick={() => window.location.reload()}
@@ -207,7 +222,7 @@ export class ErrorBoundary extends Component<EBProps, EBState> {
                 fontSize: 14,
               }}
             >
-              Re&icirc;ncarcă pagina
+              {chromeT(lang, 'err_reload')}
             </button>
           </div>
         </div>

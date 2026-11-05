@@ -9,8 +9,14 @@
 import { useState, useEffect, type CSSProperties } from 'react'
 import { D } from '../lib/constants'
 import { getConsent, saveConsent } from '../lib/cookieConsent'
+import { chromeT, type ChromeKey } from '../i18n/chrome'
+import { useChromeLang } from '../i18n/useChromeLang'
 
 export default function CookieBanner() {
+  // Limba PAGINII (`<html lang>`), lotul L1: un oaspete care scanează QR-ul cu
+  // meniul în germană vede și bannerul în germană, nu în română.
+  const lang = useChromeLang()
+  const t = (k: ChromeKey) => chromeT(lang, k)
   const [visible, setVisible] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
   const [perf, setPerf] = useState(false)
@@ -90,6 +96,7 @@ export default function CookieBanner() {
       }}
       role="dialog"
       aria-labelledby="cookie-banner-title"
+      lang={lang}
     >
       <div
         id="cookie-banner-title"
@@ -101,33 +108,32 @@ export default function CookieBanner() {
           marginBottom: 8,
         }}
       >
-        Cookies
+        {t('cookie_title')}
       </div>
       <p style={{ fontSize: 13, color: D.t2, lineHeight: 1.6, margin: 0, marginBottom: 14 }}>
-        Folosim cookies strict necesare pentru funcționare. Cu acordul tău, folosim și cookies de
-        performanță (Sentry + analytics) și funcționale (notificări).{' '}
+        {t('cookie_body')}{' '}
         <a href="/cookies" style={{ color: D.gold, textDecoration: 'underline' }}>
-          Detalii
+          {t('cookie_details')}
         </a>
       </p>
 
       {showDetails && (
         <div style={{ background: D.s2, borderRadius: 10, padding: 14, marginBottom: 14 }}>
           <ToggleRow
-            label="Strict necesare"
-            desc="Autentificare, sesiune. Nu pot fi dezactivate."
             checked
             disabled
+            label={t('cookie_necessary')}
+            desc={t('cookie_necessary_desc')}
           />
           <ToggleRow
-            label="Performanță"
-            desc="Sentry (monitorizare erori) + PostHog (analytics anonim)."
+            label={t('cookie_perf')}
+            desc={t('cookie_perf_desc')}
             checked={perf}
             onChange={setPerf}
           />
           <ToggleRow
-            label="Funcționale"
-            desc="Push notifications, temă, preferințe avansate."
+            label={t('cookie_func')}
+            desc={t('cookie_func_desc')}
             checked={func}
             onChange={setFunc}
           />
@@ -136,19 +142,19 @@ export default function CookieBanner() {
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button onClick={acceptAll} style={btnPrimary}>
-          Acceptă toate
+          {t('cookie_accept')}
         </button>
         <button onClick={rejectAll} style={btnSecondary}>
-          Doar necesare
+          {t('cookie_reject')}
         </button>
         {!showDetails && (
           <button onClick={() => setShowDetails(true)} style={btnTertiary}>
-            Personalizează
+            {t('cookie_custom')}
           </button>
         )}
         {showDetails && (
           <button onClick={saveCustom} style={btnSecondary}>
-            Salvează preferințele
+            {t('cookie_save')}
           </button>
         )}
       </div>

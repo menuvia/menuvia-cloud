@@ -5,9 +5,9 @@
 export interface ConfirmOptions {
   title: string
   description?: string
-  /** Eticheta butonului de confirmare. Default: "Confirmă". */
+  /** Eticheta butonului de confirmare. Default: „Confirmă” în limba paginii (i18n/chrome). */
   confirmLabel?: string
-  /** Eticheta butonului de anulare. Default: "Anulează". */
+  /** Eticheta butonului de anulare. Default: „Anulează” în limba paginii (i18n/chrome). */
   cancelLabel?: string
   /** Pentru acțiuni distructive (șterge / anulează) — buton roșu. */
   destructive?: boolean

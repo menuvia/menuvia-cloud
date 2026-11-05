@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ToastContext, type ToastApi, type ToastKind } from './useToast'
+import { chromeT } from '../../i18n/chrome'
+import { useChromeLang } from '../../i18n/useChromeLang'
 import '../../styles/components/toast.css'
 
 interface ToastEntry {
@@ -82,10 +84,18 @@ function ToastViewport({
   toasts: ToastEntry[]
   onDismiss: (id: number) => void
 }) {
+  // Etichetele urmează limba paginii (`<html lang>`, lotul L1).
+  const lang = useChromeLang()
+  const closeLabel = chromeT(lang, 'toast_close')
   // SSR-safe — randăm doar pe client (document există).
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div className="toast-viewport" role="region" aria-label="Notificări" aria-live="polite">
+    <div
+      className="toast-viewport"
+      role="region"
+      aria-label={chromeT(lang, 'toast_region')}
+      aria-live="polite"
+    >
       {toasts.map((t) => (
         <div
           key={t.id}
@@ -100,7 +110,7 @@ function ToastViewport({
             type="button"
             className="toast__close"
             onClick={() => onDismiss(t.id)}
-            aria-label="Închide notificarea"
+            aria-label={closeLabel}
           >
             ×
           </button>

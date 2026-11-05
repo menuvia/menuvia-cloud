@@ -10,7 +10,7 @@
 // fondatorului, afiliați, site-ul de marketing, documentele legale) stau aici
 // la valoarea lor; nu au voie să crească nici ele.
 export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
-  'src/App.tsx': 6,
+  'src/App.tsx': 3,
   'src/components/ActionErrorNote.tsx': 1,
   'src/components/AddLocationCard.tsx': 12,
   'src/components/AiBulkGenerate.tsx': 28,
@@ -24,7 +24,6 @@ export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
   'src/components/CashRegisterTab.tsx': 104,
   'src/components/CategoriesTab.tsx': 51,
   'src/components/CheckoutReturnBanner.tsx': 9,
-  'src/components/CookieBanner.tsx': 12,
   'src/components/DiscountModal.tsx': 19,
   'src/components/EditOrderSheet.tsx': 21,
   'src/components/FloorPlanEditor.tsx': 92,
@@ -46,7 +45,7 @@ export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
   'src/components/OnlinePaymentsCard.tsx': 23,
   'src/components/OrderAuditSheet.tsx': 4,
   'src/components/PWAPrompt.tsx': 8,
-  'src/components/PageLoader.tsx': 10,
+  'src/components/PageLoader.tsx': 5,
   'src/components/PartnerAccessList.tsx': 19,
   'src/components/PickupDetails.tsx': 1,
   'src/components/ProductsCsvImport.tsx': 58,
@@ -89,9 +88,7 @@ export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
   'src/components/marketing/PhoneFrame.tsx': 8,
   'src/components/menu/MenuPreview.tsx': 9,
   'src/components/sales/OneTimeLinkBox.tsx': 9,
-  'src/components/ui/ConfirmDialog.tsx': 2,
   'src/components/ui/Spinner.tsx': 1,
-  'src/components/ui/Toast.tsx': 2,
   'src/main.tsx': 1,
   'src/pages/AfiliatIntroPage.tsx': 48,
   'src/pages/AfiliatPage.tsx': 131,

@@ -4,6 +4,8 @@ import { createPortal } from 'react-dom'
 import { Button } from './Button'
 import { _setConfirmHandler, type ConfirmOptions } from './confirm'
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
+import { chromeT } from '../../i18n/chrome'
+import { useChromeLang } from '../../i18n/useChromeLang'
 import '../../styles/components/confirm-dialog.css'
 
 interface DialogState extends ConfirmOptions {
@@ -19,6 +21,8 @@ export function ConfirmRoot() {
   const [state, setState] = useState<DialogState>({ open: false, title: '' })
   // Host-ul rămâne montat mereu → blocăm scroll-ul doar cât dialogul e deschis.
   useBodyScrollLock(state.open)
+  // Butoanele implicite urmează limba paginii (`<html lang>`, lotul L1).
+  const lang = useChromeLang()
 
   useEffect(() => {
     _setConfirmHandler(
@@ -71,14 +75,14 @@ export function ConfirmRoot() {
         )}
         <div className="confirm-dialog__actions">
           <Button variant="ghost" onClick={() => close(false)}>
-            {state.cancelLabel ?? 'Anulează'}
+            {state.cancelLabel ?? chromeT(lang, 'confirm_cancel')}
           </Button>
           <Button
             variant={state.destructive ? 'danger' : 'primary'}
             onClick={() => close(true)}
             autoFocus
           >
-            {state.confirmLabel ?? 'Confirmă'}
+            {state.confirmLabel ?? chromeT(lang, 'confirm_ok')}
           </Button>
         </div>
       </div>
