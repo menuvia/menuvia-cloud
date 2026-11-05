@@ -3,7 +3,9 @@
 //   IC2  pluralul urmează regulile limbii (ro 1/2/20, fr 0/1/1 000 000).
 //   IC3  o limbă fără fișier cade ÎNTREG pe engleză, apoi pe română.
 //   IC4  încărcarea leneșă: prima citire e „în așteptare”, după promisiune
-//        dicționarul e servit; o încărcare EȘUATĂ cade pe română, nu agață.
+//        dicționarul e servit; o încărcare EȘUATĂ cade pe română, nu agață,
+//        și raportează limba 'ro' (altfel pluralul francez pe forme românești:
+//        „2 de mese”). [PICĂ: `lang: eff` pe dicționarul de rezervă]
 //   IC5  `t` pe o cheie de plural întoarce forma `other` (nu „[object]”).
 import { describe, it, expect, vi } from 'vitest'
 import {
@@ -64,6 +66,9 @@ describe('core', () => {
     if ('pending' in p) await p.pending
     const after = readNamespace(broken, 'en')
     expect('dict' in after && after.dict.hi).toBe('Salut, {name}!')
+    // Textele sunt în română, deci și limba (pluralul românesc, nu cel francez).
+    expect('dict' in after && after.lang).toBe('ro')
+    if ('dict' in after) expect(makeTranslator(after.dict, after.lang).tp('n', 2)).toBe('2 mese')
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
   })

@@ -35,6 +35,14 @@
 
 begin;
 
+-- A doua rulare (re-aplicare, replay) nu trebuie să pice: conturile create
+-- DUPĂ prima rulare au, corect, `null`. Verificarea backfill-ului are sens doar
+-- când coloana se adaugă ACUM, deci starea se reține înainte de `add column`.
+select set_config('menuvia.mig323_fresh',
+  (not exists (select 1 from information_schema.columns
+                where table_schema = 'public' and table_name = 'profiles'
+                  and column_name = 'ui_language'))::text, true);
+
 alter table public.profiles
   add column if not exists ui_language text default 'ro';
 alter table public.profiles
@@ -64,18 +72,20 @@ begin
     raise exception 'mig 323: profiles.ui_language lipsește sau are încă default (conturile noi trebuie să pornească cu null)';
   end if;
 
-  -- Backfill: niciun cont existent fără limbă.
-  select count(*) into v_null from public.profiles where ui_language is null;
-  if v_null > 0 then
-    raise exception 'mig 323: % conturi existente au rămas fără limbă (backfill-ul ro a eșuat)', v_null;
+  -- Backfill: niciun cont existent fără limbă — doar la PRIMA rulare (vezi sus).
+  if current_setting('menuvia.mig323_fresh', true) = 'true' then
+    select count(*) into v_null from public.profiles where ui_language is null;
+    if v_null > 0 then
+      raise exception 'mig 323: % conturi existente au rămas fără limbă (backfill-ul ro a eșuat)', v_null;
+    end if;
   end if;
 
   if not has_column_privilege('authenticated', 'public.profiles', 'ui_language', 'UPDATE') then
     raise exception 'mig 323: authenticated nu poate scrie profiles.ui_language';
   end if;
-  -- Regimul column-gated rămâne: niciun UPDATE la nivel de tabelă.
-  if has_table_privilege('authenticated', 'public.profiles', 'UPDATE')
-     and has_column_privilege('authenticated', 'public.profiles', 'is_platform_admin', 'UPDATE') then
+  -- Regimul column-gated rămâne: flag-ul de fondator nu e scriibil din client,
+  -- oricum ar fi venit dreptul (tabelă sau coloană). Whitelist-ul exact e RP4.
+  if has_column_privilege('authenticated', 'public.profiles', 'is_platform_admin', 'UPDATE') then
     raise exception 'mig 323: authenticated poate scrie is_platform_admin — regimul 096a s-a rupt';
   end if;
   if has_column_privilege('anon', 'public.profiles', 'ui_language', 'UPDATE') then
@@ -84,7 +94,7 @@ begin
 
   -- CHECK-ul există, e validat (deci acoperă și rândurile vechi) și numește
   -- exact cele patru limbi. Comportamentul (respinge 'xx', acceptă null) e
-  -- exersat de suita UL1–UL4 (`tests/sql/auto/323_profile_ui_language.sql`).
+  -- exersat de suita UL1–UL5 (`tests/sql/auto/323_profile_ui_language.sql`).
   if not exists (
     select 1 from pg_constraint
      where conrelid = 'public.profiles'::regclass and conname = 'profiles_ui_language_check'

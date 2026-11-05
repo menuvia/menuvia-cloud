@@ -17,14 +17,18 @@ const DEFAULT_LOCALE: Record<StaffLang, string> = {
   de: 'de-DE',
 }
 
-/** Eticheta BCP 47 pentru formatare: limba + țara restaurantului când Intl o
- *  cunoaște (en + US → en-US, ora în 12h), altfel varianta europeană. */
+/** Eticheta BCP 47 pentru formatare: limba + țara restaurantului când motorul
+ *  are date EXACT pentru ea (en + US → en-US, ora în 12h), altfel varianta
+ *  europeană (en-GB/fr-FR/de-DE). Depinde de datele ICU ale motorului. */
 export function staffLocale(lang: StaffLang, country?: string | null): string {
   const c = typeof country === 'string' && /^[A-Za-z]{2}$/.test(country) ? country.toUpperCase() : null
   if (c) {
     const candidate = `${lang}-${c}`
     try {
-      if (Intl.DateTimeFormat.supportedLocalesOf([candidate]).length > 0) return candidate
+      // `supportedLocalesOf` taie subetichetele (en-MD → „en”, adică formatul
+      // american), deci întrebăm ce a REZOLVAT efectiv motorul: doar o potrivire
+      // exactă pe țară câștigă, altfel varianta europeană de mai jos.
+      if (new Intl.DateTimeFormat(candidate).resolvedOptions().locale === candidate) return candidate
     } catch {
       /* etichetă respinsă de Intl — varianta implicită */
     }

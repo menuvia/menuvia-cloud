@@ -34,6 +34,9 @@ describe('format', () => {
     expect(staffLocale('en', 'us')).toBe('en-US')
     expect(staffLocale('fr', 'CH')).toBe('fr-CH')
     expect(staffLocale('de', '12')).toBe('de-DE')
+    // Fără date exacte pentru țară: varianta europeană, NU „en” (formatul american).
+    expect(staffLocale('en', 'ZZ')).toBe('en-GB')
+    expect(staffLocale('fr', 'ZZ')).toBe('fr-FR')
     expect(makeFormatters('en', 'US').time(ISO, 'Europe/Bucharest')).toMatch(/^12:30\s?AM$/i)
   })
 

@@ -68,7 +68,9 @@ export function readNamespace<D extends Dict>(
   const eff = effectiveLang(ns, lang)
   if (eff === 'ro') return { dict: ns.ro, lang: 'ro' }
   const hit = ns.cache.get(eff)
-  if (hit && !(hit instanceof Promise)) return { dict: hit, lang: eff }
+  // O încărcare eșuată a pus româna în cache: textele SUNT în română, deci și
+  // limba raportată (pluralul, `describeStaffError`) trebuie să fie 'ro'.
+  if (hit && !(hit instanceof Promise)) return { dict: hit, lang: hit === (ns.ro as unknown) ? 'ro' : eff }
   if (hit instanceof Promise) return { pending: hit }
   const loader = ns.loaders[eff]
   if (!loader) return { dict: ns.ro, lang: 'ro' }

@@ -9,8 +9,11 @@
 --        [PICĂ: fără `grant update (ui_language)` → 42501]
 --   UL2  O limbă necunoscută ('it', 'xx') e respinsă de CHECK (23514).
 --        [PICĂ: fără CHECK]
---   UL3  Un cont NU poate schimba limba altui cont (RLS: 0 rânduri atinse).
---        [PICĂ: politica de UPDATE lărgită la `using (true)`]
+--   UL3  Un cont NU poate schimba limba altui cont. Două forme: cu `where id = B`
+--        (0 rânduri — o ascunde deja politica de SELECT, deci singură n-ar testa
+--        politica de UPDATE) și FĂRĂ `where` (exact 1 rând: al lui A; politica de
+--        UPDATE e singura care limitează, fiindcă nu se citește nicio coloană).
+--        [PICĂ: politica de UPDATE lărgită la `using (true)` → toate conturile]
 --   UL4  Grantul nou nu lărgește regimul: `plan` și `is_platform_admin` rămân
 --        nescriibile din client (42501), în aceeași tranzacție cu UL1.
 --        [PICĂ: grant UPDATE la nivel de tabelă]
@@ -91,6 +94,14 @@ begin
   select ui_language into v_lang from public.profiles where id = v_b;
   if v_n <> 0 or v_lang is not null then
     raise exception 'UL3 FAIL: A a schimbat limba lui B (% rânduri, limba %)', v_n, v_lang;
+  end if;
+  perform set_config('role', 'authenticated', true);
+  update public.profiles set ui_language = 'de';
+  get diagnostics v_n = row_count;
+  perform set_config('role', 'none', true);
+  select ui_language into v_lang from public.profiles where id = v_b;
+  if v_n <> 1 or v_lang is not null then
+    raise exception 'UL3 FAIL: un UPDATE fără filtru al lui A a atins % rânduri (trebuia 1), limba lui B = %', v_n, v_lang;
   end if;
 
   -- UL4: regimul column-gated e neschimbat.

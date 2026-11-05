@@ -1,8 +1,10 @@
 // src/lib/__tests__/staffI18n.baseline.ts — texte vizibile scrise DIRECT (în
 // afara `t()`) în componentele personalului, numărate de scanerul comun
 // (`visibleTextScanner.ts`). Clichetul SK5 din `staffI18n.test.ts` cere
-// EGALITATE: un fișier care crește pică (textul nou intră prin `useT`), iar
-// unul care scade trebuie coborât AICI în același PR — câștigul se blochează.
+// EGALITATE: unul care scade se coboară AICI în același PR (câștigul se
+// blochează); unul care crește pică — textul nou intră prin `useT`, iar dacă
+// ecranul nu e încă migrat, ridicarea de aici se face în același PR, cu motivul
+// scris în descriere (un contor care nu crește pe tăcute, nu o barieră).
 // Un fișier cu 0 nu apare. Generat la lotul L0b (Partea II, nov 2026).
 // Ecranele care rămân în română prin decizie (fiscal Plan 3, consola
 // fondatorului, afiliați, site-ul de marketing, documentele legale) stau aici

@@ -11,14 +11,20 @@
 //        tăcut pe `other`, una în plus nu s-ar afișa niciodată.
 //   SK4  dicționarele personalului NU intră în graful STATIC al intrării
 //        aplicației și al paginilor oaspetelui (meniul QR rămâne mic), cu
-//        control pozitiv: graful intrării chiar ajunge la UiLangContext, iar
-//        cel al unui namespace ajunge la `ro.ts`, dar nu la `en.ts` (leneș).
-//   SK5  textul scris direct în componentele personalului doar SCADE: numărul
-//        per fișier e egal cu `staffI18n.baseline.ts` (crește → pică; scade →
-//        se coboară baseline-ul în același PR), cu control pozitiv pe scaner.
+//        control pozitiv: graful intrării chiar ajunge la UiLangContext, cel al
+//        unui namespace ajunge la `ro.ts`, dar nu la `en.ts` (leneș), iar
+//        parserul (TypeScript, nu regex) prinde formele care păcăleau regex-ul.
+//   SK5  textul scris direct în componentele personalului e VIZIBIL în review:
+//        numărul per fișier e egal cu `staffI18n.baseline.ts`. Scade → se
+//        coboară baseline-ul în același PR (câștigul se blochează); crește →
+//        testul pică, iar creșterea e permisă DOAR cu baseline ridicat în
+//        același PR și motivul scris în descriere (un fișier încă nemigrat care
+//        primește o funcție nouă). Nu e o barieră, e un contor care nu poate
+//        crește pe tăcute. Controlul pozitiv e pe scaner.
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
+import * as ts from 'typescript'
 import { STAFF_LANGS } from '../../i18n/langs'
 import type { Dict, Plural } from '../../i18n/core'
 import { GUEST_FILES, listStaffFiles, scanSource } from './visibleTextScanner'
@@ -110,11 +116,40 @@ describe('dicționarele personalului', () => {
 })
 
 // ── Graful de importuri STATICE (import()/lazy nu se urmează) ────────────
-const STATIC_IMPORT = /(?:^|[\n;])\s*(?:import|export)\s+(type\s+)?(?:[^'";]*?\sfrom\s+)?['"]([^'"]+)['"]/g
+// Parserul TypeScript, nu un regex (recenzia L0b: un `export type … = { … }`
+// urmat de un import pe linia următoare era citit ca un singur import de tip,
+// iar importul real dispărea din graf). Muchie = `import … from` / `export … from`
+// / importul de efect, cu excepția celor ȘTERSE la compilare (`import type`,
+// `export type`, sau doar specificatori `type`). `import()` e o expresie, nu o
+// declarație de nivel superior, deci nu se urmează — exact granița lazy.
+function staticSpecs(file: string, src: string): string[] {
+  const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, false, file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
+  const out: string[] = []
+  for (const st of sf.statements) {
+    if (ts.isImportDeclaration(st) && ts.isStringLiteral(st.moduleSpecifier)) {
+      const clause = st.importClause
+      if (clause?.isTypeOnly) continue
+      const named = clause?.namedBindings
+      const onlyTypes =
+        clause !== undefined &&
+        !clause.name &&
+        named !== undefined &&
+        ts.isNamedImports(named) &&
+        named.elements.length > 0 &&
+        named.elements.every((e) => e.isTypeOnly)
+      if (!onlyTypes) out.push(st.moduleSpecifier.text)
+    } else if (ts.isExportDeclaration(st) && st.moduleSpecifier && ts.isStringLiteral(st.moduleSpecifier)) {
+      if (!st.isTypeOnly) out.push(st.moduleSpecifier.text)
+    }
+  }
+  return out
+}
 
 function resolveImport(fromFile: string, spec: string): string | null {
-  if (!spec.startsWith('.')) return null
-  const base = join(dirname(fromFile), spec)
+  let base: string
+  if (spec.startsWith('@/')) base = `src/${spec.slice(2)}` // alias-ul din tsconfig (`@/*` → `./src/*`)
+  else if (spec.startsWith('.')) base = join(dirname(fromFile), spec)
+  else return null
   for (const cand of [base, `${base}.ts`, `${base}.tsx`, `${base}/index.ts`, `${base}/index.tsx`]) {
     if (/\.(ts|tsx)$/.test(cand) && existsSync(resolve(ROOT, cand))) return cand
   }
@@ -129,9 +164,8 @@ function staticClosure(entry: string): Set<string> {
     if (seen.has(f)) continue
     seen.add(f)
     const src = readFileSync(resolve(ROOT, f), 'utf8')
-    for (const m of src.matchAll(STATIC_IMPORT)) {
-      if (m[1]) continue // `import type` se șterge la compilare
-      const next = resolveImport(f, m[2])
+    for (const spec of staticSpecs(f, src)) {
+      const next = resolveImport(f, spec)
       if (next && !seen.has(next)) stack.push(next)
     }
   }
@@ -149,6 +183,22 @@ describe('dicționarele personalului nu intră în intrare și la oaspete', () =
     expect(ns.has('src/i18n/ns/common/ro.ts')).toBe(true)
     expect(ns.has('src/i18n/ns/common/en.ts')).toBe(false)
     expect(guestPages.length).toBeGreaterThanOrEqual(3)
+    // Parserul, pe formele care păcăleau regex-ul: tip pe mai multe linii urmat
+    // de import, comentariu înaintea importului, alias `@/`, plus ce NU e muchie.
+    const sample = [
+      'export type Row = {',
+      '  id: number',
+      '}',
+      "import { commonNs } from './a'",
+      "/* c */ import b from './b'",
+      "import '@/c'",
+      "import type { T } from './t1'",
+      "import { type U, type V } from './t2'",
+      "export type { W } from './t3'",
+      "export * from './d'",
+      "const L = lazy(() => import('./lazy'))",
+    ].join('\n')
+    expect(staticSpecs('x.tsx', sample)).toEqual(['./a', './b', '@/c', './d'])
   })
 
   it('SK4 intrarea și paginile oaspetelui nu ating src/i18n/ns', () => {

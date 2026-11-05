@@ -9,6 +9,8 @@
 //   AU3  după primul 42703 coloana nu se mai cere în sesiune (un cont nou nu
 //        mai plătește o cerere eșuată la fiecare încărcare).
 //   AU4  o valoare ne-text din bază nu ajunge în context (doar string sau null).
+//   AU5  ieșirea din cont în timp ce profilul se încarcă: răspunsul întârziat
+//        nu mai repune profilul contului vechi. [PICĂ: fără resetarea cererii]
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, act } from '@testing-library/react'
 
@@ -17,6 +19,7 @@ const { state } = vi.hoisted(() => ({
     hasColumn: true,
     row: {} as Record<string, unknown>,
     selects: [] as string[],
+    gate: null as Promise<void> | null,
     authCb: null as null | ((event: string, s: unknown) => void),
   },
 }))
@@ -31,12 +34,12 @@ vi.mock('../../lib/supabase', () => {
       return b
     }
     b.eq = () => b
-    b.single = () =>
-      Promise.resolve(
-        !state.hasColumn && cols.includes('ui_language')
-          ? { data: null, error: { code: '42703', message: 'column profiles.ui_language does not exist' } }
-          : { data: { ...state.row }, error: null },
-      )
+    b.single = async () => {
+      if (state.gate) await state.gate
+      return !state.hasColumn && cols.includes('ui_language')
+        ? { data: null, error: { code: '42703', message: 'column profiles.ui_language does not exist' } }
+        : { data: { ...state.row }, error: null }
+    }
     return b
   }
   return {
@@ -72,6 +75,7 @@ beforeEach(() => {
   state.hasColumn = true
   state.selects = []
   state.authCb = null
+  state.gate = null
   state.row = { id: 'u1', email: 'a@b.ro', full_name: 'A', plan: 'growth', terms_accepted_at: null, ui_language: 'fr' }
 })
 
@@ -99,6 +103,21 @@ describe('AuthContext — limba contului (mig 323)', () => {
     })
     await waitFor(() => expect(state.selects).toHaveLength(1))
     expect(state.selects[0]).not.toContain('ui_language')
+  })
+
+  it('AU5 un profil sosit DUPĂ ieșirea din cont nu se mai afișează', async () => {
+    let release: () => void = () => undefined
+    state.gate = new Promise<void>((r) => {
+      release = r
+    })
+    await mount()
+    await act(async () => {
+      state.authCb?.('SIGNED_OUT', null)
+    })
+    await act(async () => {
+      release()
+    })
+    expect(screen.getByTestId('p').textContent).toBe('none')
   })
 
   it('AU4 o valoare ne-text nu ajunge în context', async () => {

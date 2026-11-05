@@ -115,6 +115,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // (Termeni, plan) sunt construite exact pentru asta.
         setProfile(null)
         if (next) void loadProfile(next.id)
+        // La ieșire, o încărcare încă în zbor pentru contul vechi nu mai are voie
+        // să repună profilul (recenzia L0b: reîncercarea fără coloană pe o bază
+        // dinainte de mig 323 lungea fereastra la două cereri).
+        else profileReqRef.current = null
       }
       setUser((prev) => (prev?.id === next?.id ? prev : next))
       setLoading(false)
