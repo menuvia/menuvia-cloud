@@ -63,6 +63,8 @@ export function UiLangProvider({
   return <UiLangContext.Provider value={value}>{children}</UiLangContext.Provider>
 }
 
+// Hook-ul stă lângă provider (ca useAuth): un singur context, o singură sursă.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useUiLang(): UiLangValue {
   return useContext(UiLangContext)
 }

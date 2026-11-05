@@ -33,6 +33,8 @@
 -- deloc, iar gate-ul de Termeni ar rămâne orb).
 -- =============================================================================
 
+begin;
+
 alter table public.profiles
   add column if not exists ui_language text default 'ro';
 alter table public.profiles
@@ -92,3 +94,5 @@ begin
   end if;
 end;
 $$;
+
+commit;
