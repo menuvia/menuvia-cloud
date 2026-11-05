@@ -144,6 +144,7 @@ function ui(section: SettingsSection, plan: DbPlan, restaurant: Restaurant, plan
       onUpdate={vi.fn(async () => ({ error: null }))}
       plan={plan}
       onSignOut={() => {}}
+      onPricing={() => {}}
       surface={planKnown ? surfaceFor(plan) : null}
     />
   )
