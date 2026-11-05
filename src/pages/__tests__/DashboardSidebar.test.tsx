@@ -263,7 +263,16 @@ vi.mock('../../lib/founder', () => ({
   clearFounderView: vi.fn(),
   getFounderViewOrigin: () => null,
 }))
-vi.mock('../../lib/pendingCountry', () => ({ retryPendingCountry: async () => 'noop' }))
+vi.mock('../../lib/pendingCountry', () => ({
+  retryPendingCountry: async () => 'noop',
+  // Lotul G1 (DS24): intenția de țară a locației noi, observată prin `ctx.calls`.
+  storePendingCountry: (id: string, code: string) => {
+    ctx.calls.push(`storePendingCountry:${id}:${code}`)
+  },
+  clearPendingCountry: (id: string) => {
+    ctx.calls.push(`clearPendingCountry:${id}`)
+  },
+}))
 vi.mock('../../components/HelpButton', () => ({ HelpButton: () => null }))
 vi.mock('../../components/SignOutButton', () => ({ SignOutButton: () => null }))
 vi.mock('../../components/AiChatbot', () => ({ default: () => null }))
@@ -856,6 +865,9 @@ describe('DashboardPage — „Toate locațiile" (lotul A)', () => {
       language: 'de',
     })
     expect(ctx.calls.indexOf(upd)).toBeLessThan(ctx.calls.indexOf('setActive:rest-new'))
+    // Țara se păstrează ca intenție ÎNAINTE de UPDATE și se șterge după succes.
+    expect(ctx.calls.indexOf('storePendingCountry:rest-new:DE')).toBeLessThan(ctx.calls.indexOf(upd))
+    expect(ctx.calls.indexOf('clearPendingCountry:rest-new')).toBeGreaterThan(ctx.calls.indexOf(upd))
   })
 
   it('DS24 control: dintr-un local românesc nu pleacă niciun UPDATE', async () => {
