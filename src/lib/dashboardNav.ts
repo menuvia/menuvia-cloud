@@ -10,7 +10,7 @@
 //   Comenzi    ← comenzi („Comenzi live”: un card spre /waiter + Bucătărie),
 //                reservations (din Mese & QR), casa-tura (din Rapoarte)
 //   Meniu      ← products, categories, modificatori, happy-hour,
-//                gestiune (din Rapoarte)
+//                gestiune (din Rapoarte); traduceri (lotul O6c — ecran NOU)
 //   Mese & QR  ← mese, arhitectura
 //   Rapoarte   ← raport, analytics, tva, invoices
 //   Setări     ← settings (fostele pastile interne devin sub-tab-uri:
@@ -34,6 +34,7 @@ export type Tab =
   | 'products'
   | 'categories'
   | 'modificatori'
+  | 'traduceri'
   | 'mese'
   | 'comenzi'
   | 'analytics'
@@ -129,6 +130,10 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'products', label: 'Produse' },
       { id: 'categories', label: 'Categorii' },
       { id: 'modificatori', label: 'Opțiuni', minTier: 2 },
+      // Lotul O6c: traducerile întregului meniu, pe fiecare limbă activă. Fără
+      // poartă de plan sau de rol (ca Produse/Categorii); opțiunile și
+      // extra-urile apar în ecran doar pe planul care le are (planSurface).
+      { id: 'traduceri', label: 'Traduceri' },
       { id: 'happy-hour', label: 'Promoții', adminOnly: true, minTier: 2 },
       // Stocuri = feature `stocks` (growth+, mig 142). Mutat din Rapoarte
       // (grup adminOnly) — poarta de rol rămâne pe sub-tab.

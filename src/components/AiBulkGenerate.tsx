@@ -6,6 +6,12 @@
 // imagini, AI dezactivat, cheie lipsă — vezi isAiConfigError) se repetă identic
 // la fiecare produs: o raportăm O DATĂ și sărim restul pentru acel tip de
 // generare, în loc să chemăm serverul de N ori și să umplem lista cu N erori.
+//
+// Traducerile (lotul O6c): fill-only-gaps prin `mergeAiTranslations` — textul
+// existent câștigă, AI-ul completează doar golurile și le marchează în
+// `translations[lang].ai_fields` („de verificat” în Meniu → Traduceri). Cu
+// `optionRows` (ecranul Traduceri) se traduc și grupurile, opțiunile și
+// extra-urile; din Produse lotul rămâne cel de dinainte.
 import { useState } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { D } from '../lib/constants'
@@ -18,9 +24,25 @@ import {
   aiTranslateBatch,
   isAiConfigError,
   isAiQuotaError,
+  type TranslatableItem,
 } from '../lib/ai'
-import { activeTranslationLangs, type Translations } from '../lib/i18nMenu'
+import {
+  activeTranslationLangs,
+  mergeAiTranslations,
+  type TranslatedField,
+  type Translations,
+} from '../lib/i18nMenu'
+import {
+  needsAiTranslation,
+  remapCategoryAi,
+  roCount,
+  trFieldsFor,
+  type AiOptionRow,
+  type AiOptionRows,
+  type TrTable,
+} from '../lib/menuTranslations'
 import { toUserMessage } from '../lib/userMessages'
+import { Button } from './ui/Button'
 
 // Erorile AI vin deja în română (lib/ai.ts); restul trec prin toUserMessage.
 const errText = (e: unknown): string => toUserMessage(e, 'eroare la generare')
@@ -32,18 +54,15 @@ function chunk<T>(arr: T[], n: number): T[][] {
   return out
 }
 
-// Merge non-distructiv, fill-only-gaps: valorile EXISTENTE (editate manual sau
-// traduse anterior) CÂȘTIGĂ — AI-ul completează doar câmpurile goale. Ordinea
-// de spread pune `val` (AI) prima și `merged[code]` (existent) a doua, deci
-// existentul suprascrie AI-ul la câmpurile deja completate. Astfel un buton
-// „Traduceri" repetat NU pierde niciodată o traducere ajustată manual.
-function mergeTranslations(existing: Translations | null | undefined, tr: Translations): Translations {
-  const merged: Translations = { ...(existing ?? {}) }
-  for (const [code, val] of Object.entries(tr)) {
-    merged[code] = { ...val, ...(merged[code] ?? {}) }
-  }
-  return merged
-}
+// Câmpurile pe care AI-ul are voie să le scrie pe un rând = cele cerute de
+// raport (trFieldsFor): descrierea doar cu original, subtitlul doar cu subtitlu.
+const allow = (fields: readonly TranslatedField[]): Partial<Record<TranslatedField, boolean>> =>
+  Object.fromEntries(fields.map((f) => [f, true]))
+const productFields = (p: Product) =>
+  trFieldsFor('product', { name: p.name, description: p.description ?? undefined })
+const categoryFields = (c: Category) =>
+  trFieldsFor('category', { name: c.name, meta_text: c.meta_text ?? undefined })
+const NAME_ONLY: readonly TranslatedField[] = ['name']
 
 export default function AiBulkGenerate({
   restaurantId,
@@ -54,6 +73,9 @@ export default function AiBulkGenerate({
   onClose,
   onDone,
   translateOnly = false,
+  optionRows,
+  title,
+  onOpenTranslations,
 }: {
   restaurantId: string
   products: Product[]
@@ -70,6 +92,15 @@ export default function AiBulkGenerate({
    * imaginile n-au cale de agent. Fără bifele lor, lotul face doar traduceri.
    */
   translateOnly?: boolean
+  /**
+   * Grupurile, opțiunile și extra-urile de tradus (ecranul Traduceri, lotul
+   * O6c). Fără ele (tab-ul Produse) lotul nu le atinge.
+   */
+  optionRows?: AiOptionRows
+  /** Titlul ferestrei (implicit „Generează AI pentru meniu"). */
+  title?: string
+  /** „Verifică traducerile" pe ecranul final: duce în Meniu → Traduceri. */
+  onOpenTranslations?: () => void
 }) {
   useBodyScrollLock(true)
   const isMobile = useIsMobile()
@@ -85,29 +116,33 @@ export default function AiBulkGenerate({
   const [okNutri, setOkNutri] = useState(0)
   const [okTr, setOkTr] = useState(0)
   const [okTrCat, setOkTrCat] = useState(0)
+  const [okTrOpt, setOkTrOpt] = useState(0)
+  // Textele (câmpurile) completate de AI — toate marcate „de verificat".
+  const [okTexts, setOkTexts] = useState(0)
   const [errors, setErrors] = useState<string[]>([])
   const [current, setCurrent] = useState('')
   const [quotaHit, setQuotaHit] = useState(false)
 
   const catName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? null
 
-  // Un produs are nevoie de traducere dacă vreo limbă țintă n-are încă un nume
-  // tradus SAU (când produsul are descriere) o descriere tradusă — altfel un
-  // produs cu numele deja tradus dar descrierea netradusă era sărit tăcut.
+  // Un rând are nevoie de traducere dacă vreo limbă țintă n-are încă unul
+  // dintre câmpurile cerute — ACEEAȘI regulă ca „Lipsă” din Meniu → Traduceri
+  // (needsAiTranslation): numele, descrierea produsului care are una,
+  // subtitlul categoriei care are unul.
   const needsTr = (p: Product): boolean =>
-    hasLangs &&
-    langs.some(
-      (l) =>
-        !p.translations?.[l]?.name?.trim() ||
-        (!!p.description?.trim() && !p.translations?.[l]?.description?.trim()),
-    )
+    hasLangs && needsAiTranslation(productFields(p), p.translations, langs)
   const needsTrCat = (c: Category): boolean =>
-    hasLangs && langs.some((l) => !(c.translations?.[l]?.name?.trim()))
+    hasLangs && needsAiTranslation(categoryFields(c), c.translations, langs)
+  const needsTrRow = (r: AiOptionRow): boolean =>
+    hasLangs && needsAiTranslation(NAME_ONLY, r.translations, langs)
 
   const missingImg = products.filter((p) => !p.image_url)
   const missingNutri = products.filter((p) => p.calories == null)
   const missingTr = products.filter(needsTr)
   const missingTrCat = categories.filter(needsTrCat)
+  const missingTrOpt = optionRows
+    ? [...optionRows.groups, ...optionRows.options, ...optionRows.extras].filter(needsTrRow)
+    : []
   // Produsele din bucla per-produs = cele care au nevoie de imagine/nutriție.
   // Traducerile se fac SEPARAT, în loturi (pre-pass batched), nu aici.
   const targets = products.filter(
@@ -117,7 +152,7 @@ export default function AiBulkGenerate({
   // sunt în `targets` ci în pre-pass-ul batched.
   const hasWork =
     targets.length > 0 ||
-    (doTranslate && (missingTr.length > 0 || missingTrCat.length > 0))
+    (doTranslate && (missingTr.length > 0 || missingTrCat.length > 0 || missingTrOpt.length > 0))
 
   async function run() {
     setRunning(true)
@@ -127,6 +162,8 @@ export default function AiBulkGenerate({
     setOkNutri(0)
     setOkTr(0)
     setOkTrCat(0)
+    setOkTrOpt(0)
+    setOkTexts(0)
     setErrors([])
     setQuotaHit(false)
     let stop = false
@@ -143,17 +180,30 @@ export default function AiBulkGenerate({
     // Categorii = doar nume (output mic). Produse = nume + descriere (mai mare).
     const catChunkSize = Math.min(25, Math.max(4, Math.floor(80 / nLangs)))
     const prodChunkSize = Math.min(20, Math.max(2, Math.floor(34 / nLangs)))
-    if (doTranslate) {
-      // Categorii (headerele meniului) — doar nume.
-      const catGroups = chunk(categories.filter(needsTrCat), catChunkSize)
-      for (let g = 0; g < catGroups.length && !stop; g++) {
-        const group = catGroups[g]
-        setCurrent(`Traduc categorii (${group.length})…`)
+    // Un fel de rând (categorii, produse, grupuri, opțiuni, extra-uri), cu
+    // ACELAȘI flux de control pentru toate: 429 → cotă, oprire; eroare de
+    // configurare → un singur mesaj, oprire; altă eroare → mesaj pe lot și se
+    // continuă. Scrierile per rând NU opresc lotul.
+    async function translateKind<T extends { id: string; name: string; translations?: Translations | null }>(k: {
+      label: string
+      rowLabel: string
+      table: TrTable
+      rows: T[]
+      chunkSize: number
+      toItem: (r: T) => TranslatableItem
+      fieldsOf: (r: T) => readonly TranslatedField[]
+      remap?: (m: Record<string, Translations>) => Record<string, Translations>
+      onOk: () => void
+    }): Promise<void> {
+      const groups = chunk(k.rows, k.chunkSize)
+      for (let g = 0; g < groups.length && !stop && !stopText; g++) {
+        const group = groups[g]
+        setCurrent(`Traduc ${k.label} (${group.length})…`)
         let map: Record<string, Translations>
         try {
           map = await aiTranslateBatch({
             restaurant_id: restaurantId,
-            items: group.map((c) => ({ id: c.id, name: c.name })),
+            items: group.map(k.toItem),
             targetLangs: langs,
             sourceLang: baseLang,
           })
@@ -165,63 +215,87 @@ export default function AiBulkGenerate({
             stopText = true
             setErrors((prev) => [...prev, `Traduceri oprite: ${errText(e)}`])
             break
-          } else setErrors((prev) => [...prev, `Traducere categorii: ${errText(e)}`])
+          } else setErrors((prev) => [...prev, `Traducere ${k.label}: ${errText(e)}`])
           continue
         }
-        // Scrierile per-item NU opresc lotul: o eroare de UPDATE pe un item nu
-        // mai anulează traducerile deja obținute pentru restul grupului.
-        for (const c of group) {
-          const tr = map[c.id]
+        if (k.remap) map = k.remap(map)
+        for (const r of group) {
+          const tr = map[r.id]
           if (!tr) continue
+          const merged = mergeAiTranslations(r.translations, tr, {
+            langs,
+            base: baseLang,
+            fields: allow(k.fieldsOf(r)),
+          })
+          // Nimic de completat (totul era deja tradus): fără scriere inutilă.
+          if (merged.filled === 0) continue
           try {
             const { error } = await supabase
-              .from('categories')
-              .update({ translations: mergeTranslations(c.translations, tr) })
-              .eq('id', c.id)
+              .from(k.table)
+              .update({ translations: merged.translations })
+              .eq('id', r.id)
             if (error) throw new Error(error.message)
-            setOkTrCat((x) => x + 1)
+            k.onOk()
+            setOkTexts((x) => x + merged.filled)
           } catch (e) {
-            setErrors((prev) => [...prev, `${c.name} (categorie): ${errText(e)}`])
+            setErrors((prev) => [...prev, `${r.name} (${k.rowLabel}): ${errText(e)}`])
           }
         }
       }
-      // Produse — nume + descriere.
-      const prodGroups = chunk(products.filter(needsTr), prodChunkSize)
-      for (let g = 0; g < prodGroups.length && !stop && !stopText; g++) {
-        const group = prodGroups[g]
-        setCurrent(`Traduc produse (${group.length})…`)
-        let map: Record<string, Translations>
-        try {
-          map = await aiTranslateBatch({
-            restaurant_id: restaurantId,
-            items: group.map((p) => ({ id: p.id, name: p.name, description: p.description })),
-            targetLangs: langs,
-            sourceLang: baseLang,
+    }
+
+    if (doTranslate) {
+      // Categorii (headerele meniului) — numele + subtitlul (trimis ca
+      // descriere, întors înapoi pe `meta_text`).
+      await translateKind({
+        label: 'categorii',
+        rowLabel: 'categorie',
+        table: 'categories',
+        rows: categories.filter(needsTrCat),
+        chunkSize: catChunkSize,
+        toItem: (c) => ({
+          id: c.id,
+          name: c.name,
+          ...(c.meta_text?.trim() ? { description: c.meta_text } : {}),
+        }),
+        fieldsOf: categoryFields,
+        remap: remapCategoryAi,
+        onOk: () => setOkTrCat((x) => x + 1),
+      })
+      // Produse — nume + descriere (forma itemului NESCHIMBATĂ).
+      await translateKind({
+        label: 'produse',
+        rowLabel: 'traducere',
+        table: 'products',
+        rows: products.filter(needsTr),
+        chunkSize: prodChunkSize,
+        toItem: (p) => ({ id: p.id, name: p.name, description: p.description }),
+        fieldsOf: productFields,
+        onOk: () => setOkTr((x) => x + 1),
+      })
+      // Grupuri, opțiuni, extra-uri — doar numele, cu context pentru AI.
+      if (optionRows) {
+        const optItem = (r: AiOptionRow): TranslatableItem => ({
+          id: r.id,
+          name: r.name,
+          ...(r.context ? { context: r.context } : {}),
+        })
+        const kinds: [string, string, TrTable, AiOptionRow[]][] = [
+          ['grupuri de opțiuni', 'grup', 'modifier_groups', optionRows.groups],
+          ['opțiuni', 'opțiune', 'modifier_options', optionRows.options],
+          ['extra-uri', 'extra', 'product_extras', optionRows.extras],
+        ]
+        for (const [label, rowLabel, table, rows] of kinds) {
+          await translateKind({
+            label,
+            rowLabel,
+            table,
+            rows: rows.filter(needsTrRow),
+            chunkSize: catChunkSize,
+            toItem: optItem,
+            fieldsOf: () => NAME_ONLY,
+            onOk: () => setOkTrOpt((x) => x + 1),
           })
-        } catch (e) {
-          if (isAiQuotaError(e)) {
-            setQuotaHit(true)
-            stop = true
-          } else if (isAiConfigError(e)) {
-            stopText = true
-            setErrors((prev) => [...prev, `Traduceri oprite: ${errText(e)}`])
-            break
-          } else setErrors((prev) => [...prev, `Traducere produse: ${errText(e)}`])
-          continue
-        }
-        for (const p of group) {
-          const tr = map[p.id]
-          if (!tr) continue
-          try {
-            const { error } = await supabase
-              .from('products')
-              .update({ translations: mergeTranslations(p.translations, tr) })
-              .eq('id', p.id)
-            if (error) throw new Error(error.message)
-            setOkTr((x) => x + 1)
-          } catch (e) {
-            setErrors((prev) => [...prev, `${p.name} (traducere): ${errText(e)}`])
-          }
         }
       }
     }
@@ -310,7 +384,7 @@ export default function AiBulkGenerate({
     <div onClick={running ? undefined : onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', padding: isMobile ? 0 : 16 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: D.s1, border: `1px solid ${D.border}`, borderRadius: isMobile ? '18px 18px 0 0' : 18, width: '100%', maxWidth: 520, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '16px 20px', borderBottom: `1px solid ${D.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontFamily: 'Fraunces,serif', fontSize: '1.1rem', color: D.t1 }}>✨ Generează AI pentru meniu</span>
+          <span style={{ fontFamily: 'Fraunces,serif', fontSize: '1.1rem', color: D.t1 }}>{title ?? '✨ Generează AI pentru meniu'}</span>
           {!running && <button onClick={onClose} aria-label="Închide" style={{ background: 'transparent', border: 'none', color: D.t2, cursor: 'pointer', fontSize: 18 }}>✕</button>}
         </div>
 
@@ -340,10 +414,10 @@ export default function AiBulkGenerate({
                 <>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', cursor: 'pointer' }}>
                     <input type="checkbox" checked={doTranslate} disabled={running} onChange={(e) => setDoTranslate(e.target.checked)} style={{ width: 18, height: 18, accentColor: D.gold }} />
-                    <span style={{ color: D.t1, fontSize: '0.9rem' }}>Traduceri în {langs.length} {langs.length === 1 ? 'limbă' : 'limbi'} ({missingTr.length + missingTrCat.length} de tradus)</span>
+                    <span style={{ color: D.t1, fontSize: '0.9rem' }}>Traduceri în {langs.length} {langs.length === 1 ? 'limbă' : 'limbi'} ({missingTr.length + missingTrCat.length + missingTrOpt.length} de tradus)</span>
                   </label>
                   <div style={{ fontSize: '0.72rem', color: D.t3, marginLeft: 28, marginTop: -6, marginBottom: 4 }}>
-                    Traduce numele + descrierea în limbile alese din Setări → Aspect meniu → Limbi meniu. Nu suprascrie traducerile editate manual.
+                    Traduce {optionRows ? 'numele, descrierile, opțiunile și extra-urile' : 'numele + descrierea'} în limbile alese din Setări → Aspect meniu → Limbi meniu. Completează doar ce lipsește (nu suprascrie traducerile editate manual) și marchează textele noi «de verificat».
                   </div>
                 </>
               )}
@@ -366,13 +440,40 @@ export default function AiBulkGenerate({
                 {quotaHit ? 'Cotă AI epuizată' : 'Gata!'}
               </p>
               <p style={{ color: D.t2, fontSize: '0.85rem', textAlign: 'center', marginBottom: 14 }}>
-                {okNutri} seturi de valori nutriționale · {okImg} imagini generate
-                {hasLangs ? ` · ${okTr} produse${okTrCat > 0 ? ` + ${okTrCat} categorii` : ''} traduse` : ''}.
-                {quotaHit && ' Cumpără credite din Setări → Asistent AI ca să continui.'}
+                {[
+                  ...(translateOnly ? [] : [`${okNutri} seturi de valori nutriționale`, `${okImg} imagini generate`]),
+                  ...(hasLangs
+                    ? [
+                        `${okTr} produse${okTrCat > 0 ? ` + ${okTrCat} categorii` : ''}${okTrOpt > 0 ? ` + ${okTrOpt} opțiuni și extra-uri` : ''} traduse`,
+                      ]
+                    : []),
+                ].join(' · ')}
+                .{quotaHit && ' Cumpără credite din Setări → Asistent AI ca să continui.'}
               </p>
-              <p style={{ color: D.amber, fontSize: '0.8rem', textAlign: 'center', marginBottom: 10 }}>
-                ✨ Tot ce s-a generat e marcat „verifică" — corectează în fiecare produs.
-              </p>
+              {!translateOnly && (
+                <p style={{ color: D.amber, fontSize: '0.8rem', textAlign: 'center', marginBottom: 10 }}>
+                  ✨ Tot ce s-a generat e marcat „verifică" — corectează în fiecare produs.
+                </p>
+              )}
+              {hasLangs && doTranslate && (
+                <p style={{ color: D.amber, fontSize: '0.8rem', textAlign: 'center', marginBottom: 10 }}>
+                  ✨ {roCount(okTexts, 'text tradus', 'texte traduse')} — marcate «de verificat».
+                </p>
+              )}
+              {onOpenTranslations && hasLangs && doTranslate && (
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      onClose()
+                      onOpenTranslations()
+                    }}
+                  >
+                    Verifică traducerile
+                  </Button>
+                </div>
+              )}
               {errors.length > 0 && (
                 <div style={{ background: D.s2, border: `1px solid ${D.border}`, borderRadius: 8, padding: 10, maxHeight: 160, overflowY: 'auto' }}>
                   {errors.map((er, i) => (

@@ -50,7 +50,9 @@ interface PageResult<T> {
   error: RpcErrorShape | null
 }
 
-async function fetchAllPages<T>(
+// Exportată pentru ecranul Traduceri (lotul O6c, lib/menuTranslationsData.ts):
+// opțiunile și extra-urile se citesc pe aceleași pagini.
+export async function fetchAllPages<T>(
   page: (from: number, to: number) => PromiseLike<PageResult<T>>,
   fallback: string,
 ): Promise<T[]> {

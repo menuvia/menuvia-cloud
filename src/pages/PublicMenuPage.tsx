@@ -27,7 +27,16 @@ import {
 } from '../lib/qr'
 import type { HappyHourRule } from '../lib/qr'
 import type { Restaurant, Category, Product } from '../lib/qr'
-import { trName, trMeta, availableMenuLangs, detectBrowserLang, menuBaseLang, normalizeMenuSearch } from '../lib/i18nMenu'
+import {
+  trName,
+  trMeta,
+  availableMenuLangs,
+  detectBrowserLang,
+  menuBaseLang,
+  normalizeMenuSearch,
+  langFromSearch,
+  consumeRequestedMenuLang,
+} from '../lib/i18nMenu'
 import type { CartItem } from '../lib/orders'
 import { addOrMergeCartItem, lineTotal } from '../lib/orders'
 import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
@@ -129,6 +138,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   // suprascrie. Declarat aici (nu jos) ca efectul de reset pe restaurant să-l
   // poată curăța la navigarea între restaurante.
   const userPickedLangRef = useRef(false)
+  // `?lang=xx` (previzualizarea din Meniu → Traduceri, lotul O6c): se aplică O
+  // DATĂ, după ce meniul s-a încărcat, și doar dacă limba e oferită.
+  const urlLangRef = useRef<string | null>(langFromSearch(window.location.search))
   const [activeFilters, setActiveFilters] = useState<Set<string>>(() => new Set())
   const [tick, setTick] = useState(0)
   const [confirmation, setConfirmation] = useState<{
@@ -376,6 +388,24 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     [baseLang],
   )
   useEffect(() => {
+    // Limba cerută prin URL (lotul O6c): o limbă neoferită lasă baza și oprește
+    // auto-detectul, ca previzualizarea să nu arate altă limbă decât cea cerută;
+    // o alegere manuală ulterioară câștigă. Efectul de reset pe restaurant e
+    // declarat MAI SUS, deci în commit-ul în care `loading` devine false rulează
+    // înaintea acestuia și nu-i șterge alegerea.
+    if (urlLangRef.current !== null) {
+      const pick = consumeRequestedMenuLang(
+        urlLangRef.current,
+        { loading, failed: error !== null },
+        availableLangs,
+        baseLang,
+      )
+      if (pick === undefined) return
+      urlLangRef.current = null
+      userPickedLangRef.current = true
+      setPickedLang(pick)
+      return
+    }
     // Reset defensiv: dacă limba curentă nu mai e disponibilă (ex. nav SPA către
     // un restaurant care n-o oferă, sau limbă deselectată din setări), revenim la
     // `ro` și redeschidem auto-detectul — altfel switcher-ul ar avea o pastilă
@@ -388,7 +418,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     if (userPickedLangRef.current || menuLang !== baseLang) return
     const detected = detectBrowserLang(availableLangs, baseLang)
     if (detected) setPickedLang(detected)
-  }, [availableLangs, menuLang, baseLang])
+  }, [availableLangs, menuLang, baseLang, loading, error])
 
   const allProducts = useMemo(
     () => localizedCategories.flatMap((c) => c.products),

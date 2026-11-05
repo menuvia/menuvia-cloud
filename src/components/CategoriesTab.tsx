@@ -136,7 +136,7 @@ function CategoryModal({
               </div>
               <div style={{ fontSize: '0.72rem', color: D.t3, lineHeight: 1.5, marginTop: 4 }}>
                 Numele categoriei în limbile active ale meniului. Câmpurile lăsate goale afișează
-                automat numele în română.
+                automat numele în {MENU_LANGS.find((l) => l.code === baseLang)?.label ?? baseLang}.
               </div>
             </div>
             {langs.map((code) => {

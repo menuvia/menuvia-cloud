@@ -22,13 +22,24 @@
 //   PG7  (recenzia CodeRabbit pe #352) o reîmprospătare picată cu fișa deschisă
 //        nu o demontează și nu pierde ce s-a tastat. [PICĂ: ecranul de eroare
 //        întors înaintea fișei]
+//   PT5  (lotul O6c) traducerile extra-urilor se salvează pe loc, separat de
+//        „Salvează”: o ciornă nesalvată face ca închiderea fișei să ceară
+//        confirmare (control: fără ciornă, fișa se închide direct). O editare
+//        DOAR de preț nu mai trimite `translations` (control: o traducere
+//        editată pleacă). [PICĂ: `extraTrDirty` scos din confirmDiscard;
+//        payload-ul întreg trimis la update]
+//   PT6  (recenzia O6c) ciorna de extra supraviețuiește strângerii secțiunii
+//        „Extras & Pereche” (care demontează componenta) și „Salvează” al fișei
+//        întreabă înainte s-o piardă: refuzat → nimic trimis, fișa rămâne;
+//        acceptat → produsul se salvează și fișa se închide. [PICĂ: ciorna
+//        ținută în ExtraTranslations; `doSave` fără verificarea ciornelor]
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Product, Category } from '../../hooks/useData'
 import type { DbPlan } from '../../lib/__tests__/planFeatureMatrix.fixture'
 
-const { data, calls, linkState, supa, dlg } = vi.hoisted(() => ({
+const { data, calls, linkState, supa, dlg, confirmMock } = vi.hoisted(() => ({
   data: { products: [] as Product[], categories: [] as Category[] },
   calls: { setGroups: [] as [string, string[]][], updates: [] as Partial<Product>[] },
   linkState: { linked: [] as string[], fail: false },
@@ -37,12 +48,15 @@ const { data, calls, linkState, supa, dlg } = vi.hoisted(() => ({
   // Răspunsul la „Renunți la modificări?” și câte întrebări s-au pus (PG6);
   // eroarea listei de produse (PG7).
   dlg: { calls: 0, answer: true, productsError: null as string | null },
+  // Titlurile întrebărilor și un răspuns pe întrebare (PT5/PT6, lotul O6c).
+  confirmMock: { fn: null as null | ((o: { title: string }) => Promise<boolean>), titles: [] as string[] },
 }))
 
 vi.mock('../ui/confirm', () => ({
-  confirm: async () => {
+  confirm: async (o: { title: string }) => {
     dlg.calls += 1
-    return dlg.answer
+    confirmMock.titles.push(o.title)
+    return confirmMock.fn ? confirmMock.fn(o) : dlg.answer
   },
 }))
 vi.mock('../../hooks/useData', () => ({
@@ -155,7 +169,7 @@ function product(over: Partial<Product> = {}): Product {
   }
 }
 
-function tabUi(plan: DbPlan = 'growth') {
+function tabUi(plan: DbPlan = 'growth', menuLanguages: string[] = []) {
   return (
     <ProductsTab
       restaurantId="rest-1"
@@ -165,14 +179,14 @@ function tabUi(plan: DbPlan = 'growth') {
       canUseAi={false}
       canUseAiMenu={false}
       canManageRecipes={false}
-      menuLanguages={[]}
+      menuLanguages={menuLanguages}
       surface={surfaceFor(plan)}
     />
   )
 }
 
-function renderTab(plan: DbPlan = 'growth') {
-  return render(tabUi(plan))
+function renderTab(plan: DbPlan = 'growth', menuLanguages: string[] = []) {
+  return render(tabUi(plan, menuLanguages))
 }
 
 beforeEach(() => {
@@ -187,6 +201,8 @@ beforeEach(() => {
   dlg.calls = 0
   dlg.answer = true
   dlg.productsError = null
+  confirmMock.fn = null
+  confirmMock.titles = []
 })
 
 async function openEdit() {
@@ -316,5 +332,82 @@ describe('ProductsTab — fișa nu pierde munca (recenzia CodeRabbit pe #352)', 
     dlg.answer = true
     await user.click(within(screen.getByRole('dialog', { name: 'Editează produs' })).getByRole('button', { name: 'Anulează' }))
     expect(await screen.findByText('Fără conexiune. Verifică internetul și reîncearcă.')).toBeInTheDocument()
+  })
+})
+
+describe('ProductsTab — traducerile din fișă (lotul O6c)', () => {
+  async function openWithLangs() {
+    const user = userEvent.setup()
+    renderTab('growth', ['en'])
+    await user.click(screen.getAllByRole('button', { name: 'Editează produsul' })[0])
+    const dlg = await screen.findByRole('dialog', { name: 'Editează produs' })
+    return { user, dlg }
+  }
+
+  it('PT5 ciorna unei traduceri de extra cere confirmare la închidere (control: fără ciornă, nu)', async () => {
+    supa.rows.product_extras = [
+      { id: 'e1', name: 'Bacon', price: 5, emoji: null, display_order: 0, is_available: true, translations: {} },
+    ]
+    confirmMock.fn = async () => false
+    const { user, dlg } = await openWithLangs()
+    await user.click(within(dlg).getByRole('button', { name: /Extras & Pereche/ }))
+    await user.click(await within(dlg).findByRole('button', { name: 'Traduceri 0/1' }))
+    await user.type(within(dlg).getByLabelText('Nume în English pentru «Bacon»'), 'Bacon EN')
+    await user.click(within(dlg).getByRole('button', { name: 'Închide' }))
+    expect(confirmMock.titles).toEqual(['Renunți la modificări?'])
+    expect(screen.getByRole('dialog', { name: 'Editează produs' })).toBeInTheDocument()
+  })
+
+  it('PT5 control: fără ciornă, fișa se închide fără întrebare', async () => {
+    const { user, dlg } = await openWithLangs()
+    await user.click(within(dlg).getByRole('button', { name: 'Închide' }))
+    expect(confirmMock.titles).toEqual([])
+    expect(screen.queryByRole('dialog', { name: 'Editează produs' })).toBeNull()
+  })
+
+  it('PT6 ciorna rămâne după strângerea secțiunii; „Salvează” întreabă înainte s-o piardă', async () => {
+    supa.rows.product_extras = [
+      { id: 'e1', name: 'Bacon', price: 5, emoji: null, display_order: 0, is_available: true, translations: {} },
+    ]
+    const { user, dlg } = await openWithLangs()
+    const toggle = within(dlg).getByRole('button', { name: /Extras & Pereche/ })
+    await user.click(toggle)
+    await user.click(await within(dlg).findByRole('button', { name: 'Traduceri 0/1' }))
+    await user.type(within(dlg).getByLabelText('Nume în English pentru «Bacon»'), 'Bacon EN')
+    // Strâns și redeschis: componenta s-a demontat, ciorna e tot acolo.
+    await user.click(toggle)
+    expect(within(dlg).queryByLabelText('Nume în English pentru «Bacon»')).toBeNull()
+    await user.click(toggle)
+    expect(await within(dlg).findByLabelText('Nume în English pentru «Bacon»')).toHaveValue('Bacon EN')
+
+    confirmMock.fn = async () => false
+    await user.click(within(dlg).getByRole('button', { name: 'Salvează' }))
+    expect(confirmMock.titles).toEqual(['Traducerile extra-urilor nu sunt salvate'])
+    expect(calls.updates).toEqual([])
+    expect(screen.getByRole('dialog', { name: 'Editează produs' })).toBeInTheDocument()
+
+    confirmMock.fn = async () => true
+    await user.click(within(dlg).getByRole('button', { name: 'Salvează' }))
+    expect(calls.updates).toHaveLength(1)
+    expect(screen.queryByRole('dialog', { name: 'Editează produs' })).toBeNull()
+  })
+
+  it('PT5 o editare doar de preț nu trimite `translations` (control: traducerea editată pleacă)', async () => {
+    data.products = [product({ translations: { en: { name: 'Pizza EN' } } })]
+    const { user, dlg } = await openWithLangs()
+    const price = within(dlg).getByRole('textbox', { name: 'Preț (lei)' })
+    await user.clear(price)
+    await user.type(price, '35')
+    await user.click(within(dlg).getByRole('button', { name: 'Salvează' }))
+    const sent = calls.updates[calls.updates.length - 1]
+    expect(sent?.price).toBe(35)
+    expect(sent && 'translations' in sent).toBe(false)
+
+    await user.click(screen.getAllByRole('button', { name: 'Editează produsul' })[0])
+    const again = await screen.findByRole('dialog', { name: 'Editează produs' })
+    await user.click(within(again).getByRole('button', { name: /Traduceri \(opțional\)/ }))
+    await user.type(within(again).getByLabelText('Nume (English)'), '!')
+    await user.click(within(again).getByRole('button', { name: 'Salvează' }))
+    expect(calls.updates[calls.updates.length - 1]?.translations).toEqual({ en: { name: 'Pizza EN!' } })
   })
 })

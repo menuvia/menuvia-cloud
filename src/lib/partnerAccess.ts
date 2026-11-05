@@ -15,7 +15,16 @@ export type UiRole = MemberRole | 'partner'
 // Tab-urile dashboard-ului pe care le vede partenerul — exact suprafața pe care
 // politicile de partener din DB o acoperă (meniu: produse/categorii/opțiuni;
 // mese + QR). Orice alt tab ar interoga tabele pe care partenerul le vede goale.
-export const PARTNER_TAB_IDS: readonly string[] = ['products', 'categories', 'modificatori', 'mese']
+// „Traduceri” (lotul O6c) NU cere politică nouă: citește și scrie doar tabelele
+// de meniu din mig 286 (categories, products, modifier_groups, modifier_options,
+// product_extras), plus citirea product_modifier_groups și restaurants.
+export const PARTNER_TAB_IDS: readonly string[] = [
+  'products',
+  'categories',
+  'modificatori',
+  'traduceri',
+  'mese',
+]
 
 export function isPartnerTab(tabId: string): boolean {
   return PARTNER_TAB_IDS.includes(tabId)

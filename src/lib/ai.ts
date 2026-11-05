@@ -405,12 +405,15 @@ export async function generateNutrition(input: {
 }
 
 // ── Traducere AI a meniului (multilingv) ─────────────────────
-// Item traductibil (produs SAU categorie). `description` opțional (categoriile
-// n-au descriere).
+// Item traductibil (produs, categorie, grup, opțiune, extra). `description`
+// opțional (categoriile trimit aici subtitlul). `context` (lotul O6c) ajută
+// AI-ul să înțeleagă un nume scurt („Mare” — din grupul «Mărime»); nu se
+// traduce și nu se întoarce.
 export interface TranslatableItem {
   id: string
   name: string
   description?: string | null
+  context?: string
 }
 
 // Traduce MAI MULTE iteme de meniu într-un SINGUR apel AI — mult mai eficient
@@ -440,6 +443,7 @@ export async function aiTranslateBatch(input: {
     'Ești un traducător profesionist de meniuri de restaurant.',
     `Traduci o listă de iteme de meniu din ${sourceLabel} în limbile: ${langList}.`,
     'Primești un array JSON de forma [{"id","name","description"}].',
+    '`context` e doar pentru înțelegere: nu-l traduce și nu-l întoarce.',
     'Răspunzi DOAR cu un obiect JSON (fără markdown, fără text) keyed pe id:',
     '{"<id>": {"en": {"name": "...", "description": "..."}, "de": {...}}, ...}',
     'Folosește EXACT id-urile primite drept chei și codurile de limbă cerute.',
@@ -451,6 +455,7 @@ export async function aiTranslateBatch(input: {
       id: it.id,
       name: it.name,
       description: it.description ?? undefined,
+      ...(it.context ? { context: it.context } : {}),
     })),
   )
   const res = await postFn<AiProxyResponse>('ai-proxy', {

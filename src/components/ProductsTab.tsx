@@ -1,11 +1,11 @@
-import { useState, useEffect, useMemo, useRef, useId, lazy, Suspense } from 'react'
+import { useState, useEffect, useMemo, useRef, useId, useCallback, lazy, Suspense } from 'react'
 import { useProducts, useCategories } from '../hooks/useData'
 import type { Product, Category } from '../hooks/useData'
 import { usePlanLimits } from '../hooks/usePlanLimits'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { supabase } from '../lib/supabase'
 import { D, DIETARY_TAGS, ALLERGENS } from '../lib/constants'
-import { MENU_LANGS, activeTranslationLangs } from '../lib/i18nMenu'
+import { activeTranslationLangs, nameDraftsDirty, type Translations } from '../lib/i18nMenu'
 import { fetchVatRates } from '../lib/vat'
 import type { VatRate } from '../lib/vat'
 import type { PlanSurface } from '../lib/planSurface'
@@ -20,6 +20,8 @@ import { QueryError } from './PageLoader'
 import { btn, inp, useToast, Toast, Modal, Inp, Sel, Toggle } from './_dashboard/sharedUI'
 import { ProductsToolbar } from './_dashboard/ProductsToolbar'
 import { ProductOrderModal } from './_dashboard/ProductOrderModal'
+import { ProductTranslations } from './_dashboard/ProductTranslations'
+import { ExtraTranslations } from './_dashboard/ExtraTranslations'
 import { generateNutrition, generateProductImage } from '../lib/ai'
 import { encodeForUpload, encodeSameFormat, mayHaveAlpha } from '../lib/imageEncode'
 import { track } from '../lib/analytics'
@@ -43,6 +45,8 @@ type ProductSaveOpts = { keepOpen?: boolean; onError?: (message: string) => void
 
 // Valoarea filtrului „Fără categorie" (nu poate coincide cu un uuid de categorie).
 const UNCATEGORIZED = '__uncategorized__'
+// Referință stabilă pentru „fără ciornă” (ExtraTranslations compară pe ea).
+const NO_DRAFTS: Readonly<Record<string, string>> = Object.freeze({})
 
 // Un produs fără categorie e invizibil pentru clienți: meniul public (QR și
 // /m/:slug) și comanda ospătarului îl grupează doar sub categorii.
@@ -77,6 +81,7 @@ function ProductModal({
   menuLanguages,
   baseLang = 'ro',
   canUseAi,
+  canTranslateAi,
   canManageRecipes,
   showVat,
   showExtras,
@@ -108,6 +113,9 @@ function ProductModal({
   // Vezi ProductsTab: imaginea și nutriția AI doar cu `canUseAi` (agentul n-are
   // aceste funcții în ai-proxy), rețetele doar cu `canManageRecipes`.
   canUseAi: boolean
+  // „✨ Tradu automat” (lotul O6c): traducerea e munca de MENIU din ai-proxy
+  // (`canUseAiMenu`), pe care o are și partenerul cu acces acordat.
+  canTranslateAi: boolean
   canManageRecipes: boolean
   // Ce vede planul (planSurface, lotul P): cota TVA doar pe planul cu bon,
   // Extras & Pereche doar pe planul cu comenzi. Fără ele câmpurile nu se arată
@@ -274,7 +282,9 @@ function ProductModal({
   // Închiderea prin fundal / Escape / ✕ cu modificări nesalvate întreabă întâi
   // (MENU-06: un tap pe margine pierdea toată fișa).
   async function confirmDiscard(): Promise<boolean> {
-    if (JSON.stringify(form) === initialFormJson) return true
+    // Și traducerile extra-urilor tastate dar nesalvate (lotul O6c): ele se
+    // salvează separat, pe loc, deci „Salvează” al fișei nu le-ar duce nicăieri.
+    if (JSON.stringify(form) === initialFormJson && !extraTrDirty) return true
     return confirmDialog({
       title: 'Renunți la modificări?',
       description: 'Modificările din fișă nu sunt salvate și se pierd.',
@@ -285,7 +295,7 @@ function ProductModal({
   }
   async function openVatRatesFromForm() {
     if (!onOpenVatRates) return
-    if (JSON.stringify(form) !== initialFormJson) {
+    if (JSON.stringify(form) !== initialFormJson || extraTrDirty) {
       const ok = await confirmDialog({
         title: 'Închizi fișa produsului?',
         description: 'Modificările din fișă nu sunt salvate și se pierd.',
@@ -416,8 +426,37 @@ function ProductModal({
       emoji: string | null
       display_order: number
       is_available: boolean
+      // Lotul O6c (mig 321): traducerile numelui, editate pe loc în fișă.
+      translations: Translations | null
     }>
   >([])
+  // Ciornele traducerilor extra-urilor, pe extra și pe limbă. Stau AICI, nu în
+  // ExtraTranslations: secțiunea „Extras & Pereche” se demontează când e
+  // strânsă, iar o ciornă ținută în componentă se pierdea tăcut, odată cu
+  // semnalul „nesalvat” (recenzia O6c).
+  const [extraTrDrafts, setExtraTrDrafts] = useState<
+    Readonly<Record<string, Readonly<Record<string, string>>>>
+  >({})
+  const updateExtraTrDrafts = useCallback(
+    (
+      id: string,
+      update: (prev: Readonly<Record<string, string>>) => Readonly<Record<string, string>>,
+    ) => {
+      setExtraTrDrafts((all) => {
+        const prev = all[id] ?? NO_DRAFTS
+        const next = update(prev)
+        if (next === prev) return all
+        const out = { ...all }
+        if (Object.keys(next).length === 0) delete out[id]
+        else out[id] = next
+        return out
+      })
+    },
+    [],
+  )
+  // Doar ciornele extra-urilor încă în listă, și doar cele care diferă de ce e
+  // salvat (un extra șters își ia ciorna cu el).
+  const extraTrDirty = extras.some((e) => nameDraftsDirty(extraTrDrafts[e.id], e.translations))
   const [pairings, setPairings] = useState<
     Array<{ id: string; paired_product_id: string; display_order: number }>
   >([])
@@ -439,9 +478,11 @@ function ProductModal({
     setUpsellLoading(true)
     void (async () => {
       const [extrasRes, pairingsRes, prodsRes] = await Promise.all([
+        // `*` (precedentul O6b): pe o bază fără mig 321 citirea merge și fără
+        // coloana `translations`.
         supabase
           .from('product_extras')
-          .select('id,name,price,emoji,display_order,is_available')
+          .select('*')
           .eq('product_id', product.id)
           .order('display_order'),
         supabase
@@ -458,7 +499,13 @@ function ProductModal({
           .order('name'),
       ])
       if (!extrasRes.error && extrasRes.data)
-        setExtras(extrasRes.data.map((e) => ({ ...e, price: Number(e.price) })))
+        setExtras(
+          extrasRes.data.map((e) => ({
+            ...e,
+            price: Number(e.price),
+            translations: (e.translations as Translations | null | undefined) ?? null,
+          })),
+        )
       if (!pairingsRes.error && pairingsRes.data) setPairings(pairingsRes.data)
       if (!prodsRes.error && prodsRes.data) {
         setAllProducts(prodsRes.data.map((p) => ({ ...p, price: Number(p.price) })))
@@ -485,7 +532,15 @@ function ProductModal({
       })
       .select()
       .single()
-    if (!error && data) setExtras((prev) => [...prev, { ...data, price: Number(data.price) }])
+    if (!error && data)
+      setExtras((prev) => [
+        ...prev,
+        {
+          ...data,
+          price: Number(data.price),
+          translations: (data.translations as Translations | null | undefined) ?? null,
+        },
+      ])
     else if (error) pmToast(toUserMessage(error, 'Nu am putut adăuga extra-ul.'), 'error')
   }
 
@@ -687,6 +742,19 @@ function ProductModal({
       setFormErrorField('price')
       return
     }
+    // Traducerile extra-urilor se salvează pe loc, cu butonul lor: „Salvează”
+    // al fișei nu le duce nicăieri și închide fișa, deci o ciornă rămasă s-ar
+    // fi pierdut tăcut (recenzia O6c). Omul alege, nu ghicim noi.
+    if (!keepOpen && extraTrDirty) {
+      const ok = await confirmDialog({
+        title: 'Traducerile extra-urilor nu sunt salvate',
+        description:
+          'Ai tastat traduceri pentru extra-uri fără „Salvează traducerile”. Ele se salvează separat și se pierd când se închide fișa.',
+        confirmLabel: 'Salvează fișa fără ele',
+        cancelLabel: 'Rămân în fișă',
+      })
+      if (!ok) return
+    }
     setFormError(null)
     setFormErrorField(null)
     setSaving(true)
@@ -729,28 +797,11 @@ function ProductModal({
     }
   }
 
-  // ── Traduceri manuale (opționale) ────────────────────────────
-  // Scriu în form.translations[code].{name,description}. Câmpurile goale sunt
-  // eliminate ca să nu bloateze jsonb-ul; clientul face fallback la 'ro'.
-  const [showTranslations, setShowTranslations] = useState(false)
-  const setTranslation = (code: string, field: 'name' | 'description', value: string) =>
-    setForm((f) => {
-      const prev = f.translations ?? {}
-      const entry = { ...(prev[code] ?? {}) }
-      if (value.length === 0) delete entry[field]
-      else entry[field] = value
-      const next = { ...prev }
-      if (Object.keys(entry).length === 0) delete next[code]
-      else next[code] = entry
-      return { ...f, translations: next }
-    })
-  const baseLabel = MENU_LANGS.find((l) => l.code === baseLang)?.label ?? baseLang
-  // Numărul de limbi cu cel puțin o traducere completată (pentru contorul din header).
-  const translatedCount = menuLanguages.filter(
-    (code) =>
-      (form.translations?.[code]?.name ?? '').length > 0 ||
-      (form.translations?.[code]?.description ?? '').length > 0,
-  ).length
+  // ── Traduceri (opționale) — secțiunea e în _dashboard/ProductTranslations ──
+  // Scriu în form.translations; câmpurile goale sunt eliminate ca să nu
+  // bloateze jsonb-ul (clientul face fallback la original).
+  const setFormTranslations = (update: (prev: Translations | null | undefined) => Translations) =>
+    setForm((f) => ({ ...f, translations: update(f.translations) }))
 
   // Allergen toggle helpers — orice editare manuală scoate flag-ul „AI".
   const toggleAllergen = (id: string) => {
@@ -1317,115 +1368,17 @@ function ProductModal({
         </div>
 
         {/* ── Traduceri (opțional, colapsabil) — doar dacă restaurantul are limbi ── */}
-        {menuLanguages.length > 0 && (
-          <div style={{ borderTop: `1px solid ${D.border}`, paddingTop: 14, marginTop: 8 }}>
-            <button
-              type="button"
-              onClick={() => setShowTranslations((s) => !s)}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                cursor: 'pointer',
-                padding: '4px 0',
-                color: D.t2,
-                fontFamily: D.fontBody,
-                fontSize: '0.85rem',
-                fontWeight: 600,
-              }}
-            >
-              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span
-                  style={{
-                    transform: showTranslations ? 'rotate(90deg)' : 'none',
-                    transition: 'transform 0.15s',
-                    display: 'inline-block',
-                  }}
-                >
-                  ▸
-                </span>
-                <span>Traduceri</span>
-                <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>(opțional)</span>
-              </span>
-              <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>
-                {translatedCount}/{menuLanguages.length} limbi
-              </span>
-            </button>
-
-            {showTranslations && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 14 }}>
-                <div style={{ fontSize: '0.72rem', color: D.t3, lineHeight: 1.5 }}>
-                  Numele și descrierea în alte limbi. Originalul de sus ({baseLabel}) rămâne
-                  baza — câmpurile lăsate goale afișează automat originalul.
-                </div>
-                {menuLanguages.map((code) => {
-                  const meta = MENU_LANGS.find((l) => l.code === code)
-                  const label = meta?.label ?? code.toUpperCase()
-                  const entry = form.translations?.[code] ?? {}
-                  return (
-                    <div
-                      key={code}
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 8,
-                        padding: '12px 14px',
-                        background: D.s3,
-                        borderRadius: 9,
-                        border: `1px solid ${D.border}`,
-                      }}
-                    >
-                      <div style={{ fontSize: '0.8rem', fontWeight: 600, color: D.t1 }}>
-                        {meta?.flag} {label}
-                      </div>
-                      <div>
-                        <label
-                          style={{
-                            display: 'block',
-                            fontSize: '0.74rem',
-                            color: D.t2,
-                            marginBottom: 5,
-                          }}
-                        >
-                          Nume ({label})
-                        </label>
-                        <Inp
-                          label={`Nume (${label})`}
-                          value={entry.name ?? ''}
-                          onChange={(v) => setTranslation(code, 'name', v)}
-                          placeholder={form.name || 'Nume produs'}
-                        />
-                      </div>
-                      <div>
-                        <label
-                          style={{
-                            display: 'block',
-                            fontSize: '0.74rem',
-                            color: D.t2,
-                            marginBottom: 5,
-                          }}
-                        >
-                          Descriere ({label})
-                        </label>
-                        <textarea
-                          aria-label={`Descriere (${label})`}
-                          value={entry.description ?? ''}
-                          onChange={(e) => setTranslation(code, 'description', e.target.value)}
-                          placeholder={form.description || 'Descriere produs'}
-                          rows={2}
-                          style={{ ...inp, height: 'auto', resize: 'vertical' }}
-                        />
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        )}
+        <ProductTranslations
+          restaurantId={restaurantId}
+          name={form.name ?? ''}
+          description={form.description ?? ''}
+          translations={form.translations}
+          onChange={setFormTranslations}
+          langs={menuLanguages}
+          baseLang={baseLang}
+          canTranslateAi={canTranslateAi}
+          onToast={pmToast}
+        />
 
         {/* ── Detalii suplimentare (opțional, colapsabil) ───────────── */}
         <div style={{ borderTop: `1px solid ${D.border}`, paddingTop: 14, marginTop: 8 }}>
@@ -1766,44 +1719,60 @@ function ProductModal({
                             key={e.id}
                             style={{
                               display: 'flex',
-                              alignItems: 'center',
-                              gap: 10,
+                              flexDirection: 'column',
+                              gap: 6,
                               padding: '8px 12px',
                               background: D.s3,
                               borderRadius: 8,
                               border: `1px solid ${D.border}`,
                             }}
                           >
-                            <span style={{ fontSize: '0.95rem' }}>{e.emoji || '💎'}</span>
-                            <span style={{ flex: 1, fontSize: '0.85rem', color: D.t1 }}>
-                              {e.name}
-                            </span>
-                            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: D.gold }}>
-                              +{e.price.toFixed(2)} lei
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void removeExtra(e.id)
-                              }}
-                              aria-label={`Șterge extra-ul ${e.name}`}
-                              title="Șterge"
-                              style={{
-                                width: 24,
-                                height: 24,
-                                borderRadius: 6,
-                                background: 'transparent',
-                                border: `1px solid ${D.border}`,
-                                color: D.red,
-                                cursor: 'pointer',
-                                fontSize: '0.85rem',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}
-                            >
-                              ✕
-                            </button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <span style={{ fontSize: '0.95rem' }}>{e.emoji || '💎'}</span>
+                              <span style={{ flex: 1, fontSize: '0.85rem', color: D.t1 }}>
+                                {e.name}
+                              </span>
+                              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: D.gold }}>
+                                +{e.price.toFixed(2)} lei
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void removeExtra(e.id)
+                                }}
+                                aria-label={`Șterge extra-ul ${e.name}`}
+                                title="Șterge"
+                                style={{
+                                  width: 24,
+                                  height: 24,
+                                  borderRadius: 6,
+                                  background: 'transparent',
+                                  border: `1px solid ${D.border}`,
+                                  color: D.red,
+                                  cursor: 'pointer',
+                                  fontSize: '0.85rem',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                            {/* Traducerile numelui (lotul O6c): salvate pe loc, ca extra-ul. */}
+                            <ExtraTranslations
+                              extra={e}
+                              langs={menuLanguages}
+                              baseLang={baseLang}
+                              onSaved={(id, translations) =>
+                                setExtras((prev) =>
+                                  prev.map((x) => (x.id === id ? { ...x, translations } : x)),
+                                )
+                              }
+                              drafts={extraTrDrafts[e.id] ?? NO_DRAFTS}
+                              onDraftsChange={updateExtraTrDrafts}
+                              onToast={pmToast}
+                            />
                           </div>
                         ))}
                       </div>
@@ -2414,6 +2383,7 @@ export default function ProductsTab({
   canManageRecipes,
   surface,
   onOpenVatRates,
+  onOpenTranslations,
 }: {
   restaurantId: string
   plan: string
@@ -2440,6 +2410,8 @@ export default function ProductsTab({
   surface: PlanSurface | null
   // Deschide Setările (unde stau cotele TVA) din nota „toate pe aceeași grupă".
   onOpenVatRates?: () => void
+  // „Verifică traducerile” după lotul AI: duce în Meniu → Traduceri (lotul O6c).
+  onOpenTranslations?: () => void
 }) {
   const showVat = surface?.vat === true
   const showExtras = surface?.extras === true
@@ -2591,7 +2563,14 @@ export default function ProductsTab({
       return true
     } else if (modal) {
       const opened = modal as Product
-      const { error: e } = await update(opened.id, form)
+      // Traducerile NESCHIMBATE nu pleacă (lotul O6c): o editare de preț nu mai
+      // rescrie `translations` cu valoarea de la deschiderea fișei — peste o
+      // traducere salvată între timp din Meniu → Traduceri sau din alt tab.
+      const payload: Partial<Product> = { ...form }
+      if (JSON.stringify(form.translations ?? null) === JSON.stringify(opened.translations ?? null)) {
+        delete payload.translations
+      }
+      const { error: e } = await update(opened.id, payload)
       if (e) {
         fail(toUserMessage(e))
         return false
@@ -3363,6 +3342,7 @@ export default function ProductsTab({
           baseLang={baseLang}
           defaultCategoryId={defaultCategoryId}
           canUseAi={canUseAi}
+          canTranslateAi={canUseAiMenu}
           canManageRecipes={showRecipes}
           showVat={showVat}
           showExtras={showExtras}
@@ -3436,6 +3416,7 @@ export default function ProductsTab({
             onClose={() => setAiBulkOpen(false)}
             onDone={() => refetchProducts()}
             translateOnly={!canUseAi}
+            onOpenTranslations={onOpenTranslations}
           />
         </Suspense>
       )}
