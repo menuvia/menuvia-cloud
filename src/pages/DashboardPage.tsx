@@ -69,12 +69,20 @@ import type { ConfirmOptions } from '../components/ui/confirm'
 import { menuBaseLang } from '../lib/i18nMenu'
 import { resolveEffectiveMenuLayout } from '../lib/themes'
 import {
+  LIVE_ORDERS_TAB,
   dashboardPathFor,
   settingsSectionOf,
   tabFromSearch,
   visibleNavGroups,
   type Tab,
 } from '../lib/dashboardNav'
+// Textele cadrului (lotul L3b): namespace `dashboard`; „Reîncearcă” din
+// `common`. Etichetele navigării rămân românești în dashboardNav (date) și se
+// traduc aici, la randare, prin cheia dată de `navLabels`.
+import { useT } from '../i18n/useT'
+import { dashboardNs } from '../i18n/ns/dashboard'
+import { commonNs } from '../i18n/ns/common'
+import { navGroupLabelKey, navLabelKey } from '../i18n/navLabels'
 
 // ── Upgrade Modal ─────────────────────────────────────────────
 // Shown when user hits a plan limit — stays in dashboard context
@@ -93,26 +101,27 @@ function UpgradeModal({
   // Comparația comercială citește limitele DIRECT din plans.ts ca să nu
   // diverge de pagina de pricing. Numele coloanelor = numele comerciale.
   useBodyScrollLock(true)
+  const { t } = useT(dashboardNs)
   const starter = getCommercialPlan('starter')
   const growth = getCommercialPlan('growth')
   const COMPARE = [
-    { label: 'Meniu QR', free: '✓', pro: '✓' },
+    { label: t('upgrade_rowQrMenu'), free: '✓', pro: '✓' },
     {
-      label: 'Produse',
+      label: t('upgrade_rowProducts'),
       free: String(starter.limits.maxProducts),
       pro: String(growth.limits.maxProducts),
     },
     {
-      label: 'Mese + QR',
+      label: t('upgrade_rowTables'),
       free: String(starter.limits.maxTables),
       pro: String(growth.limits.maxTables),
     },
-    { label: 'Comenzi prin QR', free: '—', pro: '✓' },
-    { label: 'Ecran bucătărie', free: '—', pro: '✓' },
-    { label: 'Comenzi ospătar', free: '—', pro: '✓' },
+    { label: t('upgrade_rowQrOrders'), free: '—', pro: '✓' },
+    { label: t('upgrade_rowKitchen'), free: '—', pro: '✓' },
+    { label: t('upgrade_rowWaiterOrders'), free: '—', pro: '✓' },
     // Tab-ul Rapoarte e minTier 2; pe growth = evidența comenzilor (fără
     // rapoarte pe email — acelea numără doar comenzi `paid`).
-    { label: 'Rapoarte', free: '—', pro: 'Comenzi + produse vândute' },
+    { label: t('upgrade_rowReports'), free: '—', pro: t('upgrade_reportsGrowth') },
   ]
   return (
     <div
@@ -176,7 +185,7 @@ function UpgradeModal({
               marginBottom: 6,
             }}
           >
-            Deblochează mai mult
+            {t('upgrade_title')}
           </div>
           <div
             style={{
@@ -290,9 +299,11 @@ function UpgradeModal({
             >
               {growth.priceMonthly}
             </span>
-            <span style={{ color: D.t3, fontSize: '0.8rem', marginLeft: 4 }}>lei/lună</span>
+            <span style={{ color: D.t3, fontSize: '0.8rem', marginLeft: 4 }}>
+              {t('upgrade_perMonth')}
+            </span>
             <div style={{ fontSize: '0.72rem', color: D.goldL, marginTop: 3 }}>
-              Primele 30 de zile gratuite · Anulezi oricând
+              {t('upgrade_trialNote')}
             </div>
           </div>
 
@@ -312,7 +323,9 @@ function UpgradeModal({
                 cursor: 'pointer',
               }}
             >
-              {growth.ctaLabel} →
+              {/* În română = `growth.ctaLabel` („Activează Meniu + Comenzi”) + „ →”;
+                  verbul se traduce, numele comercial al planului nu (regula 4). */}
+              {t('upgrade_cta', { plan: growth.name })}
             </button>
             <button
               onClick={onClose}
@@ -330,7 +343,7 @@ function UpgradeModal({
             >
               {/* Modalul se deschide și pe planuri PLĂTITE (limita de produse pe
                   Meniu Digital) — „Continuă cu planul gratuit" mințea acolo. */}
-              Nu acum
+              {t('upgrade_notNow')}
             </button>
           </div>
         </div>
@@ -372,16 +385,15 @@ function OrdersHub({
   // planSurface.fiscal: „plăți la masă" doar pe planul cu bon.
   fiscal: boolean
 }) {
+  const { t } = useT(dashboardNs)
   const cards: { icon: IconName; title: string; desc: string; fn: () => void }[] = [
     {
       icon: 'orders',
-      title: 'Ecranul ospătarului',
-      desc: fiscal
-        ? 'Comenzile deschise acum, pe mese — preluare manuală și plăți la masă'
-        : 'Comenzile deschise acum, pe mese — și preluare manuală',
+      title: t('hub_waiterTitle'),
+      desc: fiscal ? t('hub_waiterDescFiscal') : t('hub_waiterDesc'),
       fn: onViewWaiter,
     },
-    { icon: 'utensils', title: 'Bucătărie', desc: 'Ecranul de preparare al bucătăriei', fn: onViewKitchen },
+    { icon: 'utensils', title: t('hub_kitchenTitle'), desc: t('hub_kitchenDesc'), fn: onViewKitchen },
   ]
   return (
     <div style={{ maxWidth: 1000 }}>
@@ -417,7 +429,7 @@ function OrdersHub({
             </div>
             <div style={{ color: D.t2, fontSize: '0.78rem', lineHeight: 1.4 }}>{c.desc}</div>
             <div style={{ color: D.t3, fontSize: '0.68rem', lineHeight: 1.4, marginTop: 6 }}>
-              Se deschide un ecran nou
+              {t('hub_opensNewScreen')}
             </div>
           </button>
         ))}
@@ -428,14 +440,12 @@ function OrdersHub({
 
 // Textul întrebării „pierzi modificările din Setări?" — fiecare drum care
 // părăsește formularul (alt tab, alt restaurant, locație nouă) își are
-// formularea lui; butonul de confirmare e mereu distructiv.
+// formularea lui; butonul de confirmare e mereu distructiv. Textele vin din
+// dicționar (lotul L3b), deci se construiesc în componentă, nu ca constantă.
 type DiscardCopy = Omit<ConfirmOptions, 'destructive'>
-const LEAVE_SETTINGS_COPY: DiscardCopy = {
-  title: 'Ai modificări nesalvate în Setări',
-  description: 'Dacă pleci acum, modificările se pierd. Salvează-le întâi din Setări.',
-  confirmLabel: 'Pleacă fără să salvezi',
-  cancelLabel: 'Rămân în Setări',
-}
+
+// Tipurile listei de restaurante vin din hook (o singură sursă cu AppRouter).
+type RestaurantsApi = ReturnType<typeof useRestaurants>
 
 export default function DashboardPage({
   onViewMenu,
@@ -456,18 +466,18 @@ export default function DashboardPage({
   onViewKitchen: () => void
   onPricing: () => void
   onSignOut: () => Promise<void>
-  restaurants: ReturnType<typeof useRestaurants>['restaurants']
-  restaurantsLoading: ReturnType<typeof useRestaurants>['loading']
-  updateRestaurant: ReturnType<typeof useRestaurants>['update']
+  restaurants: RestaurantsApi['restaurants']
+  restaurantsLoading: RestaurantsApi['loading']
+  updateRestaurant: RestaurantsApi['update']
   // Reîncărcarea listei (aceeași instanță useRestaurants din AppRouter) —
   // după „Adaugă o locație" (lotul A), înainte ca locația nouă să devină activă.
   // Întoarce lista recitită (`null` = citirea a eșuat), ca apelantul să verifice
   // pe ea, nu pe prop-ul încă nerandat.
-  refetchRestaurants: ReturnType<typeof useRestaurants>['refetch']
+  refetchRestaurants: RestaurantsApi['refetch']
   // Merge LOCAL în aceeași listă după o scriere prin RPC (harta sălii,
   // `save_floor_layout`, mig 322): editorul remontat la revenirea pe tab
   // pornește de la harta tocmai salvată, nu de la copia încărcată la boot.
-  patchRestaurantLocal: ReturnType<typeof useRestaurants>['patchLocal']
+  patchRestaurantLocal: RestaurantsApi['patchLocal']
   // Navigarea din App (pushState + rutare): tab-ul curent stă în URL
   // (`?tab=…`), deci refresh-ul și Back-ul păstrează locul (lotul R2).
   navigate: (path: string) => void
@@ -475,6 +485,8 @@ export default function DashboardPage({
   replaceUrl: (path: string) => void
 }) {
   const { user } = useAuth()
+  const { t, tp } = useT(dashboardNs)
+  const tc = useT(commonNs)
   const { activeId, activeRole, setActive, founderViewId, memberships, reloadMemberships } =
     useRestaurantCtx()
   // OPT-R2: lista de restaurante + `update` vin ca props din AppRouter (o
@@ -561,7 +573,13 @@ export default function DashboardPage({
     })
   }
   // Cere confirmarea ieșirii din Setări; `onLeave` rulează doar pe „Pleacă".
-  const confirmLeaveSettings = (onLeave: () => void, copy: DiscardCopy = LEAVE_SETTINGS_COPY) => {
+  const leaveSettingsCopy: DiscardCopy = {
+    title: t('unsaved_title'),
+    description: t('unsaved_leaveDesc'),
+    confirmLabel: t('unsaved_leaveConfirm'),
+    cancelLabel: t('unsaved_stayInSettings'),
+  }
+  const confirmLeaveSettings = (onLeave: () => void, copy: DiscardCopy = leaveSettingsCopy) => {
     void askDiscardSettings(copy).then((ok) => {
       if (!ok) return
       settingsDirtyRef.current = false
@@ -685,7 +703,7 @@ export default function DashboardPage({
   const openLocation = async (restaurantId: string) => {
     const ok = await ensureLocationLoaded(restaurantId, false)
     if (!ok) {
-      throw new Error('Locația nu apare în lista ta de acces. Reîncarcă pagina și încearcă din nou.')
+      throw new Error(t('err_locationNotListed'))
     }
     setActive(restaurantId)
     setTab('home')
@@ -755,12 +773,13 @@ export default function DashboardPage({
       setActive(nextId)
       return
     }
-    const nextName = restaurants.find((r) => r.id === nextId)?.name ?? 'alt restaurant'
+    const nextName =
+      restaurants.find((r) => r.id === nextId)?.name ?? t('unsaved_otherRestaurant')
     confirmLeaveSettings(() => setActive(nextId), {
-      title: 'Ai modificări nesalvate în Setări',
-      description: `Dacă treci la „${nextName}”, modificările nesalvate pentru „${restaurant?.name ?? ''}” se pierd. Salvează-le întâi.`,
-      confirmLabel: 'Schimbă fără să salvezi',
-      cancelLabel: 'Rămân aici',
+      title: t('unsaved_title'),
+      description: t('unsaved_switchDesc', { next: nextName, current: restaurant?.name ?? '' }),
+      confirmLabel: t('unsaved_switchConfirm'),
+      cancelLabel: t('unsaved_stayHere'),
     })
   }
   const features = useFeatures(restaurant?.id ?? null)
@@ -1005,7 +1024,7 @@ export default function DashboardPage({
           justifyContent: 'center',
         }}
       >
-        <div style={{ textAlign: 'center', color: D.t2 }}>Se încarcă...</div>
+        <div style={{ textAlign: 'center', color: D.t2 }}>{t('loading_generic')}</div>
       </div>
     )
 
@@ -1053,7 +1072,7 @@ export default function DashboardPage({
         </div>
         <button
           onClick={() => setSidebarOpen(false)}
-          aria-label="Închide meniul"
+          aria-label={t('sidebar_closeMenu')}
           style={{
             background: 'transparent',
             border: 'none',
@@ -1077,14 +1096,14 @@ export default function DashboardPage({
               marginBottom: 4,
             }}
           >
-            Restaurant
+            {t('sidebar_restaurant')}
           </div>
           {/* Selector: visible only when user manages multiple restaurants */}
           {restaurants.length > 1 ? (
             <select
               value={restaurant.id}
               onChange={(e) => switchRestaurant(e.target.value)}
-              aria-label="Alege restaurantul"
+              aria-label={t('sidebar_chooseRestaurant')}
               style={{
                 width: '100%',
                 background: D.s3,
@@ -1128,13 +1147,9 @@ export default function DashboardPage({
             />
             <span
               style={{ fontSize: '0.68rem', color: restaurant.is_active ? D.green : D.t3 }}
-              title={
-                restaurant.is_active
-                  ? 'Meniul public e activ'
-                  : 'Meniul public e oprit — clienții nu îl pot deschide'
-              }
+              title={t(restaurant.is_active ? 'status_activeTitle' : 'status_inactiveTitle')}
             >
-              {restaurant.is_active ? 'Activ' : 'Inactiv'}
+              {t(restaurant.is_active ? 'status_active' : 'status_inactive')}
             </span>
             {/* Numele planului doar când îl ȘTIM — nu „Demo gratuit" din fallback. */}
             {planKnown && (
@@ -1180,7 +1195,7 @@ export default function DashboardPage({
               onMouseLeave={(e) => !active && (e.currentTarget.style.background = 'transparent')}
             >
               <Icon name={g.icon} size={18} />
-              {g.label}
+              {t(navGroupLabelKey(g, surface))}
               {/* Punct de atenție: rezervări pending nevăzute (grupul cu Rezervările).
                   Punctul e decorativ; textul ascuns vizual intră în numele
                   accesibil al butonului pentru screen-readers. */}
@@ -1198,7 +1213,7 @@ export default function DashboardPage({
                     }}
                   />
                   <span className="visually-hidden">
-                    {pendingReservations} rezervări în așteptare
+                    {tp('pendingReservations', pendingReservations)}
                   </span>
                 </>
               )}
@@ -1243,18 +1258,14 @@ export default function DashboardPage({
             e.currentTarget.style.borderColor = D.border
           }}
         >
-          <Icon name="eye" size={16} /> Previzualizează meniu
+          <Icon name="eye" size={16} /> {t('sidebar_previewMenu')}
         </button>
         {/* Ecranul de ospătar există doar pe un plan cu echipă (planSurface.staff):
             pe Planul 1 nu are ce arăta. */}
         {isAdminRole && surface?.staff === true && (
           <button
             onClick={onViewWaiter}
-            title={
-              fiscalSurface
-                ? 'Deschide ecranul de ospătar — comenzi live, rezervări, plăți'
-                : 'Deschide ecranul de ospătar — comenzi live și rezervări'
-            }
+            title={t(fiscalSurface ? 'sidebar_waiterTitleFiscal' : 'sidebar_waiterTitle')}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -1278,7 +1289,7 @@ export default function DashboardPage({
               e.currentTarget.style.background = `${D.gold}11`
             }}
           >
-            <Icon name="utensils" size={16} /> Vezi ca ospătar
+            <Icon name="utensils" size={16} /> {t('sidebar_viewAsWaiter')}
           </button>
         )}
         {/* Panoul de fondator — vizibil DOAR pentru platform admin. */}
@@ -1291,7 +1302,7 @@ export default function DashboardPage({
               clearFounderView()
               window.location.href = '/founder'
             }}
-            title="Panoul de fondator — toată platforma într-un singur loc"
+            title={t('sidebar_founderTitle')}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -1314,7 +1325,7 @@ export default function DashboardPage({
               e.currentTarget.style.background = 'transparent'
             }}
           >
-            <Icon name="settings" size={16} /> Panou fondator
+            <Icon name="settings" size={16} /> {t('sidebar_founder')}
           </button>
         )}
         {/* „Ajutor” (mig 303): agentul (cu consimțământ) sau adresa de suport. */}
@@ -1356,8 +1367,10 @@ export default function DashboardPage({
           }}
         >
           <span style={{ overflowWrap: 'anywhere' }}>
-            {visitOrigin === 'afiliat' ? 'Vizită de agent de vânzări' : 'Mod fondator'} —{' '}
-            {restaurants.find((r) => r.id === activeId)?.name ?? 'restaurant'}
+            {t(visitOrigin === 'afiliat' ? 'visit_agent' : 'visit_founder', {
+              name:
+                restaurants.find((r) => r.id === activeId)?.name ?? t('visit_restaurantFallback'),
+            })}
           </span>
           <button
             onClick={() => exitFounderView(visitOrigin === 'afiliat' ? '/afiliat' : '/founder')}
@@ -1379,7 +1392,7 @@ export default function DashboardPage({
             }}
           >
             {/* Iese din VIZITĂ (impersonare), nu logout — text corectat */}
-            <Icon name="arrowLeft" size={14} /> Ieși din vizită
+            <Icon name="arrowLeft" size={14} /> {t('visit_exit')}
           </button>
         </div>
       )}
@@ -1441,7 +1454,7 @@ export default function DashboardPage({
         >
           <button
             onClick={() => setSidebarOpen(true)}
-            aria-label="Deschide meniul"
+            aria-label={t('mobile_openMenu')}
             style={{
               background: 'transparent',
               border: 'none',
@@ -1475,7 +1488,7 @@ export default function DashboardPage({
             {isAdminRole && surface?.staff === true && (
               <button
                 onClick={onViewWaiter}
-                title="Vezi ca ospătar"
+                title={t('sidebar_viewAsWaiter')}
                 style={{
                   background: `${D.gold}11`,
                   border: `1px solid ${D.gold}55`,
@@ -1502,7 +1515,7 @@ export default function DashboardPage({
                 borderRadius: 8,
                 fontSize: 18,
               }}
-              aria-label="Previzualizează meniu"
+              aria-label={t('sidebar_previewMenu')}
             >
               <Icon name="eye" size={18} />
             </button>
@@ -1529,7 +1542,7 @@ export default function DashboardPage({
               }}
             >
               <div role="alert" style={{ textAlign: 'center', color: D.t2 }}>
-                <div style={{ marginBottom: 12 }}>Eroare la încărcarea restaurantului.</div>
+                <div style={{ marginBottom: 12 }}>{t('err_restaurantLoad')}</div>
                 <button
                   onClick={() => window.location.reload()}
                   className="pressable"
@@ -1546,7 +1559,7 @@ export default function DashboardPage({
                     cursor: 'pointer',
                   }}
                 >
-                  Reîncearcă
+                  {tc.t('retry')}
                 </button>
               </div>
             </div>
@@ -1563,7 +1576,7 @@ export default function DashboardPage({
                 <div style={{ marginBottom: 20 }}>
                   <PageHeader
                     as="h1"
-                    title={activeSubTab.label}
+                    title={t(navLabelKey(activeSubTab, surface))}
                     style={{ marginBottom: activeGroup.subTabs.length > 1 ? 12 : 0 }}
                   />
                   {activeGroup.subTabs.length > 1 && (
@@ -1571,7 +1584,9 @@ export default function DashboardPage({
                   <div style={{ position: 'relative' }}>
                   <div
                     role="group"
-                    aria-label={`Secțiuni ${activeGroup.label}`}
+                    aria-label={t('chips_aria', {
+                      group: t(navGroupLabelKey(activeGroup, surface)),
+                    })}
                     style={{
                       display: 'flex',
                       gap: 6,
@@ -1605,10 +1620,10 @@ export default function DashboardPage({
                             transition: `background ${MOTION.fast}ms ${MOTION.standard}, color ${MOTION.fast}ms ${MOTION.standard}, border-color ${MOTION.fast}ms ${MOTION.standard}`,
                           }}
                         >
-                          {st.label}
+                          {t(navLabelKey(st, surface))}
                           {st.id === 'reservations' && pendingReservations > 0 && (
                             <span
-                              aria-label={`${pendingReservations} rezervări în așteptare`}
+                              aria-label={tp('pendingReservations', pendingReservations)}
                               style={{
                                 minWidth: 18,
                                 height: 18,
@@ -1649,7 +1664,7 @@ export default function DashboardPage({
               )}
               {/* Tab cerut din URL, încă nepermis cât planul se încarcă: așteptăm
                   planul în loc să aruncăm omul pe Acasă (efectul `navReady`). */}
-              {activeGroup == null && !navReady && <InlineSpinner label="Se încarcă..." />}
+              {activeGroup == null && !navReady && <InlineSpinner label={t('loading_generic')} />}
               {/* Guard: dacă tab-ul curent nu mai aparține niciunui grup vizibil
                   (rol/tier scăzute în aceeași randare — reset-ul de mai sus
                   rulează abia după commit), NU montăm tab-ul vechi. Altfel un
@@ -1660,7 +1675,7 @@ export default function DashboardPage({
               // rămâne montat între ele, deci modificările nesalvate nu se pierd.
               <TabFade key={settingsSection != null ? 'settings-form' : tab}>
               {tab === 'home' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_generic')} />}>
                   <HomeTab
                     restaurantId={restaurant.id}
                     restaurantName={restaurant.name}
@@ -1687,14 +1702,14 @@ export default function DashboardPage({
                 </Suspense>
               )}
               {tab === 'locatii' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă locațiile..." />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_locations')} />}>
                   <LocationsTab
                     activeId={restaurant.id}
                     onOpen={openLocation}
                   />
                 </Suspense>
               )}
-              {tab === 'comenzi' && (
+              {tab === LIVE_ORDERS_TAB && (
                 <OrdersHub
                   onViewWaiter={onViewWaiter}
                   onViewKitchen={onViewKitchen}
@@ -1703,7 +1718,7 @@ export default function DashboardPage({
                 />
               )}
               {tab === 'products' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă produsele..." />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_products')} />}>
                   <ProductsTab
                     restaurantId={restaurant.id}
                     plan={plan}
@@ -1731,7 +1746,7 @@ export default function DashboardPage({
                 </Suspense>
               )}
               {tab === 'categories' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă categoriile..." />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_categories')} />}>
                   <CategoriesTab
                     restaurantId={restaurant.id}
                     menuLanguages={restaurant.menu_languages ?? []}
@@ -1740,7 +1755,7 @@ export default function DashboardPage({
                 </Suspense>
               )}
               {tab === 'modificatori' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă modificatorii..." />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_modifiers')} />}>
                   <ModifiersTab
                     restaurantId={restaurant.id}
                     menuLanguages={restaurant.menu_languages ?? []}
@@ -1749,7 +1764,7 @@ export default function DashboardPage({
                 </Suspense>
               )}
               {tab === 'traduceri' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă traducerile…" />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_translations')} />}>
                   <TranslationsTab
                     // Alt local = alte ciorne și altă limbă aleasă.
                     key={restaurant.id}
@@ -1770,12 +1785,12 @@ export default function DashboardPage({
                 </Suspense>
               )}
               {tab === 'mese' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă mesele…" />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_tables')} />}>
                   <TablesManager restaurant={restaurant} canRotateQr={!isPartner} />
                 </Suspense>
               )}
               {tab === 'analytics' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă graficele…" />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_charts')} />}>
                   <AnalyticsTab
                     restaurantId={restaurant.id}
                     plan={plan}
@@ -1784,12 +1799,12 @@ export default function DashboardPage({
                 </Suspense>
               )}
               {tab === 'raport' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă raportul..." />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_report')} />}>
                   <ReportsTab restaurantId={restaurant.id} fiscalReports={fiscalSurface} />
                 </Suspense>
               )}
               {tab === 'arhitectura' && (
-                <Suspense fallback={<InlineSpinner label="Se incarca harta..." />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_floorPlan')} />}>
                   <FloorPlanEditor
                     key={restaurant.id}
                     restaurantId={restaurant.id}
@@ -1805,7 +1820,7 @@ export default function DashboardPage({
                 </Suspense>
               )}
               {tab === 'echipa' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă echipa…" />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_team')} />}>
                   <TeamManager
                     restaurant={restaurant}
                     currentUserId={user?.id || ''}
@@ -1814,7 +1829,7 @@ export default function DashboardPage({
                 </Suspense>
               )}
               {tab === 'ture' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă alocările…" />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_assignments')} />}>
                   <WaiterAssignments restaurantId={restaurant.id} />
                 </Suspense>
               )}
@@ -1823,40 +1838,40 @@ export default function DashboardPage({
                   pe Acasă. Pe o nepotrivire rară (feature oprit pe plan) fila
                   rămâne goală, nu promite alt plan. */}
               {tab === 'gestiune' && surface?.stocks === true && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă gestiunea..." />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_stock')} />}>
                   <StocksTab restaurantId={restaurant.id} showVat={surface.vat} />
                 </Suspense>
               )}
               {tab === 'tva' && features.has('reports_vat') && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă raportul TVA..." />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_vatReport')} />}>
                   <VatReportTab restaurantId={restaurant.id} />
                 </Suspense>
               )}
               {tab === 'casa-tura' && features.has('shifts') && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_generic')} />}>
                   <CashRegisterTab restaurantId={restaurant.id} />
                 </Suspense>
               )}
               {tab === 'happy-hour' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_generic')} />}>
                   <HappyHourTab restaurantId={restaurant.id} payAtTable={fiscalSurface} />
                 </Suspense>
               )}
               {tab === 'invoices' && fiscalSurface && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă facturile..." />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_invoices')} />}>
                   <InvoicesTab restaurantId={restaurant.id} restaurantName={restaurant.name} />
                 </Suspense>
               )}
               {tab === 'reservations' &&
                 (reservationsModuleOn ? (
-                  <Suspense fallback={<InlineSpinner label="Se încarcă rezervările..." />}>
+                  <Suspense fallback={<InlineSpinner label={t('loading_reservations')} />}>
                     <ReservationsTab restaurantId={restaurant.id} />
                   </Suspense>
                 ) : (
                   <EmptyState
                     icon="calendar"
-                    title="Rezervările nu sunt activate"
-                    description="Clienții tăi vor putea rezerva o masă direct din meniul public, iar tu le confirmi și le gestionezi de aici. Activezi modulul dintr-un singur click, din Setări."
+                    title={t('resv_disabledTitle')}
+                    description={t('resv_disabledDesc')}
                     action={
                       <button
                         onClick={() => setTab('settings-orders')}
@@ -1874,7 +1889,7 @@ export default function DashboardPage({
                           fontFamily: 'DM Sans,sans-serif',
                         }}
                       >
-                        Activează din Setări
+                        {t('resv_enableInSettings')}
                       </button>
                     }
                   />
@@ -1882,12 +1897,12 @@ export default function DashboardPage({
               {/* Planul 2 = imprimanta din bucătărie (mig 227); planul cu bon
                   adaugă secțiunile fiscale. Fila e minTier 2 în NAV_GROUPS. */}
               {tab === 'casa-marcat' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_generic')} />}>
                   <BridgeTab restaurantId={restaurant.id} fiscalEnabled={fiscalSurface} />
                 </Suspense>
               )}
               {settingsSection != null && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă setările..." />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_settings')} />}>
                   <SettingsTab
                     section={settingsSection}
                     isOwner={isOwnerRole}
@@ -1919,11 +1934,10 @@ export default function DashboardPage({
                             confirmBeforeOpen: () =>
                               hasUnsavedSettings()
                                 ? askDiscardSettings({
-                                    title: 'Ai modificări nesalvate în Setări',
-                                    description:
-                                      'După creare, panoul trece pe locația nouă, iar modificările nesalvate se pierd. Salvează-le întâi, apoi adaugă locația.',
-                                    confirmLabel: 'Continuă fără să salvezi',
-                                    cancelLabel: 'Rămân în Setări',
+                                    title: t('unsaved_title'),
+                                    description: t('unsaved_addLocationDesc'),
+                                    confirmLabel: t('unsaved_addLocationConfirm'),
+                                    cancelLabel: t('unsaved_stayInSettings'),
                                   })
                                 : Promise.resolve(true),
                             ownerId: userId,
@@ -1936,7 +1950,7 @@ export default function DashboardPage({
               )}
               {/* Fila AI e minTier 2 în NAV_GROUPS — vizibilă doar pe planul care o are. */}
               {tab === 'ai' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă asistentul AI..." />}>
+                <Suspense fallback={<InlineSpinner label={t('loading_ai')} />}>
                   <AiSettingsTab restaurantId={restaurant.id} readOnly={inFounderView} />
                 </Suspense>
               )}
@@ -2039,7 +2053,7 @@ export default function DashboardPage({
                       }}
                     />
                     <span className="visually-hidden">
-                      {pendingReservations} rezervări în așteptare
+                      {tp('pendingReservations', pendingReservations)}
                     </span>
                   </>
                 )}
@@ -2052,7 +2066,7 @@ export default function DashboardPage({
                   whiteSpace: 'nowrap',
                 }}
               >
-                {g.label}
+                {t(navGroupLabelKey(g, surface))}
               </span>
             </button>
             )

@@ -90,7 +90,7 @@ export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
   'src/pages/CaseDeMarcatPage.tsx': 28,
   'src/pages/CodviaPage.tsx': 56,
   'src/pages/ComparatiePage.tsx': 31,
-  'src/pages/DashboardPage.tsx': 80,
+  'src/pages/DashboardPage.tsx': 1,
   'src/pages/DemoPage.tsx': 25,
   'src/pages/FounderPage.tsx': 177,
   'src/pages/KitchenPage.tsx': 36,
