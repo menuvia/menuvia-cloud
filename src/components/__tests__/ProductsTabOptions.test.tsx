@@ -9,26 +9,52 @@
 //   PG2  salvarea refuzată revine la bifele de dinainte și spune de ce.
 //   PG3  pe planul fără comenzi secțiunea nu apare (opțiunile se aleg doar la
 //        comandă); pe un produs nou cere salvarea întâi.
+//   PG4  (lotul O5a, MENU-07) prețul tastat cu virgulă („12,5”) rămâne pe ecran
+//        și pleacă 12.5; un preț fără formă de număr e refuzat cu mesaj, nu
+//        salvat 0. [PICĂ: `type="number"` + parseFloat la fiecare tastă]
+//   PG5  (recenzia O5a, MENU-12) o pereche al cărei produs lipsește din listă
+//        apare „scoasă din meniu” DOAR când lista produselor a fost citită;
+//        o citire picată nu marchează perechile reale (iar „Scoate” le-ar fi
+//        șters). [PICĂ: filtrul fără `allProductsComplete`]
+//   PG6  (recenzia CodeRabbit pe #352) „Anulează” din fișă întreabă ca fundalul:
+//        cu modificări, „Rămân” lasă fișa deschisă, „Renunță” o închide; fără
+//        modificări se închide direct. [PICĂ: `onClick={onClose}`]
+//   PG7  (recenzia CodeRabbit pe #352) o reîmprospătare picată cu fișa deschisă
+//        nu o demontează și nu pierde ce s-a tastat. [PICĂ: ecranul de eroare
+//        întors înaintea fișei]
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Product, Category } from '../../hooks/useData'
 import type { DbPlan } from '../../lib/__tests__/planFeatureMatrix.fixture'
 
-const { data, calls, linkState } = vi.hoisted(() => ({
+const { data, calls, linkState, supa, dlg } = vi.hoisted(() => ({
   data: { products: [] as Product[], categories: [] as Category[] },
-  calls: { setGroups: [] as [string, string[]][] },
+  calls: { setGroups: [] as [string, string[]][], updates: [] as Partial<Product>[] },
   linkState: { linked: [] as string[], fail: false },
+  // Rândurile tabelelor citite direct de fișă și tabelele a căror citire pică.
+  supa: { rows: {} as Record<string, unknown[]>, fail: new Set<string>() },
+  // Răspunsul la „Renunți la modificări?” și câte întrebări s-au pus (PG6);
+  // eroarea listei de produse (PG7).
+  dlg: { calls: 0, answer: true, productsError: null as string | null },
 }))
 
-vi.mock('../ui/confirm', () => ({ confirm: async () => true }))
+vi.mock('../ui/confirm', () => ({
+  confirm: async () => {
+    dlg.calls += 1
+    return dlg.answer
+  },
+}))
 vi.mock('../../hooks/useData', () => ({
   useProducts: () => ({
     products: data.products,
     loading: false,
-    error: null,
+    error: dlg.productsError,
     create: async () => ({ data: null, error: null }),
-    update: async () => ({ data: null, error: null }),
+    update: async (_id: string, f: Partial<Product>) => {
+      calls.updates.push(f)
+      return { data: null, error: null }
+    },
     remove: vi.fn(),
     toggleActive: vi.fn(),
     toggleSoldOut: vi.fn(),
@@ -51,7 +77,7 @@ vi.mock('../../hooks/usePlanLimits', () => ({
 }))
 vi.mock('../../lib/vat', () => ({ fetchVatRates: async () => [] }))
 vi.mock('../../lib/supabase', () => {
-  const rows: Record<string, unknown[]> = {
+  const base: Record<string, unknown[]> = {
     modifier_groups: [
       { id: 'g-blat', name: 'Blat', is_required: true, display_order: 0 },
       { id: 'g-sos', name: 'Sos', is_required: false, display_order: 1 },
@@ -61,8 +87,12 @@ vi.mock('../../lib/supabase', () => {
   function builder(table: string) {
     const b: Record<string, unknown> = {}
     for (const m of ['select', 'eq', 'neq', 'order']) b[m] = () => b
-    b.then = (resolve: (v: { data: unknown[]; error: null }) => unknown) =>
-      Promise.resolve({ data: rows[table] ?? [], error: null }).then(resolve)
+    b.then = (resolve: (v: { data: unknown[] | null; error: { message: string } | null }) => unknown) =>
+      Promise.resolve(
+        supa.fail.has(table)
+          ? { data: null, error: { message: 'boom' } }
+          : { data: supa.rows[table] ?? base[table] ?? [], error: null },
+      ).then(resolve)
     return b
   }
   return { supabase: { from: (t: string) => builder(t) } }
@@ -125,8 +155,8 @@ function product(over: Partial<Product> = {}): Product {
   }
 }
 
-function renderTab(plan: DbPlan = 'growth') {
-  render(
+function tabUi(plan: DbPlan = 'growth') {
+  return (
     <ProductsTab
       restaurantId="rest-1"
       plan={plan}
@@ -137,16 +167,26 @@ function renderTab(plan: DbPlan = 'growth') {
       canManageRecipes={false}
       menuLanguages={[]}
       surface={surfaceFor(plan)}
-    />,
+    />
   )
+}
+
+function renderTab(plan: DbPlan = 'growth') {
+  return render(tabUi(plan))
 }
 
 beforeEach(() => {
   data.categories = [{ id: 'cat-a', restaurant_id: 'rest-1', name: 'Pizza', emoji: '🍕', display_order: 0, meta_text: null }]
   data.products = [product()]
   calls.setGroups = []
+  calls.updates = []
   linkState.linked = ['g-top']
   linkState.fail = false
+  supa.rows = {}
+  supa.fail.clear()
+  dlg.calls = 0
+  dlg.answer = true
+  dlg.productsError = null
 })
 
 async function openEdit() {
@@ -185,5 +225,96 @@ describe('ProductsTab — opțiunile produsului', () => {
     await user.click(screen.getAllByRole('button', { name: 'Editează produsul' })[0])
     const dlg = await screen.findByRole('dialog', { name: 'Editează produs' })
     expect(within(dlg).queryByRole('region', { name: 'Opțiuni' })).toBeNull()
+  })
+})
+
+describe('ProductsTab — prețul se tastează ca preț (lotul O5a)', () => {
+  it('PG4 „12.5.3” e refuzat; „12,5” pleacă 12.5', async () => {
+    const { user } = await openEdit()
+    const dlg = screen.getByRole('dialog', { name: 'Editează produs' })
+    const price = within(dlg).getByRole('textbox', { name: 'Preț (lei)' })
+    // Întâi forma invalidă: refuz cu mesaj, nimic salvat, fișa rămâne.
+    await user.clear(price)
+    await user.type(price, '12.5.3')
+    await user.click(within(dlg).getByRole('button', { name: 'Salvează' }))
+    expect(calls.updates).toEqual([])
+    expect(within(dlg).getByRole('alert')).toHaveTextContent(/nu e un număr valid/)
+    // Apoi virgula: rămâne pe ecran și pleacă 12.5.
+    await user.clear(price)
+    await user.type(price, '12,5')
+    expect(price).toHaveValue('12,5')
+    await user.click(within(dlg).getByRole('button', { name: 'Salvează' }))
+    expect(calls.updates[calls.updates.length - 1]?.price).toBe(12.5)
+  })
+})
+
+describe('ProductsTab — perechile cu produse scoase din meniu', () => {
+  async function openUpsell() {
+    const user = userEvent.setup()
+    renderTab()
+    await user.click(screen.getAllByRole('button', { name: 'Editează produsul' })[0])
+    const dlg = await screen.findByRole('dialog', { name: 'Editează produs' })
+    await user.click(within(dlg).getByRole('button', { name: /Extras & Pereche/ }))
+    await within(dlg).findByText(/Pereche \(sugestii/)
+    return dlg
+  }
+
+  it('PG5 lista citită: perechea fără produs e „scoasă din meniu”', async () => {
+    supa.rows.product_pairings = [{ id: 'pr1', paired_product_id: 'p-gone', display_order: 0 }]
+    supa.rows.products = [{ id: 'p2', name: 'Vin', emoji: '🍷', price: 20 }]
+    const dlg = await openUpsell()
+    expect(within(dlg).getByText('Produs scos din meniu (ocupă un loc)')).toBeInTheDocument()
+  })
+
+  it('PG5b lista de produse picată: nicio pereche nu e marcată „scoasă”', async () => {
+    supa.rows.product_pairings = [{ id: 'pr1', paired_product_id: 'p2', display_order: 0 }]
+    supa.fail.add('products')
+    const dlg = await openUpsell()
+    expect(within(dlg).queryByText('Produs scos din meniu (ocupă un loc)')).toBeNull()
+  })
+})
+
+describe('ProductsTab — fișa nu pierde munca (recenzia CodeRabbit pe #352)', () => {
+  it('PG6 „Anulează” cere confirmarea doar cu modificări nesalvate', async () => {
+    const { user } = await openEdit()
+    let fisa = screen.getByRole('dialog', { name: 'Editează produs' })
+    // Control: fără modificări, se închide direct.
+    await user.click(within(fisa).getByRole('button', { name: 'Anulează' }))
+    expect(dlg.calls).toBe(0)
+    expect(screen.queryByRole('dialog', { name: 'Editează produs' })).toBeNull()
+    // Cu modificări: întrebarea; „Rămân” → fișa rămâne, cu textul tastat.
+    await user.click(screen.getAllByRole('button', { name: 'Editează produsul' })[0])
+    fisa = await screen.findByRole('dialog', { name: 'Editează produs' })
+    const price = within(fisa).getByRole('textbox', { name: 'Preț (lei)' })
+    await user.clear(price)
+    await user.type(price, '33')
+    dlg.answer = false
+    await user.click(within(fisa).getByRole('button', { name: 'Anulează' }))
+    expect(dlg.calls).toBe(1)
+    expect(screen.getByRole('dialog', { name: 'Editează produs' })).toBeInTheDocument()
+    expect(price).toHaveValue('33')
+    // „Renunță” → abia acum se închide.
+    dlg.answer = true
+    await user.click(within(fisa).getByRole('button', { name: 'Anulează' }))
+    expect(dlg.calls).toBe(2)
+    expect(screen.queryByRole('dialog', { name: 'Editează produs' })).toBeNull()
+  })
+
+  it('PG7 eroarea listei cu fișa deschisă nu demontează fișa', async () => {
+    const user = userEvent.setup()
+    const view = renderTab()
+    await user.click(screen.getAllByRole('button', { name: 'Editează produsul' })[0])
+    const fisa = await screen.findByRole('dialog', { name: 'Editează produs' })
+    const price = within(fisa).getByRole('textbox', { name: 'Preț (lei)' })
+    await user.clear(price)
+    await user.type(price, '41')
+    dlg.productsError = 'Fără conexiune. Verifică internetul și reîncearcă.'
+    view.rerender(tabUi())
+    expect(screen.getByRole('dialog', { name: 'Editează produs' })).toBeInTheDocument()
+    expect(within(screen.getByRole('dialog', { name: 'Editează produs' })).getByRole('textbox', { name: 'Preț (lei)' })).toHaveValue('41')
+    // Control: fără fișă deschisă, eroarea apare ca de obicei.
+    dlg.answer = true
+    await user.click(within(screen.getByRole('dialog', { name: 'Editează produs' })).getByRole('button', { name: 'Anulează' }))
+    expect(await screen.findByText('Fără conexiune. Verifică internetul și reîncearcă.')).toBeInTheDocument()
   })
 })

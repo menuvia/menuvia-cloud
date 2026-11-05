@@ -247,6 +247,10 @@ export default function ProductsCsvImport({
   // RETRY (a mai fost o încercare pe același CSV), re-verificăm în DB numele deja
   // existente și le sărim — dedup real, nu doar pe cursor.
   const insertedCursorRef = useRef(0)
+  // Poziția de pornire a produselor importate (lotul O5b, MENU-10): toate
+  // primeau display_order 0, deci ordinea din meniu era nedefinită. Citită O
+  // DATĂ, ca o reîncercare să continue numerotarea, nu s-o ia de la capăt.
+  const baseOrderRef = useRef<number | null>(null)
   const createdCatsRef = useRef<Map<string, string>>(new Map())
   const importedCsvRef = useRef<string | null>(null)
   const attemptedImportRef = useRef(false)
@@ -358,6 +362,10 @@ export default function ProductsCsvImport({
     // pe ACELAȘI CSV păstrează cursorul și sare peste ce s-a inserat deja.
     if (importedCsvRef.current !== csvText) {
       insertedCursorRef.current = 0
+      // Și poziția de pornire se recitește: dedup-ul scoate nume fără să
+      // renumeroteze, deci un CSV editat ar fi refolosit pozițiile primei
+      // încercări (recenzia CodeRabbit pe #352). Un retry pe ACELAȘI CSV o păstrează.
+      baseOrderRef.current = null
       createdCatsRef.current = new Map()
       importedCsvRef.current = csvText
     }
@@ -375,18 +383,25 @@ export default function ProductsCsvImport({
       // fi funcționat doar parțial, tăcut. Citim în pagini până se epuizează.
       const readNames = async (): Promise<Set<string> | null> => {
         const out = new Set<string>()
+        let maxOrder = -1
         const page = 1000
         for (let from = 0; ; from += page) {
           const { data, error: exErr } = await supabase
             .from('products')
-            .select('name')
+            .select('name, display_order')
             .eq('restaurant_id', restaurantId)
             .range(from, from + page - 1)
           if (exErr) return null
           const rows = data ?? []
-          rows.forEach((r) => out.add((r.name as string).trim().toLowerCase()))
+          rows.forEach((r) => {
+            out.add((r.name as string).trim().toLowerCase())
+            const o = (r as { display_order?: unknown }).display_order
+            if (typeof o === 'number' && o > maxOrder) maxOrder = o
+          })
           if (rows.length < page) break
         }
+        // Prima citire completă fixează poziția de pornire (MENU-10).
+        if (baseOrderRef.current == null) baseOrderRef.current = maxOrder + 1
         return out
       }
 
@@ -479,12 +494,15 @@ export default function ProductsCsvImport({
       // `cursor` urmărește poziția în importRows (resume/progress); `added` = câte
       // s-au inserat efectiv (pe retry, sub dbNames, unele se sar).
       const batchSize = 20
+      const baseOrder = baseOrderRef.current ?? 0
       let cursor = insertedCursorRef.current
       for (let i = insertedCursorRef.current; i < importRows.length; i += batchSize) {
         const batch = importRows.slice(i, i + batchSize)
-        let rows = batch.map((r) => ({
+        let rows = batch.map((r, j) => ({
           restaurant_id: restaurantId,
           category_id: catMap.get(r.categorie.toLowerCase())!,
+          // Ordinea din fișier (MENU-10).
+          display_order: baseOrder + i + j,
           name: r.nume,
           description: r.descriere || null,
           price: r.pret!,

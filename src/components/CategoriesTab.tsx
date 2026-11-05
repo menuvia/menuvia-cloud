@@ -253,6 +253,19 @@ export default function CategoriesTab({
   // blocat — altfel produsele ar fi plecat în categoria implicită fără ca omul
   // s-o fi ales (recenzia CodeRabbit pe #346).
   const [countRefreshing, setCountRefreshing] = useState(false)
+  // Lotul O5b (MENU-08): săgețile stau blocate cât se salvează o mutare — două
+  // apăsări rapide porneau de la aceeași ordine veche și se suprapuneau.
+  const [reordering, setReordering] = useState(false)
+  async function moveCategories(next: typeof categories) {
+    if (reordering) return
+    setReordering(true)
+    try {
+      const res = await reorder(next)
+      if (res?.error) toast(toUserMessage(res.error, 'Ordinea nu a putut fi salvată.'), 'error')
+    } finally {
+      setReordering(false)
+    }
+  }
   const openDelete = (id: string) => {
     setDelId(id)
     setMoveTo(categories.find((c) => c.id !== id)?.id ?? '')
@@ -427,12 +440,13 @@ export default function CategoriesTab({
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button
                     aria-label="Mută mai sus"
+                    disabled={reordering}
                     onClick={() => {
                       const idx = categories.indexOf(cat)
                       if (idx > 0) {
                         const reordered = [...categories]
                         ;[reordered[idx - 1], reordered[idx]] = [reordered[idx], reordered[idx - 1]]
-                        reorder(reordered)
+                        void moveCategories(reordered)
                       }
                     }}
                     style={{
@@ -452,12 +466,13 @@ export default function CategoriesTab({
                   </button>
                   <button
                     aria-label="Mută mai jos"
+                    disabled={reordering}
                     onClick={() => {
                       const idx = categories.indexOf(cat)
                       if (idx < categories.length - 1) {
                         const reordered = [...categories]
                         ;[reordered[idx], reordered[idx + 1]] = [reordered[idx + 1], reordered[idx]]
-                        reorder(reordered)
+                        void moveCategories(reordered)
                       }
                     }}
                     style={{
