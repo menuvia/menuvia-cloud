@@ -30,6 +30,7 @@ import { Spinner } from './ui/Spinner'
 import { toUserMessage, zeroRowsAsDenied } from '../lib/userMessages'
 import { soldOutSourceLabel, soldOutFormTarget } from '../lib/soldOut'
 import { confirm as confirmDialog } from './ui/confirm'
+import { fetchProductGroupIds, setProductModifierGroups } from '../lib/modifierLinks'
 
 const ProductsCsvImport = lazy(() => import('./ProductsCsvImport'))
 const AiMenuImport = lazy(() => import('./AiMenuImport'))
@@ -459,6 +460,65 @@ function ProductModal({
     )
     if (!error) setExtras((prev) => prev.filter((e) => e.id !== id))
     else pmToast(toUserMessage(error, 'Nu am putut șterge extra-ul.'), 'error')
+  }
+
+  // ── Grupurile de opțiuni ale produsului (lotul O1b, MENU-02) ─────────
+  // Meniul oaspetelui și fișa ospătarului arată opțiunile DOAR din legăturile
+  // produs ↔ grup; înainte nimic nu le scria, deci grupurile din Meniu →
+  // Opțiuni n-ajungeau la niciun produs. Salvarea e imediată (ca extra-urile),
+  // atomică (mig 319), iar ordinea din fișă e ordinea grupurilor din Opțiuni.
+  const [optGroups, setOptGroups] = useState<{ id: string; name: string; is_required: boolean }[]>([])
+  const [linkedGroupIds, setLinkedGroupIds] = useState<string[]>([])
+  const [optLoad, setOptLoad] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [optSaving, setOptSaving] = useState(false)
+  useEffect(() => {
+    if (!product?.id || !showExtras) return
+    let cancelled = false
+    setOptLoad('loading')
+    void (async () => {
+      try {
+        const [groupsRes, linked] = await Promise.all([
+          supabase
+            .from('modifier_groups')
+            .select('id,name,is_required,display_order')
+            .eq('restaurant_id', restaurantId)
+            .order('display_order'),
+          fetchProductGroupIds(product.id),
+        ])
+        if (cancelled) return
+        if (groupsRes.error) {
+          setOptLoad('error')
+          return
+        }
+        setOptGroups((groupsRes.data ?? []) as { id: string; name: string; is_required: boolean }[])
+        setLinkedGroupIds(linked)
+        setOptLoad('ready')
+      } catch {
+        if (!cancelled) setOptLoad('error')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [product?.id, restaurantId, showExtras])
+
+  async function toggleProductGroup(groupId: string) {
+    if (!product?.id || optSaving) return
+    const prev = linkedGroupIds
+    const chosen = new Set(prev)
+    if (chosen.has(groupId)) chosen.delete(groupId)
+    else chosen.add(groupId)
+    const next = optGroups.filter((g) => chosen.has(g.id)).map((g) => g.id)
+    setLinkedGroupIds(next)
+    setOptSaving(true)
+    try {
+      await setProductModifierGroups(product.id, next)
+    } catch (e) {
+      setLinkedGroupIds(prev)
+      pmToast(toUserMessage(e, 'Nu am putut salva opțiunile produsului.'), 'error')
+    } finally {
+      setOptSaving(false)
+    }
   }
 
   // ── Recipe state (gestiune ingredients) ─────────
@@ -1484,6 +1544,68 @@ function ProductModal({
             </div>
           )}
         </div>
+
+        {/* ── Opțiuni: grupurile legate de produs (lotul O1b) ──────── */}
+        {showExtras && (
+          <section
+            aria-labelledby="product-options-title"
+            style={{ borderTop: `1px solid ${D.border}`, paddingTop: 14, marginTop: 8 }}
+          >
+            <div
+              id="product-options-title"
+              style={{ color: D.t2, fontSize: '0.85rem', fontWeight: 600, marginBottom: 4 }}
+            >
+              Opțiuni
+            </div>
+            <div style={{ fontSize: '0.75rem', color: D.t3, marginBottom: 10, lineHeight: 1.5 }}>
+              Grupurile bifate apar în fișa produsului, pentru client și pentru ospătar.
+            </div>
+            {!product?.id ? (
+              <div style={{ fontSize: '0.78rem', color: D.t2 }}>
+                Salvează produsul mai întâi, apoi alege-i opțiunile.
+              </div>
+            ) : optLoad === 'loading' ? (
+              <div style={{ fontSize: '0.78rem', color: D.t3 }}>Se încarcă opțiunile…</div>
+            ) : optLoad === 'error' ? (
+              <div role="alert" style={{ fontSize: '0.78rem', color: D.red }}>
+                Nu am putut încărca grupurile de opțiuni.
+              </div>
+            ) : optGroups.length === 0 ? (
+              <div style={{ fontSize: '0.78rem', color: D.t2 }}>
+                Nu ai încă grupuri de opțiuni. Le creezi din Meniu → Opțiuni.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {optGroups.map((g) => (
+                  <label
+                    key={g.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      minHeight: 40,
+                      fontSize: '0.85rem',
+                      color: D.t1,
+                      cursor: optSaving ? 'wait' : 'pointer',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={linkedGroupIds.includes(g.id)}
+                      disabled={optSaving}
+                      onChange={() => void toggleProductGroup(g.id)}
+                      style={{ width: 18, height: 18, accentColor: D.gold }}
+                    />
+                    <span>{g.name}</span>
+                    {g.is_required && (
+                      <span style={{ fontSize: '0.7rem', color: D.gold }}>Obligatoriu</span>
+                    )}
+                  </label>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
         {/* ── Upsell: Extras + Pereche (opțional, colapsabil) ──────── */}
         {/* Extras și perechile apar în COȘ, deci doar pe planul cu comenzi
