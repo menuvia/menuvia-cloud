@@ -635,10 +635,10 @@ export default function DashboardPage({
       if (regional.country) storePendingCountry(restaurantId, regional.country)
       try {
         const { error } = await update(restaurantId, regional)
-        if (error) console.warn('[dashboard] setările regionale ale locației noi n-au fost copiate', error)
+        if (error) console.warn('[locații] setările regionale ale locației noi n-au fost copiate', error)
         else clearPendingCountry(restaurantId)
       } catch (e) {
-        console.warn('[dashboard] setările regionale ale locației noi n-au fost copiate', e)
+        console.warn('[locații] setările regionale ale locației noi n-au fost copiate', e)
       }
     }
     const ok = await ensureLocationLoaded(restaurantId, true)
