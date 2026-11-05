@@ -15,6 +15,13 @@
 //         funcției) ca `bad_response`, nu ca SyntaxError brut;
 //   AIC6  ofere un mesaj românesc pentru FIECARE status (describeAiError pur);
 //   AIC7  clasifice corect erorile pentru loturi: cotă vs. configurare.
+//   AIT1  (lotul O6c) traducerea în lot trimite `context` DOAR pe itemele care
+//         îl au, iar promptul spune că nu se traduce și nu se întoarce.
+//         Mutația care pică: `context` scos din payload sau rândul din prompt
+//         scos (un `context` gol pe itemele fără el ar ieși tot din
+//         JSON.stringify, deci nu e o mutație observabilă).
+//   AIT2  un răspuns care întoarce `context` sau `ai_fields` produce doar
+//         nume/descriere — marcajul de verificare îl pune clientul, nu AI-ul.
 //
 // getAiConfig — eroare ≠ fără rând (lotul O7a). supabase-js pune eroarea în
 // `{ error }`; vechiul `if (error || !data) return null` o făcea identică cu
@@ -44,6 +51,7 @@ vi.mock('../supabase', () => ({
 }))
 
 import {
+  aiTranslateBatch,
   describeAiError,
   generateProductImage,
   getAiConfig,
@@ -208,6 +216,50 @@ describe('describeAiError — pur', () => {
     }
     expect(isAiConfigError(null)).toBe(false)
     expect(isAiConfigError('provider_no_images')).toBe(false)
+  })
+})
+
+describe('aiTranslateBatch — contextul itemelor (lotul O6c)', () => {
+  const body = () => {
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    return JSON.parse(String(init.body)) as {
+      system: string
+      messages: { content: string }[]
+    }
+  }
+
+  it('AIT1 `context` pleacă doar pe itemele care îl au; promptul îl explică', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { text: '{}' }))
+    await aiTranslateBatch({
+      restaurant_id: 'r1',
+      items: [
+        { id: 'o1', name: 'Mare', context: 'Opțiune din grupul «Mărime»' },
+        { id: 'p1', name: 'Supă', description: 'Caldă' },
+      ],
+      targetLangs: ['en'],
+    })
+    const b = body()
+    expect(JSON.parse(b.messages[0].content)).toEqual([
+      { id: 'o1', name: 'Mare', context: 'Opțiune din grupul «Mărime»' },
+      { id: 'p1', name: 'Supă', description: 'Caldă' },
+    ])
+    expect(b.system).toContain('`context` e doar pentru înțelegere: nu-l traduce și nu-l întoarce.')
+  })
+
+  it('AIT2 răspunsul cu `context` / `ai_fields` dă doar nume și descriere', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        text: JSON.stringify({
+          o1: { en: { name: 'Large', context: 'Option from group', ai_fields: ['name'] } },
+        }),
+      }),
+    )
+    const out = await aiTranslateBatch({
+      restaurant_id: 'r1',
+      items: [{ id: 'o1', name: 'Mare', context: 'Opțiune din grupul «Mărime»' }],
+      targetLangs: ['en'],
+    })
+    expect(out).toEqual({ o1: { en: { name: 'Large' } } })
   })
 })
 

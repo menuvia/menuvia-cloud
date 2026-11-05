@@ -26,6 +26,7 @@ const TablesManager = lazy(() => import('../components/TablesManager'))
 const TeamManager = lazy(() => import('../components/TeamManager'))
 const AnalyticsTab = lazy(() => import('../components/AnalyticsTab'))
 const ModifiersTab = lazy(() => import('../components/ModifiersTab'))
+const TranslationsTab = lazy(() => import('../components/TranslationsTab'))
 const StocksTab = lazy(() => import('../components/StocksTab'))
 const VatReportTab = lazy(() => import('../components/VatReportTab'))
 const BridgeTab = lazy(() => import('../components/BridgeTab'))
@@ -60,6 +61,7 @@ import { PlanUnknownBanner } from '../components/_dashboard/PlanBanners'
 import { confirm as confirmDialog } from '../components/ui/confirm'
 import type { ConfirmOptions } from '../components/ui/confirm'
 import { menuBaseLang } from '../lib/i18nMenu'
+import { resolveEffectiveMenuLayout } from '../lib/themes'
 import {
   dashboardPathFor,
   settingsSectionOf,
@@ -1653,6 +1655,7 @@ export default function DashboardPage({
                     // Cotele TVA stau în Setări → Comenzi & plăți; partenerul
                     // n-are fila Setări.
                     onOpenVatRates={isPartner ? undefined : () => setTab('settings-orders')}
+                    onOpenTranslations={() => setTab('traduceri')}
                   />
                 </Suspense>
               )}
@@ -1671,6 +1674,27 @@ export default function DashboardPage({
                     restaurantId={restaurant.id}
                     menuLanguages={restaurant.menu_languages ?? []}
                     baseLang={menuBaseLang(restaurant.language)}
+                  />
+                </Suspense>
+              )}
+              {tab === 'traduceri' && (
+                <Suspense fallback={<InlineSpinner label="Se încarcă traducerile…" />}>
+                  <TranslationsTab
+                    // Alt local = alte ciorne și altă limbă aleasă.
+                    key={restaurant.id}
+                    restaurantId={restaurant.id}
+                    slug={restaurant.slug}
+                    menuLanguages={restaurant.menu_languages ?? []}
+                    baseLang={menuBaseLang(restaurant.language)}
+                    // Traducerea AI = munca de MENIU din ai-proxy (o are și
+                    // partenerul cu acces; fondatorul în vizită nu).
+                    canTranslateAi={canUseAiMenu}
+                    // Opțiunile și extra-urile există doar pe planul cu comenzi;
+                    // `null` = planul necunoscut → nu se încarcă.
+                    showOptions={surface == null ? null : surface.extras === true}
+                    isFlipbook={resolveEffectiveMenuLayout(restaurant.theme_settings) === 'flipbook'}
+                    // Limbile meniului se aleg din Setări; partenerul n-are Setările.
+                    onOpenLanguageSettings={isAdminRole ? () => setTab('settings-menu') : undefined}
                   />
                 </Suspense>
               )}

@@ -45,6 +45,12 @@
 //        ramura „ne-admin" pică DOAR dacă flag-ul e scos de pe AMBELE —
 //        fiecare singur e mascat de celălalt (verificat pe modulul transpilat,
 //        recenzia #344).
+//   NV8  „Traduceri” (lotul O6c): ecran NOU (nu e în harta veche), vizibil pe
+//        ORICE plan adminului, ospătarului-ca-membru și partenerului (e în
+//        PARTNER_TAB_IDS: scrie doar tabelele de meniu din mig 286). Mutațiile
+//        care pică: un `minTier` pus pe sub-tab (dispare pe Planul 1) sau
+//        `traduceri` scos din PARTNER_TAB_IDS (partenerul nu-l mai vede).
+//        Control: partenerul NU vede Acasă, pe care un membru ne-admin o vede.
 import { describe, it, expect } from 'vitest'
 import {
   NAV_GROUPS,
@@ -63,6 +69,7 @@ import {
 import { surfaceTiers, type PlanTier } from '../features'
 import { planSurface } from '../planSurface'
 import { featuresFor, surfaceFor } from './planSurfaceFixtures'
+import { isPartnerTab } from '../partnerAccess'
 import type { DbPlan } from './planFeatureMatrix.fixture'
 
 function ctxFor(plan: DbPlan, over: Partial<NavContext> = {}): NavContext {
@@ -211,7 +218,7 @@ describe('dashboardNav — structura (lotul R2)', () => {
       ['acasa', ['home']],
       ['locatii', ['locatii']],
       ['comenzi', ['comenzi', 'reservations', 'casa-tura']],
-      ['meniu', ['products', 'categories', 'modificatori', 'happy-hour', 'gestiune']],
+      ['meniu', ['products', 'categories', 'modificatori', 'traduceri', 'happy-hour', 'gestiune']],
       ['mese-qr', ['mese', 'arhitectura']],
       ['rapoarte', ['raport', 'analytics', 'tva', 'invoices']],
       [
@@ -379,5 +386,26 @@ describe('dashboardNav — „Toate locațiile" (lotul A)', () => {
     expect(st.multiLocationOnly).toBe(true)
     // Titlul paginii.
     expect(subTabLabel(st, surfaceFor('growth'))).toBe('Toate locațiile')
+  })
+})
+
+describe('dashboardNav — „Traduceri" (lotul O6c)', () => {
+  it('NV8: vizibil pe orice plan, adminului și partenerului', () => {
+    for (const plan of ['free', 'starter', 'growth', 'pro'] as DbPlan[]) {
+      expect(visibleIds(ctxFor(plan)), plan).toContain('traduceri')
+      const member = visibleIds(ctxFor(plan, { isAdmin: false }))
+      expect(member, plan).toContain('traduceri')
+      const partner = visibleIds(ctxFor(plan, { isAdmin: false, isPartnerTab }))
+      expect(partner, plan).toContain('traduceri')
+      // Control: filtrul partenerului e real — Acasă (vizibilă unui membru
+      // ne-admin) nu e a partenerului.
+      expect(member, plan).toContain('home')
+      expect(partner, plan).not.toContain('home')
+    }
+    const st = NAV_GROUPS.flatMap((g) => g.subTabs).find((t) => t.id === 'traduceri')
+    if (!st) throw new Error('traduceri lipsește')
+    expect(st.minTier).toBeUndefined()
+    expect(st.adminOnly).toBeUndefined()
+    expect(subTabLabel(st, surfaceFor('free'))).toBe('Traduceri')
   })
 })

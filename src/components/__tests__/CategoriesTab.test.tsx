@@ -137,6 +137,22 @@ describe('CategoriesTab — traduceri manuale', () => {
     })
   })
 
+  it('CT nota de fallback numește limba de BAZĂ a meniului, nu româna fixă', async () => {
+    // Lotul O6c. Mutația care pică: textul vechi „…numele în română”.
+    h.update.mockResolvedValue({ data: makeCategory(), error: null })
+    const { unmount } = render(
+      <CategoriesTab restaurantId="rest-1" menuLanguages={['ro', 'en']} baseLang="fr" />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Editează categorie' }))
+    expect(screen.getByText(/afișează automat numele în Français\./)).toBeInTheDocument()
+    expect(screen.queryByText(/numele în română/)).not.toBeInTheDocument()
+    unmount()
+    // Control: pe meniul românesc, eticheta e a românei.
+    render(<CategoriesTab restaurantId="rest-1" menuLanguages={['en']} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Editează categorie' }))
+    expect(screen.getByText(/afișează automat numele în Română\./)).toBeInTheDocument()
+  })
+
   it('categorie nouă: traducerile tastate pleacă la create', async () => {
     h.categories = []
     h.create.mockResolvedValue({ data: makeCategory(), error: null })
