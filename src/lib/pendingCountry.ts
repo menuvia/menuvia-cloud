@@ -16,7 +16,13 @@
 // Storage-ul care ARUNCĂ (Safari „Block All Cookies", RESID-15) e tratat
 // fail-open: fără storage nu putem reîncerca, dar nici nu rupem pagina.
 // ─────────────────────────────────────────────────────────────
-import { normalizeCountry, restaurantCountryPatch } from './countries'
+import {
+  normalizeCountry,
+  regionalPatchFrom,
+  restaurantCountryPatch,
+  type RegionalPatch,
+  type RegionalSource,
+} from './countries'
 
 export const PENDING_COUNTRY_PREFIX = 'menuvia_pending_country:'
 
@@ -118,5 +124,111 @@ export async function retryPendingCountry(opts: {
     return 'failed'
   }
   clearPendingCountry(opts.restaurantId, storage)
+  return 'saved'
+}
+
+// ── Setările regionale ale unei LOCAȚII NOI (lotul G1) ───────────────────────
+// „Adaugă o locație” copiază țara, moneda, fusul și limba de bază ale locației
+// din care a fost creată, printr-un UPDATE separat după `create_restaurant`.
+// Intenția păstrată e PATCH-UL ÎNTREG, nu doar țara (recenzia CodeRabbit pe
+// #358): reîncercarea doar cu țara ar fi pus moneda și fusul IMPLICITE ale
+// țării (nu cele alese de mână la sursă) și ar fi pierdut limba; iar o sursă
+// românească cu o monedă sau un fus personalizat n-ar fi păstrat nimic.
+
+export const PENDING_REGIONAL_PREFIX = 'menuvia_pending_regional:'
+
+function regionalKeyFor(restaurantId: string): string {
+  return PENDING_REGIONAL_PREFIX + restaurantId
+}
+
+/** Păstrează patch-ul regional (doar câmpurile valide, nesimplicite). */
+export function storePendingRegional(
+  restaurantId: string,
+  patch: RegionalPatch,
+  storage: KeyValueStorage | null = browserStorage(),
+): void {
+  const clean = regionalPatchFrom(patch)
+  if (!storage || !clean) return
+  try {
+    storage.setItem(regionalKeyFor(restaurantId), JSON.stringify(clean))
+  } catch {
+    /* storage blocat — fail-open */
+  }
+}
+
+/** Patch-ul păstrat, re-validat (o valoare stricată sau străină → null). */
+export function readPendingRegional(
+  restaurantId: string,
+  storage: KeyValueStorage | null = browserStorage(),
+): RegionalPatch | null {
+  if (!storage) return null
+  try {
+    const raw = storage.getItem(regionalKeyFor(restaurantId))
+    if (!raw) return null
+    const parsed: unknown = JSON.parse(raw)
+    if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    return regionalPatchFrom(parsed as RegionalSource)
+  } catch {
+    return null
+  }
+}
+
+export function clearPendingRegional(
+  restaurantId: string,
+  storage: KeyValueStorage | null = browserStorage(),
+): void {
+  if (!storage) return
+  try {
+    storage.removeItem(regionalKeyFor(restaurantId))
+  } catch {
+    /* storage blocat — fail-open */
+  }
+}
+
+/**
+ * Reîncearcă patch-ul regional păstrat, DOAR cu câmpurile care încă diferă de
+ * restaurant (o parte poate fi deja salvată, sau schimbată între timp din
+ * Setări — nu o suprascriem). Țara o poate schimba doar owner-ul (mig 296).
+ * Intenția se șterge DOAR pe 'already_set' / 'saved' / valoare invalidă.
+ */
+export async function retryPendingRegional(opts: {
+  restaurantId: string
+  current: RegionalSource | null | undefined
+  isOwner: boolean
+  update: (patch: RegionalPatch) => Promise<{ error: unknown }>
+  storage?: KeyValueStorage | null
+}): Promise<PendingCountryResult> {
+  const storage = opts.storage === undefined ? browserStorage() : opts.storage
+  const raw = (() => {
+    try {
+      return storage?.getItem(regionalKeyFor(opts.restaurantId)) ?? null
+    } catch {
+      return null
+    }
+  })()
+  if (!raw) return 'none'
+  const patch = readPendingRegional(opts.restaurantId, storage)
+  if (!patch) {
+    clearPendingRegional(opts.restaurantId, storage)
+    return 'none'
+  }
+  const cur = opts.current ?? {}
+  const remaining: RegionalPatch = {}
+  if (patch.country && normalizeCountry(cur.country) !== patch.country) remaining.country = patch.country
+  if (patch.currency && cur.currency !== patch.currency) remaining.currency = patch.currency
+  if (patch.timezone && cur.timezone !== patch.timezone) remaining.timezone = patch.timezone
+  if (patch.language && cur.language !== patch.language) remaining.language = patch.language
+  if (Object.keys(remaining).length === 0) {
+    clearPendingRegional(opts.restaurantId, storage)
+    return 'already_set'
+  }
+  if (remaining.country && !opts.isOwner) return 'not_owner'
+  try {
+    const { error } = await opts.update(remaining)
+    if (error) return 'failed'
+  } catch {
+    return 'failed'
+  }
+  clearPendingRegional(opts.restaurantId, storage)
   return 'saved'
 }
