@@ -58,6 +58,16 @@ export type Tab =
   | 'settings-account'
   | 'ai'
 
+// Filele în care trimite Acasă (pașii de configurare, acțiunile rapide, banda
+// casei de marcat). Stau aici, nu în HomeTab.tsx: `comenzi` e un id de tab, nu
+// text, dar scanerul de text vizibil (SK5, doar fișiere .tsx) l-ar număra drept
+// cuvânt românesc (lotul L3a).
+export type HomeNavTarget = Extract<
+  Tab,
+  'products' | 'categories' | 'mese' | 'raport' | 'comenzi' | 'echipa' | 'casa-marcat'
+>
+export const LIVE_ORDERS_TAB = 'comenzi' satisfies HomeNavTarget
+
 export interface SubTab {
   id: Tab
   label: string

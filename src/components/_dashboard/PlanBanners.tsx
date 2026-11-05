@@ -8,6 +8,9 @@
 // a ieșit în lotul P: upsell-ul e unul singur, pe Acasă (PlanUpsellCard).
 // ─────────────────────────────────────────────────────────────
 import { D } from '../../lib/constants'
+import { useT } from '../../i18n/useT'
+import { homeNs } from '../../i18n/ns/home'
+import { commonNs } from '../../i18n/ns/common'
 
 /**
  * Citirea planului a EȘUAT (useFeatures.loadError, fără un plan cunoscut din
@@ -16,6 +19,8 @@ import { D } from '../../lib/constants'
  * Inline (nu fixată jos): nu interceptează click-urile din bara de navigare.
  */
 export function PlanUnknownBanner({ onRetry }: { onRetry: () => void }) {
+  const { t } = useT(homeNs)
+  const tc = useT(commonNs)
   return (
     <div
       role="alert"
@@ -32,7 +37,7 @@ export function PlanUnknownBanner({ onRetry }: { onRetry: () => void }) {
       }}
     >
       <div style={{ flex: '1 1 240px', color: D.t1, fontSize: '0.85rem', lineHeight: 1.5 }}>
-        Nu am putut încărca planul restaurantului. Până se încarcă, unele secțiuni rămân ascunse.
+        {t('planUnknown_text')}
       </div>
       <button
         onClick={onRetry}
@@ -50,7 +55,7 @@ export function PlanUnknownBanner({ onRetry }: { onRetry: () => void }) {
           cursor: 'pointer',
         }}
       >
-        Reîncearcă
+        {tc.t('retry')}
       </button>
     </div>
   )

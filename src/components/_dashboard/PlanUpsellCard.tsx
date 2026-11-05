@@ -8,11 +8,16 @@
 //   'ordering' → Planul 1 trece la „Meniu + Comenzi";
 //   'payments' → Planul 2 trece la „Plata la masă" (Fiscalizarea).
 // Numele planurilor vin DOAR din PLAN_LABELS (direct sau prin PLAN_NAMES, care
-// e derivat din el — regula 4).
+// e derivat din el — regula 4) și NU se traduc; restul textului e în
+// namespace-ul `home` (lotul L3a).
 // ─────────────────────────────────────────────────────────────
 import { D, PLAN_LABELS } from '../../lib/constants'
 import { PLAN_NAMES } from '../../lib/features'
 import type { PlanUpsellTarget } from '../../lib/planSurface'
+import type { Translator } from '../../i18n/core'
+import { useT } from '../../i18n/useT'
+import { homeNs } from '../../i18n/ns/home'
+import type homeRo from '../../i18n/ns/home/ro'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { Icon } from '../ui/Icon'
@@ -23,25 +28,28 @@ interface UpsellCopy {
   benefits: readonly [string, string, string]
 }
 
-const COPY: Record<PlanUpsellTarget, UpsellCopy> = {
-  ordering: {
+type HomeTr = Translator<typeof homeRo>['t']
+
+// O funcție per țintă (nu un `if`): o țintă nouă fără text e eroare de compilare.
+const COPY: Record<PlanUpsellTarget, (t: HomeTr) => UpsellCopy> = {
+  ordering: (t) => ({
     title: PLAN_NAMES.growth,
-    lead: 'Clienții comandă singuri, iar bucătăria primește comanda pe loc.',
+    lead: t('upsell_orderingLead'),
     benefits: [
-      'Comenzi de la masă, prin QR',
-      'Ecran de bucătărie pentru comenzile noi',
-      'Comenzi pentru ridicare',
+      t('upsell_orderingBenefit1'),
+      t('upsell_orderingBenefit2'),
+      t('upsell_orderingBenefit3'),
     ],
-  },
-  payments: {
-    title: 'Plata la masă',
-    lead: `Pe planul ${PLAN_LABELS.pro}.`,
+  }),
+  payments: (t) => ({
+    title: t('upsell_paymentsTitle'),
+    lead: t('upsell_paymentsLead', { plan: PLAN_LABELS.pro }),
     benefits: [
-      'Oaspetele plătește din telefon',
-      'Bonul fiscal se emite automat',
-      'Încasările și TVA-ul se raportează singure',
+      t('upsell_paymentsBenefit1'),
+      t('upsell_paymentsBenefit2'),
+      t('upsell_paymentsBenefit3'),
     ],
-  },
+  }),
 }
 
 export function PlanUpsellCard({
@@ -51,9 +59,10 @@ export function PlanUpsellCard({
   target: PlanUpsellTarget
   onSeePlan: () => void
 }) {
-  const copy = COPY[target]
+  const { t } = useT(homeNs)
+  const copy = COPY[target](t)
   return (
-    <section aria-label={`Ofertă: ${copy.title}`}>
+    <section aria-label={t('upsell_regionLabel', { title: copy.title })}>
       <Card variant="raised" style={{ border: `1px solid ${D.goldBorder}` }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 240px', minWidth: 0 }}>
@@ -99,7 +108,7 @@ export function PlanUpsellCard({
             </ul>
           </div>
           <Button variant="primary" onClick={onSeePlan} style={{ alignSelf: 'center' }}>
-            Vezi planul
+            {t('upsell_seePlan')}
             <Icon name="chevronRight" size={16} />
           </Button>
         </div>
