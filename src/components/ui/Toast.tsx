@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ToastContext, type ToastApi, type ToastKind } from './useToast'
+import { chromeT } from '../../i18n/chrome'
+import { useChrome } from '../../i18n/useChromeLang'
 import '../../styles/components/toast.css'
 
 interface ToastEntry {
@@ -82,10 +84,21 @@ function ToastViewport({
   toasts: ToastEntry[]
   onDismiss: (id: number) => void
 }) {
+  // Etichetele urmează limba paginii (`<html lang>`, lotul L1). Când tabelul a
+  // căzut pe altă limbă (pagină `it` → etichete `en`), regiunea și butonul își
+  // declară limba, iar mesajul (textul paginii) o păstrează pe a paginii.
+  const { lang, fallback, pageLang } = useChrome()
+  const closeLabel = chromeT(lang, 'toast_close')
   // SSR-safe — randăm doar pe client (document există).
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div className="toast-viewport" role="region" aria-label="Notificări" aria-live="polite">
+    <div
+      className="toast-viewport"
+      role="region"
+      aria-label={chromeT(lang, 'toast_region')}
+      aria-live="polite"
+      lang={fallback}
+    >
       {toasts.map((t) => (
         <div
           key={t.id}
@@ -95,12 +108,14 @@ function ToastViewport({
           <span className="toast__icon" aria-hidden="true">
             {ICON[t.kind]}
           </span>
-          <span className="toast__message">{t.message}</span>
+          <span className="toast__message" lang={fallback ? pageLang : undefined}>
+            {t.message}
+          </span>
           <button
             type="button"
             className="toast__close"
             onClick={() => onDismiss(t.id)}
-            aria-label="Închide notificarea"
+            aria-label={closeLabel}
           >
             ×
           </button>
