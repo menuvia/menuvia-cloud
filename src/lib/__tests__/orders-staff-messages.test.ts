@@ -64,6 +64,14 @@ describe('describeEditOrderError', () => {
         /modificată între timp de altcineva/i,
       ],
       [
+        'linie-sursă dispărută (mig 320: editare concurentă cu același total)',
+        {
+          message: 'update_order_items: linia sursă nu aparține comenzii sau produsului "Burger"',
+          hint: 'invalid_source_item',
+        },
+        /modificată între timp de altcineva/i,
+      ],
+      [
         'plăți parțiale',
         {
           message:
