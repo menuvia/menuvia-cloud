@@ -19,7 +19,7 @@ import {
   isAiConfigError,
   isAiQuotaError,
 } from '../lib/ai'
-import type { Translations } from '../lib/i18nMenu'
+import { activeTranslationLangs, type Translations } from '../lib/i18nMenu'
 import { toUserMessage } from '../lib/userMessages'
 
 // Erorile AI vin deja în română (lib/ai.ts); restul trec prin toUserMessage.
@@ -50,6 +50,7 @@ export default function AiBulkGenerate({
   products,
   categories,
   menuLanguages = [],
+  baseLang = 'ro',
   onClose,
   onDone,
   translateOnly = false,
@@ -59,6 +60,8 @@ export default function AiBulkGenerate({
   categories: Category[]
   /** Limbile extra alese de restaurant (Setări → Aspect meniu → Limbi meniu). [] = fără traduceri. */
   menuLanguages?: string[]
+  /** Limba în care e scris meniul (lotul O6a): sursa traducerilor AI. */
+  baseLang?: string
   onClose: () => void
   onDone: () => void
   /**
@@ -70,7 +73,7 @@ export default function AiBulkGenerate({
 }) {
   useBodyScrollLock(true)
   const isMobile = useIsMobile()
-  const langs = menuLanguages.filter((c) => c !== 'ro')
+  const langs = activeTranslationLangs(menuLanguages, baseLang)
   const hasLangs = langs.length > 0
   const [doImages, setDoImages] = useState(!translateOnly)
   const [doNutrition, setDoNutrition] = useState(!translateOnly)
@@ -152,6 +155,7 @@ export default function AiBulkGenerate({
             restaurant_id: restaurantId,
             items: group.map((c) => ({ id: c.id, name: c.name })),
             targetLangs: langs,
+            sourceLang: baseLang,
           })
         } catch (e) {
           if (isAiQuotaError(e)) {
@@ -192,6 +196,7 @@ export default function AiBulkGenerate({
             restaurant_id: restaurantId,
             items: group.map((p) => ({ id: p.id, name: p.name, description: p.description })),
             targetLangs: langs,
+            sourceLang: baseLang,
           })
         } catch (e) {
           if (isAiQuotaError(e)) {

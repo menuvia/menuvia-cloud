@@ -85,6 +85,27 @@ describe('availableMenuLangs — derivare din conținut + intersecție', () => {
     expect(availableMenuLangs(categories, null)).toEqual(['en', 'de'])
   })
 
+  it('ML7 o limbă tradusă doar pe opțiuni / extra-uri / subtitlu apare (recenzia pe #355)', () => {
+    const tr = (code: string): Translations => ({ [code]: { name: 'x' } }) as Translations
+    const onlyOption = [
+      {
+        products: [
+          { modifier_groups: [{ translations: {}, modifier_options: [{ translations: tr('fr') }] }] },
+        ],
+      },
+    ]
+    expect(availableMenuLangs(onlyOption)).toEqual(['fr'])
+    const onlyGroup = [{ products: [{ modifier_groups: [{ translations: tr('de') }] }] }]
+    expect(availableMenuLangs(onlyGroup)).toEqual(['de'])
+    const onlyExtra = [{ products: [{ extras: [{ translations: tr('en') }] }] }]
+    expect(availableMenuLangs(onlyExtra)).toEqual(['en'])
+    const onlySubtitle = [{ translations: { it: { meta_text: 'Primi piatti' } } as Translations }]
+    expect(availableMenuLangs(onlySubtitle)).toEqual(['it'])
+    // Control: textele goale nu fac o limbă.
+    const blank = [{ products: [{ extras: [{ translations: { en: { name: '  ' } } as Translations }] }] }]
+    expect(availableMenuLangs(blank)).toEqual([])
+  })
+
   it('limbile necunoscute din translations sunt ignorate', () => {
     const cats = [{ translations: { xx: { name: 'ceva' } } as Translations }]
     expect(availableMenuLangs(cats)).toEqual([])

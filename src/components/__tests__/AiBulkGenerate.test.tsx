@@ -14,6 +14,8 @@
 //         butonul face doar traduceri. Mutația care pică: prop-ul ignorat
 //         (bifele randate, `doImages`/`doNutrition` pornite → 403 pe nutriție).
 //   ABG5  control: fără prop, bifele și „Generează pentru N produse" rămân.
+//   ABG6  pe un meniu cu altă bază (fr), traducerea AI pleacă din bază și
+//         include româna ca țintă (recenzia O6a).
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -153,6 +155,30 @@ describe('AiBulkGenerate — doar traduceri pentru agent', () => {
     expect(screen.queryByText(/Imagini \(/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Macronutrienți/)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Generează traduceri' })).toBeInTheDocument()
+  })
+
+  it('ABG6: pe un meniu francez traducerea pleacă DIN franceză, inclusiv spre română', async () => {
+    // Recenzia O6a. Mutația care pică: filtrul `c !== 'ro'` fix — româna nu
+    // mai e țintă (1 limbă în loc de 2) și AI-ul primește „din română”.
+    translate.mockResolvedValue({})
+    render(
+      <AiBulkGenerate
+        restaurantId="r1"
+        products={[product('a', { calories: null })]}
+        categories={[]}
+        menuLanguages={['ro', 'en']}
+        baseLang="fr"
+        translateOnly
+        onClose={() => {}}
+        onDone={() => {}}
+      />,
+    )
+    expect(screen.getByText(/Traduceri în 2 limbi/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Generează traduceri' }))
+    expect(await screen.findByText('Gata!')).toBeInTheDocument()
+    expect(translate).toHaveBeenCalledWith(
+      expect.objectContaining({ targetLangs: ['ro', 'en'], sourceLang: 'fr' }),
+    )
   })
 
   it('ABG5: control — fără prop, bifele de imagini și nutriție rămân', () => {

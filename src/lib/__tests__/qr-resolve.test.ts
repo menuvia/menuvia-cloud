@@ -39,7 +39,7 @@ const NET_DOWN = { data: null, error: { message: 'TypeError: Load failed', code:
 const RESOLVED_PAYLOAD = {
   token: { id: 'tok-1', restaurant_id: 'r1', table_id: 't1', token: 'abc', is_active: true },
   table: { id: 't1', restaurant_id: 'r1', name: 'Masa 1' },
-  restaurant: { id: 'r1', name: 'Bistro', primary_color: '#C8963C', menu_languages: ['en'] },
+  restaurant: { id: 'r1', name: 'Bistro', primary_color: '#C8963C', menu_languages: ['en'], language: 'fr' },
   orderingAllowed: true,
 }
 
@@ -88,6 +88,19 @@ describe('resolveQrToken / resolveQrMenu — rețeaua nu se deghizează în „Q
     expect(out?.resolved.restaurant.id).toBe('r1')
     expect(out?.resolved.restaurant.menu_languages).toEqual(['en'])
     expect(out?.menu).toEqual([])
+  })
+
+  it('QZ3c limba de bază a meniului ajunge pe /q, pe ambele căi (recenzia O6a)', async () => {
+    // Mutație: `language` scos din maparea QR → undefined, iar /q pornea din
+    // română pe un meniu scris în franceză.
+    rpcWorld({ resolve_qr_menu: { data: { resolved: RESOLVED_PAYLOAD, menu: [] }, error: null } })
+    expect((await resolveQrMenu('abc'))?.resolved.restaurant.language).toBe('fr')
+    rpcWorld({
+      resolve_qr_menu: { data: null, error: { message: 'function not found', code: 'PGRST202' } },
+      resolve_qr_token: { data: RESOLVED_PAYLOAD, error: null },
+      get_menu_for_restaurant: { data: [], error: null },
+    })
+    expect((await resolveQrMenu('abc'))?.resolved.restaurant.language).toBe('fr')
   })
 })
 
