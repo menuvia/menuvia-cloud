@@ -245,11 +245,14 @@ export default function TranslationsTab({
     [units, lang, baseLang],
   )
 
-  // Ultimele valori pentru callback-urile stabile ale rândurilor.
+  // Ultimele valori pentru callback-urile stabile ale rândurilor, actualizate
+  // după commit (nu în randare: o randare abandonată n-are voie să le schimbe).
   const unitsRef = useRef(units)
-  unitsRef.current = units
   const draftsRef = useRef(drafts)
-  draftsRef.current = drafts
+  useEffect(() => {
+    unitsRef.current = units
+    draftsRef.current = drafts
+  }, [units, drafts])
 
   const resetSession = () => {
     setSavedKeys(new Set())

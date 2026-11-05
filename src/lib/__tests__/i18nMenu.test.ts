@@ -27,6 +27,10 @@
 //        ciornă e „nesalvată” doar când diferă, după trim, de numele salvat pe
 //        limba ei. Mutația care pică: comparația fără trim (o ciornă egală cu
 //        textul salvat, sau doar cu spații pe un câmp gol, ar cere confirmare).
+//   TC7  consumeRequestedMenuLang (recenzie CodeRabbit pe #356): `?lang=` se
+//        consumă doar după o încărcare REUȘITĂ a meniului; în încărcare și după
+//        o eroare cererea rămâne pentru „Reîncearcă”. Mutația care pică: garda
+//        doar pe `loading` (eroarea consuma cererea).
 import { describe, it, expect } from 'vitest'
 import {
   normalizeMenuSearch,
@@ -44,6 +48,7 @@ import {
   langFromSearch,
   requestedMenuLang,
   nameDraftsDirty,
+  consumeRequestedMenuLang,
   type TranslationEntry,
   type Translations,
 } from '../i18nMenu'
@@ -407,5 +412,20 @@ describe('TC6 nameDraftsDirty', () => {
     expect(nameDraftsDirty(undefined, stored)).toBe(false)
     // Gunoi în coloană: tratat ca gol, fără excepție.
     expect(nameDraftsDirty({ en: '' }, { en: 'x' } as unknown as Translations)).toBe(false)
+  })
+})
+
+describe('TC7 consumeRequestedMenuLang', () => {
+  const avail = ['en', 'de']
+
+  it('în încărcare sau după o eroare, cererea rămâne (undefined)', () => {
+    expect(consumeRequestedMenuLang('en', { loading: true, failed: false }, avail, 'ro')).toBeUndefined()
+    expect(consumeRequestedMenuLang('en', { loading: false, failed: true }, avail, 'ro')).toBeUndefined()
+  })
+
+  it('după o încărcare reușită: limba oferită, altfel baza (null)', () => {
+    expect(consumeRequestedMenuLang('en', { loading: false, failed: false }, avail, 'ro')).toBe('en')
+    expect(consumeRequestedMenuLang('fr', { loading: false, failed: false }, avail, 'ro')).toBeNull()
+    expect(consumeRequestedMenuLang('ro', { loading: false, failed: false }, avail, 'ro')).toBeNull()
   })
 })

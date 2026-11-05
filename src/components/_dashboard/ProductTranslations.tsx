@@ -10,7 +10,7 @@
 //   - „Am verificat” scoate marcajele unei limbi fără să schimbe textul.
 // Importă din lib/ai DOAR aiTranslateBatch: suitele ProductsTab mock-uiesc
 // modulul cu exact cinci exporturi.
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { D } from '../../lib/constants'
 import { aiTranslateBatch } from '../../lib/ai'
 import {
@@ -78,8 +78,13 @@ export function ProductTranslations({
   const [busy, setBusy] = useState(false)
   // Formularul cel mai nou (după `await`): traducerea AI se aplică peste ce a
   // tastat omul între timp, nu peste instantaneul de la click.
+  // Actualizat în efect, nu în randare (recenzie CodeRabbit pe #356): o
+  // randare abandonată de React n-are voie să lase în ref o valoare care nu
+  // e în formular.
   const latestRef = useRef(translations)
-  latestRef.current = translations
+  useEffect(() => {
+    latestRef.current = translations
+  }, [translations])
 
   if (langs.length === 0) return null
 

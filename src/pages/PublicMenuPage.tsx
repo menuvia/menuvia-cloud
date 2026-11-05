@@ -35,7 +35,7 @@ import {
   menuBaseLang,
   normalizeMenuSearch,
   langFromSearch,
-  requestedMenuLang,
+  consumeRequestedMenuLang,
 } from '../lib/i18nMenu'
 import type { CartItem } from '../lib/orders'
 import { addOrMergeCartItem, lineTotal } from '../lib/orders'
@@ -394,8 +394,13 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     // declarat MAI SUS, deci în commit-ul în care `loading` devine false rulează
     // înaintea acestuia și nu-i șterge alegerea.
     if (urlLangRef.current !== null) {
-      if (loading) return
-      const pick = requestedMenuLang(urlLangRef.current, availableLangs, baseLang)
+      const pick = consumeRequestedMenuLang(
+        urlLangRef.current,
+        { loading, failed: error !== null },
+        availableLangs,
+        baseLang,
+      )
+      if (pick === undefined) return
       urlLangRef.current = null
       userPickedLangRef.current = true
       setPickedLang(pick)
@@ -413,7 +418,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     if (userPickedLangRef.current || menuLang !== baseLang) return
     const detected = detectBrowserLang(availableLangs, baseLang)
     if (detected) setPickedLang(detected)
-  }, [availableLangs, menuLang, baseLang, loading])
+  }, [availableLangs, menuLang, baseLang, loading, error])
 
   const allProducts = useMemo(
     () => localizedCategories.flatMap((c) => c.products),

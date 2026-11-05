@@ -438,3 +438,20 @@ export function requestedMenuLang(
 ): string | null {
   return requested != null && requested !== base && available.includes(requested) ? requested : null
 }
+
+/**
+ * Se poate consuma acum cererea `?lang=` (previzualizarea)? Doar după o
+ * încărcare REUȘITĂ a meniului: în încărcare sau după o eroare, `undefined`, iar
+ * cererea rămâne pentru „Reîncearcă” (recenzie CodeRabbit pe #356 — consumată
+ * pe eroare, previzualizarea revenea la bază după retry). Altfel limba aleasă:
+ * `null` = baza.
+ */
+export function consumeRequestedMenuLang(
+  requested: string,
+  state: { loading: boolean; failed: boolean },
+  available: readonly string[],
+  base: string,
+): string | null | undefined {
+  if (state.loading || state.failed) return undefined
+  return requestedMenuLang(requested, available, base)
+}
