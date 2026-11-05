@@ -393,14 +393,30 @@ describe('OrderCard — „Retipărește la bucătărie” (lotul O3b)', () => {
     const order = makeOrder({ status: 'preparing' })
     const onReprint = vi.fn()
     const { rerender } = render(
-      <OrderCard order={order} paymentsEnabled={null} onReprint={onReprint} reprinting />,
+      <OrderCard
+        order={order}
+        paymentsEnabled={null}
+        onPayOpen={vi.fn()}
+        onSplitOpen={vi.fn()}
+        onReprint={onReprint}
+        reprinting
+      />,
     )
     const busy = screen.getByRole('button', { name: /retipărește la bucătărie/i })
     expect(busy).toBeDisabled()
     await userEvent.click(busy)
     expect(onReprint).not.toHaveBeenCalled()
     // Control pozitiv: fără retipărire în curs, un tap cheamă handlerul.
-    rerender(<OrderCard order={order} paymentsEnabled={null} onReprint={onReprint} reprinting={false} />)
+    rerender(
+      <OrderCard
+        order={order}
+        paymentsEnabled={null}
+        onPayOpen={vi.fn()}
+        onSplitOpen={vi.fn()}
+        onReprint={onReprint}
+        reprinting={false}
+      />,
+    )
     await userEvent.click(screen.getByRole('button', { name: /retipărește la bucătărie/i }))
     expect(onReprint).toHaveBeenCalledTimes(1)
     expect(onReprint).toHaveBeenCalledWith(order)
