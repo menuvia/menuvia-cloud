@@ -15,6 +15,9 @@
 //   - 'card': cardul rămâne pe loc (ex. „Confirmă" pe Bucătărie: new și
 //     confirmed stau în aceeași coloană) → în fereastră e respins doar un tap
 //     pe ACELAȘI card (cu RPC-ul rapid, butonul lui arată deja pasul următor).
+//     Garda ține doar dacă ȘI acel pas trece prin ea — inclusiv „Plată
+//     integrală” / „Plată parțială”, care iau locul lui „Servit” pe Planul 3
+//     (recenzia O7b, WP8/WP9).
 //     Un tap pe alt card e DELIBERAT — bucătarul confirmă trei comenzi la rând
 //     — și trece. Cu o singură fereastră globală, al doilea „Confirmă" era
 //     înghițit tăcut.
