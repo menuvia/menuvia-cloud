@@ -5,6 +5,8 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { RestaurantProvider, useRestaurantCtx } from './contexts/RestaurantContext'
 // Limba personalului (L0b): modul mic, fără dicționare — sigur în intrare.
 import { UiLangProvider } from './i18n/UiLangContext'
+import { browserChromeLang, chromeT } from './i18n/chrome'
+import { useDocumentLang } from './hooks/useDocumentLang'
 import { supabase, SUPABASE_CONFIGURED } from './lib/supabase'
 import { ROUTE_CHANGE_EVENT } from './lib/routeEvents'
 import { CheckoutError, describeCheckoutFailure, readCheckoutUrl } from './lib/checkout'
@@ -191,13 +193,18 @@ function parsePath(): RouteState {
 }
 
 function NotFoundPage({ navigate }: { navigate: (p: string) => void }) {
+  // Nicio pagină nu-și declară limba aici, deci 404 ia limba browserului (din
+  // cele patru ale cromului) și o pune pe `<html lang>` — și bannerul de
+  // cookies o urmează (lotul L1).
+  const [lang] = useState(browserChromeLang)
+  useDocumentLang(lang)
   useEffect(() => {
     const prevTitle = document.title
-    document.title = 'Pagina nu a fost găsită — Menuvia'
+    document.title = chromeT(lang, 'nf_doc_title')
     return () => {
       document.title = prevTitle
     }
-  }, [])
+  }, [lang])
   return (
     <div
       style={{
@@ -220,7 +227,7 @@ function NotFoundPage({ navigate }: { navigate: (p: string) => void }) {
           404
         </div>
         <h1 style={{ color: D.t2, fontSize: 16, fontWeight: 400, marginBottom: 24 }}>
-          Pagina nu a fost găsită.
+          {chromeT(lang, 'nf_heading')}
         </h1>
         <button
           onClick={() => navigate('/')}
@@ -237,7 +244,7 @@ function NotFoundPage({ navigate }: { navigate: (p: string) => void }) {
             fontFamily: 'DM Sans,sans-serif',
           }}
         >
-          Acasă
+          {chromeT(lang, 'nf_home')}
         </button>
       </div>
     </div>
