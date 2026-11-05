@@ -18,6 +18,7 @@ import { useReservations } from '../hooks/useReservations'
 import { useOfflineOrderQueue } from '../hooks/useOfflineOrderQueue'
 import { useAudioUnlock } from '../hooks/useAudioUnlock'
 import { createTapGuard } from '../lib/tapGuard'
+import { waiterForwardStep } from '../lib/waiterSteps'
 import type { Order, PaymentMethod, OrderConfirmationPayload } from '../lib/orders'
 import { D } from '../lib/constants'
 import { playSound } from '../lib/utils'
@@ -567,6 +568,45 @@ export default function WaiterPage() {
       void advance(order.id, 'ready', { status: 'served', served_by: user.id })
     },
     [user, advance, tapGuard],
+  )
+
+  // Planul 3 (lotul O7b): pasul următor de pe card — un singur advance_order
+  // per tap (lib/waiterSteps.ts). Statusul REAL al comenzii, nu unul hardcodat:
+  // advanceOrderStatus derivă acțiunea (start_preparing / mark_ready /
+  // mark_served) din perechea curent → țintă. Garda de dublu-tap e pe cheia
+  // comenzii, cu domeniul pasului ('list' doar când pasul intră/iese din
+  // `ready` și cardurile se re-așază). Refuzul rămâne contractul useOrders:
+  // lacăt, rollback + refetch, mesaj în română pe card.
+  const handleForwardStep = useCallback(
+    (order: Order): void => {
+      const step = waiterForwardStep(order)
+      if (user == null || step == null || !tapGuard(order.id, step.scope)) return
+      void advance(
+        order.id,
+        order.status,
+        step.target === 'served' ? { status: 'served', served_by: user.id } : { status: step.target },
+      )
+    },
+    [user, advance, tapGuard],
+  )
+
+  // Recenzia O7b: intrările spre plată trec prin ACEEAȘI gardă. „Servit” de pe
+  // card aplică optimist `served`, iar în locul butonului de pas apar, fix sub
+  // deget, „Plată integrală | Plată parțială”: al doilea tap al unui dublu-tap
+  // deschidea PayModal / plata parțială cu mark_served încă în aer (la un
+  // refuz, cardul revenea pe `preparing` cu modalul de plată deschis peste
+  // el). Domeniul 'card': plata pe ALT card rămâne liberă.
+  const handlePayOpen = useCallback(
+    (order: Order): void => {
+      if (tapGuard(order.id, 'card')) setPayOrder(order)
+    },
+    [tapGuard],
+  )
+  const handleSplitOpen = useCallback(
+    (order: Order): void => {
+      if (tapGuard(order.id, 'card')) openSplitBill(order)
+    },
+    [tapGuard, openSplitBill],
   )
 
   /** Încasează comanda din PayModal; la refuz întoarce mesajul serverului (modalul rămâne deschis). */
@@ -1466,8 +1506,8 @@ export default function WaiterPage() {
                     <OrderCard
                       key={order.id}
                       order={order}
-                      onPayOpen={setPayOrder}
-                      onSplitOpen={openSplitBill}
+                      onPayOpen={handlePayOpen}
+                      onSplitOpen={handleSplitOpen}
                       onEdit={setEditOrder}
                       onCancel={setCancelOrder}
                       onReprint={onReprint}
@@ -1475,6 +1515,9 @@ export default function WaiterPage() {
                       onAudit={isAdminRole ? setAuditOrder : undefined}
                       paymentsEnabled={paymentsEnabled}
                       onCloseOrder={handleCloseOrder}
+                      // `ready` are deja „Servit” în „Gata de servit” (ReadyOrderCard):
+                      // un al doilea buton pentru aceeași comandă ar fi dublură.
+                      onAdvance={order.status === 'ready' ? undefined : handleForwardStep}
                       onCloseTable={handleCloseTable}
                       sessionUnservedCount={sessionUnservedCount(order)}
                       pending={pendingIds.has(order.id)}
@@ -1502,8 +1545,8 @@ export default function WaiterPage() {
             renderOrderCard={(order) => (
               <OrderCard
                 order={order}
-                onPayOpen={setPayOrder}
-                onSplitOpen={openSplitBill}
+                onPayOpen={handlePayOpen}
+                onSplitOpen={handleSplitOpen}
                 onEdit={setEditOrder}
                 onCancel={setCancelOrder}
                 onReprint={onReprint}
@@ -1511,6 +1554,9 @@ export default function WaiterPage() {
                 onAudit={isAdminRole ? setAuditOrder : undefined}
                 paymentsEnabled={paymentsEnabled}
                 onCloseOrder={handleCloseOrder}
+                // În „Stadiu mese” ReadyOrderCard NU se randează: fără pasul de
+                // pe card, o comandă `ready` n-avea „Servit”, deci nici plată.
+                onAdvance={handleForwardStep}
                 onCloseTable={handleCloseTable}
                 sessionUnservedCount={sessionUnservedCount(order)}
                 pending={pendingIds.has(order.id)}
