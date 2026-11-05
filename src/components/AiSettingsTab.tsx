@@ -105,8 +105,11 @@ export default function AiSettingsTab({
   useEffect(() => {
     let cancelled = false
     setLoadState('loading')
-    // O cheie tastată pentru restaurantul A nu are voie să plece la B.
+    // O cheie tastată pentru restaurantul A nu are voie să plece la B, iar
+    // mesajul lui A („Configurație salvată”, o eroare de plată) nu are ce căuta
+    // sub B sau după un „Reîncearcă” reușit (recenzia CodeRabbit pe #353).
     setApiKey('')
+    setMsg(null)
     async function load(): Promise<void> {
       const [cfgRes, q] = await Promise.all([
         // Respingerea (eroare de citire SAU de transport) devine stare, nu

@@ -50,6 +50,11 @@
 //        (calea „Vezi planurile" pe `no_customer`). Mutația care pică:
 //        `<SubscriptionCard onSeePlans={() => {}} />` sau `onPricing` neforwardat.
 //        Control negativ: SA2 (managerul nu are cardul deloc).
+//   SA7  (recenzia CodeRabbit pe #353) o imagine în curs de încărcare e muncă
+//        nesalvată: `onDirtyChange(true)` (deci „Adaugă o locație” / alt
+//        restaurant / /pricing întreabă) și `beforeunload` anulat. Control:
+//        înainte de încărcare, formularul neatins raportează false.
+//        Mutația care pică: `onDirtyChange?.(dirty)` (încărcarea ignorată).
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -337,5 +342,43 @@ describe('SettingsTab — reîncărcarea cu modificări nesalvate (recenzia #335
     if (!first) throw new Error('niciun câmp în secțiunea Restaurant')
     await userEvent.setup().type(first, 'x')
     expect(unload()).toBe(true)
+  })
+})
+
+describe('SettingsTab — o încărcare în zbor e nesalvată (recenzia CodeRabbit pe #353)', () => {
+  it('SA7: logo-ul în încărcare raportează „nesalvat” și oprește plecarea', async () => {
+    // Încărcarea rămâne în zbor: jsdom nu încarcă imagini, deci `img.onload`
+    // nu vine niciodată (exact fereastra în care omul ar apăsa altceva).
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue({ drawImage: () => undefined } as unknown as CanvasRenderingContext2D)
+    const createUrl = vi.fn(() => 'blob:logo')
+    const revokeUrl = vi.fn()
+    Object.assign(URL, { createObjectURL: createUrl, revokeObjectURL: revokeUrl })
+    const onDirtyChange = vi.fn()
+    render(
+      <SettingsTab
+        section="restaurant"
+        isOwner
+        restaurant={makeRestaurant()}
+        onUpdate={vi.fn(async () => ({ error: null }))}
+        plan="growth"
+        onSignOut={() => {}}
+        modulesState={modulesState}
+        surface={surfaceFor('growth')}
+        onDirtyChange={onDirtyChange}
+      />,
+    )
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false)
+    const input = screen.getByText('Încarcă logo').querySelector('input[type="file"]')
+    if (!(input instanceof HTMLInputElement)) throw new Error('inputul de logo lipsește')
+    await userEvent.setup().upload(input, new File(['x'], 'logo.png', { type: 'image/png' }))
+    expect(createUrl).toHaveBeenCalled()
+    expect(await screen.findByText('Se încarcă...')).toBeInTheDocument()
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true)
+    const e = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(e)
+    expect(e.defaultPrevented).toBe(true)
+    getContext.mockRestore()
   })
 })

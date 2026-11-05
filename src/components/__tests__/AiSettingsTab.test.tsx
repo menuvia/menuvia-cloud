@@ -34,6 +34,10 @@
 //   AIS6  un răspuns ÎNTÂRZIAT pentru restaurantul anterior nu suprascrie
 //         formularul curent.
 //         Mutația care pică: `if (cancelled) return` scos din efect.
+//   AIS7  (recenzia CodeRabbit pe #353) mesajul unui restaurant („Configurație
+//         salvată”) nu rămâne pe ecran sub restaurantul următor. Control: el
+//         chiar apare după salvare.
+//         Mutația care pică: `setMsg(null)` scos din efectul de încărcare.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -194,6 +198,18 @@ describe('AiSettingsTab — schimbarea restaurantului', () => {
         enabled: true,
       }),
     )
+  })
+
+  it('AIS7: mesajul de salvare al lui r1 nu rămâne sub r2', async () => {
+    h.maybeSingle.mockResolvedValue(NO_ROW)
+    const view = render(<AiSettingsTab restaurantId="r1" />)
+    await userEvent.click(await screen.findByRole('button', SAVE))
+    expect(await screen.findByText(/Configurație salvată/)).toBeInTheDocument()
+
+    view.rerender(<AiSettingsTab restaurantId="r2" />)
+    await waitFor(() => expect(h.maybeSingle).toHaveBeenCalledWith('r2'))
+    await screen.findByRole('button', SAVE)
+    expect(screen.queryByText(/Configurație salvată/)).toBeNull()
   })
 
   it('AIS6: un răspuns întârziat pentru restaurantul anterior nu suprascrie formularul', async () => {
