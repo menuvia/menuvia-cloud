@@ -46,6 +46,10 @@
 //   SA5  recenzia #335: cu formularul modificat, `beforeunload` e anulat (browserul
 //        cere confirmare la reîncărcare / închidere); neatins, nu. Mutația care
 //        pică: ascultătorul `beforeunload` scos.
+//   SA6  lotul O7c: cardul de abonament primește `onPricing` ca `onSeePlans`
+//        (calea „Vezi planurile" pe `no_customer`). Mutația care pică:
+//        `<SubscriptionCard onSeePlans={() => {}} />` sau `onPricing` neforwardat.
+//        Control negativ: SA2 (managerul nu are cardul deloc).
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -76,9 +80,13 @@ vi.mock('../SmsNotificationsCard', async () => {
 vi.mock('../MfaCard', () => ({ default: () => null }))
 vi.mock('../GdprCard', () => ({ default: () => null }))
 vi.mock('../menu/MenuPreview', () => ({ default: () => null }))
+// Stub-ul e un BUTON care cheamă `onSeePlans` (SA6: cablajul spre /pricing).
 vi.mock('../_dashboard/SubscriptionCard', async () => {
   const { createElement } = await import('react')
-  return { SubscriptionCard: () => createElement('div', null, 'stub-abonament') }
+  return {
+    SubscriptionCard: ({ onSeePlans }: { onSeePlans: () => void }) =>
+      createElement('button', { type: 'button', onClick: onSeePlans }, 'stub-abonament'),
+  }
 })
 
 import SettingsTab from '../SettingsTab'
@@ -140,7 +148,13 @@ function ordersLabel(surface: PlanSurface | null): string {
   return subTabLabel(st, surface)
 }
 
-function settings(section: SettingsSection, plan: string, surface: PlanSurface | null, isOwner = true) {
+function settings(
+  section: SettingsSection,
+  plan: string,
+  surface: PlanSurface | null,
+  isOwner = true,
+  onPricing: () => void = () => {},
+) {
   return (
     <SettingsTab
       section={section}
@@ -149,6 +163,7 @@ function settings(section: SettingsSection, plan: string, surface: PlanSurface |
       onUpdate={vi.fn(async () => ({ error: null }))}
       plan={plan}
       onSignOut={() => {}}
+      onPricing={onPricing}
       modulesState={modulesState}
       surface={surface}
     />
@@ -266,6 +281,15 @@ describe('SettingsTab — Abonament & cont (lotul R2)', () => {
     const info = within(container).getByText('Informații principale')
     expect(info).not.toHaveTextContent('se salvează automat')
   })
+
+  it('SA6: „Vezi planurile" al cardului de abonament duce la navigarea primită (onPricing)', async () => {
+    const onPricing = vi.fn()
+    render(settings('account', 'free', surfaceFor('free'), true, onPricing))
+    // Control: montarea singură nu navighează.
+    expect(onPricing).not.toHaveBeenCalled()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'stub-abonament' }))
+    expect(onPricing).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('SettingsTab — planul care n-a putut fi citit (recenzia #335)', () => {
@@ -281,6 +305,7 @@ describe('SettingsTab — planul care n-a putut fi citit (recenzia #335)', () =>
         onUpdate={vi.fn(async () => ({ error: null }))}
         plan="free"
         onSignOut={() => {}}
+        onPricing={() => {}}
         modulesState={modulesState}
         surface={null}
       />,

@@ -58,17 +58,23 @@
 //   HF2  Planul 2 (proprietar): termenii fiscali apar DOAR în interiorul
 //        upsell-ului — nicăieri altundeva pe pagină.
 //   HF3  control pozitiv pe Planul 3: cu casa deconectată banner-ul fiscal apare.
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, waitFor, within, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ComponentProps } from 'react'
 
-const { failing, counts, codvia, bridge, rows, rpcState } = vi.hoisted(() => ({
+const { failing, counts, codvia, bridge, rows, rpcState, gteCalls, held } = vi.hoisted(() => ({
   failing: new Set<string>(),
   counts: {} as Record<string, number>,
   // Lotul D: rândurile întoarse pe `${tabel}:${coloane}` (ex. „orders:table_id"),
   // ca cele patru citiri din `orders` să se poată distinge.
   rows: {} as Record<string, unknown[]>,
+  // Lotul O7c: fiecare `.gte(col, valoare)`, ca testul să vadă granița de „azi"
+  // cu care a plecat FIECARE citire (HO3), și numărul lor (HO5).
+  gteCalls: [] as Array<{ table: string; col: string; value: unknown }>,
+  // Ține rezultatul citirii `${tabel}:${coloane}` până se rezolvă `gate` — ca
+  // testul să vadă ecranul cât o reîmprospătare e ÎN ZBOR (HO5). Implicit oprit.
+  held: { key: '', gate: null as Promise<void> | null },
   rpcState: { calls: 0, results: [] as Array<{ data: unknown; error: unknown }> },
   codvia: { open: null as boolean | null },
   // Starea casei pe care ar întoarce-o RPC-ul; hook-ul o dă DOAR când HomeTab
@@ -80,21 +86,23 @@ const { failing, counts, codvia, bridge, rows, rpcState } = vi.hoisted(() => ({
 
 // Builder thenable: `await from(t).select(...).eq(...)…` dă {count, data, error}.
 vi.mock('../../../lib/supabase', () => {
+  type MockResult = { data: unknown[] | null; count: number | null; error: unknown }
   function chain(table: string) {
     const b: Record<string, unknown> = {}
     let cols = ''
     for (const m of ['eq', 'neq', 'gte', 'gt', 'in', 'not', 'limit', 'order']) {
       b[m] = vi.fn(() => b)
     }
+    b.gte = vi.fn((col: string, value: unknown) => {
+      gteCalls.push({ table, col, value })
+      return b
+    })
     b.select = vi.fn((c: string) => {
       cols = c
       return b
     })
-    b.then = (
-      onFulfilled: (v: { data: unknown[] | null; count: number | null; error: unknown }) => unknown,
-      onRejected?: (e: unknown) => unknown,
-    ) =>
-      Promise.resolve(
+    b.then = (onFulfilled: (v: MockResult) => unknown, onRejected?: (e: unknown) => unknown) => {
+      const result: MockResult =
         failing.has(table) || failing.has(`${table}:${cols}`)
           ? { data: null, count: null, error: { message: 'boom', code: '500' } }
           : rows[`${table}:${cols}`]
@@ -103,8 +111,10 @@ vi.mock('../../../lib/supabase', () => {
               data: (counts[table] ?? 0) > 0 ? [{ id: 'x' }] : [],
               count: counts[table] ?? 0,
               error: null,
-            },
-      ).then(onFulfilled, onRejected)
+            }
+      const gate = held.gate && held.key === `${table}:${cols}` ? held.gate : null
+      return (gate ? gate.then(() => result) : Promise.resolve(result)).then(onFulfilled, onRejected)
+    }
     return b
   }
   // `rpc` întoarce, pe rând, rezultatele din `rpcState.results` (ultimul se
@@ -179,6 +189,28 @@ function metric(label: string): HTMLElement {
   return el
 }
 
+// Revenirea în pagină (ca în HD8): fiecare test care o folosește o declară
+// singur — `visibilityState` e redefinit global, deci nu depindem de ordinea testelor.
+function returnToPage(): void {
+  act(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+}
+
+// Granițele „de azi" cu care au plecat citirile „Comenzi azi", în ordine.
+function createdAtBounds(): unknown[] {
+  return gteCalls.filter((c) => c.table === 'orders' && c.col === 'created_at').map((c) => c.value)
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let release: () => void = () => undefined
+  const promise = new Promise<void>((r) => {
+    release = () => r()
+  })
+  return { promise, resolve: () => release() }
+}
+
 // Upsell-ul vechi (scos în lotul P) — nu are voie să revină.
 const OLD_UPSELL = 'Vrei să primești comenzi direct de la masă?'
 // PlanUpsellCard e un <section aria-label="Ofertă: …"> → rol „region".
@@ -192,6 +224,9 @@ beforeEach(() => {
   for (const k of Object.keys(rows)) delete rows[k]
   rpcState.calls = 0
   rpcState.results = []
+  gteCalls.length = 0
+  held.key = ''
+  held.gate = null
   for (const k of Object.keys(counts)) delete counts[k]
   Object.assign(counts, {
     tables: 4,
@@ -496,5 +531,121 @@ describe('HomeTab — cifrele zilei (lotul D)', () => {
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
     document.dispatchEvent(new Event('visibilitychange'))
     await waitFor(() => expect(metric('Încasări azi')).toHaveTextContent('25.00 lei'))
+  })
+})
+
+// ─── Lotul O7c: „Comenzi azi" se reîmprospătează ca restul cifrelor ─────────
+// Cifra era citită O SINGURĂ dată, la montare (efectul de setup, fără
+// `reloadKey`): cu Acasă lăsată deschisă rămânea înghețată, după miezul nopții
+// arăta ziua de ieri, iar o citire eșuată rămânea „…" fără „Reîncearcă".
+//   HO1  Planul 2: revenirea în pagină aduce cifra nouă (3 → 7). Control
+//        pozitiv: întâi 3, citit din mock. Mutația care pică: citirea lăsată în
+//        efectul `[restaurantId, hasOrdering, isAdmin]` (rămâne 3).
+//   HO2  Planul 2 „doar ridicare" (fără mese ocupate, fără bani): cifra apare și
+//        se reîmprospătează. Mutațiile care pică: gate-ul efectului de citire
+//        lăsat pe `!showOccupancy && !showMoney` (rămâne „…"), și gate-ul
+//        ascultătorului lăsat așa (fără reîmprospătare, rămâne 3).
+//   HO3  după miezul nopții (ora României) citirea pleacă cu granița ZILEI NOI.
+//        Mutațiile care pică: codul vechi (nicio a doua citire) și `todayStart`
+//        calculat o dată, la montare (a doua citire poartă granița de ieri).
+//   HO4  citirea eșuată → „—" + „nu s-a putut încărca" + „Reîncearcă", care o
+//        reface. Mutațiile care pică: eroarea fără `fail('orders')` („…", fără
+//        banner), eroarea tratată ca 0, și „Reîncearcă" pe o cheie de care
+//        citirea nu depinde (rămâne „—").
+//   HO5  cât reîmprospătarea e ÎN ZBOR, cifra veche rămâne și cardul de
+//        configurare NU reapare la un local configurat. Mutațiile care pică:
+//        fix-ul naiv (`reloadKey` adăugat efectului de setup, care golește
+//        pașii la „…") și `setOrdersToday(null)` la începutul efectului de citire.
+//   HO6  prima comandă de azi, sosită cu Acasă deschisă, bifează și pasul „Prima
+//        comandă de test" (recenzia O7c): `everOrdered` e citit o singură dată,
+//        dar „Comenzi azi" se reîmprospătează — fără derivare ecranul arăta
+//        „Comenzi azi: 7" lângă pasul încă de făcut. Echipa rămâne nefăcută, ca
+//        să rămână cardul (la 6/6 dispare). Control pozitiv: întâi „0" și pasul
+//        nebifat (4/6). Mutația care pică: pasul lăsat pe `done: everOrdered`.
+describe('HomeTab — «Comenzi azi» se reîmprospătează', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('HO1 Planul 2: revenirea în pagină aduce cifra nouă', async () => {
+    renderHome({ ...plan('growth'), isOwner: false })
+    await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^3$/))
+    counts.orders = 7
+    returnToPage()
+    await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^7$/))
+  })
+
+  it('HO2 „doar ridicare": cifra apare și se reîmprospătează', async () => {
+    renderHome({ ...plan('growth'), pickupOnly: true })
+    await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^3$/))
+    // Modul fără mese: niciuna dintre celelalte cifre reîmprospătate nu e pe pagină.
+    expect(screen.queryByText('Mese ocupate acum')).toBeNull()
+    expect(screen.queryByText('Încasări azi')).toBeNull()
+    counts.orders = 7
+    returnToPage()
+    await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^7$/))
+  })
+
+  it('HO3 după miezul nopții citirea pleacă cu granița zilei noi', async () => {
+    // Doar Date e fals: waitFor are nevoie de setTimeout real (ca BridgeTab.test).
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-04T21:50:00Z')) // 23:50 EET, 4 noiembrie
+    renderHome({ ...plan('growth'), isOwner: false })
+    await waitFor(() => expect(createdAtBounds()[0]).toBe('2026-11-03T22:00:00.000Z'))
+    vi.setSystemTime(new Date('2026-11-04T22:10:00Z')) // 00:10 EET, 5 noiembrie
+    returnToPage()
+    await waitFor(() =>
+      expect(createdAtBounds().slice(-1)[0]).toBe('2026-11-04T22:00:00.000Z'),
+    )
+  })
+
+  it('HO4 citirea eșuată arată „—" și se poate reîncerca', async () => {
+    const user = userEvent.setup()
+    failing.add('orders:id')
+    renderHome({ ...plan('growth'), isOwner: false })
+    await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent('—'))
+    expect(metric('Comenzi azi')).not.toHaveTextContent('0')
+    expect(screen.getByText('nu s-a putut încărca')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reîncearcă' })).toBeInTheDocument()
+    failing.delete('orders:id')
+    await user.click(screen.getByRole('button', { name: 'Reîncearcă' }))
+    await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^3$/))
+    expect(screen.queryByRole('button', { name: 'Reîncearcă' })).toBeNull()
+  })
+
+  it('HO5 în timpul reîmprospătării: cifra veche rămâne, configurarea nu reapare', async () => {
+    renderHome(plan('growth'))
+    await waitFor(() => expect(screen.getByText('totul e gata ✓')).toBeInTheDocument())
+    await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^3$/))
+    const d = deferred()
+    held.key = 'orders:id'
+    held.gate = d.promise
+    counts.orders = 7
+    const n = createdAtBounds().length
+    returnToPage()
+    // Citirea de reîmprospătare a plecat și e ținută în zbor.
+    await waitFor(() => expect(createdAtBounds().length).toBe(n + 1))
+    expect(metric('Comenzi azi')).toHaveTextContent(/^3$/)
+    expect(screen.getByText('totul e gata ✓')).toBeInTheDocument()
+    expect(screen.queryByText('Configurare restaurant')).toBeNull()
+    d.resolve()
+    await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^7$/))
+  })
+
+  it('HO6 prima comandă sosită cu Acasă deschisă bifează pasul de test', async () => {
+    const STEP = 'Prima comandă de test — deschide QR-ul unei mese și comandă'
+    counts.orders = 0
+    counts.restaurant_memberships = 1
+    renderHome(plan('growth'))
+    // Control pozitiv: zero comenzi → pasul e „de făcut" (nu „necunoscut").
+    expect(await screen.findByRole('button', { name: STEP })).toBeInTheDocument()
+    await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^0$/))
+    await waitFor(() => expect(metric('Configurare')).toHaveTextContent('4/6'))
+    counts.orders = 7
+    returnToPage()
+    await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^7$/))
+    expect(await screen.findByRole('button', { name: `${STEP} (completat)` })).toBeInTheDocument()
+    expect(metric('Configurare')).toHaveTextContent('5/6')
+    expect(screen.getByText('Configurare restaurant')).toBeInTheDocument()
   })
 })
