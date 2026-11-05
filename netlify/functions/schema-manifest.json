@@ -319,6 +319,7 @@
     "migration_318_menu_version_options",
     "migration_319_link_modifier_groups",
     "migration_320_edit_order_keeps_lines",
+    "migration_321_translate_options",
     "migration_322_floor_layout_rpc_only"
   ]
 }

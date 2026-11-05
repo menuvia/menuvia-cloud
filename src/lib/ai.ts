@@ -422,8 +422,11 @@ export async function aiTranslateBatch(input: {
   restaurant_id: string
   items: TranslatableItem[]
   targetLangs: string[]
+  /** Limba în care e scris meniul (restaurants.language). Implicit română. */
+  sourceLang?: string
 }): Promise<Record<string, Translations>> {
-  const langs = input.targetLangs.filter((c) => c !== 'ro')
+  const source = input.sourceLang ?? 'ro'
+  const langs = input.targetLangs.filter((c) => c !== source)
   if (langs.length === 0 || input.items.length === 0) return {}
   const langList = langs
     .map((c) => {
@@ -431,9 +434,11 @@ export async function aiTranslateBatch(input: {
       return l ? `${c} (${l.label})` : c
     })
     .join(', ')
+  const srcMeta = MENU_LANGS.find((x) => x.code === source)
+  const sourceLabel = srcMeta ? `${srcMeta.label} (${source})` : source
   const system = [
     'Ești un traducător profesionist de meniuri de restaurant.',
-    `Traduci o listă de iteme de meniu din română în limbile: ${langList}.`,
+    `Traduci o listă de iteme de meniu din ${sourceLabel} în limbile: ${langList}.`,
     'Primești un array JSON de forma [{"id","name","description"}].',
     'Răspunzi DOAR cu un obiect JSON (fără markdown, fără text) keyed pe id:',
     '{"<id>": {"en": {"name": "...", "description": "..."}, "de": {...}}, ...}',

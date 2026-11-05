@@ -79,9 +79,11 @@ export interface MenuHeaderProps {
   theme: MenuTheme
   /** Slot opțional sub nume în varianta "full" (pile adresă/ore/social). */
   children?: ReactNode
-  /** Limbile suplimentare oferite (coduri, ex. ['en','de']). `ro` e mereu
-      adăugat automat ca bază. Gol/absent → switcher-ul nu se randează. */
+  /** Limbile suplimentare oferite (coduri, ex. ['en','de']). Limba de bază
+      (`baseLang`) e adăugată automat prima. Gol/absent → fără switcher. */
   languages?: string[]
+  /** Limba originalului meniului (lotul O6a). Implicit 'ro'. */
+  baseLang?: string
   /** Limba activă (cod). Implicit 'ro'. */
   activeLang?: string
   /** Callback la schimbarea limbii din switcher. */
@@ -104,8 +106,11 @@ export function LangSwitcher({
   PUB,
   labelStyle,
   uiLang,
+  baseLang = 'ro',
 }: {
   languages: string[]
+  /** Limba originalului — prima pastilă (lotul O6a). */
+  baseLang?: string
   activeLang: string
   onLangChange: (code: string) => void
   accent: string
@@ -114,8 +119,8 @@ export function LangSwitcher({
   /** Limba etichetei a11y — implicit limba activă. */
   uiLang?: string
 }) {
-  // ro + limbile alese, deduplicat, doar cele cunoscute în MENU_LANGS.
-  const codes = ['ro', ...languages.filter((c) => c !== 'ro')]
+  // baza + limbile alese, deduplicat, doar cele cunoscute în MENU_LANGS.
+  const codes = [baseLang, ...languages.filter((c) => c !== baseLang)]
   const langs = codes
     .map((c) => MENU_LANGS.find((l) => l.code === c))
     .filter((l): l is (typeof MENU_LANGS)[number] => l != null)
@@ -245,7 +250,8 @@ function MenuHeader({
   chrome = 'band',
   children,
   languages,
-  activeLang = 'ro',
+  baseLang = 'ro',
+  activeLang = baseLang,
   onLangChange,
   uiLang,
 }: MenuHeaderProps) {
@@ -258,7 +264,8 @@ function MenuHeader({
     languages && languages.length > 0 && onLangChange ? (
       <LangSwitcher
         languages={languages}
-        activeLang={activeLang ?? 'ro'}
+        baseLang={baseLang}
+        activeLang={activeLang ?? baseLang}
         onLangChange={onLangChange}
         accent={accent}
         PUB={PUB}

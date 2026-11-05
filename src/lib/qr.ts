@@ -101,6 +101,8 @@ export interface ModifierOption {
   price_delta: number
   is_available: boolean
   display_order: number
+  // Lotul O6b (mig 321): traducerile numelui opțiunii.
+  translations?: Translations | null
 }
 
 export interface ModifierGroup {
@@ -113,6 +115,8 @@ export interface ModifierGroup {
   max_select: number | null
   display_order: number
   modifier_options: ModifierOption[]
+  // Lotul O6b (mig 321): traducerile numelui grupului.
+  translations?: Translations | null
 }
 
 // ── Reguli min/max pe grupurile de modificatori ──────────────────────
@@ -158,6 +162,8 @@ export interface ProductExtra {
   emoji: string | null
   display_order: number
   is_available: boolean
+  // Lotul O6b (mig 321): traducerile numelui extra-ului.
+  translations?: Translations | null
 }
 
 export interface ProductPairing {
@@ -287,6 +293,9 @@ function mapResolvedQrPayload(data: unknown): ResolvedQrToken | null {
       menu_languages: parseMenuLanguages(restaurant.menu_languages),
       // mig 206 o expune; pe un RPC vechi rămâne undefined → fmtPrice cade pe RON.
       currency: (restaurant.currency as string | null | undefined) ?? null,
+      // Limba de bază a meniului (lotul O6a): fără ea /q pornea mereu din
+      // română, chiar pe un meniu scris în franceză (recenzia O6a).
+      language: (restaurant.language as string | null | undefined) ?? undefined,
     },
     orderingAllowed: payload.orderingAllowed,
   }
