@@ -13,6 +13,7 @@ import VatRatesEditor from './VatRatesEditor'
 import OnlinePaymentsCard from './OnlinePaymentsCard'
 import LoyaltySettingsCard from './LoyaltySettingsCard'
 import MfaCard from './MfaCard'
+import UiLanguageCard from './UiLanguageCard'
 import GdprCard from './GdprCard'
 import AddLocationCard, { type AddLocationProps } from './AddLocationCard'
 import { SubscriptionCard } from './_dashboard/SubscriptionCard'
@@ -2039,6 +2040,10 @@ export default function SettingsTab({
                 restaurante e a contului lui (mig 131), managerul n-are ce crea;
                 fără loc liber în plan, cardul nu apare deloc (lotul P). */}
             {isOwner && addLocation && <AddLocationCard {...addLocation} />}
+
+            {/* Limba interfeței (lotul L3b): nu se randează cât timp e activă o
+                singură limbă a personalului (ENABLED_STAFF_LANGS). */}
+            <UiLanguageCard />
 
             <MfaCard />
 

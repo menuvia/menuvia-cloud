@@ -1,0 +1,147 @@
+import type { Translation } from '../../core'
+import type ro from './ro'
+
+// „Panou” e „espace”, ca în `auth`/`onboarding`; „plan” e „formule”.
+const fr: Translation<typeof ro> = {
+  navGroup_acasa: 'Accueil',
+  navGroup_locatii: 'Établissements',
+  navGroup_comenzi: 'Commandes',
+  navGroup_meniu: 'Menu',
+  'navGroup_mese-qr': 'Tables & QR',
+  navGroup_rapoarte: 'Rapports',
+  navGroup_setari: 'Paramètres',
+  nav_home: 'Accueil',
+  nav_locatii: 'Tous les établissements',
+  nav_comenzi: 'Commandes en direct',
+  nav_reservations: 'Réservations',
+  'nav_casa-tura': 'Sessions de caisse',
+  nav_products: 'Produits',
+  nav_categories: 'Catégories',
+  nav_modificatori: 'Options',
+  nav_traduceri: 'Traductions',
+  'nav_happy-hour': 'Promotions',
+  nav_gestiune: 'Stocks',
+  nav_mese: 'Tables & codes QR',
+  nav_arhitectura: 'Plan de salle',
+  nav_raport: 'Ventes',
+  nav_analytics: 'Statistiques',
+  nav_tva: 'TVA',
+  nav_invoices: 'Factures',
+  nav_settings: 'Restaurant',
+  'nav_settings-menu': 'Apparence du menu',
+  'nav_settings-orders': 'Commandes & paiements',
+  'nav_settings-orders_noPayments': 'Commandes',
+  'nav_settings-orders_noOrdering': 'Menu QR',
+  nav_echipa: 'Équipe',
+  nav_ture: 'Planning de l’équipe',
+  'nav_casa-marcat': 'Caisse & tickets',
+  'nav_casa-marcat_noFiscal': 'Imprimante de cuisine',
+  nav_ai: 'Assistant IA',
+  'nav_settings-account': 'Abonnement & compte',
+  chips_aria: 'Sections : {group}',
+
+  sidebar_closeMenu: 'Fermer le menu',
+  sidebar_restaurant: 'Restaurant',
+  sidebar_chooseRestaurant: 'Choisir le restaurant',
+  status_active: 'Actif',
+  status_inactive: 'Inactif',
+  status_activeTitle: 'Le menu public est en ligne',
+  status_inactiveTitle: 'Le menu public est désactivé — vos clients ne peuvent pas l’ouvrir',
+  pendingReservations: {
+    one: '{n} réservation en attente',
+    many: '{n} de réservations en attente',
+    other: '{n} réservations en attente',
+  },
+  sidebar_previewMenu: 'Aperçu du menu',
+  sidebar_viewAsWaiter: 'Voir en tant que serveur',
+  sidebar_waiterTitleFiscal:
+    'Ouvrir l’écran serveur — commandes en direct, réservations, paiements',
+  sidebar_waiterTitle: 'Ouvrir l’écran serveur — commandes en direct et réservations',
+  sidebar_founder: 'Espace fondateur',
+  sidebar_founderTitle: 'L’espace fondateur — toute la plateforme au même endroit',
+
+  visit_founder: 'Mode fondateur — {name}',
+  visit_agent: 'Visite de l’agent commercial — {name}',
+  visit_restaurantFallback: 'restaurant',
+  visit_exit: 'Quitter la visite',
+
+  mobile_openMenu: 'Ouvrir le menu',
+
+  err_restaurantLoad: 'Impossible de charger le restaurant.',
+  err_locationNotListed:
+    'Cet établissement n’apparaît pas dans votre liste d’accès. Rechargez la page et réessayez.',
+
+  loading_generic: 'Chargement…',
+  loading_locations: 'Chargement des établissements…',
+  loading_products: 'Chargement des produits…',
+  loading_categories: 'Chargement des catégories…',
+  loading_modifiers: 'Chargement des options…',
+  loading_translations: 'Chargement des traductions…',
+  loading_tables: 'Chargement des tables…',
+  loading_charts: 'Chargement des graphiques…',
+  loading_report: 'Chargement du rapport…',
+  loading_floorPlan: 'Chargement du plan de salle…',
+  loading_team: 'Chargement de l’équipe…',
+  loading_assignments: 'Chargement des affectations…',
+  loading_stock: 'Chargement des stocks…',
+  loading_vatReport: 'Chargement du rapport de TVA…',
+  loading_invoices: 'Chargement des factures…',
+  loading_reservations: 'Chargement des réservations…',
+  loading_settings: 'Chargement des paramètres…',
+  loading_ai: 'Chargement de l’assistant IA…',
+
+  resv_disabledTitle: 'Les réservations ne sont pas activées',
+  resv_disabledDesc:
+    'Vos clients pourront réserver une table directement depuis le menu public, et vous confirmez et gérez leurs réservations ici. Vous activez le module en un seul clic, dans les Paramètres.',
+  resv_enableInSettings: 'Activer dans les Paramètres',
+
+  hub_waiterTitle: 'Écran serveur',
+  hub_waiterDescFiscal:
+    'Les commandes ouvertes en ce moment, par table — prise de commande manuelle et paiement à table',
+  hub_waiterDesc: 'Les commandes ouvertes en ce moment, par table — et prise de commande manuelle',
+  hub_kitchenTitle: 'Cuisine',
+  hub_kitchenDesc: 'L’écran de préparation de la cuisine',
+  hub_opensNewScreen: 'S’ouvre dans un nouvel écran',
+
+  unsaved_title: 'Vous avez des modifications non enregistrées dans les Paramètres',
+  unsaved_leaveDesc:
+    'Si vous quittez maintenant, vos modifications seront perdues. Enregistrez-les d’abord dans les Paramètres.',
+  unsaved_leaveConfirm: 'Quitter sans enregistrer',
+  unsaved_stayInSettings: 'Rester dans les Paramètres',
+  unsaved_switchDesc:
+    'Si vous passez à « {next} », les modifications non enregistrées pour « {current} » seront perdues. Enregistrez-les d’abord.',
+  unsaved_switchConfirm: 'Changer sans enregistrer',
+  unsaved_stayHere: 'Rester ici',
+  unsaved_otherRestaurant: 'un autre restaurant',
+  unsaved_addLocationDesc:
+    'Après la création, votre espace passe sur le nouvel établissement et les modifications non enregistrées sont perdues. Enregistrez-les d’abord, puis ajoutez l’établissement.',
+  unsaved_addLocationConfirm: 'Continuer sans enregistrer',
+
+  upgrade_title: 'Débloquez davantage',
+  upgrade_rowQrMenu: 'Menu QR',
+  upgrade_rowProducts: 'Produits',
+  upgrade_rowTables: 'Tables + QR',
+  upgrade_rowQrOrders: 'Commandes par QR',
+  upgrade_rowKitchen: 'Écran de cuisine',
+  upgrade_rowWaiterOrders: 'Commandes par le serveur',
+  upgrade_rowReports: 'Rapports',
+  upgrade_reportsGrowth: 'Commandes + produits vendus',
+  upgrade_perMonth: 'lei/mois',
+  upgrade_trialNote: 'Les 30 premiers jours offerts · Résiliable à tout moment',
+  upgrade_cta: 'Activer {plan} →',
+  upgrade_notNow: 'Pas maintenant',
+
+  lang_title: 'Langue de l’interface',
+  lang_desc:
+    'La langue de votre espace, de l’écran serveur et de la cuisine. Elle est enregistrée dans votre compte et s’applique sur tous vos appareils. Les langues du menu de vos clients se choisissent séparément, dans Apparence du menu.',
+  lang_saving: 'Enregistrement…',
+  lang_saveFailed: 'Impossible d’enregistrer la langue. Réessayez.',
+  lang_columnMissing:
+    'La langue ne peut pas encore être enregistrée dans votre compte : le serveur n’a pas reçu la dernière mise à jour. Votre espace reste dans la langue actuelle.',
+  lang_name_ro: 'Română',
+  lang_name_en: 'English',
+  lang_name_fr: 'Français',
+  lang_name_de: 'Deutsch',
+}
+
+export default fr

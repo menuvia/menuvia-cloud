@@ -23,6 +23,11 @@
 // Ce vede planul în interiorul tab-urilor rămâne `planSurface`
 // (lib/planSurface.ts); aici se decide doar ÎN CE LOC stă fiecare ecran.
 // Gating-ul REAL e server-side (RPC/RLS).
+//
+// Etichetele de aici sunt ROMÂNEȘTI și rămân așa (lotul L3b): modulul e de
+// date, fără dicționare. Panoul le traduce la RANDARE, prin cheia dată de
+// `src/i18n/navLabels.ts` (`nav_<id>`, `navGroup_<id>` + variantele pe plan) —
+// un tab nou aici cere cheia lui în `src/i18n/ns/dashboard/ro.ts` (testul NL1).
 // ─────────────────────────────────────────────────────────────
 import type { IconName } from '../components/ui/Icon'
 import type { PlanTier } from './features'

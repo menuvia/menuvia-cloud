@@ -123,8 +123,16 @@
 //        creare rescrie formularul înaintea oricărei întrebări) și
 //        `settingsDirtyRef.current = false` scos din handleLocationCreated
 //        (`setTab('home')` deschide un al treilea dialog, titlul rămâne pe Setări).
-import { cloneElement, useState, type ComponentProps } from 'react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+//
+// Lotul L3b (cadrul panoului în limba personalului):
+//   DS26 în engleză (`UiLangScope`), grupurile din bara laterală, titlul paginii
+//        și chip-urile Setărilor vin din dicționarul `dashboard`, fără niciun
+//        cuvânt românesc rămas în navigare. Etichetele din `dashboardNav` rămân
+//        românești (date), traducerea e la randare. Mutații care pică: `{g.label}`
+//        sau `{st.label}` / `activeSubTab.label` randate direct (româna ar
+//        rămâne pe un ecran englezesc).
+import { Suspense, cloneElement, useState, type ComponentProps } from 'react'
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
 import { render, screen, within, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Restaurant } from '../../hooks/useData'
@@ -406,6 +414,11 @@ vi.mock('../../components/_dashboard/HomeTab', async () => {
 })
 
 import DashboardPage from '../DashboardPage'
+import { UiLangScope } from '../../i18n/UiLangContext'
+import { preloadNamespace } from '../../i18n/core'
+import { dashboardNs } from '../../i18n/ns/dashboard'
+import { commonNs } from '../../i18n/ns/common'
+import type { StaffLang } from '../../i18n/langs'
 import { featuresFor } from '../../lib/__tests__/planSurfaceFixtures'
 import type { DbPlan } from '../../lib/__tests__/planFeatureMatrix.fixture'
 
@@ -459,7 +472,14 @@ const urls = {
 
 async function renderDashboard(
   plan: DbPlan | null,
-  opts: { url?: string; anchor?: boolean; restaurantIds?: string[]; onPricing?: () => void } = {},
+  opts: {
+    url?: string
+    anchor?: boolean
+    restaurantIds?: string[]
+    onPricing?: () => void
+    // Limba personalului (DS26); lipsă = fără provider, adică româna.
+    lang?: StaffLang
+  } = {},
 ) {
   state.features = plan == null ? null : featuresFor(plan)
   const initialIds = opts.restaurantIds ?? ['rest-1']
@@ -493,7 +513,15 @@ async function renderDashboard(
       replaceUrl={urls.replaceUrl}
     />
   )
-  const view = render(ui)
+  const view = render(
+    opts.lang ? (
+      <UiLangScope lang={opts.lang}>
+        <Suspense fallback={null}>{ui}</Suspense>
+      </UiLangScope>
+    ) : (
+      ui
+    ),
+  )
   // Ancora: Acasă s-a montat (lazy), deci bara laterală e cea finală.
   if (opts.anchor !== false) expect(await screen.findByText('stub-acasa')).toBeInTheDocument()
   // `ui` = elementul randat; pentru `rerender` se clonează (vezi DS9c).
@@ -504,6 +532,10 @@ const nav = () => screen.getByRole('navigation')
 const title = () => screen.getByRole('heading', { level: 1 })
 const openGroup = async (name: RegExp) =>
   userEvent.setup().click(within(nav()).getByRole('button', { name }))
+
+beforeAll(async () => {
+  await Promise.all([preloadNamespace(dashboardNs, 'en'), preloadNamespace(commonNs, 'en')])
+})
 
 beforeEach(() => {
   homeProps.upsell = undefined
@@ -697,6 +729,34 @@ describe('DashboardPage — tab-ul în URL și titlul paginii (lotul R2)', () =>
       // Numele GRUPULUI nu mai e un rând separat deasupra chip-urilor.
       expect(screen.queryAllByRole('heading', { level: 1 })).toHaveLength(1)
     }
+  })
+
+  it('DS26: în engleză, grupurile, titlul și chip-urile vin din dicționar', async () => {
+    await renderDashboard('pro', { lang: 'en' })
+    expect(title()).toHaveTextContent('Home')
+    for (const name of [/^Home$/, /^Orders$/, /^Menu$/, /^Tables & QR$/, /^Reports$/, /^Settings$/]) {
+      expect(within(nav()).getByRole('button', { name })).toBeInTheDocument()
+    }
+    // Nicio etichetă românească rămasă în navigare.
+    expect(nav().textContent ?? '').not.toMatch(/[ăâîșț]|Meniu|Comenzi|Rapoarte|Mese/i)
+    expect(screen.getByRole('button', { name: /View as waiter/ })).toBeInTheDocument()
+    await openGroup(/^Settings$/)
+    const chips = within(await screen.findByLabelText('Settings sections')).getAllByRole('button')
+    expect(chips.map((c) => c.textContent ?? '')).toEqual([
+      'Restaurant',
+      'Menu appearance',
+      'Orders & payments',
+      'Team',
+      'Team schedule',
+      'Cash register & tickets',
+      'AI assistant',
+      'Subscription & account',
+    ])
+    await waitFor(() => expect(title()).toHaveTextContent('Restaurant'))
+    await userEvent
+      .setup()
+      .click(within(screen.getByLabelText('Settings sections')).getByRole('button', { name: 'Team schedule' }))
+    await waitFor(() => expect(title()).toHaveTextContent('Team schedule'))
   })
 
   it('DS12: `?tab=billing` → Setări → Abonament & cont, cu scroll pe cardul de facturare', async () => {

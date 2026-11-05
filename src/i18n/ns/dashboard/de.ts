@@ -1,0 +1,146 @@
+import type { Translation } from '../../core'
+import type ro from './ro'
+
+// „Panou” e „Verwaltungsbereich”, ca în `auth`/`onboarding`; „Meniu” (meniul
+// restaurantului) e „Speisekarte”, iar meniul de navigare e „Menü”.
+const de: Translation<typeof ro> = {
+  navGroup_acasa: 'Start',
+  navGroup_locatii: 'Standorte',
+  navGroup_comenzi: 'Bestellungen',
+  navGroup_meniu: 'Speisekarte',
+  'navGroup_mese-qr': 'Tische & QR',
+  navGroup_rapoarte: 'Berichte',
+  navGroup_setari: 'Einstellungen',
+  nav_home: 'Start',
+  nav_locatii: 'Alle Standorte',
+  nav_comenzi: 'Live-Bestellungen',
+  nav_reservations: 'Reservierungen',
+  'nav_casa-tura': 'Kassenschichten',
+  nav_products: 'Produkte',
+  nav_categories: 'Kategorien',
+  nav_modificatori: 'Optionen',
+  nav_traduceri: 'Übersetzungen',
+  'nav_happy-hour': 'Aktionen',
+  nav_gestiune: 'Bestand',
+  nav_mese: 'Tische & QR-Codes',
+  nav_arhitectura: 'Tischplan',
+  nav_raport: 'Umsatz',
+  nav_analytics: 'Statistiken',
+  nav_tva: 'MwSt.',
+  nav_invoices: 'Rechnungen',
+  nav_settings: 'Restaurant',
+  'nav_settings-menu': 'Aussehen der Speisekarte',
+  'nav_settings-orders': 'Bestellungen & Zahlungen',
+  'nav_settings-orders_noPayments': 'Bestellungen',
+  'nav_settings-orders_noOrdering': 'QR-Speisekarte',
+  nav_echipa: 'Team',
+  nav_ture: 'Dienstplan',
+  'nav_casa-marcat': 'Kasse & Küchenbons',
+  'nav_casa-marcat_noFiscal': 'Küchendrucker',
+  nav_ai: 'KI-Assistent',
+  'nav_settings-account': 'Abonnement & Konto',
+  chips_aria: 'Bereiche: {group}',
+
+  sidebar_closeMenu: 'Menü schließen',
+  sidebar_restaurant: 'Restaurant',
+  sidebar_chooseRestaurant: 'Restaurant auswählen',
+  status_active: 'Aktiv',
+  status_inactive: 'Inaktiv',
+  status_activeTitle: 'Die öffentliche Speisekarte ist online',
+  status_inactiveTitle: 'Die öffentliche Speisekarte ist ausgeschaltet — Gäste können sie nicht öffnen',
+  pendingReservations: {
+    one: '{n} offene Reservierung',
+    other: '{n} offene Reservierungen',
+  },
+  sidebar_previewMenu: 'Vorschau der Speisekarte',
+  sidebar_viewAsWaiter: 'Als Service ansehen',
+  sidebar_waiterTitleFiscal: 'Service-Ansicht öffnen — Live-Bestellungen, Reservierungen, Zahlungen',
+  sidebar_waiterTitle: 'Service-Ansicht öffnen — Live-Bestellungen und Reservierungen',
+  sidebar_founder: 'Gründerbereich',
+  sidebar_founderTitle: 'Der Gründerbereich — die gesamte Plattform an einem Ort',
+
+  visit_founder: 'Gründermodus — {name}',
+  visit_agent: 'Besuch des Vertriebsberaters — {name}',
+  visit_restaurantFallback: 'Restaurant',
+  visit_exit: 'Besuch beenden',
+
+  mobile_openMenu: 'Menü öffnen',
+
+  err_restaurantLoad: 'Das Restaurant konnte nicht geladen werden.',
+  err_locationNotListed:
+    'Dieser Standort steht nicht in Ihrer Zugriffsliste. Laden Sie die Seite neu und versuchen Sie es erneut.',
+
+  loading_generic: 'Wird geladen…',
+  loading_locations: 'Standorte werden geladen…',
+  loading_products: 'Produkte werden geladen…',
+  loading_categories: 'Kategorien werden geladen…',
+  loading_modifiers: 'Optionen werden geladen…',
+  loading_translations: 'Übersetzungen werden geladen…',
+  loading_tables: 'Tische werden geladen…',
+  loading_charts: 'Diagramme werden geladen…',
+  loading_report: 'Bericht wird geladen…',
+  loading_floorPlan: 'Tischplan wird geladen…',
+  loading_team: 'Team wird geladen…',
+  loading_assignments: 'Zuweisungen werden geladen…',
+  loading_stock: 'Bestand wird geladen…',
+  loading_vatReport: 'MwSt.-Bericht wird geladen…',
+  loading_invoices: 'Rechnungen werden geladen…',
+  loading_reservations: 'Reservierungen werden geladen…',
+  loading_settings: 'Einstellungen werden geladen…',
+  loading_ai: 'KI-Assistent wird geladen…',
+
+  resv_disabledTitle: 'Reservierungen sind nicht aktiviert',
+  resv_disabledDesc:
+    'Ihre Gäste können direkt über die öffentliche Speisekarte einen Tisch reservieren, und Sie bestätigen und verwalten die Reservierungen hier. Sie aktivieren das Modul mit einem einzigen Klick in den Einstellungen.',
+  resv_enableInSettings: 'In den Einstellungen aktivieren',
+
+  hub_waiterTitle: 'Service-Ansicht',
+  hub_waiterDescFiscal:
+    'Die aktuell offenen Bestellungen nach Tisch — manuelle Bestellaufnahme und Zahlung am Tisch',
+  hub_waiterDesc: 'Die aktuell offenen Bestellungen nach Tisch — und manuelle Bestellaufnahme',
+  hub_kitchenTitle: 'Küche',
+  hub_kitchenDesc: 'Die Zubereitungsansicht der Küche',
+  hub_opensNewScreen: 'Öffnet eine neue Ansicht',
+
+  unsaved_title: 'Sie haben ungespeicherte Änderungen in den Einstellungen',
+  unsaved_leaveDesc:
+    'Wenn Sie jetzt gehen, gehen Ihre Änderungen verloren. Speichern Sie sie zuerst in den Einstellungen.',
+  unsaved_leaveConfirm: 'Ohne Speichern verlassen',
+  unsaved_stayInSettings: 'In den Einstellungen bleiben',
+  unsaved_switchDesc:
+    'Wenn Sie zu „{next}“ wechseln, gehen die ungespeicherten Änderungen für „{current}“ verloren. Speichern Sie sie zuerst.',
+  unsaved_switchConfirm: 'Ohne Speichern wechseln',
+  unsaved_stayHere: 'Hier bleiben',
+  unsaved_otherRestaurant: 'ein anderes Restaurant',
+  unsaved_addLocationDesc:
+    'Nach dem Anlegen wechselt der Verwaltungsbereich zum neuen Standort, und ungespeicherte Änderungen gehen verloren. Speichern Sie sie zuerst und fügen Sie dann den Standort hinzu.',
+  unsaved_addLocationConfirm: 'Ohne Speichern fortfahren',
+
+  upgrade_title: 'Mehr freischalten',
+  upgrade_rowQrMenu: 'QR-Speisekarte',
+  upgrade_rowProducts: 'Produkte',
+  upgrade_rowTables: 'Tische + QR',
+  upgrade_rowQrOrders: 'Bestellungen per QR',
+  upgrade_rowKitchen: 'Küchenbildschirm',
+  upgrade_rowWaiterOrders: 'Bestellungen durch den Service',
+  upgrade_rowReports: 'Berichte',
+  upgrade_reportsGrowth: 'Bestellungen + verkaufte Produkte',
+  upgrade_perMonth: 'Lei/Monat',
+  upgrade_trialNote: 'Die ersten 30 Tage kostenlos · Jederzeit kündbar',
+  upgrade_cta: '{plan} aktivieren →',
+  upgrade_notNow: 'Nicht jetzt',
+
+  lang_title: 'Sprache der Oberfläche',
+  lang_desc:
+    'Die Sprache des Verwaltungsbereichs, der Service-Ansicht und der Küche. Sie wird in Ihrem Konto gespeichert und gilt auf jedem Gerät. Die Sprachen der Speisekarte für Ihre Gäste wählen Sie separat unter „Aussehen der Speisekarte“.',
+  lang_saving: 'Wird gespeichert…',
+  lang_saveFailed: 'Die Sprache konnte nicht gespeichert werden. Versuchen Sie es erneut.',
+  lang_columnMissing:
+    'Die Sprache kann noch nicht in Ihrem Konto gespeichert werden: Der Server hat das letzte Update noch nicht erhalten. Der Verwaltungsbereich bleibt in der aktuellen Sprache.',
+  lang_name_ro: 'Română',
+  lang_name_en: 'English',
+  lang_name_fr: 'Français',
+  lang_name_de: 'Deutsch',
+}
+
+export default de
