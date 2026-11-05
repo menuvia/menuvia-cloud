@@ -28,6 +28,11 @@
 //        DOAR de preț nu mai trimite `translations` (control: o traducere
 //        editată pleacă). [PICĂ: `extraTrDirty` scos din confirmDiscard;
 //        payload-ul întreg trimis la update]
+//   PT6  (recenzia O6c) ciorna de extra supraviețuiește strângerii secțiunii
+//        „Extras & Pereche” (care demontează componenta) și „Salvează” al fișei
+//        întreabă înainte s-o piardă: refuzat → nimic trimis, fișa rămâne;
+//        acceptat → produsul se salvează și fișa se închide. [PICĂ: ciorna
+//        ținută în ExtraTranslations; `doSave` fără verificarea ciornelor]
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -357,6 +362,33 @@ describe('ProductsTab — traducerile din fișă (lotul O6c)', () => {
     const { user, dlg } = await openWithLangs()
     await user.click(within(dlg).getByRole('button', { name: 'Închide' }))
     expect(confirmMock.titles).toEqual([])
+    expect(screen.queryByRole('dialog', { name: 'Editează produs' })).toBeNull()
+  })
+
+  it('PT6 ciorna rămâne după strângerea secțiunii; „Salvează” întreabă înainte s-o piardă', async () => {
+    supa.rows.product_extras = [
+      { id: 'e1', name: 'Bacon', price: 5, emoji: null, display_order: 0, is_available: true, translations: {} },
+    ]
+    const { user, dlg } = await openWithLangs()
+    const toggle = within(dlg).getByRole('button', { name: /Extras & Pereche/ })
+    await user.click(toggle)
+    await user.click(await within(dlg).findByRole('button', { name: 'Traduceri 0/1' }))
+    await user.type(within(dlg).getByLabelText('Nume în English pentru «Bacon»'), 'Bacon EN')
+    // Strâns și redeschis: componenta s-a demontat, ciorna e tot acolo.
+    await user.click(toggle)
+    expect(within(dlg).queryByLabelText('Nume în English pentru «Bacon»')).toBeNull()
+    await user.click(toggle)
+    expect(await within(dlg).findByLabelText('Nume în English pentru «Bacon»')).toHaveValue('Bacon EN')
+
+    confirmMock.fn = async () => false
+    await user.click(within(dlg).getByRole('button', { name: 'Salvează' }))
+    expect(confirmMock.titles).toEqual(['Traducerile extra-urilor nu sunt salvate'])
+    expect(calls.updates).toEqual([])
+    expect(screen.getByRole('dialog', { name: 'Editează produs' })).toBeInTheDocument()
+
+    confirmMock.fn = async () => true
+    await user.click(within(dlg).getByRole('button', { name: 'Salvează' }))
+    expect(calls.updates).toHaveLength(1)
     expect(screen.queryByRole('dialog', { name: 'Editează produs' })).toBeNull()
   })
 

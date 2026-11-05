@@ -25,6 +25,12 @@
 //        cu succes arată procentul.
 //   TR9  ciornele supraviețuiesc schimbării limbii; „Salvează tot” le salvează
 //        pe rând și se oprește la prima eroare (restul rămân).
+//   TR10 (recenzia O6c) „tradus complet” doar când ecranul a văzut tot: pe
+//        planul NECUNOSCUT (opțiunile necitite) și pe o listă de produse plină
+//        până la plafonul PostgREST (1000, posibil tăiată) apare o notă, nu
+//        „complet”. Control: același meniu tradus, pe planul fără opțiuni și
+//        sub plafon, e „complet”. [PICĂ: `!wantOptions` în optionsComplete;
+//        fără verificarea plafonului]
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -326,5 +332,33 @@ describe('TranslationsTab — AI, opțiuni, previzualizare', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Salvează tot' }))
     await waitFor(() => expect(h.save).toHaveBeenCalledTimes(3))
     expect(screen.queryByText(/rânduri nesalvate|rând nesalvat/)).not.toBeInTheDocument()
+  })
+})
+
+describe('TranslationsTab — „complet” doar pe date întregi', () => {
+  const translated = (id: string, cat = 'c1') =>
+    product(id, { name: id, category_id: cat, translations: { en: { name: `${id} EN` } } })
+  beforeEach(() => {
+    h.categories = [category('c1', 'Ciorbe', { en: { name: 'Soups' } })]
+    h.products = [translated('p1'), translated('p2')]
+  })
+
+  it('TR10 control: planul fără opțiuni, sub plafon → „complet”', () => {
+    renderTab({ menuLanguages: ['en'], showOptions: false })
+    expect(screen.getByText('Meniul e tradus complet în English.')).toBeInTheDocument()
+  })
+
+  it('TR10 planul necunoscut → notă, nu „complet”', () => {
+    renderTab({ menuLanguages: ['en'], showOptions: null })
+    expect(screen.queryByText(/tradus complet/)).not.toBeInTheDocument()
+    expect(screen.getByText(/Nu știm încă dacă planul include opțiunile/)).toBeInTheDocument()
+    expect(h.load).not.toHaveBeenCalled()
+  })
+
+  it('TR10 lista de produse la plafon → notă, nu „complet”', () => {
+    h.products = Array.from({ length: 1000 }, (_, i) => translated(`p${i}`))
+    renderTab({ menuLanguages: ['en'], showOptions: false })
+    expect(screen.queryByText(/tradus complet/)).not.toBeInTheDocument()
+    expect(screen.getByText(/Ecranul le vede doar pe primele 1000/)).toBeInTheDocument()
   })
 })

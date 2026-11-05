@@ -52,6 +52,9 @@ const AiBulkGenerate = lazy(() => import('./AiBulkGenerate'))
 // Limba aleasă ultima dată, per restaurant, cât trăiește pagina (fără storage).
 const LAST_LANG = new Map<string, string>()
 const PAGE = 60
+// Plafonul de rânduri al PostgREST (`max_rows`, 1000 pe Supabase): useProducts
+// și useCategories nu paginează, deci o listă care îl atinge e posibil tăiată.
+const LIST_CAP = 1000
 
 type Draft = Partial<Record<TranslatedField, string>>
 type SectionId = 'categories' | 'products' | 'options' | 'extras'
@@ -405,8 +408,13 @@ export default function TranslationsTab({
   const pct = cov.total > 0 ? Math.round((cov.done / cov.total) * 100) : 100
   const visibleToGuests = guestLangs.includes(lang)
   const curLabel = langLabel(lang)
-  const optionsComplete = !wantOptions || opt.status === 'ready'
-  const complete = cov.missing === 0 && optionsComplete
+  // „Complet” se spune doar când ecranul chiar a văzut tot (recenzia O6c):
+  // pe planul NECUNOSCUT opțiunile și extra-urile nu se citesc deloc, iar o
+  // listă de produse/categorii plină până la plafonul PostgREST e posibil
+  // tăiată (aceeași regulă ca perechile din fișa produsului, lotul O5a).
+  const optionsComplete = showOptions === false || (showOptions === true && opt.status === 'ready')
+  const listsTruncated = products.length >= LIST_CAP || categories.length >= LIST_CAP
+  const complete = cov.missing === 0 && optionsComplete && !listsTruncated
   const draftCount = Object.keys(drafts).length
 
   const sections: { id: SectionId; title: string; rows: TrUnit[]; sub: boolean }[] = [
@@ -574,6 +582,17 @@ export default function TranslationsTab({
         )}
       </div>
 
+      {showOptions === null && (
+        <div role="status" style={{ fontSize: '0.8rem', color: D.t2 }}>
+          Nu știm încă dacă planul include opțiunile și extra-urile, deci nu sunt numărate aici.
+        </div>
+      )}
+      {listsTruncated && (
+        <div role="status" style={{ fontSize: '0.8rem', color: D.t2 }}>
+          Meniul are cel puțin {LIST_CAP} de produse sau categorii. Ecranul le vede doar pe primele {LIST_CAP}, deci nu
+          poate spune că totul e tradus.
+        </div>
+      )}
       {complete && (
         <div
           role="status"

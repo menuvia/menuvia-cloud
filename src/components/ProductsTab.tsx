@@ -5,7 +5,7 @@ import { usePlanLimits } from '../hooks/usePlanLimits'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { supabase } from '../lib/supabase'
 import { D, DIETARY_TAGS, ALLERGENS } from '../lib/constants'
-import { activeTranslationLangs, type Translations } from '../lib/i18nMenu'
+import { activeTranslationLangs, nameDraftsDirty, type Translations } from '../lib/i18nMenu'
 import { fetchVatRates } from '../lib/vat'
 import type { VatRate } from '../lib/vat'
 import type { PlanSurface } from '../lib/planSurface'
@@ -45,6 +45,8 @@ type ProductSaveOpts = { keepOpen?: boolean; onError?: (message: string) => void
 
 // Valoarea filtrului „Fără categorie" (nu poate coincide cu un uuid de categorie).
 const UNCATEGORIZED = '__uncategorized__'
+// Referință stabilă pentru „fără ciornă” (ExtraTranslations compară pe ea).
+const NO_DRAFTS: Readonly<Record<string, string>> = Object.freeze({})
 
 // Un produs fără categorie e invizibil pentru clienți: meniul public (QR și
 // /m/:slug) și comanda ospătarului îl grupează doar sub categorii.
@@ -282,7 +284,7 @@ function ProductModal({
   async function confirmDiscard(): Promise<boolean> {
     // Și traducerile extra-urilor tastate dar nesalvate (lotul O6c): ele se
     // salvează separat, pe loc, deci „Salvează” al fișei nu le-ar duce nicăieri.
-    if (JSON.stringify(form) === initialFormJson && extraTrDirty.size === 0) return true
+    if (JSON.stringify(form) === initialFormJson && !extraTrDirty) return true
     return confirmDialog({
       title: 'Renunți la modificări?',
       description: 'Modificările din fișă nu sunt salvate și se pierd.',
@@ -293,7 +295,7 @@ function ProductModal({
   }
   async function openVatRatesFromForm() {
     if (!onOpenVatRates) return
-    if (JSON.stringify(form) !== initialFormJson || extraTrDirty.size > 0) {
+    if (JSON.stringify(form) !== initialFormJson || extraTrDirty) {
       const ok = await confirmDialog({
         title: 'Închizi fișa produsului?',
         description: 'Modificările din fișă nu sunt salvate și se pierd.',
@@ -428,17 +430,33 @@ function ProductModal({
       translations: Translations | null
     }>
   >([])
-  // Extra-urile cu traduceri tastate dar nesalvate (închiderea fișei întreabă).
-  const [extraTrDirty, setExtraTrDirty] = useState<ReadonlySet<string>>(() => new Set())
-  const reportExtraTrDirty = useCallback((id: string, dirty: boolean) => {
-    setExtraTrDirty((prev) => {
-      if (prev.has(id) === dirty) return prev
-      const next = new Set(prev)
-      if (dirty) next.add(id)
-      else next.delete(id)
-      return next
-    })
-  }, [])
+  // Ciornele traducerilor extra-urilor, pe extra și pe limbă. Stau AICI, nu în
+  // ExtraTranslations: secțiunea „Extras & Pereche” se demontează când e
+  // strânsă, iar o ciornă ținută în componentă se pierdea tăcut, odată cu
+  // semnalul „nesalvat” (recenzia O6c).
+  const [extraTrDrafts, setExtraTrDrafts] = useState<
+    Readonly<Record<string, Readonly<Record<string, string>>>>
+  >({})
+  const updateExtraTrDrafts = useCallback(
+    (
+      id: string,
+      update: (prev: Readonly<Record<string, string>>) => Readonly<Record<string, string>>,
+    ) => {
+      setExtraTrDrafts((all) => {
+        const prev = all[id] ?? NO_DRAFTS
+        const next = update(prev)
+        if (next === prev) return all
+        const out = { ...all }
+        if (Object.keys(next).length === 0) delete out[id]
+        else out[id] = next
+        return out
+      })
+    },
+    [],
+  )
+  // Doar ciornele extra-urilor încă în listă, și doar cele care diferă de ce e
+  // salvat (un extra șters își ia ciorna cu el).
+  const extraTrDirty = extras.some((e) => nameDraftsDirty(extraTrDrafts[e.id], e.translations))
   const [pairings, setPairings] = useState<
     Array<{ id: string; paired_product_id: string; display_order: number }>
   >([])
@@ -723,6 +741,19 @@ function ProductModal({
       setFormError('Prețul nu e un număr valid (ex. 12,50)')
       setFormErrorField('price')
       return
+    }
+    // Traducerile extra-urilor se salvează pe loc, cu butonul lor: „Salvează”
+    // al fișei nu le duce nicăieri și închide fișa, deci o ciornă rămasă s-ar
+    // fi pierdut tăcut (recenzia O6c). Omul alege, nu ghicim noi.
+    if (!keepOpen && extraTrDirty) {
+      const ok = await confirmDialog({
+        title: 'Traducerile extra-urilor nu sunt salvate',
+        description:
+          'Ai tastat traduceri pentru extra-uri fără „Salvează traducerile”. Ele se salvează separat și se pierd când se închide fișa.',
+        confirmLabel: 'Salvează fișa fără ele',
+        cancelLabel: 'Rămân în fișă',
+      })
+      if (!ok) return
     }
     setFormError(null)
     setFormErrorField(null)
@@ -1738,7 +1769,8 @@ function ProductModal({
                                   prev.map((x) => (x.id === id ? { ...x, translations } : x)),
                                 )
                               }
-                              onDirtyChange={reportExtraTrDirty}
+                              drafts={extraTrDrafts[e.id] ?? NO_DRAFTS}
+                              onDraftsChange={updateExtraTrDrafts}
                               onToast={pmToast}
                             />
                           </div>

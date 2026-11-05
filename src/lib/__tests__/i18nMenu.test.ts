@@ -23,6 +23,10 @@
 //        availableMenuLangs NU oferă o limbă al cărei singur conținut e marcajul.
 //   TC5  `?lang=` (previzualizarea): doar coduri cunoscute, lowercase; limba
 //        cerută trece doar dacă meniul o oferă și nu e baza.
+//   TC6  nameDraftsDirty (ciornele extra-urilor din fișă, recenzia O6c): o
+//        ciornă e „nesalvată” doar când diferă, după trim, de numele salvat pe
+//        limba ei. Mutația care pică: comparația fără trim (o ciornă egală cu
+//        textul salvat, sau doar cu spații pe un câmp gol, ar cere confirmare).
 import { describe, it, expect } from 'vitest'
 import {
   normalizeMenuSearch,
@@ -39,6 +43,7 @@ import {
   setTranslationValue,
   langFromSearch,
   requestedMenuLang,
+  nameDraftsDirty,
   type TranslationEntry,
   type Translations,
 } from '../i18nMenu'
@@ -383,5 +388,24 @@ describe('TC5 ?lang= pentru previzualizare', () => {
     expect(requestedMenuLang('ro', ['en'], 'ro')).toBeNull()
     expect(requestedMenuLang('fr', ['en'], 'ro')).toBeNull()
     expect(requestedMenuLang(null, ['en'], 'ro')).toBeNull()
+  })
+})
+
+describe('TC6 nameDraftsDirty', () => {
+  const stored: Translations = { en: { name: 'Bacon EN', ai_fields: ['name'] } }
+
+  it('o ciornă diferită de numele salvat e nesalvată', () => {
+    expect(nameDraftsDirty({ en: 'Bacon' }, stored)).toBe(true)
+    expect(nameDraftsDirty({ de: 'Speck' }, stored)).toBe(true)
+    expect(nameDraftsDirty({ de: 'Speck' }, null)).toBe(true)
+  })
+
+  it('egală după trim, sau doar spații pe un câmp gol → nu e nesalvată', () => {
+    expect(nameDraftsDirty({ en: '  Bacon EN ' }, stored)).toBe(false)
+    expect(nameDraftsDirty({ de: '   ' }, stored)).toBe(false)
+    expect(nameDraftsDirty({}, stored)).toBe(false)
+    expect(nameDraftsDirty(undefined, stored)).toBe(false)
+    // Gunoi în coloană: tratat ca gol, fără excepție.
+    expect(nameDraftsDirty({ en: '' }, { en: 'x' } as unknown as Translations)).toBe(false)
   })
 })

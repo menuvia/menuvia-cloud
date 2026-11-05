@@ -330,6 +330,20 @@ export function applyManualEdit(
   return out
 }
 
+/**
+ * Ciornele de NUME ale unui rând salvat pe loc (extra-ul din fișa produsului;
+ * cheie = limba) diferă de ce e salvat? Comparația e după trim, ca la scriere:
+ * o ciornă egală cu textul salvat, sau doar cu spații pe un câmp gol, nu e
+ * „nesalvată”.
+ */
+export function nameDraftsDirty(
+  drafts: Readonly<Record<string, string>> | null | undefined,
+  stored: Translations | null | undefined,
+): boolean {
+  if (!drafts) return false
+  return Object.entries(drafts).some(([code, v]) => v.trim() !== fieldText(stored?.[code], 'name'))
+}
+
 /** „Am verificat”: scoate marcajul (tot, sau doar `fields`) pe o limbă, textul rămâne. */
 export function markTranslationReviewed(
   existing: Translations | null | undefined,

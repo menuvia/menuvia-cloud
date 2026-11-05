@@ -3,12 +3,15 @@
 // Extra-urile se salvează PE LOC (adăugarea și ștergerea lor nu așteaptă
 // „Salvează” al fișei), deci și traducerile lor: „Salvează traducerile” scrie
 // rândul prin saveRowTranslations (re-citire, apoi scriere, 0 rânduri =
-// refuz). Nu citește nimic la montare — datele vin din lista fișei. Ciorna
-// nesalvată se raportează părintelui (`onDirtyChange`), ca închiderea fișei să
-// ceară confirmare.
-import { useEffect, useState } from 'react'
+// refuz). Nu citește nimic la montare — datele vin din lista fișei. Ciornele
+// le ține FIȘA (`drafts` + `onDraftsChange`), nu componenta: secțiunea
+// „Extras & Pereche” se demontează când e strânsă, iar o ciornă ținută aici
+// s-ar fi pierdut tăcut, împreună cu semnalul „nesalvat” (recenzia O6c). Din
+// ele fișa știe ce n-a fost salvat (`nameDraftsDirty`), la închidere și la
+// „Salvează”.
+import { useState } from 'react'
 import { D } from '../../lib/constants'
-import { MENU_LANGS, aiFieldsOf, applyManualEdit, type Translations } from '../../lib/i18nMenu'
+import { MENU_LANGS, aiFieldsOf, applyManualEdit, nameDraftsDirty, type Translations } from '../../lib/i18nMenu'
 import { saveRowTranslations } from '../../lib/menuTranslationsData'
 import { toUserMessage } from '../../lib/userMessages'
 import { Button } from '../ui/Button'
@@ -21,29 +24,30 @@ export function ExtraTranslations({
   extra,
   langs,
   baseLang,
+  drafts,
+  onDraftsChange,
   onSaved,
-  onDirtyChange,
   onToast,
 }: {
   extra: { id: string; name: string; translations?: Translations | null }
   /** Limbile de traducere (active, fără bază). */
   langs: readonly string[]
   baseLang: string
+  /** Ciornele numelui pe limbă (cheie = codul limbii), ținute de fișă. */
+  drafts: Readonly<Record<string, string>>
+  /** Actualizează ciornele acestui extra; `{}` = fără ciornă. */
+  onDraftsChange: (
+    id: string,
+    update: (prev: Readonly<Record<string, string>>) => Readonly<Record<string, string>>,
+  ) => void
   onSaved: (id: string, translations: Translations) => void
-  /** Stabilă (useCallback în părinte): intră în dependențele efectului. */
-  onDirtyChange: (id: string, dirty: boolean) => void
   onToast: (msg: string, type?: string) => void
 }) {
-  const [open, setOpen] = useState(false)
-  const [drafts, setDrafts] = useState<Record<string, string>>({})
-  const [saving, setSaving] = useState(false)
   const stored = extra.translations ?? null
-  const dirty = Object.entries(drafts).some(([code, v]) => v.trim() !== text(stored?.[code]?.name))
-
-  useEffect(() => {
-    onDirtyChange(extra.id, dirty)
-    return () => onDirtyChange(extra.id, false)
-  }, [extra.id, dirty, onDirtyChange])
+  const dirty = nameDraftsDirty(drafts, stored)
+  // Redeschisă după strângerea secțiunii, o ciornă rămasă se vede imediat.
+  const [open, setOpen] = useState(dirty)
+  const [saving, setSaving] = useState(false)
 
   if (langs.length === 0) return null
   const done = langs.filter((code) => text(stored?.[code]?.name).length > 0).length
@@ -60,7 +64,8 @@ export function ExtraTranslations({
         ),
       )
       onSaved(extra.id, written)
-      setDrafts((d) => (d === edits ? {} : d))
+      // Ce s-a tastat în timpul salvării rămâne ciornă.
+      onDraftsChange(extra.id, (d) => (d === edits ? {} : d))
       onToast('Traducerile extra-ului au fost salvate.')
     } catch (e) {
       onToast(toUserMessage(e, 'Traducerile extra-ului nu au fost salvate.'), 'error')
@@ -93,7 +98,7 @@ export function ExtraTranslations({
                 <Inp
                   label={`Nume în ${label} pentru «${extra.name}»`}
                   value={drafts[code] ?? stored?.[code]?.name ?? ''}
-                  onChange={(v) => setDrafts((d) => ({ ...d, [code]: v }))}
+                  onChange={(v) => onDraftsChange(extra.id, (d) => ({ ...d, [code]: v }))}
                   placeholder={extra.name}
                 />
                 {flagged && <AiReviewMark />}

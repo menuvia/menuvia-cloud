@@ -10,13 +10,14 @@
 //        rămâne pe un text scris de om).
 //   PT3  fără `canTranslateAi` butonul lipsește (control: secțiunea e deschisă).
 //   PT4  ExtraTranslations: salvarea cheamă saveRowTranslations pe
-//        product_extras; un refuz (0 rânduri) dă un mesaj românesc; o ciornă
-//        nesalvată se raportează (`onDirtyChange(id, true)`).
+//        product_extras; un refuz (0 rânduri) dă un mesaj românesc; ciorna stă
+//        la PĂRINTE (`drafts` + `onDraftsChange`, recenzia O6c), se golește
+//        după salvare și rămâne după un refuz.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
-import type { Translations } from '../../../lib/i18nMenu'
+import { nameDraftsDirty, type Translations } from '../../../lib/i18nMenu'
 
 const h = vi.hoisted(() => ({
   translate: vi.fn(),
@@ -126,38 +127,58 @@ describe('ProductTranslations — „Tradu automat” în formular', () => {
   })
 })
 
+// Părintele de test ține ciornele, ca fișa produsului.
+function ExtraHarness({ onSaved }: { onSaved: (id: string, t: Translations) => void }) {
+  const [tr, setTr] = useState<Translations>({ en: { name: 'Bacon EN' } })
+  const [drafts, setDrafts] = useState<Readonly<Record<string, string>>>({})
+  return (
+    <>
+      <ExtraTranslations
+        extra={{ id: 'e1', name: 'Bacon', translations: tr }}
+        langs={['en', 'de']}
+        baseLang="ro"
+        drafts={drafts}
+        onDraftsChange={(id, update) => {
+          if (id !== 'e1') throw new Error(`extra greșit: ${id}`)
+          setDrafts(update)
+        }}
+        onSaved={(id, t) => {
+          onSaved(id, t)
+          setTr(t)
+        }}
+        onToast={toast}
+      />
+      <output aria-label="ciorne">{JSON.stringify(drafts)}</output>
+      <output aria-label="nesalvat">{String(nameDraftsDirty(drafts, tr))}</output>
+    </>
+  )
+}
+
 describe('ExtraTranslations — traducerile unui extra, pe loc', () => {
-  it('PT4 salvează pe product_extras, raportează ciorna, refuzul în română', async () => {
+  it('PT4 salvează pe product_extras, ciorna stă la părinte, refuzul în română', async () => {
     const onSaved = vi.fn()
-    const onDirty = vi.fn()
     h.save.mockImplementation(async (_t: string, _id: string, mutate: (t: Translations) => Translations) =>
       mutate({ en: { name: 'Bacon EN' } }),
     )
-    render(
-      <ExtraTranslations
-        extra={{ id: 'e1', name: 'Bacon', translations: { en: { name: 'Bacon EN' } } }}
-        langs={['en', 'de']}
-        baseLang="ro"
-        onSaved={onSaved}
-        onDirtyChange={onDirty}
-        onToast={toast}
-      />,
-    )
+    render(<ExtraHarness onSaved={onSaved} />)
     await userEvent.click(screen.getByRole('button', { name: 'Traduceri 1/2' }))
     const save = screen.getByRole('button', { name: 'Salvează traducerile' })
     expect(save).toBeDisabled()
     await userEvent.type(screen.getByLabelText('Nume în Deutsch pentru «Bacon»'), 'Speck')
-    expect(onDirty).toHaveBeenLastCalledWith('e1', true)
+    expect(screen.getByLabelText('ciorne')).toHaveTextContent('{"de":"Speck"}')
+    expect(screen.getByLabelText('nesalvat')).toHaveTextContent('true')
     await userEvent.click(save)
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith('e1', { en: { name: 'Bacon EN' }, de: { name: 'Speck' } }))
     expect(h.save.mock.calls[0][0]).toBe('product_extras')
     expect(h.save.mock.calls[0][1]).toBe('e1')
-    expect(onDirty).toHaveBeenLastCalledWith('e1', false)
+    expect(screen.getByLabelText('ciorne')).toHaveTextContent('{}')
+    expect(screen.getByLabelText('nesalvat')).toHaveTextContent('false')
 
     h.save.mockRejectedValueOnce(Object.assign(new Error('permission denied'), { code: '42501' }))
     await userEvent.type(screen.getByLabelText('Nume în Deutsch pentru «Bacon»'), 'X')
     await userEvent.click(screen.getByRole('button', { name: 'Salvează traducerile' }))
     await waitFor(() => expect(toast).toHaveBeenCalledWith('Nu ai drepturi pentru această acțiune.', 'error'))
-    expect(onDirty).toHaveBeenLastCalledWith('e1', true)
+    expect(screen.getByLabelText('ciorne')).toHaveTextContent('{"de":"SpeckX"}')
+    expect(screen.getByLabelText('nesalvat')).toHaveTextContent('true')
   })
 })
