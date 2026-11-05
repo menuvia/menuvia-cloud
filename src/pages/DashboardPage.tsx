@@ -1746,6 +1746,7 @@ export default function DashboardPage({
                     onUpdate={update}
                     plan={plan}
                     onSignOut={onSignOut}
+                    onPricing={onPricing}
                     modulesState={modulesState}
                     founderView={inFounderView}
                     surface={surface}
