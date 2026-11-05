@@ -294,6 +294,7 @@ vi.mock('../../components/SettingsTab', async () => {
       isOwner?: boolean
       onDirtyChange?: (d: boolean) => void
       onPricing?: () => void
+      onUpdate?: (id: string, f: Record<string, unknown>) => Promise<{ error: unknown }>
       addLocation?: {
         onCreated: (id: string) => Promise<void>
         confirmBeforeOpen?: () => Promise<boolean>
@@ -307,6 +308,17 @@ vi.mock('../../components/SettingsTab', async () => {
         createElement('button', { onClick: () => p.onDirtyChange?.(true) }, 'stub-modifica'),
         // „Vezi planurile" din cardul de abonament (lotul O7c).
         createElement('button', { onClick: () => p.onPricing?.() }, 'stub-planuri'),
+        // Salvări din Setări (lotul G1, DS25): una regională, una nu.
+        createElement(
+          'button',
+          { onClick: () => void p.onUpdate?.('rest-1', { currency: 'EUR' }) },
+          'stub-salveaza-moneda',
+        ),
+        createElement(
+          'button',
+          { onClick: () => void p.onUpdate?.('rest-1', { name: 'Alt nume' }) },
+          'stub-salveaza-nume',
+        ),
         // Simulează o locație nou creată din „Adaugă o locație" (lotul A),
         // cu întrebarea dinaintea dialogului (contractul AddLocationCard, AL9).
         p.addLocation
@@ -878,6 +890,17 @@ describe('DashboardPage — „Toate locațiile" (lotul A)', () => {
     })
     expect(ctx.calls.indexOf(stored)).toBeLessThan(ctx.calls.indexOf(upd))
     expect(ctx.calls.indexOf('clearPendingRegional:rest-new')).toBeGreaterThan(ctx.calls.indexOf(upd))
+  })
+
+  it('DS25: o salvare regională din Setări șterge intenția de copiere; una nereginală nu', async () => {
+    await renderDashboard('growth', { url: '/dashboard?tab=settings', anchor: false })
+    expect(await screen.findByText('stub-setari-restaurant')).toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'stub-salveaza-nume' }))
+    await waitFor(() => expect(ctx.calls.some((c) => c.startsWith('update:rest-1:'))).toBe(true))
+    expect(ctx.calls).not.toContain('clearPendingRegional:rest-1')
+    await user.click(screen.getByRole('button', { name: 'stub-salveaza-moneda' }))
+    await waitFor(() => expect(ctx.calls).toContain('clearPendingRegional:rest-1'))
   })
 
   it('DS24 control: dintr-un local românesc nu pleacă niciun UPDATE', async () => {

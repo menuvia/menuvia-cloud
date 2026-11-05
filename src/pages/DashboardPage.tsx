@@ -484,6 +484,22 @@ export default function DashboardPage({
   // hook garantează paritate exactă cu ce trimite AppRouter.
   const rLoading = restaurantsLoading
   const update = updateRestaurant
+  // Salvarea din Setări (lotul G1, recenzia CodeRabbit pe #358): valorile
+  // regionale salvate de om sunt autoritatea, deci o intenție de copiere
+  // rămasă de la crearea locației nu mai are voie să le suprascrie la
+  // următoarea încărcare — se șterge pe orice salvare reușită care le atinge.
+  const updateFromSettings = useCallback(
+    async (id: string, fields: Parameters<typeof updateRestaurant>[1]) => {
+      const res = await updateRestaurant(id, fields)
+      if (
+        !res.error &&
+        ('country' in fields || 'currency' in fields || 'timezone' in fields || 'language' in fields)
+      )
+        clearPendingRegional(id)
+      return res
+    },
+    [updateRestaurant],
+  )
   // Mod fondator/partener: restaurantul activ e vizitat, nu al userului.
   const inFounderView = founderViewId != null && founderViewId === activeId
   // Partenerul (afiliat, mig 286) intră pe Produse: Acasă citește comenzi/rapoarte.
@@ -1879,7 +1895,7 @@ export default function DashboardPage({
                     planLoadError={features.loadError && !planKnown}
                     onRetryPlan={() => void features.reload()}
                     restaurant={restaurant}
-                    onUpdate={update}
+                    onUpdate={updateFromSettings}
                     plan={plan}
                     onSignOut={onSignOut}
                     // „Vezi planurile" pleacă din panou (/pricing): cu formularul
