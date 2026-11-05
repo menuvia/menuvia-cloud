@@ -265,12 +265,13 @@ vi.mock('../../lib/founder', () => ({
 }))
 vi.mock('../../lib/pendingCountry', () => ({
   retryPendingCountry: async () => 'noop',
-  // Lotul G1 (DS24): intenția de țară a locației noi, observată prin `ctx.calls`.
-  storePendingCountry: (id: string, code: string) => {
-    ctx.calls.push(`storePendingCountry:${id}:${code}`)
+  retryPendingRegional: async () => 'noop',
+  // Lotul G1 (DS24): intenția regională a locației noi, observată prin `ctx.calls`.
+  storePendingRegional: (id: string, patch: unknown) => {
+    ctx.calls.push(`storePendingRegional:${id}:${JSON.stringify(patch)}`)
   },
-  clearPendingCountry: (id: string) => {
-    ctx.calls.push(`clearPendingCountry:${id}`)
+  clearPendingRegional: (id: string) => {
+    ctx.calls.push(`clearPendingRegional:${id}`)
   },
 }))
 vi.mock('../../components/HelpButton', () => ({ HelpButton: () => null }))
@@ -865,9 +866,18 @@ describe('DashboardPage — „Toate locațiile" (lotul A)', () => {
       language: 'de',
     })
     expect(ctx.calls.indexOf(upd)).toBeLessThan(ctx.calls.indexOf('setActive:rest-new'))
-    // Țara se păstrează ca intenție ÎNAINTE de UPDATE și se șterge după succes.
-    expect(ctx.calls.indexOf('storePendingCountry:rest-new:DE')).toBeLessThan(ctx.calls.indexOf(upd))
-    expect(ctx.calls.indexOf('clearPendingCountry:rest-new')).toBeGreaterThan(ctx.calls.indexOf(upd))
+    // Patch-ul ÎNTREG se păstrează ca intenție ÎNAINTE de UPDATE și se șterge
+    // după succes (recenzia CodeRabbit pe #358: nu doar țara).
+    const stored = ctx.calls.find((c) => c.startsWith('storePendingRegional:rest-new:'))
+    if (!stored) throw new Error('nicio intenție regională păstrată')
+    expect(JSON.parse(stored.slice('storePendingRegional:rest-new:'.length))).toEqual({
+      country: 'DE',
+      currency: 'EUR',
+      timezone: 'Europe/Berlin',
+      language: 'de',
+    })
+    expect(ctx.calls.indexOf(stored)).toBeLessThan(ctx.calls.indexOf(upd))
+    expect(ctx.calls.indexOf('clearPendingRegional:rest-new')).toBeGreaterThan(ctx.calls.indexOf(upd))
   })
 
   it('DS24 control: dintr-un local românesc nu pleacă niciun UPDATE', async () => {

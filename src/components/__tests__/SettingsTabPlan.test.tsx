@@ -55,6 +55,10 @@
 //        implicit tot urmează. Câmpul „Fusul orar” apare lângă țară (local în
 //        afara României). Mutația care pică: `upd('country', …)` simplu (moneda
 //        și fusul rămân ale țării vechi).
+//   RG2  (recenzia CodeRabbit pe #358) pe .ro, un local RO cu un fus SALVAT
+//        diferit de cel românesc își vede câmpul „Fusul orar” (altfel fusul ar
+//        guverna orele fără niciun control); control: cu fusul românesc, nu.
+//        Mutația care pică: vizibilitatea doar pe țară.
 //   SA7  (recenzia CodeRabbit pe #353) o imagine în curs de încărcare e muncă
 //        nesalvată: `onDirtyChange(true)` (deci „Adaugă o locație” / alt
 //        restaurant / /pricing întreabă) și `beforeunload` anulat. Control:
@@ -405,6 +409,14 @@ describe('SettingsTab — setările regionale (lotul G1)', () => {
       />
     )
   }
+
+  it('RG2: fusul salvat diferit de cel românesc rămâne vizibil pe un local RO', () => {
+    const ro: Restaurant = { ...makeRestaurant(), country: 'RO', timezone: 'Europe/Bucharest' }
+    const { rerender } = render(regional('restaurant', ro))
+    expect(screen.queryByLabelText('Fusul orar al restaurantului')).not.toBeInTheDocument()
+    rerender(regional('restaurant', { ...ro, timezone: 'Europe/London' }))
+    expect(screen.getByLabelText('Fusul orar al restaurantului')).toHaveValue('Europe/London')
+  })
 
   it('RG1: țara nouă aduce moneda și fusul ei; o monedă aleasă de mână rămâne', async () => {
     const user = userEvent.setup()

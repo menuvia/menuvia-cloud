@@ -4,7 +4,12 @@ import { useFeatures } from '../hooks/useFeatures'
 import { productLimitReason, surfaceTiers } from '../lib/features'
 import { planSurface, planUpsellTarget } from '../lib/planSurface'
 import { browserSite } from '../lib/domain'
-import { clearPendingCountry, retryPendingCountry, storePendingCountry } from '../lib/pendingCountry'
+import {
+  clearPendingRegional,
+  retryPendingCountry,
+  retryPendingRegional,
+  storePendingRegional,
+} from '../lib/pendingCountry'
 import { regionalPatchFrom } from '../lib/countries'
 import { getPlan as getCommercialPlan } from '../lib/plans'
 import { useRestaurantModules } from '../hooks/useRestaurantModules'
@@ -627,16 +632,17 @@ export default function DashboardPage({
     // Lotul G1: locația nouă pornește cu țara, moneda, fusul și limba de bază
     // ale celei din care a fost creată (`create_restaurant` pune default-urile
     // românești). Pentru un local românesc `regionalPatchFrom` dă null, deci
-    // niciun apel în plus. Țara se păstrează ÎNTÂI ca intenție
-    // (lib/pendingCountry): dacă UPDATE-ul pică, efectul de mai jos o
-    // reîncearcă la încărcarea locației — locația nu rămâne tăcut în România.
+    // niciun apel în plus. Patch-ul ÎNTREG se păstrează întâi ca intenție
+    // (lib/pendingCountry, recenzia CodeRabbit pe #358): dacă UPDATE-ul pică,
+    // efectul de mai jos îl reîncearcă la încărcarea locației, cu moneda, fusul
+    // și limba sursei — nu doar cu țara și default-urile ei.
     const regional = regionalPatchFrom(restaurant)
     if (regional) {
-      if (regional.country) storePendingCountry(restaurantId, regional.country)
+      storePendingRegional(restaurantId, regional)
       try {
         const { error } = await update(restaurantId, regional)
         if (error) console.warn('[locații] setările regionale ale locației noi n-au fost copiate', error)
-        else clearPendingCountry(restaurantId)
+        else clearPendingRegional(restaurantId)
       } catch (e) {
         console.warn('[locații] setările regionale ale locației noi n-au fost copiate', e)
       }
@@ -751,6 +757,10 @@ export default function DashboardPage({
   const countryRetriedRef = useRef<Set<string>>(new Set())
   const restaurantId = restaurant?.id ?? null
   const restaurantCountry = restaurant?.country ?? null
+  // Lotul G1: și restul setărilor regionale, pentru intenția locației noi.
+  const restaurantCurrency = restaurant?.currency ?? null
+  const restaurantTimezone = restaurant?.timezone ?? null
+  const restaurantLanguage = restaurant?.language ?? null
   const isRealOwner =
     activeRole === 'owner' && !inFounderView && restaurant != null && restaurant.owner_id === user?.id
   useEffect(() => {
@@ -770,7 +780,34 @@ export default function DashboardPage({
         console.warn('[dashboard] țara restaurantului încă nesalvată — reîncerc la următoarea încărcare')
       }
     })
-  }, [restaurantId, restaurantCountry, isRealOwner, update])
+    // Locația nouă (lotul G1): setările regionale copiate de la sursă.
+    void retryPendingRegional({
+      restaurantId,
+      current: {
+        country: restaurantCountry,
+        currency: restaurantCurrency,
+        timezone: restaurantTimezone,
+        language: restaurantLanguage,
+      },
+      isOwner: true,
+      update: async (patch) => {
+        const { error } = await update(restaurantId, patch)
+        return { error }
+      },
+    }).then((res) => {
+      if (res === 'failed') {
+        console.warn('[locații] setările regionale ale locației încă necopiate — reîncerc la următoarea încărcare')
+      }
+    })
+  }, [
+    restaurantId,
+    restaurantCountry,
+    restaurantCurrency,
+    restaurantTimezone,
+    restaurantLanguage,
+    isRealOwner,
+    update,
+  ])
 
   // Planul aparține RESTAURANTULUI, nu user-ului (CLAUDE.md §3): citim
   // get_restaurant_features, corect și pentru staff (un waiter pe restaurant

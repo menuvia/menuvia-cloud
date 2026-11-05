@@ -573,8 +573,12 @@ export default function SettingsTab({
 
             {/* Fusul orar (lotul G1) — sub aceeași regulă ca țara: pe .ro, pentru
                 un local RO, rămâne Europe/Bucharest și câmpul nu apare. Ora
-                programului, a ridicărilor și a rezervărilor se socotește în el. */}
-            {countrySettingVisible(browserSite(), restaurant.country) && (
+                programului, a ridicărilor și a rezervărilor se socotește în el.
+                Excepție (recenzia CodeRabbit pe #358): un fus SALVAT diferit de
+                cel românesc (local mutat înapoi în RO) rămâne vizibil — altfel ar
+                guverna orele fără niciun control prin care să fie schimbat. */}
+            {(countrySettingVisible(browserSite(), restaurant.country) ||
+              (restaurant.timezone ?? 'Europe/Bucharest') !== 'Europe/Bucharest') && (
               <SettingsCard
                 icon="clock"
                 title="Fusul orar"
