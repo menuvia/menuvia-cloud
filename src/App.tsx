@@ -3,6 +3,8 @@ import React, { useEffect, useState, useRef, Suspense, lazy } from 'react'
 // în codebase. Greutate de bundle + semnal arhitectural fals.
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { RestaurantProvider, useRestaurantCtx } from './contexts/RestaurantContext'
+// Limba personalului (L0b): modul mic, fără dicționare — sigur în intrare.
+import { UiLangProvider } from './i18n/UiLangContext'
 import { supabase, SUPABASE_CONFIGURED } from './lib/supabase'
 import { ROUTE_CHANGE_EVENT } from './lib/routeEvents'
 import { CheckoutError, describeCheckoutFailure, readCheckoutUrl } from './lib/checkout'
@@ -959,22 +961,24 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
-        <RestaurantProvider>
-          <ToastProvider>
-            <AppRouter />
-            {/* Consimțământul la Termeni: se consemnează la prima sesiune, iar
-                conturile fără el primesc ecranul o singură dată. Randează null
-                pentru vizitatorii anonimi (meniul QR nu e atins). */}
-            <TermsGateMount />
-            {/* Întoarcerea din Stripe (?checkout=success|cancelled): banner
-                NE-dialog, global, ca să apară și pe Onboarding (un cont fără
-                restaurant poate încă plăti direct din /pricing). */}
-            <CheckoutReturnBanner />
-            <PwaPromptMount />
-            <CookieBanner />
-            <ConfirmRoot />
-          </ToastProvider>
-        </RestaurantProvider>
+        <UiLangProvider>
+          <RestaurantProvider>
+            <ToastProvider>
+              <AppRouter />
+              {/* Consimțământul la Termeni: se consemnează la prima sesiune, iar
+                  conturile fără el primesc ecranul o singură dată. Randează null
+                  pentru vizitatorii anonimi (meniul QR nu e atins). */}
+              <TermsGateMount />
+              {/* Întoarcerea din Stripe (?checkout=success|cancelled): banner
+                  NE-dialog, global, ca să apară și pe Onboarding (un cont fără
+                  restaurant poate încă plăti direct din /pricing). */}
+              <CheckoutReturnBanner />
+              <PwaPromptMount />
+              <CookieBanner />
+              <ConfirmRoot />
+            </ToastProvider>
+          </RestaurantProvider>
+        </UiLangProvider>
       </AuthProvider>
     </ErrorBoundary>
   )
