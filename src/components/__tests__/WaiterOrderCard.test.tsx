@@ -384,3 +384,41 @@ describe('OrderCard — vârsta colorată (lotul G)', () => {
     expect(screen.queryByText(/întârziată/)).toBeNull()
   })
 })
+
+describe('OrderCard — „Retipărește la bucătărie” (lotul O3b)', () => {
+  it('RP1 cât retipărirea e în curs, butonul e blocat; altfel cheamă handlerul o dată', async () => {
+    // Recenzia CodeRabbit pe #349: kitchen_ticket_reprint ocolește
+    // deduplicarea și scoate un tichet NOU la fiecare apel, deci un dublu-tap
+    // tipărea de două ori. Mutația care pică: `reprinting` ignorat de buton.
+    const order = makeOrder({ status: 'preparing' })
+    const onReprint = vi.fn()
+    const { rerender } = render(
+      <OrderCard
+        order={order}
+        paymentsEnabled={null}
+        onPayOpen={vi.fn()}
+        onSplitOpen={vi.fn()}
+        onReprint={onReprint}
+        reprinting
+      />,
+    )
+    const busy = screen.getByRole('button', { name: /retipărește la bucătărie/i })
+    expect(busy).toBeDisabled()
+    await userEvent.click(busy)
+    expect(onReprint).not.toHaveBeenCalled()
+    // Control pozitiv: fără retipărire în curs, un tap cheamă handlerul.
+    rerender(
+      <OrderCard
+        order={order}
+        paymentsEnabled={null}
+        onPayOpen={vi.fn()}
+        onSplitOpen={vi.fn()}
+        onReprint={onReprint}
+        reprinting={false}
+      />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: /retipărește la bucătărie/i }))
+    expect(onReprint).toHaveBeenCalledTimes(1)
+    expect(onReprint).toHaveBeenCalledWith(order)
+  })
+})
