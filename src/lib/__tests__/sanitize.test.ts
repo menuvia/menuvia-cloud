@@ -38,7 +38,7 @@ describe('RESTAURANT_UPDATE_FIELDS', () => {
     }
   })
 
-  it('contains exactly the 24 columns granted UPDATE (mig 096B + menu_languages mig 197 + currency mig 205 + country mig 296 + language mig 298 − floor_layout mig 322)', () => {
+  it('contains exactly the 24 columns the client writes (UPDATE grants of mig 096B + menu_languages mig 197 + currency mig 205 + country mig 296 + language mig 298, minus floor_layout: granted but gated by trigger, mig 322)', () => {
     expect(RESTAURANT_UPDATE_FIELDS.length).toBe(24)
     expect([...RESTAURANT_UPDATE_FIELDS].sort()).toEqual(
       [
@@ -55,7 +55,8 @@ describe('RESTAURANT_UPDATE_FIELDS', () => {
         'primary_color',
         'logo_url',
         'cover_url',
-        // `floor_layout` scos în mig 322 (doar prin save_floor_layout).
+        // `floor_layout` scos în mig 322 (doar prin save_floor_layout; grant-ul
+        // rămâne în DB pentru bundle-urile vechi, trigger-ul păstrează harta).
         'socials',
         'amenities',
         'checkout_suggestion_settings',
