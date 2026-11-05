@@ -87,6 +87,14 @@ export function readNamespace<D extends Dict>(
   return { pending: p }
 }
 
+/** Pornește (sau așteaptă) încărcarea unei limbi fără să suspende nimic:
+ *  pentru teste și pentru ecranele care știu dinainte limba de care vor avea
+ *  nevoie. Nu aruncă: o încărcare eșuată a pus deja româna în cache. */
+export function preloadNamespace<D extends Dict>(ns: Namespace<D>, lang: StaffLang): Promise<void> {
+  const r = readNamespace(ns, lang)
+  return 'pending' in r ? r.pending : Promise.resolve()
+}
+
 /** `{nume}` → valoarea din `vars`; un loc fără valoare rămâne VIZIBIL
  *  (`{nume}`), ca testele să-l prindă în loc să dispară tăcut. */
 export function interpolate(template: string, vars?: Vars): string {

@@ -7,8 +7,10 @@
 //   OT4  classifyAuthError pe MESAJ când codul lipsește („Token has expired or
 //        is invalid", „email rate limit exceeded", „Failed to fetch")
 //   OT5  rate-limit bate „invalid" (un mesaj poate conține ambele cuvinte)
-//   OT6  CLICHET: pentru fiecare tip și limbă există mesaj, iar cel românesc nu
-//        scurge textul englezesc brut al lui GoTrue
+//   OT6  CLICHET: pentru fiecare tip și fiecare din cele patru limbi există mesaj
+//        în dicționarul `auth` (lotul L2a), cel românesc nu scurge textul
+//        englezesc brut al lui GoTrue, iar „cod greșit" trimite spre butonul
+//        de retrimitere CU NUMELE LUI din limba respectivă
 //   OT7  resendCooldownLeft: 60 → 0, rotunjit în sus, fără blocare peste total
 //   OT8  resendCooldownLeft: lipsă/ceas în urmă/NaN nu blochează butonul degeaba
 import { describe, it, expect } from 'vitest'
@@ -18,11 +20,17 @@ import {
   classifyAuthError,
   isOtpComplete,
   resendCooldownLeft,
-  resendErrorMessage,
   sanitizeOtpInput,
-  verifyOtpErrorMessage,
   type OtpErrorKind,
 } from '../otp'
+import ro from '../../i18n/ns/auth/ro'
+import en from '../../i18n/ns/auth/en'
+import fr from '../../i18n/ns/auth/fr'
+import de from '../../i18n/ns/auth/de'
+
+const DICTS = { ro, en, fr, de } as const
+const verifyMsg = (kind: OtpErrorKind, lang: keyof typeof DICTS): string => DICTS[lang][`otpVerify_${kind}`]
+const resendMsg = (kind: OtpErrorKind, lang: keyof typeof DICTS): string => DICTS[lang][`otpResend_${kind}`]
 
 describe('sanitizeOtpInput / isOtpComplete', () => {
   it('OT1 păstrează doar cifrele, maximum 6', () => {
@@ -76,24 +84,30 @@ describe('classifyAuthError', () => {
 describe('mesaje', () => {
   const KINDS: OtpErrorKind[] = ['invalid', 'rate_limit', 'network', 'other']
 
-  it('OT6 fiecare tip are mesaj în ambele limbi; cel RO nu scurge engleza GoTrue', () => {
+  it('OT6 fiecare tip are mesaj în fiecare limbă; cel RO nu scurge engleza GoTrue', () => {
+    const LANGS = Object.keys(DICTS) as (keyof typeof DICTS)[]
     for (const kind of KINDS) {
-      for (const lang of ['ro', 'en'] as const) {
-        expect(verifyOtpErrorMessage(kind, lang).length, `verify ${kind}/${lang}`).toBeGreaterThan(10)
-        expect(resendErrorMessage(kind, lang).length, `resend ${kind}/${lang}`).toBeGreaterThan(10)
+      for (const lang of LANGS) {
+        expect(verifyMsg(kind, lang).length, `verify ${kind}/${lang}`).toBeGreaterThan(10)
+        expect(resendMsg(kind, lang).length, `resend ${kind}/${lang}`).toBeGreaterThan(10)
       }
-      expect(verifyOtpErrorMessage(kind, 'ro')).not.toMatch(/token|expired|rate limit|failed to fetch/i)
-      expect(resendErrorMessage(kind, 'ro')).not.toMatch(/token|expired|rate limit|failed to fetch/i)
+      expect(verifyMsg(kind, 'ro')).not.toMatch(/token|expired|rate limit|failed to fetch/i)
+      expect(resendMsg(kind, 'ro')).not.toMatch(/token|expired|rate limit|failed to fetch/i)
     }
     // Limita serverului poate fi mai lungă de un minut (SMTP-ul built-in:
     // câteva emailuri pe oră): mesajele de rate-limit nu promit nicio durată.
-    for (const lang of ['ro', 'en'] as const) {
-      expect(verifyOtpErrorMessage('rate_limit', lang), `verify ${lang}`).not.toMatch(/\d|minut|minute|second|secund/i)
-      expect(resendErrorMessage('rate_limit', lang), `resend ${lang}`).not.toMatch(/\d|minut|minute|second|secund/i)
+    for (const lang of LANGS) {
+      expect(verifyMsg('rate_limit', lang), `verify ${lang}`).not.toMatch(/\d|minut|minute|second|secund|sekund/i)
+      expect(resendMsg('rate_limit', lang), `resend ${lang}`).not.toMatch(/\d|minut|minute|second|secund|sekund/i)
     }
-    // Cod greșit: mesajul trimite spre „Retrimite" (acțiunea de recuperare).
-    expect(verifyOtpErrorMessage('invalid', 'ro')).toMatch(/Retrimite/)
-    expect(verifyOtpErrorMessage('invalid', 'ro')).not.toBe(verifyOtpErrorMessage('rate_limit', 'ro'))
+    // Cod greșit: mesajul trimite spre butonul de retrimitere, cu numele pe
+    // care omul îl vede pe ecran (mutația care pică: „Resend" lăsat în franceză).
+    const RESEND_WORD = { ro: 'Retrimite', en: 'Resend', fr: 'Renvoyer', de: 'Erneut senden' } as const
+    for (const lang of LANGS) {
+      expect(verifyMsg('invalid', lang), lang).toContain(RESEND_WORD[lang])
+      expect(DICTS[lang].confirmResend.toLowerCase(), lang).toContain(RESEND_WORD[lang].toLowerCase())
+      expect(verifyMsg('invalid', lang)).not.toBe(verifyMsg('rate_limit', lang))
+    }
   })
 })
 

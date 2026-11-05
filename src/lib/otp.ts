@@ -1,7 +1,7 @@
 // src/lib/otp.ts
 // Codul de 6 cifre din emailul de confirmare (S1): omul îl scrie în ACELAȘI tab,
 // fără să mai deschidă linkul în alt tab/dispozitiv. Logica pură de aici
-// (sanitizare, clasificarea erorilor GoTrue, mesaje RO/EN, cooldown) e testată
+// (sanitizare, clasificarea erorilor GoTrue, cooldown) e testată
 // fără rețea; apelurile `verifyOtp` / `resend` stau în componentă.
 //
 // Codul funcționează doar după ce șablonul „Confirm signup" din Supabase conține
@@ -12,7 +12,6 @@ export const OTP_LENGTH = 6
 /** Cât trebuie să aștepte omul între două retrimiteri (Supabase impune ~60 s oricum). */
 export const RESEND_COOLDOWN_S = 60
 
-export type OtpLang = 'ro' | 'en'
 export type OtpErrorKind = 'invalid' | 'rate_limit' | 'network' | 'other'
 
 /** Doar cifre, maximum OTP_LENGTH (lipirea „123 456" sau „123-456" devine 123456). */
@@ -53,44 +52,8 @@ export function classifyAuthError(err: AuthErrorLike | null | undefined): OtpErr
   return 'other'
 }
 
-const VERIFY_MESSAGES: Record<OtpLang, Record<OtpErrorKind, string>> = {
-  ro: {
-    invalid:
-      'Codul e greșit sau a expirat. Verifică ultimul email primit sau cere unul nou cu „Retrimite”.',
-    rate_limit: 'Prea multe încercări. Așteaptă puțin și încearcă din nou.',
-    network: 'Problemă de conexiune. Verifică internetul și reîncearcă.',
-    other: 'Nu am putut verifica codul. Reîncearcă sau folosește linkul din email.',
-  },
-  en: {
-    invalid: 'The code is wrong or has expired. Check the latest email or request a new one with “Resend”.',
-    rate_limit: 'Too many attempts. Wait a little and try again.',
-    network: 'Connection problem. Check your internet and try again.',
-    other: 'We couldn’t verify the code. Try again or use the link in the email.',
-  },
-}
-
-const RESEND_MESSAGES: Record<OtpLang, Record<OtpErrorKind, string>> = {
-  ro: {
-    invalid: 'Nu am putut retrimite emailul. Reîncearcă peste un minut.',
-    rate_limit: 'Ai cerut prea multe coduri. Așteaptă puțin și încearcă din nou.',
-    network: 'Problemă de conexiune. Verifică internetul și reîncearcă.',
-    other: 'Nu am putut retrimite emailul. Reîncearcă peste un minut.',
-  },
-  en: {
-    invalid: 'We couldn’t resend the email. Try again in a minute.',
-    rate_limit: 'You requested too many codes. Wait a little and try again.',
-    network: 'Connection problem. Check your internet and try again.',
-    other: 'We couldn’t resend the email. Try again in a minute.',
-  },
-}
-
-export function verifyOtpErrorMessage(kind: OtpErrorKind, lang: OtpLang): string {
-  return VERIFY_MESSAGES[lang][kind]
-}
-
-export function resendErrorMessage(kind: OtpErrorKind, lang: OtpLang): string {
-  return RESEND_MESSAGES[lang][kind]
-}
+// Mesajele fiecărei clase stau în dicționarul `auth` (`otpVerify_<kind>`,
+// `otpResend_<kind>`, lotul L2a) — în limba omului, nu doar ro/en.
 
 /**
  * Secundele rămase până la următoarea retrimitere (0 = poate retrimite).

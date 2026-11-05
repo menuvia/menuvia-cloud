@@ -11,8 +11,10 @@
 //        signup; cooldown-ul repornește, codul vechi se șterge
 //   CE7  cât cooldown-ul e activ, „Retrimite" nu cheamă serverul
 //   CE8  rate-limit la retrimitere → mesaj + cooldown repornit
-//   CE9  textele merg și în engleză
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+//   CE9  textele merg și în engleză (dicționarul `auth`, lotul L2a)
+//   CE11 și în germană: dicționarul de/fr e cablat, nu doar scris (control că
+//        limba vine din context, nu dintr-un tabel ro/en din componentă)
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 
 const { verifyOtpMock, resendMock } = vi.hoisted(() => ({
@@ -24,21 +26,26 @@ vi.mock('../../lib/supabase', () => ({
 }))
 
 import ConfirmEmailCodeStep from '../auth/ConfirmEmailCodeStep'
+import { UiLangScope } from '../../i18n/UiLangContext'
+import { preloadNamespace } from '../../i18n/core'
+import { authNs } from '../../i18n/ns/auth'
+import type { StaffLang } from '../../i18n/langs'
+
+// Dicționarele leneșe încărcate dinainte: testele rămân sincrone (fără Suspense).
+beforeAll(async () => {
+  await Promise.all((['en', 'fr', 'de'] as const).map((l) => preloadNamespace(authNs, l)))
+})
 
 const EMAIL = 'ana@bistro.ro'
 const REDIRECT = 'https://menuvia.ro/auth?plan=growth'
 
-function setup(lang: 'ro' | 'en' = 'ro') {
+function setup(lang: StaffLang = 'ro') {
   const onVerified = vi.fn()
   const onBack = vi.fn()
   render(
-    <ConfirmEmailCodeStep
-      email={EMAIL}
-      lang={lang}
-      redirectTo={REDIRECT}
-      onVerified={onVerified}
-      onBack={onBack}
-    />,
+    <UiLangScope lang={lang}>
+      <ConfirmEmailCodeStep email={EMAIL} redirectTo={REDIRECT} onVerified={onVerified} onBack={onBack} />
+    </UiLangScope>,
   )
   return { onVerified, onBack }
 }
@@ -179,6 +186,19 @@ describe('ConfirmEmailCodeStep', () => {
     typeCode('123456')
     await submitCode()
     expect(screen.getByRole('alert')).toHaveTextContent(/wrong or has expired/i)
+  })
+
+  it('CE11 germana vine din context', async () => {
+    verifyOtpMock.mockResolvedValue({
+      data: { session: null },
+      error: { code: 'otp_expired', message: 'Token has expired or is invalid' },
+    })
+    setup('de')
+    expect(screen.getByRole('heading')).toHaveTextContent('Prüfen Sie Ihre E-Mails')
+    expect(screen.getByRole('button', { name: /erneut senden in 60 s/i })).toBeDisabled()
+    typeCode('123456')
+    await submitCode()
+    expect(screen.getByRole('alert')).toHaveTextContent(/falsch oder abgelaufen/i)
   })
 
   it('CE10 „Înapoi la autentificare" cheamă onBack', () => {

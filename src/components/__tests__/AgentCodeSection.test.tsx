@@ -13,7 +13,7 @@ import { AgentCodeBanner, AgentCodeField } from '../auth/AgentCodeSection'
 describe('AgentCodeBanner', () => {
   it('AU1 text + „Nu e agentul meu"', () => {
     const onDismiss = vi.fn()
-    render(<AgentCodeBanner lang="ro" onDismiss={onDismiss} />)
+    render(<AgentCodeBanner onDismiss={onDismiss} />)
     expect(screen.getByText('Ai venit prin agentul tău Menuvia')).toBeInTheDocument()
     expect(screen.getByText(/decât dacă îi dai tu acordul/i)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /nu e agentul meu/i }))
@@ -22,7 +22,7 @@ describe('AgentCodeBanner', () => {
 })
 
 describe('AgentCodeField', () => {
-  const base = { lang: 'ro' as const, value: '', onChange: vi.fn(), onOpen: vi.fn(), problem: null }
+  const base = { value: '', onChange: vi.fn(), onOpen: vi.fn(), problem: null }
 
   it('AU2 închis: doar linkul, niciun input', () => {
     render(<AgentCodeField {...base} open={false} />)

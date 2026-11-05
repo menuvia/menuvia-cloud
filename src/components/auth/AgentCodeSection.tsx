@@ -5,42 +5,15 @@
 // câmpul apare doar după „Am un cod de agent".
 import { MKT } from '../../lib/marketing'
 import { D } from '../../lib/constants'
-import type { OtpLang } from '../../lib/otp'
+import { useT } from '../../i18n/useT'
+import { authNs } from '../../i18n/ns/auth'
 import type { AgentCodeProblem } from '../../hooks/useSignupAgentCode'
 
 const ERROR = '#B3403F'
 
-const TEXT = {
-  ro: {
-    bannerTitle: 'Ai venit prin agentul tău Menuvia',
-    bannerBody:
-      'Îl legăm de contul tău, ca să te poată ajuta la configurare. Nu are acces la datele restaurantului decât dacă îi dai tu acordul.',
-    notMine: 'Nu e agentul meu',
-    haveCode: 'Am un cod de agent',
-    codeLabel: 'Codul agentului',
-    codePlaceholder: 'ex. k7m2xq9',
-    codeHelp: 'Îl primești de la agentul tău. Poți lăsa câmpul gol.',
-    shape:
-      'Codul poate avea doar litere, cifre și cratimă (2–40 de caractere). Verifică-l sau lasă câmpul gol.',
-    unknown: 'Nu găsim acest cod de agent. Verifică-l sau lasă câmpul gol.',
-  },
-  en: {
-    bannerTitle: 'You came through your Menuvia agent',
-    bannerBody:
-      'We’ll link them to your account so they can help you set up. They get no access to your restaurant’s data unless you allow it.',
-    notMine: 'Not my agent',
-    haveCode: 'I have an agent code',
-    codeLabel: 'Agent code',
-    codePlaceholder: 'e.g. k7m2xq9',
-    codeHelp: 'You get it from your agent. You can leave this empty.',
-    shape:
-      'The code can only contain letters, digits and hyphens (2–40 characters). Check it or leave the field empty.',
-    unknown: 'We can’t find this agent code. Check it or leave the field empty.',
-  },
-} as const
-
-export function AgentCodeBanner({ lang, onDismiss }: { lang: OtpLang; onDismiss: () => void }) {
-  const t = TEXT[lang]
+// Limba vine din `FunnelLangProvider`-ul paginii (AuthPage).
+export function AgentCodeBanner({ onDismiss }: { onDismiss: () => void }) {
+  const { t } = useT(authNs)
   return (
     <div
       role="status"
@@ -52,9 +25,9 @@ export function AgentCodeBanner({ lang, onDismiss }: { lang: OtpLang; onDismiss:
         marginBottom: 20,
       }}
     >
-      <div style={{ color: MKT.text, fontSize: '0.9rem', fontWeight: 700 }}>{t.bannerTitle}</div>
+      <div style={{ color: MKT.text, fontSize: '0.9rem', fontWeight: 700 }}>{t('agentBannerTitle')}</div>
       <div style={{ color: MKT.text2, fontSize: '0.78rem', marginTop: 4, lineHeight: 1.5 }}>
-        {t.bannerBody}
+        {t('agentBannerBody')}
       </div>
       <button
         type="button"
@@ -72,28 +45,26 @@ export function AgentCodeBanner({ lang, onDismiss }: { lang: OtpLang; onDismiss:
           minHeight: 44,
         }}
       >
-        {t.notMine}
+        {t('agentNotMine')}
       </button>
     </div>
   )
 }
 
 export function AgentCodeField({
-  lang,
   open,
   onOpen,
   value,
   onChange,
   problem,
 }: {
-  lang: OtpLang
   open: boolean
   onOpen: () => void
   value: string
   onChange: (value: string) => void
   problem: AgentCodeProblem
 }) {
-  const t = TEXT[lang]
+  const { t } = useT(authNs)
   if (!open) {
     return (
       <button
@@ -114,7 +85,7 @@ export function AgentCodeField({
           margin: '-8px 0',
         }}
       >
-        {t.haveCode}
+        {t('agentHaveCode')}
       </button>
     )
   }
@@ -130,13 +101,13 @@ export function AgentCodeField({
           fontWeight: 500,
         }}
       >
-        {t.codeLabel}
+        {t('agentCodeLabel')}
       </label>
       <input
         id="auth-agent-code"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={t.codePlaceholder}
+        placeholder={t('agentCodePlaceholder')}
         autoComplete="off"
         autoCapitalize="none"
         autoCorrect="off"
@@ -167,7 +138,7 @@ export function AgentCodeField({
           color: problem ? ERROR : MKT.text3,
         }}
       >
-        {problem === 'shape' ? t.shape : problem === 'unknown' ? t.unknown : t.codeHelp}
+        {problem === 'shape' ? t('agentShape') : problem === 'unknown' ? t('agentUnknown') : t('agentCodeHelp')}
       </div>
     </div>
   )
