@@ -11,6 +11,8 @@ const ro = {
   edit: 'Editează',
   back: 'Înapoi',
   loading: 'Se încarcă…',
+  // Marcajul de pe cardurile ale căror comutatoare scriu imediat (sharedUI, lotul R2).
+  autoSaveHint: '· se salvează automat',
   err_generic: 'Acțiunea nu a putut fi finalizată. Reîncearcă.',
   err_network: 'Fără conexiune. Verifică internetul și reîncearcă.',
   err_permission: 'Nu ai drepturi pentru această acțiune.',

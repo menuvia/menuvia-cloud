@@ -28,6 +28,10 @@ import { PlanUpsellCard } from './PlanUpsellCard'
 import { AgentCard } from './AgentCard'
 import { romaniaDayBoundaryISO, toRomaniaYMD } from '../../lib/dates'
 import { useInView, revealStyle } from '../../lib/motion'
+import { LIVE_ORDERS_TAB, type HomeNavTarget } from '../../lib/dashboardNav'
+import { useT } from '../../i18n/useT'
+import { homeNs } from '../../i18n/ns/home'
+import { commonNs } from '../../i18n/ns/common'
 
 // Paleta de scor — citește din tokens-urile existente (CSS vars).
 const scorePalette = { green: D.green, gold: D.gold, orange: D.amber, red: D.red }
@@ -87,9 +91,7 @@ interface Props {
   productCount: number | null
   // Mod „doar ridicare" (food truck, E3): fără pași/metrici legate de mese.
   pickupOnly: boolean
-  onNavigate: (
-    tab: 'products' | 'categories' | 'mese' | 'raport' | 'comenzi' | 'echipa' | 'casa-marcat',
-  ) => void
+  onNavigate: (tab: HomeNavTarget) => void
   onViewMenu: () => void
   onPricing: () => void
   // Deschide magazinul Codvia (/codvia?slug=…) cu meniul restaurantului
@@ -292,6 +294,9 @@ export default function HomeTab({
   onPricing,
   onOrderQrStands,
 }: Props) {
+  // Textele: lotul L3a (namespace `home`; „Reîncearcă” din `common`).
+  const { t } = useT(homeNs)
+  const tc = useT(commonNs)
   // ── Cifrele zilei + datele de setup (HEAD counts, o singură rundă) ──
   const [ordersToday, setOrdersToday] = useState<number | null>(null)
   const [tablesCount, setTablesCount] = useState<number | null>(null)
@@ -584,28 +589,26 @@ export default function HomeTab({
   // test" încă de făcut, până la o remontare (recenzia O7c, HO6).
   const orderedOnce: boolean | null = (ordersToday ?? 0) > 0 ? true : everOrdered
   const setupItems: SetupItem[] = [
-    { label: 'Adaugă produse', done: atLeast(productCount, 1), target: 'products' },
-    { label: 'Creează categorii', done: atLeast(categoriesCount, 1), target: 'categories' },
+    { label: t('setup_addProducts'), done: atLeast(productCount, 1), target: 'products' },
+    { label: t('setup_createCategories'), done: atLeast(categoriesCount, 1), target: 'categories' },
     ...(pickupOnly
       ? []
       : [
           {
-            label: 'Generează QR-uri pentru mese',
+            label: t('setup_generateTableQrs'),
             done: atLeast(tablesCount, 1),
             target: 'mese' as const,
           },
         ]),
-    { label: 'Verifică meniul public', done: menuChecked },
+    { label: t('setup_checkPublicMenu'), done: menuChecked },
     ...(hasOrdering && isAdmin
       ? [
-          { label: 'Invită echipa', done: atLeast(teamCount, 2), target: 'echipa' as const },
+          { label: t('setup_inviteTeam'), done: atLeast(teamCount, 2), target: 'echipa' as const },
           // Pasul de ACTIVARE (PLAN_10 F4): fluxul e validat abia când o comandă
           // reală a intrat. Fostul item „Comenzile de la masă: active" era o bifă
           // permanentă — contrazicea regula „doar pași măsurabili" de mai sus.
           {
-            label: pickupOnly
-              ? 'Prima comandă de test — deschide meniul public și comandă'
-              : 'Prima comandă de test — deschide QR-ul unei mese și comandă',
+            label: pickupOnly ? t('setup_firstOrderPickup') : t('setup_firstOrderTable'),
             done: orderedOnce,
             target: 'mese' as const,
           },
@@ -630,41 +633,41 @@ export default function HomeTab({
   // Metricele secundare — aceeași importanță între ele, sub hero.
   const secondaryMetrics = [
     {
-      label: 'Produse active',
+      label: t('metric_activeProducts'),
       value: productCount == null ? '…' : String(productCount),
       hint: undefined as string | undefined,
     },
     pickupOnly
-      ? { label: 'QR-uri active', value: '1', hint: 'QR general (doar ridicare)' }
+      ? { label: t('metric_activeQrs'), value: '1', hint: t('metric_pickupQrHint') }
       : {
-          label: 'QR-uri active',
+          label: t('metric_activeQrs'),
           value: tablesCount == null ? '…' : String(tablesCount),
-          hint: 'mese scanabile',
+          hint: t('metric_scannableTablesHint'),
         },
     ...(showOccupancy
       ? [
           {
-            label: 'Mese ocupate acum',
+            label: t('metric_occupiedTables'),
             value: failed.has('occupied')
               ? '—'
               : occupiedTables == null || activeTables == null
                 ? '…'
                 : `${occupiedTables}/${activeTables}`,
-            hint: failed.has('occupied') ? 'nu s-a putut încărca' : 'cu comenzi deschise',
+            hint: failed.has('occupied') ? t('metric_loadFailedHint') : t('metric_openOrdersHint'),
           },
         ]
       : []),
     ...(showMoney
       ? [
           {
-            label: 'Încasări azi',
+            label: t('metric_revenueToday'),
             value: failed.has('revenue') ? '—' : revenueToday == null ? '…' : fmtPrice(revenueToday),
-            hint: failed.has('revenue') ? 'nu s-a putut încărca' : 'plăți înregistrate azi',
+            hint: failed.has('revenue') ? t('metric_loadFailedHint') : t('metric_revenueHint'),
           },
           {
-            label: 'Bacșiș azi',
+            label: t('metric_tipsToday'),
             value: failed.has('tips') ? '—' : tipsToday == null ? '…' : fmtPrice(tipsToday),
-            hint: failed.has('tips') ? 'nu s-a putut încărca' : 'informativ, nu intră în încasări',
+            hint: failed.has('tips') ? t('metric_loadFailedHint') : t('metric_tipsHint'),
           },
         ]
       : []),
@@ -673,9 +676,13 @@ export default function HomeTab({
     ...(isAdmin
       ? [
           {
-            label: 'Configurare',
+            label: t('metric_setup'),
             value: planKnown ? `${setupDone}/${setupTotal}` : '…',
-            hint: setupComplete ? 'totul e gata ✓' : planKnown ? 'pași completați' : undefined,
+            hint: setupComplete
+              ? t('metric_setupDoneHint')
+              : planKnown
+                ? t('metric_setupStepsHint')
+                : undefined,
           },
         ]
       : []),
@@ -688,8 +695,8 @@ export default function HomeTab({
       <RevealItem>
         <div>
           <PageHeader
-            title={`Bun venit, ${restaurantName}`}
-            description="Configurează restaurantul, verifică QR-urile și urmărește activitatea de azi."
+            title={t('welcome_title', { name: restaurantName })}
+            description={t('welcome_description')}
           />
         </div>
       </RevealItem>
@@ -716,11 +723,13 @@ export default function HomeTab({
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
             <div style={{ flex: '1 1 220px', minWidth: 200 }}>
               <HeroMetric
-                label="Comenzi azi"
+                label={t('metric_ordersToday')}
                 value={
                   failed.has('orders') ? '—' : ordersToday == null ? '…' : String(ordersToday)
                 }
-                hint={failed.has('orders') ? 'nu s-a putut încărca' : 'fără cele anulate'}
+                hint={
+                  failed.has('orders') ? t('metric_loadFailedHint') : t('metric_ordersTodayHint')
+                }
               />
             </div>
             <div
@@ -754,9 +763,9 @@ export default function HomeTab({
             role="status"
             style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, color: D.t3, fontSize: 13 }}
           >
-            <span>Unele cifre nu s-au putut încărca.</span>
+            <span>{t('metrics_someFailed')}</span>
             <Button variant="ghost" size="sm" onClick={() => setReloadKey((k) => k + 1)}>
-              Reîncearcă
+              {tc.t('retry')}
             </Button>
           </div>
         )}
@@ -792,10 +801,10 @@ export default function HomeTab({
               }}
             >
               <Icon name="sparkle" size={18} color={D.gold} />
-              Configurare restaurant
+              {t('setup_title')}
             </div>
             <div style={{ color: D.gold, fontSize: '0.82rem', fontWeight: 700 }}>
-              {setupDone}/{setupTotal} pași completați
+              {t('setup_progress', { done: setupDone, total: setupTotal })}
             </div>
           </div>
           <div
@@ -803,7 +812,7 @@ export default function HomeTab({
             aria-valuenow={setupDone}
             aria-valuemin={0}
             aria-valuemax={setupTotal}
-            aria-label="Progres configurare"
+            aria-label={t('setup_progressAria')}
             style={{
               height: 6,
               background: D.s3,
@@ -835,9 +844,9 @@ export default function HomeTab({
                 aria-disabled={it.done === true || undefined}
                 aria-label={
                   it.done === true
-                    ? it.label + ' (completat)'
+                    ? t('setup_itemDoneAria', { label: it.label })
                     : it.done == null
-                      ? it.label + ' (stare necunoscută)'
+                      ? t('setup_itemUnknownAria', { label: it.label })
                       : undefined
                 }
                 style={{
@@ -930,7 +939,7 @@ export default function HomeTab({
                   }}
                 >
                   <span style={{ color: D.t1, fontSize: '0.98rem', fontWeight: 700 }}>
-                    Scor meniu
+                    {t('score_title')}
                   </span>
                   {shownScore != null && (
                     <span
@@ -963,7 +972,7 @@ export default function HomeTab({
             )
           }}
         >
-          <Suspense fallback={<InlineSpinner label="Se încarcă scorul..." />}>
+          <Suspense fallback={<InlineSpinner label={t('score_loading')} />}>
             <HealthScoreTab fiscal={isFiscal} />
           </Suspense>
         </ExpandableCard>
@@ -973,7 +982,7 @@ export default function HomeTab({
       {/* Acțiuni rapide */}
       <RevealItem delay={240}>
       <div>
-        <div style={sectionTitle}>Acțiuni rapide</div>
+        <div style={sectionTitle}>{t('quick_title')}</div>
         <div
           style={{
             display: 'grid',
@@ -984,20 +993,36 @@ export default function HomeTab({
           {/* Editarea meniului și a meselor = owner/manager; restul echipei ar
               ajunge pe tab-uri care îi refuză fiecare salvare. */}
           {isAdmin && (
-            <QuickAction icon="plus" label="Adaugă produs" onClick={() => onNavigate('products')} />
+            <QuickAction
+              icon="plus"
+              label={t('quick_addProduct')}
+              onClick={() => onNavigate('products')}
+            />
           )}
           {isAdmin && (
-            <QuickAction icon="qr" label="Generează QR-uri" onClick={() => onNavigate('mese')} />
+            <QuickAction
+              icon="qr"
+              label={t('quick_generateQrs')}
+              onClick={() => onNavigate('mese')}
+            />
           )}
           {isAdmin && qrStandsOpen === true && (
-            <QuickAction icon="box" label="Suporturi QR fizice" onClick={onOrderQrStands} />
+            <QuickAction icon="box" label={t('quick_qrStands')} onClick={onOrderQrStands} />
           )}
-          <QuickAction icon="eye" label="Vezi meniul public" onClick={handleViewMenu} />
+          <QuickAction icon="eye" label={t('quick_viewPublicMenu')} onClick={handleViewMenu} />
           {hasOrdering && (
-            <QuickAction icon="bell" label="Vezi comenzile" onClick={() => onNavigate('comenzi')} />
+            <QuickAction
+              icon="bell"
+              label={t('quick_viewOrders')}
+              onClick={() => onNavigate(LIVE_ORDERS_TAB)}
+            />
           )}
           {hasOrdering && isAdmin && (
-            <QuickAction icon="users" label="Invită ospătar" onClick={() => onNavigate('echipa')} />
+            <QuickAction
+              icon="users"
+              label={t('quick_inviteWaiter')}
+              onClick={() => onNavigate('echipa')}
+            />
           )}
         </div>
       </div>

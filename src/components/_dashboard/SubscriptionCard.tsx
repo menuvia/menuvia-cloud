@@ -16,13 +16,16 @@ import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { Icon } from '../ui/Icon'
 import { openBillingPortal, type BillingError } from '../../lib/billing'
-import { toUserMessage } from '../../lib/userMessages'
+import { useT } from '../../i18n/useT'
+import { homeNs } from '../../i18n/ns/home'
+import { commonNs } from '../../i18n/ns/common'
+import { describeStaffError } from '../../i18n/staffErrors'
 
-// Neutru DELIBERAT: rămâne adevărat și pentru proprietarul pe gratuit, și pentru
-// cel cu plan setat manual sau pilot (n-are client Stripe, deci n-are portal).
-const NO_CUSTOMER_TEXT =
-  'Contul tău nu are un abonament plătit cu cardul, deci aici nu ai nimic de gestionat. Planurile și prețurile sunt pe pagina de planuri.'
-const PORTAL_FALLBACK = 'Nu am putut deschide portalul de facturare. Reîncearcă în câteva momente.'
+// Textele: namespace-ul `home` (lotul L3a). `sub_noCustomer` e neutru
+// DELIBERAT: rămâne adevărat și pentru proprietarul pe gratuit, și pentru cel
+// cu plan setat manual sau pilot (n-are client Stripe, deci n-are portal).
+// Eroarea portalului trece prin `describeStaffError`: în română exact
+// `toUserMessage` de dinainte (mesajul românesc al serverului rămâne).
 
 export function SubscriptionCard({
   planName,
@@ -32,6 +35,8 @@ export function SubscriptionCard({
   // Obligatoriu: fără el, răspunsul `no_customer` ar rămâne iar o fundătură.
   onSeePlans: () => void
 }) {
+  const { t } = useT(homeNs)
+  const tc = useT(commonNs)
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [noCustomer, setNoCustomer] = useState(false)
@@ -49,7 +54,7 @@ export function SubscriptionCard({
       // Stripe": un fost abonat retrogradat pe gratuit are încă facturi în
       // portal, deci nu se poate decide din plan înainte de click.
       if (be.code === 'no_customer') setNoCustomer(true)
-      else setErr(toUserMessage(be, PORTAL_FALLBACK))
+      else setErr(describeStaffError(be, tc, { fallback: t('sub_portalFallback') }))
       setLoading(false)
     }
   }
@@ -67,20 +72,20 @@ export function SubscriptionCard({
       <Icon name="receipt" size={24} color={D.gold} />
       <div style={{ flex: 1, minWidth: 220 }}>
         <div style={{ color: D.t1, fontSize: '0.92rem', fontWeight: 600 }}>
-          Abonament &amp; facturare
+          {t('sub_title')}
         </div>
         <div style={{ color: D.t2, fontSize: '0.78rem', marginTop: 4, lineHeight: 1.5 }}>
-          {planName ? `Planul tău: ${planName}. ` : ''}
+          {planName ? t('sub_yourPlan', { name: planName }) : ''}
           {/* Fără client Stripe nu există card de actualizat și nici facturi de
               descărcat — textul de mai jos spune unde sunt planurile. */}
-          {noCustomer ? null : 'Actualizează cardul, schimbă planul sau descarcă facturile.'}
+          {noCustomer ? null : t('sub_manageHint')}
         </div>
         {noCustomer && (
           <div
             role="status"
             style={{ color: D.t1, fontSize: '0.76rem', marginTop: 6, lineHeight: 1.5 }}
           >
-            {NO_CUSTOMER_TEXT}
+            {t('sub_noCustomer')}
           </div>
         )}
         {err && (
@@ -94,12 +99,12 @@ export function SubscriptionCard({
       </div>
       {noCustomer ? (
         <Button variant="primary" onClick={onSeePlans}>
-          Vezi planurile
+          {t('sub_seePlans')}
           <Icon name="chevronRight" size={16} />
         </Button>
       ) : (
         <Button variant="secondary" onClick={handleOpen} loading={loading}>
-          {loading ? 'Se deschide…' : 'Gestionează abonamentul'}
+          {loading ? t('sub_opening') : t('sub_manage')}
           {!loading && <Icon name="chevronRight" size={16} />}
         </Button>
       )}

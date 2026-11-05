@@ -78,18 +78,11 @@ const SRC = 'src'
 // Scutiri: modul → motiv. Un modul care NU e importat de aplicație, dar trebuie
 // să rămână (ex. un punct de intrare citit de alt instrument, sau o fundație
 // livrată înaintea primului ei consumator).
-// `core.ts`/`useT.ts`/`format.ts` au primul consumator în L2a (autentificarea);
-// `common` și `staffErrors` îl primesc odată cu primul ecran al panoului (L3).
-const I18N_FOUNDATION_WHY =
-  'fundația limbilor personalului (lotul L0b, Partea II) intră înaintea primului ecran care o folosește (L3, panoul); DC1b cere scoaterea scutirii în PR-ul care o conectează'
-const ALLOWED_UNREACHABLE = {
-  'src/i18n/ns/common/de.ts': I18N_FOUNDATION_WHY,
-  'src/i18n/ns/common/en.ts': I18N_FOUNDATION_WHY,
-  'src/i18n/ns/common/fr.ts': I18N_FOUNDATION_WHY,
-  'src/i18n/ns/common/index.ts': I18N_FOUNDATION_WHY,
-  'src/i18n/ns/common/ro.ts': I18N_FOUNDATION_WHY,
-  'src/i18n/staffErrors.ts': I18N_FOUNDATION_WHY,
-}
+// Fundația limbilor personalului (lotul L0b) a stat aici până la primii ei
+// consumatori: `core`/`useT`/`format` în L2a (autentificarea), `common` și
+// `staffErrors` în L3a (Acasă din panou) — registrul e acum gol.
+/** @type {Record<string, string>} */
+const ALLOWED_UNREACHABLE = {}
 
 // Exporturi moarte CUNOSCUTE, lăsate deliberat în fișiere pe care această
 // curățenie nu le atinge (fișier → nume → motiv). Se scot pe măsură ce dispar.

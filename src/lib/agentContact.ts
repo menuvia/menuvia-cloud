@@ -74,27 +74,29 @@ export function parseMyAgent(raw: unknown): MyAgentResult | null {
   }
 }
 
-// ── Ce poate și ce NU poate agentul (textul din mig 286, arătat înainte de buton) ──
-export const AGENT_ACCESS_SCOPE_TEXT =
-  'Agentul vede și poate edita DOAR meniul (categorii, produse, opțiuni) și mesele cu codurile QR. ' +
-  'NU vede comenzile, încasările, rezervările, datele fiscale, setările sau echipa. ' +
-  'Nu îți afectează abonamentul și îl poți retrage oricând.'
-
+// ── Starea accesului: tonul și CHEIA etichetei ──
+// Textele (eticheta și ce poate / NU poate agentul, textul din mig 286) stau în
+// namespace-ul `home` (`agent_access*`, `agent_scope` — lotul L3a), în limba
+// personalului; aici rămâne doar decizia, fără importuri.
 export interface AgentAccessView {
-  label: string
+  labelKey:
+    | 'agent_accessGranted'
+    | 'agent_accessRequested'
+    | 'agent_accessRevoked'
+    | 'agent_accessNone'
   tone: 'ok' | 'wait' | 'neutral'
 }
 
 export function describeAgentAccess(state: AgentAccessState): AgentAccessView {
   switch (state) {
     case 'granted':
-      return { label: 'Acces acordat', tone: 'ok' }
+      return { labelKey: 'agent_accessGranted', tone: 'ok' }
     case 'requested':
-      return { label: 'Agentul a cerut acces', tone: 'wait' }
+      return { labelKey: 'agent_accessRequested', tone: 'wait' }
     case 'revoked':
-      return { label: 'Acces retras', tone: 'neutral' }
+      return { labelKey: 'agent_accessRevoked', tone: 'neutral' }
     default:
-      return { label: 'Fără acces', tone: 'neutral' }
+      return { labelKey: 'agent_accessNone', tone: 'neutral' }
   }
 }
 

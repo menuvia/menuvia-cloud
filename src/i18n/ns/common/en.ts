@@ -10,6 +10,7 @@ const en: Translation<typeof ro> = {
   edit: 'Edit',
   back: 'Back',
   loading: 'Loading…',
+  autoSaveHint: '· saved automatically',
   err_generic: 'The action could not be completed. Please try again.',
   err_network: 'No connection. Check your internet and try again.',
   err_permission: 'You don’t have permission for this action.',

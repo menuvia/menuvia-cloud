@@ -14,6 +14,8 @@ import { D } from '../../lib/constants'
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
 import { FocusTrap } from '../ui/FocusTrap'
 import { ToastContext, type ToastApi } from '../ui/useToast'
+import { useT } from '../../i18n/useT'
+import { commonNs } from '../../i18n/ns/common'
 
 // ── Style helpers ──
 
@@ -177,6 +179,8 @@ export function Modal({
   // Blocăm scroll-ul paginii cât modalul e deschis (fix #74) — hook ref-counted,
   // deci e sigur chiar dacă un caller îl mai apelează o dată în afară.
   useBodyScrollLock(true)
+  // „Închide” = `common.close` (lotul L3a): același cuvânt în tot panoul.
+  const { t } = useT(commonNs)
   const titleId = useId()
   // Fundalul închide DOAR un click început și terminat pe el: o selecție de
   // text trasă din panou și eliberată în afara lui închidea fișa (MENU-06).
@@ -253,7 +257,7 @@ export function Modal({
           <button
             type="button"
             onClick={() => void requestClose()}
-            aria-label="Închide"
+            aria-label={t('close')}
             style={{
               background: 'transparent',
               border: 'none',
@@ -410,6 +414,7 @@ export function Toggle({
 // comutatoare scriu imediat, fără „Salvează". Doar unde e ADEVĂRAT — un card
 // cu buton propriu de salvare nu îl primește.
 export function AutoSaveHint() {
+  const { t } = useT(commonNs)
   return (
     <span
       style={{
@@ -420,7 +425,7 @@ export function AutoSaveHint() {
         whiteSpace: 'nowrap',
       }}
     >
-      · se salvează automat
+      {t('autoSaveHint')}
     </span>
   )
 }

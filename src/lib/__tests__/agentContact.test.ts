@@ -5,10 +5,18 @@
 //   AC2  linkurile de contact se reconstruiesc din CIFRE / email validat, niciodată
 //        din textul brut al agentului (ajung în `href`)
 //   AC3  „Ajutor": agentul DOAR cu consimțământ și cu un canal valid; altfel suportul
-//   AC4  textul accesului spune ce NU vede agentul (regula de aur în copy)
+//   AC4  textul accesului spune ce NU vede agentul (regula de aur în copy);
+//        din lotul L3a textul stă în namespace-ul `home` (`agent_scope`), deci
+//        AC4 îl citește de acolo, iar AC4c cere același „DOAR … / NU …” în
+//        fiecare limbă (mutația care pică: o traducere care scapă negația).
+//   AC4b fiecare stare are tonul ei și o cheie de etichetă care EXISTĂ în
+//        dicționar, cu textul românesc de dinainte.
 import { describe, it, expect } from 'vitest'
+import homeRo from '../../i18n/ns/home/ro'
+import homeEn from '../../i18n/ns/home/en'
+import homeFr from '../../i18n/ns/home/fr'
+import homeDe from '../../i18n/ns/home/de'
 import {
-  AGENT_ACCESS_SCOPE_TEXT,
   buildHelpOptions,
   describeAgentAccess,
   mailtoHref,
@@ -144,19 +152,28 @@ describe('buildHelpOptions', () => {
 
 describe('copy-ul accesului', () => {
   it('AC4: spune ce vede agentul și ce NU (meniu + mese/QR; nu bani, bon, rezervări, setări, echipă)', () => {
-    expect(AGENT_ACCESS_SCOPE_TEXT).toMatch(/DOAR meniul/)
-    expect(AGENT_ACCESS_SCOPE_TEXT).toMatch(/mesele/)
-    expect(AGENT_ACCESS_SCOPE_TEXT).toMatch(/NU vede comenzile/)
+    const scope = homeRo.agent_scope
+    expect(scope).toMatch(/DOAR meniul/)
+    expect(scope).toMatch(/mesele/)
+    expect(scope).toMatch(/NU vede comenzile/)
     for (const w of ['comenzile', 'încasările', 'rezervările', 'datele fiscale', 'setările', 'echipa']) {
-      expect(AGENT_ACCESS_SCOPE_TEXT, w).toContain(w)
+      expect(scope, w).toContain(w)
     }
-    expect(AGENT_ACCESS_SCOPE_TEXT).toMatch(/retrage oricând/)
+    expect(scope).toMatch(/retrage oricând/)
+  })
+
+  it('AC4c: în fiecare limbă, „doar meniul” și „NU vede” rămân explicite', () => {
+    expect(homeEn.agent_scope).toMatch(/ONLY the menu[\s\S]*do NOT see orders/)
+    expect(homeFr.agent_scope).toMatch(/UNIQUEMENT le menu[\s\S]*ne voit PAS les commandes/)
+    expect(homeDe.agent_scope).toMatch(/NUR die Speisekarte[\s\S]*KEINE Bestellungen/)
   })
 
   it('AC4b: etichetele de stare', () => {
-    expect(describeAgentAccess('granted')).toEqual({ label: 'Acces acordat', tone: 'ok' })
+    expect(describeAgentAccess('granted')).toEqual({ labelKey: 'agent_accessGranted', tone: 'ok' })
     expect(describeAgentAccess('requested').tone).toBe('wait')
-    expect(describeAgentAccess('none').label).toBe('Fără acces')
-    expect(describeAgentAccess('revoked').label).toBe('Acces retras')
+    expect(homeRo[describeAgentAccess('granted').labelKey]).toBe('Acces acordat')
+    expect(homeRo[describeAgentAccess('requested').labelKey]).toBe('Agentul a cerut acces')
+    expect(homeRo[describeAgentAccess('none').labelKey]).toBe('Fără acces')
+    expect(homeRo[describeAgentAccess('revoked').labelKey]).toBe('Acces retras')
   })
 })

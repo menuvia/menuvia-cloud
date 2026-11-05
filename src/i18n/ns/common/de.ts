@@ -10,6 +10,7 @@ const de: Translation<typeof ro> = {
   edit: 'Bearbeiten',
   back: 'Zurück',
   loading: 'Wird geladen…',
+  autoSaveHint: '· wird automatisch gespeichert',
   err_generic: 'Die Aktion konnte nicht abgeschlossen werden. Bitte erneut versuchen.',
   err_network: 'Keine Verbindung. Prüfe deine Internetverbindung und versuche es erneut.',
   err_permission: 'Du hast keine Berechtigung für diese Aktion.',
