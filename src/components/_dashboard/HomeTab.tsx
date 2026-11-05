@@ -321,6 +321,10 @@ export default function HomeTab({
   // Banii zilei: doar Planul 3 și doar adminii (personalul n-are Acasă, iar
   // managerul vede oricum Rapoartele).
   const showMoney = isFiscal && isAdmin
+  // Există cifre de reîmprospătat: „Comenzi azi" (Plan 2+, inclusiv în modul
+  // „doar ridicare", unde nu există mese ocupate) sau banii zilei. `showMoney`
+  // nu implică structural `hasOrdering` (fiscal ≠ order_qr în planSurface).
+  const refreshMetrics = hasOrdering || showMoney
 
   // Starea casei de marcat, TRISTATE: interogăm doar pe planurile fiscale și
   // doar pentru admini (ceilalți nu văd tab-ul „Casă de marcat" oricum).
@@ -361,30 +365,19 @@ export default function HomeTab({
     }
   }, [restaurantId])
 
-  // Cifrele de comenzi (Plan 2+) — doar pe un plan CUNOSCUT cu comenzi.
+  // Pașii de setup legați de comenzi (Plan 2+): prima comandă și echipa, citiți
+  // o dată. „Comenzi azi" e în efectul reîmprospătat de mai jos (lotul O7c):
+  // aici era citită O SINGURĂ dată, la montare — cu Acasă lăsată deschisă cifra
+  // rămânea înghețată, iar după miezul nopții arăta ziua de ieri. NU adăuga
+  // `reloadKey` aici: efectul golește pașii la „…", deci la fiecare reîmprospătare
+  // cardul de configurare ar reapărea pentru un local deja configurat (HO5).
   useEffect(() => {
-    setOrdersToday(null)
     setEverOrdered(null)
     setTeamCount(null)
     if (!hasOrdering) return
     let alive = true
     const head = { count: 'exact' as const, head: true }
     const counts: PromiseLike<void>[] = []
-    // Aceeași logică de „azi" ca ReportsTab (boundary DST-aware România, lib/dates):
-    // data UTC + offset hardcodat +03:00 dădea cifra greșită lângă miezul nopții
-    // (ziua UTC ≠ ziua RO) și cu o oră deplasată iarna (EET e +02:00).
-    const todayStart = romaniaDayBoundaryISO(toRomaniaYMD(new Date()), false)
-    counts.push(
-      supabase
-        .from('orders')
-        .select('id', head)
-        .eq('restaurant_id', restaurantId)
-        .neq('status', 'cancelled')
-        .gte('created_at', todayStart)
-        .then(({ count, error }) => {
-          if (alive && !error) setOrdersToday(count ?? 0)
-        }),
-    )
     // Prima comandă (oricând, inclusiv test) — pasul de ACTIVARE din checklist.
     // Test de EXISTENȚĂ (limit 1), nu count exact: count-ul agrega toate
     // comenzile restaurantului la fiecare mount, pentru un boolean care
@@ -416,23 +409,24 @@ export default function HomeTab({
     }
   }, [restaurantId, hasOrdering, isAdmin])
 
-  // Lotul D: mese ocupate (Plan 2+), încasări și bacșiș azi (Plan 3).
-  // Resetarea la „…" doar la schimbarea restaurantului/planului; o reîmprospătare
-  // (revenire în pagină, interval, schimbarea zilei) păstrează cifrele vechi
-  // până sosesc cele noi, ca să nu clipească.
+  // Lotul D: comenzi azi (Plan 2+), mese ocupate (Plan 2+), încasări și bacșiș
+  // azi (Plan 3). Resetarea la „…" doar la schimbarea restaurantului/planului; o
+  // reîmprospătare (revenire în pagină, interval, schimbarea zilei) păstrează
+  // cifrele vechi până sosesc cele noi, ca să nu clipească.
   useEffect(() => {
+    setOrdersToday(null)
     setOccupiedTables(null)
     setActiveTables(null)
     setRevenueToday(null)
     setTipsToday(null)
     setFailed(new Set())
-  }, [restaurantId, showOccupancy, showMoney])
+  }, [restaurantId, hasOrdering, showOccupancy, showMoney])
 
   // Reîmprospătare: la revenirea în pagină și la 2 minute cât pagina e vizibilă.
   // Ziua se recalculează la fiecare citire, deci după miezul nopții „azi" trece
-  // singur pe ziua nouă la următoarea reîmprospătare.
+  // singur pe ziua nouă la următoarea reîmprospătare — și pentru „Comenzi azi".
   useEffect(() => {
-    if (!showOccupancy && !showMoney) return
+    if (!refreshMetrics) return
     const bump = (): void => {
       if (document.visibilityState === 'visible') setReloadKey((k) => k + 1)
     }
@@ -442,10 +436,10 @@ export default function HomeTab({
       document.removeEventListener('visibilitychange', bump)
       window.clearInterval(id)
     }
-  }, [showOccupancy, showMoney])
+  }, [refreshMetrics])
 
   useEffect(() => {
-    if (!showOccupancy && !showMoney) return
+    if (!refreshMetrics) return
     let alive = true
     const fail = (k: string): void => {
       if (alive) setFailed((prev) => new Set(prev).add(k))
@@ -462,6 +456,25 @@ export default function HomeTab({
     const todayYmd = toRomaniaYMD(new Date())
     const todayStart = romaniaDayBoundaryISO(todayYmd, false)
     const jobs: PromiseLike<void>[] = []
+    if (hasOrdering) {
+      // Aceeași graniță de „azi" ca ReportsTab (lib/dates, DST-aware), recalculată
+      // la FIECARE rulare: după miezul nopții cifra trece singură pe ziua nouă.
+      // O citire eșuată intră în `failed` („—" + „Reîncearcă"), nu „…" la nesfârșit.
+      jobs.push(
+        supabase
+          .from('orders')
+          .select('id', { count: 'exact', head: true })
+          .eq('restaurant_id', restaurantId)
+          .neq('status', 'cancelled')
+          .gte('created_at', todayStart)
+          .then(({ count, error }) => {
+            if (error) return fail('orders')
+            if (!alive) return
+            setOrdersToday(count ?? 0)
+            ok('orders')
+          }),
+      )
+    }
     if (showOccupancy) {
       // Numărătorul și numitorul împreună: mesele active + comenzile deschise;
       // o comandă pe o masă dezactivată nu se numără. Oricare eșuează (sau
@@ -530,7 +543,7 @@ export default function HomeTab({
     return () => {
       alive = false
     }
-  }, [restaurantId, showOccupancy, showMoney, reloadKey])
+  }, [restaurantId, refreshMetrics, hasOrdering, showOccupancy, showMoney, reloadKey])
 
   // Scorul — separat (RPC), doar pentru admini pe planurile cu comenzi.
   useEffect(() => {
@@ -564,6 +577,12 @@ export default function HomeTab({
   // `done: null` = nu știm (citire eșuată / în zbor): un număr necunoscut nu
   // devine nici bifă, nici pas „de făcut" (code-health-error-ignored-guards).
   const atLeast = (n: number | null, min: number): boolean | null => (n == null ? null : n >= min)
+  // Prima comandă: `everOrdered` e citit o singură dată (efectul de setup, fără
+  // `reloadKey` — HO5), dar „Comenzi azi" se reîmprospătează. O comandă neanulată
+  // de azi implică o comandă vreodată, deci pasul se bifează și din cifra
+  // proaspătă — altfel ecranul arăta „Comenzi azi: 1" lângă „Prima comandă de
+  // test" încă de făcut, până la o remontare (recenzia O7c, HO6).
+  const orderedOnce: boolean | null = (ordersToday ?? 0) > 0 ? true : everOrdered
   const setupItems: SetupItem[] = [
     { label: 'Adaugă produse', done: atLeast(productCount, 1), target: 'products' },
     { label: 'Creează categorii', done: atLeast(categoriesCount, 1), target: 'categories' },
@@ -587,7 +606,7 @@ export default function HomeTab({
             label: pickupOnly
               ? 'Prima comandă de test — deschide meniul public și comandă'
               : 'Prima comandă de test — deschide QR-ul unei mese și comandă',
-            done: everOrdered,
+            done: orderedOnce,
             target: 'mese' as const,
           },
         ]
@@ -698,8 +717,10 @@ export default function HomeTab({
             <div style={{ flex: '1 1 220px', minWidth: 200 }}>
               <HeroMetric
                 label="Comenzi azi"
-                value={ordersToday == null ? '…' : String(ordersToday)}
-                hint="fără cele anulate"
+                value={
+                  failed.has('orders') ? '—' : ordersToday == null ? '…' : String(ordersToday)
+                }
+                hint={failed.has('orders') ? 'nu s-a putut încărca' : 'fără cele anulate'}
               />
             </div>
             <div
