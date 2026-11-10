@@ -7,7 +7,10 @@
 import { useEffect, useState } from 'react'
 import { fetchOrderAuditHistory, describeAuditEntry, type AuditEntry } from '../lib/orders'
 import { D } from '../lib/constants'
-import { toUserMessage } from '../lib/userMessages'
+import { useT } from '../i18n/useT'
+import { ordersNs } from '../i18n/ns/orders'
+import { commonNs } from '../i18n/ns/common'
+import { describeStaffError } from '../i18n/staffErrors'
 
 interface Props {
   orderId: string
@@ -15,6 +18,8 @@ interface Props {
   onClose: () => void
 }
 
+// Ora rămâne formatată EXACT ca înainte ('ro-RO'): formatarea pe limba
+// personalului e un lot separat (regula L3a).
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleString('ro-RO', {
     day: '2-digit',
@@ -26,6 +31,9 @@ function formatTime(iso: string): string {
 }
 
 export default function OrderAuditSheet({ orderId, orderShortId, onClose }: Props) {
+  const tr = useT(ordersNs)
+  const { t } = tr
+  const tc = useT(commonNs)
   const [entries, setEntries] = useState<AuditEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -40,13 +48,15 @@ export default function OrderAuditSheet({ orderId, orderShortId, onClose }: Prop
       })
       .catch((e: unknown) => {
         if (cancelled) return
-        setError(toUserMessage(e, 'Eroare la încărcare'))
+        // În română: exact `toUserMessage(e, 'Eroare la încărcare')` de dinainte.
+        setError(describeStaffError(e, tc, { fallback: t('audit_errLoad') }))
         setLoading(false)
       })
     return () => {
       cancelled = true
     }
-  }, [orderId])
+    // Traducătorii sunt memoizați pe limbă: stabili cât limba nu se schimbă.
+  }, [orderId, t, tc])
 
   return (
     <div
@@ -91,7 +101,7 @@ export default function OrderAuditSheet({ orderId, orderShortId, onClose }: Prop
                 color: D.t1,
               }}
             >
-              Istoric comandă
+              {t('audit_title')}
             </div>
             <div style={{ fontSize: 12, color: D.t3, marginTop: 2 }}>#{orderShortId}</div>
           </div>
@@ -112,7 +122,7 @@ export default function OrderAuditSheet({ orderId, orderShortId, onClose }: Prop
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
           {loading && (
-            <div style={{ color: D.t3, textAlign: 'center', padding: 32 }}>Se încarcă…</div>
+            <div style={{ color: D.t3, textAlign: 'center', padding: 32 }}>{tc.t('loading')}</div>
           )}
           {error && (
             <div
@@ -129,7 +139,7 @@ export default function OrderAuditSheet({ orderId, orderShortId, onClose }: Prop
           )}
           {!loading && !error && entries.length === 0 && (
             <div style={{ color: D.t3, textAlign: 'center', padding: 32, fontSize: 13 }}>
-              Niciun eveniment înregistrat încă pentru această comandă.
+              {t('audit_empty')}
             </div>
           )}
           {!loading && entries.length > 0 && (
@@ -153,14 +163,14 @@ export default function OrderAuditSheet({ orderId, orderShortId, onClose }: Prop
                     }}
                   >
                     <span style={{ fontSize: 13, color: D.t1, fontWeight: 600 }}>
-                      {describeAuditEntry(e)}
+                      {describeAuditEntry(e, tr)}
                     </span>
                     <span style={{ fontSize: 10, color: D.t3, whiteSpace: 'nowrap' }}>
                       {formatTime(e.created_at)}
                     </span>
                   </div>
                   <div style={{ fontSize: 11, color: D.t2, marginTop: 3 }}>
-                    {e.actor_name ?? (e.actor_id ? e.actor_id.slice(0, 8) : 'sistem')}
+                    {e.actor_name ?? (e.actor_id ? e.actor_id.slice(0, 8) : t('audit_system'))}
                   </div>
                 </div>
               ))}

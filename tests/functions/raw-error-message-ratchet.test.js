@@ -77,8 +77,9 @@ const ALLOWED = [
   },
   {
     file: 'src/components/CancelOrderDialog.tsx',
-    contains: 'setError(res.message || GENERIC_ERROR)',
-    reason: '`res` vine din describeCancelRejection — mesaj românesc construit de noi',
+    contains: "setError(res.message || t('cancel_errGeneric'))",
+    reason:
+      '`res` vine din describeCancelRejection (WaiterPage) — mesaj românesc construit de noi; textul de rezervă e din dicționarul `orders` (lotul L4a)',
   },
   {
     file: 'src/components/WaiterOrderCard.tsx',

@@ -7,6 +7,9 @@ import type { Order } from '../lib/orders'
 import { D } from '../lib/constants'
 import { isScheduledPickupAhead, pickupTimeLabel } from '../lib/pickupOrders'
 import { Icon } from './ui/Icon'
+import { useT } from '../i18n/useT'
+import { ordersNs } from '../i18n/ns/orders'
+import { fillNodes } from '../i18n/fillNodes'
 
 interface PickupDetailsProps {
   order: Pick<Order, 'source' | 'pickup_time' | 'created_at' | 'customer_name' | 'customer_phone'>
@@ -15,6 +18,8 @@ interface PickupDetailsProps {
 }
 
 export default function PickupDetails({ order, now }: PickupDetailsProps) {
+  // Necondiționat, înaintea oricărui return (rules-of-hooks).
+  const { t } = useT(ordersNs)
   if (order.source !== 'pickup') return null
   const time = pickupTimeLabel(order)
   const name = order.customer_name?.trim() || null
@@ -40,7 +45,9 @@ export default function PickupDetails({ order, now }: PickupDetailsProps) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
           <Icon name="clock" size={14} color={ahead ? D.green : D.amber} />
           <span>
-            Ridicare la <span style={{ fontVariantNumeric: 'tabular-nums' }}>{time}</span>
+            {fillNodes(t('pickup_at'), {
+              time: <span style={{ fontVariantNumeric: 'tabular-nums' }}>{time}</span>,
+            })}
           </span>
         </div>
       )}

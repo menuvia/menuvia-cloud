@@ -34,6 +34,7 @@ const { rpcMock } = vi.hoisted(() => ({ rpcMock: vi.fn() }))
 vi.mock('../supabase', () => ({ supabase: { rpc: rpcMock } }))
 
 import { waiterForwardStep } from '../waiterSteps'
+import ordersRo from '../../i18n/ns/orders/ro'
 import { advanceOrderStatus, type OrderSource, type OrderStatus } from '../orders'
 
 // Record-uri, nu liste: un status / o sursă nouă în tip face `tsc` roșu aici,
@@ -77,7 +78,8 @@ describe('waiterForwardStep — tabela pașilor (WS1)', () => {
     for (const status of STATUSES) {
       for (const source of SOURCES) {
         const step = waiterForwardStep({ status, source })
-        const got: Expected = step == null ? null : { target: step.target, label: step.label }
+        // Eticheta e o cheie din `orders` (lotul L4a); textul românesc rămâne cel așteptat.
+        const got: Expected = step == null ? null : { target: step.target, label: ordersRo[step.labelKey] }
         expect(got, `${status}/${source}`).toEqual(expected(status, source))
         if (step != null) withStep += 1
       }

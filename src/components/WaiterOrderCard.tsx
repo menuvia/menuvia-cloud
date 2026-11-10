@@ -1,5 +1,8 @@
 // ─────────────────────────────────────────────────────────────
 // PayModal + OrderCard — extracted from WaiterPage
+// Lotul L4a: OrderCard citește textele din namespace-ul `orders` (+ „Editează”
+// din `common`). PayModal e ecran fiscal de Plan 3 și RĂMÂNE în română până la
+// lotul lui (textele lui sunt cele numărate în baseline-ul SK5 al fișierului).
 // ─────────────────────────────────────────────────────────────
 import { memo, useState, useEffect } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
@@ -16,6 +19,12 @@ import { confirm as confirmDialog } from './ui/confirm'
 import { ActionErrorNote } from './ActionErrorNote'
 import { toUserMessage } from '../lib/userMessages'
 import { waiterForwardStep } from '../lib/waiterSteps'
+import { useT } from '../i18n/useT'
+import { ordersNs } from '../i18n/ns/orders'
+import { commonNs } from '../i18n/ns/common'
+import { fillNodes } from '../i18n/fillNodes'
+import type { StringKey } from '../i18n/core'
+import type ordersRo from '../i18n/ns/orders/ro'
 
 // FIX: vechiul cod calcula elapsed() o dată la render → timer înghețat
 // în WaiterPage (KitchenPage folosea deja ElapsedTimer). Hook partajat acum.
@@ -35,16 +44,17 @@ function useElapsed(anchor: string): string {
 // `advance_order` close_order (mig 270: new/confirmed/preparing/ready/served).
 const OPEN_STATUSES: readonly string[] = ['new', 'confirmed', 'preparing', 'ready', 'served']
 
-// STATUS_META — local display metadata for order status badges
-const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
-  new: { label: 'Nou', color: D.t2, bg: D.s3 },
-  confirmed: { label: 'Confirmat', color: D.amber, bg: 'rgba(232,160,32,0.12)' },
-  preparing: { label: 'În preparare', color: D.goldL, bg: D.goldA },
-  ready: { label: 'Gata de servit', color: D.green, bg: 'rgba(76,175,110,0.12)' },
-  served: { label: 'Servit', color: '#7EB8F7', bg: 'rgba(126,184,247,0.12)' },
-  closed: { label: 'Închis', color: D.t3, bg: D.s2 },
-  paid: { label: 'Plătit', color: D.t3, bg: D.s2 },
-  cancelled: { label: 'Anulat', color: D.red, bg: 'rgba(224,85,85,0.10)' },
+// STATUS_META — local display metadata for order status badges (eticheta e
+// cheia din `orders`, tradusă la randare)
+const STATUS_META: Record<string, { labelKey: StringKey<typeof ordersRo>; color: string; bg: string }> = {
+  new: { labelKey: 'card_status_new', color: D.t2, bg: D.s3 },
+  confirmed: { labelKey: 'card_status_confirmed', color: D.amber, bg: 'rgba(232,160,32,0.12)' },
+  preparing: { labelKey: 'card_status_preparing', color: D.goldL, bg: D.goldA },
+  ready: { labelKey: 'card_status_ready', color: D.green, bg: 'rgba(76,175,110,0.12)' },
+  served: { labelKey: 'card_status_served', color: '#7EB8F7', bg: 'rgba(126,184,247,0.12)' },
+  closed: { labelKey: 'card_status_closed', color: D.t3, bg: D.s2 },
+  paid: { labelKey: 'card_status_paid', color: D.t3, bg: D.s2 },
+  cancelled: { labelKey: 'card_status_cancelled', color: D.red, bg: 'rgba(224,85,85,0.10)' },
 }
 
 // ── PayModal ──────────────────────────────────────────────────
@@ -652,6 +662,8 @@ function OrderCardInner({
   actionError = null,
   onDismissError,
 }: OrderCardProps) {
+  const { t, tp } = useT(ordersNs)
+  const tc = useT(commonNs)
   const meta = STATUS_META[order.status]
   // Vârsta afișată are ACEEAȘI ancoră ca culoarea (ageLevel): un pickup
   // programat a cărui oră a trecut se măsoară față de ora promisă — altfel
@@ -684,10 +696,9 @@ function OrderCardInner({
     // pentru o comandă care n-a mai fost onorată (Anulează).
     if (!isServed) {
       const ok = await confirmDialog({
-        title: 'Închizi comanda înainte să fie servită?',
-        description:
-          'Comanda se marchează ca finalizată (se scade stocul și se acordă puncte de loialitate). Dacă n-a mai fost onorată, folosește „Anulează".',
-        confirmLabel: 'Închide comanda',
+        title: t('card_closeEarlyTitle'),
+        description: t('card_closeEarlyDesc'),
+        confirmLabel: t('card_closeOrder'),
       })
       if (!ok) return
     }
@@ -701,16 +712,14 @@ function OrderCardInner({
     const unserved = sessionUnservedCount
     const cancelNote =
       unserved == null
-        ? 'Comenzile servite se închid; cele încă neservite (noi sau în preparare) se anulează.'
+        ? t('card_closeTableUnknown')
         : unserved === 0
-          ? 'Se închid toate comenzile deschise ale acestei mese și sesiunea ei.'
-          : unserved === 1
-            ? 'Comenzile servite se închid; 1 rundă neservită (nouă sau în preparare) va fi ANULATĂ.'
-            : `Comenzile servite se închid; ${unserved} runde neservite (noi sau în preparare) vor fi ANULATE.`
+          ? t('card_closeTableAll')
+          : tp('card_closeTableUnserved', unserved)
     const ok = await confirmDialog({
-      title: 'Închizi masa?',
-      description: `${cancelNote} Plata și bonul se fac pe casa de marcat a localului.`,
-      confirmLabel: 'Închide masa',
+      title: t('card_closeTableTitle'),
+      description: t('card_closeTableDesc', { note: cancelNote }),
+      confirmLabel: t('card_closeTable'),
     })
     if (ok) onCloseTable(order)
   }
@@ -738,7 +747,7 @@ function OrderCardInner({
                 color: D.t1,
               }}
             >
-              {order.table?.name ?? 'Fără masă'}
+              {order.table?.name ?? t('noTable')}
             </span>
             {/* Source badge */}
             <span
@@ -762,7 +771,8 @@ function OrderCardInner({
               }}
             >
               <Icon name={order.source === 'qr' ? 'qr' : order.source === 'pickup' ? 'box' : 'users'} size={11} />
-              {order.source === 'qr' ? 'QR' : order.source === 'pickup' ? 'Pickup' : 'Manual'}
+              {/* „QR” e același în toate limbile — nu e text de tradus. */}
+              {order.source === 'qr' ? 'QR' : order.source === 'pickup' ? t('card_srcPickup') : t('card_srcManual')}
             </span>
           </div>
           <div style={{ fontSize: 12, color: D.t2, marginTop: 2 }}>
@@ -772,25 +782,31 @@ function OrderCardInner({
               style={ageColor ? { color: ageColor, fontWeight: 700 } : undefined}
             >
               {elapsedStr}
-              {age === 'late' && ' · întârziată'}
+              {age === 'late' && ` · ${t('card_late')}`}
             </span>
           </div>
           {/* Who took the order */}
           {order._created_by_profile?.full_name && (
             <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 2 }}>
-              Preluat de:{' '}
-              <span style={{ color: D.t2, fontWeight: 500 }}>
-                {order._created_by_profile.full_name}
-              </span>
+              {fillNodes(t('card_takenBy'), {
+                name: (
+                  <span style={{ color: D.t2, fontWeight: 500 }}>
+                    {order._created_by_profile.full_name}
+                  </span>
+                ),
+              })}
             </div>
           )}
           {/* Who served */}
           {order._served_by_profile?.full_name && order.status !== 'new' && (
             <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 1 }}>
-              Servit de:{' '}
-              <span style={{ color: D.green, fontWeight: 500 }}>
-                {order._served_by_profile.full_name}
-              </span>
+              {fillNodes(t('card_servedBy'), {
+                name: (
+                  <span style={{ color: D.green, fontWeight: 500 }}>
+                    {order._served_by_profile.full_name}
+                  </span>
+                ),
+              })}
             </div>
           )}
         </div>
@@ -804,7 +820,7 @@ function OrderCardInner({
             fontWeight: 600,
           }}
         >
-          {meta.label}
+          {t(meta.labelKey)}
         </div>
       </div>
 
@@ -833,7 +849,7 @@ function OrderCardInner({
           color: D.t1,
         }}
       >
-        {order.total.toFixed(2)} lei
+        {t('money', { amount: order.total.toFixed(2) })}
       </div>
 
       {/* Edit + Cancel — available for any non-terminal status */}
@@ -861,7 +877,7 @@ function OrderCardInner({
               }}
             >
               <Icon name="edit" size={14} />
-              Editează
+              {tc.t('edit')}
             </button>
           )}
           {onCancel && (
@@ -884,7 +900,7 @@ function OrderCardInner({
                 cursor: 'pointer',
               }}
             >
-              Anulează
+              {t('card_cancel')}
             </button>
           )}
         </div>
@@ -892,7 +908,7 @@ function OrderCardInner({
 
       {onReprint && order.status !== 'paid' && order.status !== 'cancelled' && order.status !== 'closed' && (
         <Button variant="ghost" size="sm" fullWidth loading={reprinting} onClick={() => onReprint(order)}>
-          Retipărește la bucătărie
+          {t('card_reprint')}
         </Button>
       )}
 
@@ -921,7 +937,7 @@ function OrderCardInner({
           }}
         >
           <Icon name="history" size={13} />
-          Vezi istoric
+          {t('card_history')}
         </button>
       )}
 
@@ -929,7 +945,7 @@ function OrderCardInner({
           niciodată pe `served`, deci nu concurează cu butoanele de plată. */}
       {forward != null && onAdvance && (
         <Button variant="primary" fullWidth loading={pending} onClick={() => onAdvance(order)}>
-          {pending ? 'Se salvează…' : forward.label}
+          {pending ? t('saving') : t(forward.labelKey)}
         </Button>
       )}
 
@@ -959,7 +975,7 @@ function OrderCardInner({
               cursor: 'pointer',
             }}
           >
-            Plată integrală
+            {t('card_payFull')}
           </button>
           <button
             onClick={() => onSplitOpen(order)}
@@ -980,7 +996,7 @@ function OrderCardInner({
               cursor: 'pointer',
             }}
           >
-            Plată parțială
+            {t('card_payPartial')}
           </button>
         </div>
       )}
@@ -1012,7 +1028,7 @@ function OrderCardInner({
             }}
           >
             <Icon name="check" size={15} color={isServed ? '#fff' : D.t2} />
-            {pending ? 'Se salvează…' : 'Închide comanda'}
+            {pending ? t('saving') : t('card_closeOrder')}
           </button>
           {onCloseTable && order.session_id != null && (
             <button
@@ -1036,11 +1052,11 @@ function OrderCardInner({
               }}
             >
               <Icon name="table" size={14} color={D.t2} />
-              Închide masa
+              {t('card_closeTable')}
             </button>
           )}
           <div style={{ color: D.t3, fontSize: 11, textAlign: 'center' }}>
-            Plata și bonul se fac pe casa de marcat existentă
+            {t('card_cashRegisterNote')}
           </div>
         </div>
       )}
@@ -1055,7 +1071,7 @@ function OrderCardInner({
             borderRadius: 8,
           }}
         >
-          Se verifică planul restaurantului — finalizarea comenzii revine imediat.
+          {t('card_planChecking')}
         </div>
       )}
       {actionError != null && (
