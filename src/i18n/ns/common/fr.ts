@@ -10,6 +10,7 @@ const fr: Translation<typeof ro> = {
   edit: 'Modifier',
   back: 'Retour',
   loading: 'Chargement…',
+  autoSaveHint: '· enregistré automatiquement',
   err_generic: 'L’action n’a pas pu être effectuée. Réessayez.',
   err_network: 'Pas de connexion. Vérifiez votre accès à Internet et réessayez.',
   err_permission: 'Vous n’avez pas les droits pour cette action.',

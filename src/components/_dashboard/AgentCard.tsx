@@ -8,19 +8,19 @@
 //
 // Fără agent atribuit (patronii veniți singuri) cardul NU se randează deloc.
 // Gate-ul real e server-side (get_my_agent / owner_grant_partner_access).
+// Textele: namespace-ul `home` (lotul L3a); refuzul serverului trece prin
+// `describeStaffError` (în română exact `toUserMessage` de dinainte).
 import { useState } from 'react'
 import { D } from '../../lib/constants'
 import { useMyAgent } from '../../hooks/useMyAgent'
 import { ownerGrantPartnerAccess, type AgentActionResult } from '../../lib/myAgent'
 import { revokePartnerAccess } from '../../lib/founder'
-import {
-  AGENT_ACCESS_SCOPE_TEXT,
-  describeAgentAccess,
-  mailtoHref,
-  telHref,
-} from '../../lib/agentContact'
+import { describeAgentAccess, mailtoHref, telHref } from '../../lib/agentContact'
 import { confirm as confirmDialog } from '../ui/confirm'
-import { toUserMessage } from '../../lib/userMessages'
+import { useT } from '../../i18n/useT'
+import { homeNs } from '../../i18n/ns/home'
+import { commonNs } from '../../i18n/ns/common'
+import { describeStaffError } from '../../i18n/staffErrors'
 
 const btn = (e: React.CSSProperties = {}): React.CSSProperties => ({
   display: 'inline-flex',
@@ -47,6 +47,8 @@ export function AgentCard({
   // false (staff fără drepturi de admin) → nici măcar apelul RPC.
   enabled?: boolean
 }) {
+  const { t } = useT(homeNs)
+  const tc = useT(commonNs)
   const { agent, reload } = useMyAgent(restaurantId, enabled)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ text: string; tone: 'ok' | 'error' } | null>(null)
@@ -70,7 +72,7 @@ export function AgentCard({
       setMsg({ text: okText, tone: 'ok' })
       reload()
     } catch (e) {
-      setMsg({ text: toUserMessage(e), tone: 'error' })
+      setMsg({ text: describeStaffError(e, tc), tone: 'error' })
     } finally {
       setBusy(false)
     }
@@ -78,14 +80,13 @@ export function AgentCard({
 
   async function handleRevoke(): Promise<void> {
     const ok = await confirmDialog({
-      title: 'Retragi accesul agentului?',
-      description:
-        'Agentul nu va mai putea vedea sau edita meniul și mesele. Poți să-i dai din nou acces oricând.',
-      confirmLabel: 'Retrage accesul',
+      title: t('agent_revokeConfirmTitle'),
+      description: t('agent_revokeConfirmText'),
+      confirmLabel: t('agent_revoke'),
       destructive: true,
     })
     if (!ok) return
-    await run(revokePartnerAccess, 'Accesul agentului a fost retras')
+    await run(revokePartnerAccess, t('agent_revokeOk'))
   }
 
   const canGrant = agent.can_manage && agent.access_state !== 'granted'
@@ -110,7 +111,7 @@ export function AgentCard({
           marginBottom: 8,
         }}
       >
-        Agentul tău Menuvia
+        {t('agent_heading')}
       </div>
 
       <div
@@ -125,13 +126,13 @@ export function AgentCard({
         <div
           style={{ color: D.t1, fontWeight: 600, fontSize: '1rem', overflowWrap: 'anywhere' }}
         >
-          {agent.agent_name ?? 'Agent de vânzări'}
+          {agent.agent_name ?? t('agent_defaultName')}
         </div>
         <span
           data-testid="agent-access-badge"
           style={{ color: TONE_COLOR[view.tone], fontSize: '0.78rem', fontWeight: 600 }}
         >
-          {view.label}
+          {t(view.labelKey)}
         </span>
       </div>
 
@@ -160,12 +161,12 @@ export function AgentCard({
       )}
 
       <p style={{ color: D.t2, fontSize: '0.78rem', lineHeight: 1.55, margin: '12px 0 0' }}>
-        {AGENT_ACCESS_SCOPE_TEXT}
+        {t('agent_scope')}
       </p>
 
       {!agent.can_manage && (
         <p style={{ color: D.t3, fontSize: '0.76rem', margin: '10px 0 0' }}>
-          Doar proprietarul restaurantului poate acorda sau retrage accesul agentului.
+          {t('agent_ownerOnly')}
         </p>
       )}
 
@@ -173,20 +174,20 @@ export function AgentCard({
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
           {canGrant && (
             <button
-              onClick={() => void run(ownerGrantPartnerAccess, 'Agentul are acum acces la meniu')}
+              onClick={() => void run(ownerGrantPartnerAccess, t('agent_grantOk'))}
               disabled={busy}
               style={btn({ background: D.gold, color: D.bg, opacity: busy ? 0.7 : 1 })}
             >
-              Permite accesul agentului
+              {t('agent_grant')}
             </button>
           )}
           {agent.access_state === 'requested' && (
             <button
-              onClick={() => void run(revokePartnerAccess, 'Cererea agentului a fost refuzată')}
+              onClick={() => void run(revokePartnerAccess, t('agent_declineOk'))}
               disabled={busy}
               style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
             >
-              Refuză cererea
+              {t('agent_decline')}
             </button>
           )}
           {agent.access_state === 'granted' && (
@@ -199,7 +200,7 @@ export function AgentCard({
                 border: '1px solid rgba(224,85,85,0.3)',
               })}
             >
-              Retrage accesul
+              {t('agent_revoke')}
             </button>
           )}
         </div>
