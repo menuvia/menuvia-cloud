@@ -1,0 +1,58 @@
+// Namespace `invite` — acceptarea invitației în echipă (InviteAcceptPage,
+// lotul L2b). Omul invitat e adesea personal (ospătar, bucătar), deci poate fi
+// străin; limba = `FunnelLangProvider`, ca pe /auth. SURSA DE ADEVĂR; texte
+// byte-identice cu cele de dinainte. Locurile `{x}` din propozițiile cu nume
+// îngroșate devin elemente prin `fillNodes`.
+const ro = {
+  brand: 'Menuvia',
+  roleOwner: 'Proprietar',
+  roleManager: 'Manager',
+  roleWaiter: 'Ospătar',
+  roleKitchen: 'Bucătărie',
+  errInvalidCredentials: 'Email sau parolă greșită.',
+  errAlreadyRegistered: 'Există deja un cont cu acest email — alege „Am deja cont".',
+  errPasswordShort: 'Parola trebuie să aibă minim 8 caractere.',
+  errEmailNotConfirmed: 'Emailul nu e confirmat încă — deschide linkul de confirmare primit pe email.',
+  errRateLimit: 'Prea multe încercări. Așteaptă puțin și încearcă din nou.',
+  errGeneric: 'Nu am putut procesa cererea. Încearcă din nou.',
+  alreadyUsed: 'Această invitație a fost deja folosită.',
+  emailMismatch: 'Emailul contului tău nu corespunde cu emailul pentru care a fost trimisă invitația.',
+  acceptFailed: 'Nu am putut accepta invitația. Încearcă din nou.',
+  checking: 'Se verifică invitația...',
+  invalidTitle: 'Link invalid',
+  invalidBody: 'Acest link nu există sau a fost deja folosit.',
+  home: 'Acasă',
+  errorTitle: 'Nu am putut verifica invitația',
+  errorBody: 'Pare o problemă de conexiune, nu un link greșit. Reîncearcă.',
+  retry: 'Reîncearcă',
+  expiredTitle: 'Invitație expirată',
+  expiredBody: 'Cere un nou link de invitație de la managerul restaurantului.',
+  confirmTitle: 'Verifică emailul',
+  confirmBody:
+    'Ți-am trimis un link de confirmare la {email}. Confirmă contul, apoi revino la acest link pentru a-ți accepta invitația.',
+  confirmContinue: 'Am confirmat — continuă',
+  doneTitle: 'Invitație acceptată',
+  doneBody: 'Acum faci parte din echipa {restaurant}.',
+  goToPanel: 'Intră în panou',
+  title: 'Invitație la {restaurant}',
+  invitedAs: 'Ai fost invitat(ă) ca {role} la {restaurant}.',
+  expiresOn: 'Invitația expiră la {date}.',
+  signedInAsInvited: 'Ești conectat ca {email} — exact contul invitat. Nu mai e nevoie de parolă.',
+  accepting: 'Se acceptă…',
+  acceptBtn: 'Acceptă invitația →',
+  signedInAsOther:
+    'Ești conectat ca {email}, dar invitația e pentru {invited}. Deconectează-te și acceptă invitația cu contul potrivit.',
+  signOutBtn: 'Deconectează-mă',
+  tabNew: 'Cont nou',
+  tabExisting: 'Am deja cont',
+  emailLabel: 'Email',
+  nameLabel: 'Nume',
+  namePlaceholder: 'Numele tău',
+  passwordLabel: 'Parolă',
+  passwordPlaceholder: 'Minim 8 caractere',
+  processing: 'Se procesează...',
+  submitNew: 'Creează cont și acceptă',
+  submitExisting: 'Autentifică-te și acceptă',
+}
+
+export default ro

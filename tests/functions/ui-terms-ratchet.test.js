@@ -61,7 +61,9 @@ function termHits(src) {
   return visibleTexts(src).filter((t) => FORBIDDEN.test(t.text))
 }
 
-const EN = 'text în ENGLEZĂ (menuvia.com / onboarding EN): terminologia română nu se aplică'
+// Onboarding-ul englezesc stă din lotul L2b în `src/i18n/ns/onboarding/en.ts`, pe care
+// clichetul nu-l citește (dicționarele nu sunt componente).
+const EN = 'text în ENGLEZĂ (menuvia.com): terminologia română nu se aplică'
 // Scutiri: fișier + fragment EXACT din text → motiv.
 const ALLOWED = [
   {
@@ -70,11 +72,6 @@ const ALLOWED = [
     reason: 'prefix de console.warn (diagnoză pentru dezvoltator), nu text afișat',
   },
   { file: 'src/pages/LandingPageEn.tsx', contains: 'payment setup?', reason: EN },
-  { file: 'src/pages/OnboardingPage.tsx', contains: 'Add the rest from the dashboard', reason: EN },
-  { file: 'src/pages/OnboardingPage.tsx', contains: 'rename them from the dashboard', reason: EN },
-  { file: 'src/pages/OnboardingPage.tsx', contains: 'add your items from the dashboard', reason: EN },
-  { file: 'src/pages/OnboardingPage.tsx', contains: 'Next steps in the dashboard', reason: EN },
-  { file: 'src/pages/OnboardingPage.tsx', contains: 'Open the dashboard', reason: EN },
 ]
 
 function scan() {
