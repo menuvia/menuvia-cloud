@@ -24,6 +24,8 @@ import {
 import { toUserMessage } from '../lib/userMessages'
 import { FunnelLangProvider } from '../i18n/UiLangContext'
 import { useT } from '../i18n/useT'
+import { commonNs } from '../i18n/ns/common'
+import { describeStaffError } from '../i18n/staffErrors'
 import type { Translator } from '../i18n/core'
 import { onboardingNs } from '../i18n/ns/onboarding'
 import type onboardingRo from '../i18n/ns/onboarding/ro'
@@ -278,6 +280,7 @@ function Step1Restaurant({
   onNext: (restaurantId: string, slug: string, name: string) => void
 }) {
   const { t } = useT(onboardingNs)
+  const tc = useT(commonNs)
   const [name, setName] = useState('')
   const [city, setCity] = useState('')
   const [country, setCountry] = useState<string>('')
@@ -355,8 +358,21 @@ function Step1Restaurant({
       }
       onNext(created.restaurant_id, created.restaurant_slug, name.trim())
     } catch (err) {
-      const msg = err instanceof Error ? err.message : t('step1_unknownError')
-      setError(msg.includes('slug') ? t('step1_slugAllocError') : msg)
+      // Mesajul brut e doar un SEMNAL (alocarea slug-ului), nu se afișează:
+      // `create_restaurant` refuză cu text românesc (plafonul de locații), iar
+      // clientul supabase cu text englezesc („Failed to fetch”). În română,
+      // `describeStaffError` dă exact `toUserMessage`; în altă limbă clasa
+      // erorii sau textul de rezervă, fără mesajul serverului (recenzia
+      // CodeRabbit pe #360, OL4).
+      const raw =
+        err !== null && typeof err === 'object' && typeof (err as { message?: unknown }).message === 'string'
+          ? (err as { message: string }).message
+          : ''
+      setError(
+        raw.includes('slug')
+          ? t('step1_slugAllocError')
+          : describeStaffError(err, tc, { fallback: t('step1_unknownError') }),
+      )
       setSaving(false)
     }
   }
