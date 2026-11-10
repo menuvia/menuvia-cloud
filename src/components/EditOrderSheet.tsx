@@ -19,6 +19,9 @@ import { createLatestGate } from '../lib/menuRefresh'
 import { D } from '../lib/constants'
 import ModifierSheet from './ModifierSheet'
 import { OrderLineDetails } from './OrderLineDetails'
+import { useT } from '../i18n/useT'
+import { ordersNs } from '../i18n/ns/orders'
+import { commonNs } from '../i18n/ns/common'
 
 interface Props {
   order: Order
@@ -98,6 +101,9 @@ function lineTotal(item: EditCartItem, products: ReadonlyMap<string, Product>): 
 }
 
 export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
+  const tr = useT(ordersNs)
+  const { t } = tr
+  const tc = useT(commonNs)
   const [cart, setCart] = useState<EditCartItem[]>(() => orderItemsToCart(order))
   const hasOrphan = cart.some((i) => i._orphan)
   const [categories, setCategories] = useState<Category[]>([])
@@ -136,9 +142,10 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
         setActiveCatId(cats[0]?.id ?? null)
       })
       .catch(() => {
-        if (isLatest()) setLoadError('Nu s-a putut încărca meniul')
+        if (isLatest()) setLoadError(t('edit_errMenuLoad'))
       })
-  }, [order.restaurant_id])
+    // `t` e stabil cât limba nu se schimbă (traducătorul e memoizat pe limbă).
+  }, [order.restaurant_id, t])
 
   // mig 313: disponibilitatea se schimbă cât editorul stă deschis (un produs
   // epuizat e deblocat de personal, sau invers). La FIECARE deschidere a
@@ -226,15 +233,11 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
 
   async function handleSave(): Promise<void> {
     if (cart.length === 0) {
-      setSubmitError(
-        'Comanda trebuie să aibă cel puțin 1 produs. Pentru anulare folosește butonul „Anulează" din card.',
-      )
+      setSubmitError(t('edit_errEmpty'))
       return
     }
     if (hasOrphan) {
-      setSubmitError(
-        'Comanda conține produse șterse din meniu (marcate cu ⚠). Elimină-le sau roagă proprietarul să reactiveze produsul înainte de a salva.',
-      )
+      setSubmitError(t('edit_errOrphan'))
       return
     }
     setSubmitting(true)
@@ -259,7 +262,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
     } catch (e: unknown) {
       // Motivul serverului, în română (ex. „comanda a fost modificată între
       // timp" — lock-ul optimist), nu „Eroare la salvare" generic.
-      setSubmitError(describeEditOrderError(e))
+      setSubmitError(describeEditOrderError(e, tr))
       setSubmitting(false)
     }
   }
@@ -308,10 +311,10 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                 color: D.t1,
               }}
             >
-              Editează comanda
+              {t('edit_title')}
             </div>
             <div style={{ fontSize: 12, color: D.t3, marginTop: 2 }}>
-              {order.table?.name ? `Masa ${order.table.name}` : 'Fără masă'} · #
+              {order.table?.name ? t('tableLabel', { table: order.table.name }) : t('noTable')} · #
               {order.id.slice(-6).toUpperCase()}
             </div>
           </div>
@@ -334,7 +337,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
           {cart.length === 0 ? (
             <div style={{ color: D.t3, fontSize: 14, textAlign: 'center', padding: 40 }}>
-              Niciun produs în comandă. Adaugă cel puțin unul sau anulează comanda.
+              {t('edit_emptyCart')}
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -355,7 +358,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                     <div style={{ flex: 1 }}>
                       <div style={{ color: D.t1, fontWeight: 600, fontSize: 14 }}>
                         {item._orphan && (
-                          <span title="Produs șters din meniu" style={{ marginRight: 6 }}>
+                          <span title={t('edit_orphanTitle')} style={{ marginRight: 6 }}>
                             ⚠
                           </span>
                         )}
@@ -363,7 +366,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                       </div>
                       {item._orphan && (
                         <div style={{ fontSize: 11, color: D.red, marginTop: 3 }}>
-                          Produs șters din meniu — doar elimină
+                          {t('edit_orphanHint')}
                         </div>
                       )}
                       <OrderLineDetails
@@ -376,7 +379,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ color: D.gold, fontWeight: 600, fontSize: 14 }}>
-                        {lineTotal(item, productsById).toFixed(2)} lei
+                        {t('money', { amount: lineTotal(item, productsById).toFixed(2) })}
                       </div>
                     </div>
                   </div>
@@ -436,7 +439,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                     </div>
                     <button
                       onClick={() => removeItem(item._key)}
-                      title="Șterge"
+                      title={tc.t('delete')}
                       style={{
                         background: 'transparent',
                         border: `1px solid ${D.red}55`,
@@ -448,7 +451,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                         cursor: 'pointer',
                       }}
                     >
-                      Șterge
+                      {tc.t('delete')}
                     </button>
                   </div>
                 </div>
@@ -480,7 +483,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
               opacity: categories.length === 0 ? 0.5 : 1,
             }}
           >
-            + Adaugă produs
+            {t('edit_addProduct')}
           </button>
         </div>
 
@@ -495,7 +498,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <span style={{ color: D.t2, fontSize: 13 }}>Subtotal nou</span>
+            <span style={{ color: D.t2, fontSize: 13 }}>{t('edit_newSubtotal')}</span>
             <span
               style={{
                 fontFamily: 'Fraunces, Georgia, serif',
@@ -504,12 +507,12 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                 color: D.gold,
               }}
             >
-              {cartTotal.toFixed(2)} lei
+              {t('money', { amount: cartTotal.toFixed(2) })}
             </span>
           </div>
           {order.discount_amount != null && order.discount_amount > 0 && (
             <div style={{ fontSize: 11, color: D.t3, textAlign: 'right' }}>
-              (reducerea de {Number(order.discount_amount).toFixed(2)} lei va fi recalculată)
+              {t('edit_discountRecalc', { amount: Number(order.discount_amount).toFixed(2) })}
             </div>
           )}
           {submitError && (
@@ -542,7 +545,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
               opacity: submitting ? 0.7 : 1,
             }}
           >
-            {submitting ? 'Se salvează…' : 'Salvează modificările'}
+            {submitting ? t('saving') : t('edit_saveChanges')}
           </button>
         </div>
       </div>
@@ -593,7 +596,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                   color: D.t1,
                 }}
               >
-                Alege produs
+                {t('edit_pickProduct')}
               </span>
               <button
                 onClick={() => setShowPicker(false)}
@@ -676,7 +679,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                 >
                   <span style={{ color: D.t1, fontWeight: 600, fontSize: 13 }}>{p.name}</span>
                   <span style={{ color: p.is_sold_out ? D.red : D.gold, fontSize: 13 }}>
-                    {p.is_sold_out ? 'Epuizat' : `${p.price.toFixed(2)} lei`}
+                    {p.is_sold_out ? t('soldOut') : t('money', { amount: p.price.toFixed(2) })}
                   </span>
                 </button>
               ))}
@@ -684,7 +687,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                 <div
                   style={{ color: D.t3, gridColumn: '1 / -1', textAlign: 'center', padding: 20 }}
                 >
-                  Nicio categorie cu produse
+                  {t('edit_noProducts')}
                 </div>
               )}
             </div>

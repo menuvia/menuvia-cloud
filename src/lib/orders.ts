@@ -2,6 +2,13 @@ import { supabase } from './supabase'
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 import { createIdempotencyKeyStore } from './idempotency'
 import { isNetworkError } from './networkError'
+// Doar TIPURI (șterse la compilare): orders.ts e în graful paginilor oaspetelui,
+// iar dicționarul personalului nu are voie să intre acolo (SK4).
+import type { Translator } from '../i18n/core'
+import type ordersRo from '../i18n/ns/orders/ro'
+
+/** Traducătorul namespace-ului `orders` — textele helperilor de mai jos. */
+export type OrdersTranslator = Translator<typeof ordersRo>
 
 export type OrderStatus =
   | 'new'
@@ -587,29 +594,31 @@ export interface AuditEntry {
   diff_short: Record<string, unknown> | null
 }
 
-// Umanizează o intrare de audit într-o frază scurtă în română.
-// Funcție pură (fără I/O) — testabilă direct. Folosită de OrderAuditSheet.
-export function describeAuditEntry(e: AuditEntry): string {
+// Umanizează o intrare de audit într-o frază scurtă, în limba personalului
+// (lotul L4a: textele în namespace-ul `orders`, `audit_ev_*`). Funcție pură
+// (fără I/O) — testabilă direct. Folosită de OrderAuditSheet.
+export function describeAuditEntry(e: AuditEntry, tr: OrdersTranslator): string {
+  const { t, tp } = tr
   if (e.table_name === 'orders') {
-    if (e.operation === 'INSERT') return 'A creat comanda'
-    if (e.operation === 'DELETE') return 'A șters comanda'
+    if (e.operation === 'INSERT') return t('audit_ev_created')
+    if (e.operation === 'DELETE') return t('audit_ev_deleted')
     if (e.changed_keys?.includes('status')) {
       const diff = e.diff_short as Record<string, { from?: string; to?: string }> | null
       const to = diff?.status?.to
-      if (to === 'confirmed') return 'A confirmat comanda'
-      if (to === 'preparing') return 'A trimis la pregătire'
-      if (to === 'ready') return 'A marcat ca gata'
-      if (to === 'served') return 'A marcat ca servit'
-      if (to === 'closed') return 'A închis masa (fără bon fiscal)'
-      if (to === 'paid') return 'A încasat plata'
-      if (to === 'cancelled') return 'A anulat comanda'
-      return `Status → ${to}`
+      if (to === 'confirmed') return t('audit_ev_confirmed')
+      if (to === 'preparing') return t('audit_ev_preparing')
+      if (to === 'ready') return t('audit_ev_ready')
+      if (to === 'served') return t('audit_ev_served')
+      if (to === 'closed') return t('audit_ev_closed')
+      if (to === 'paid') return t('audit_ev_paid')
+      if (to === 'cancelled') return t('audit_ev_cancelled')
+      return t('audit_ev_status', { status: String(to) })
     }
     if (e.changed_keys?.some((k) => k.startsWith('discount'))) {
-      return 'A modificat reducerea'
+      return t('audit_ev_discount')
     }
-    if (e.changed_keys?.includes('total')) return 'A recalculat totalul'
-    return 'A modificat comanda'
+    if (e.changed_keys?.includes('total')) return t('audit_ev_total')
+    return t('audit_ev_modified')
   }
   if (e.table_name === 'order_items') {
     // Audit-summary de la update_order_items: diff_short = {items:{from,to}, total:{from,to}}
@@ -622,19 +631,21 @@ export function describeAuditEntry(e: AuditEntry): string {
       const toCount = Array.isArray(diff?.items?.to) ? diff.items.to.length : null
       const toTotal = diff?.total?.to
       const countPart =
-        fromCount != null && toCount != null ? `${fromCount} → ${toCount} produse` : 'produse'
-      const totalPart = typeof toTotal === 'number' ? ` · total ${toTotal.toFixed(2)} lei` : ''
-      return `A modificat comanda (${countPart}${totalPart})`
+        fromCount != null && toCount != null
+          ? tp('audit_itemsCount', toCount, { from: fromCount })
+          : t('audit_itemsUnknown')
+      const totalPart = typeof toTotal === 'number' ? t('audit_totalPart', { amount: toTotal.toFixed(2) }) : ''
+      return t('audit_ev_itemsChanged', { items: countPart, total: totalPart })
     }
-    if (e.operation === 'INSERT') {
+    if (e.operation === 'INSERT' || e.operation === 'DELETE') {
       const item = e.diff_short as { product_name_snapshot?: string; quantity?: number } | null
-      return `A adăugat ${item?.product_name_snapshot ?? 'produs'} × ${item?.quantity ?? 1}`
+      const vars = {
+        product: item?.product_name_snapshot ?? t('audit_productFallback'),
+        qty: item?.quantity ?? 1,
+      }
+      return t(e.operation === 'INSERT' ? 'audit_ev_itemAdded' : 'audit_ev_itemDeleted', vars)
     }
-    if (e.operation === 'DELETE') {
-      const item = e.diff_short as { product_name_snapshot?: string; quantity?: number } | null
-      return `A șters ${item?.product_name_snapshot ?? 'produs'} × ${item?.quantity ?? 1}`
-    }
-    return 'A modificat un produs'
+    return t('audit_ev_itemModified')
   }
   return `${e.table_name} · ${e.operation}`
 }
@@ -755,12 +766,16 @@ function errorParts(err: unknown): { message: string; hint: string; code: string
 }
 
 /**
- * Textul RO pentru refuzul lui `update_order_items` (EditOrderSheet). Mesajele
+ * Textul refuzului lui `update_order_items` (EditOrderSheet), în limba
+ * personalului (lotul L4a: `edit_err*` din namespace-ul `orders`). Mesajele
  * serverului sunt prefixate `update_order_items:` și jumătate în engleză — nu
- * se arată brute; cele deja în română (grupe de opțiuni) se arată fără prefix.
+ * se arată brute; cele deja în română (grupe de opțiuni) se arată fără prefix,
+ * dar DOAR în română: în altă limbă ar face ecranul amestecat, deci cad pe
+ * textul tradus al clasei (`edit_errOptionGroup`).
  */
-export function describeEditOrderError(err: unknown): string {
-  if (isNetworkError(err)) return 'Fără conexiune — modificarea nu a fost salvată. Reîncearcă.'
+export function describeEditOrderError(err: unknown, tr: OrdersTranslator): string {
+  const { t } = tr
+  if (isNetworkError(err)) return t('edit_errNetwork')
   const { message, hint, code } = errorParts(err)
   const plain = message.replace(/^update_order_items:\s*/i, '').trim()
   // mig 320: fiecare salvare recreează liniile (id-uri noi). O editare
@@ -773,14 +788,14 @@ export function describeEditOrderError(err: unknown): string {
     hint === 'invalid_source_item' ||
     /linia sursă/i.test(plain)
   ) {
-    return 'Comanda a fost modificată între timp de altcineva. Închide și redeschide comanda, apoi reîncearcă.'
+    return t('edit_errConcurrent')
   }
   if (
     hint === 'missing_required_group' ||
     hint === 'too_many_in_group' ||
     hint === 'duplicate_options'
   ) {
-    return plain
+    return tr.lang === 'ro' ? plain : t('edit_errOptionGroup')
   }
   // mig 313: produsul s-a epuizat între timp; mig 320: sau a fost scos din
   // meniu / trecut în ciornă. Cantitatea DEJA comandată se poate păstra; doar
@@ -793,38 +808,35 @@ export function describeEditOrderError(err: unknown): string {
   if (soldOut || offMenu) {
     const name = /"([^"]+)"/.exec(plain)?.[1]
     const kept = /\((\d+)\)\s*$/.exec(plain)?.[1]
-    const who = name ? `Produsul „${name}”` : 'Un produs din comandă'
+    const who = name ? t('edit_errWhoNamed', { name }) : t('edit_errWhoUnknown')
     if (kept === '0') {
-      return `${who} ${soldOut ? 'e epuizat' : 'nu mai e în meniu'} și nu mai poate fi adăugat. Scoate-l din comandă și salvează din nou.`
+      return t(soldOut ? 'edit_errSoldOutNone' : 'edit_errOffMenuNone', { who })
     }
-    const keep =
-      kept != null
-        ? `Poți păstra cel mult cantitatea deja comandată (${kept}).`
-        : 'Poți păstra doar cantitatea deja comandată.'
-    return `${who} ${soldOut ? 's-a epuizat între timp' : 'nu mai e în meniu'}. ${keep} Scade cantitatea sau scoate-l și salvează din nou.`
+    const keep = kept != null ? t('edit_errKeepUpTo', { n: kept }) : t('edit_errKeepOnly')
+    return t(soldOut ? 'edit_errSoldOutSome' : 'edit_errOffMenuSome', { who, keep })
   }
   if (/partial payments/i.test(plain)) {
-    return 'Comanda are plăți înregistrate și nu mai poate fi editată.'
+    return t('edit_errPartialPayments')
   }
-  if (/terminal state/i.test(plain)) return 'Comanda e deja finalizată și nu mai poate fi editată.'
+  if (/terminal state/i.test(plain)) return t('edit_errTerminal')
   if (/cannot edit orders|not a member/i.test(plain)) {
-    return 'Rolul tău nu permite editarea comenzii.'
+    return t('edit_errRole')
   }
-  if (/order .* not found/i.test(plain)) return 'Comanda nu mai există.'
+  if (/order .* not found/i.test(plain)) return t('edit_errNotFound')
   if (/product .* not found|is inactive|does not belong/i.test(plain)) {
-    return 'Un produs din comandă nu mai e disponibil în meniu. Elimină-l și salvează din nou.'
+    return t('edit_errProductGone')
   }
   if (/invalid options|extras invalide/i.test(plain)) {
-    return 'O opțiune aleasă nu mai e disponibilă. Reverifică produsul și salvează din nou.'
+    return t('edit_errOptionGone')
   }
   if (hint === 'invalid_quantity' || /invalid quantity/i.test(plain)) {
     // Plafonul vine din mesajul serverului: 20 pe linie (mig 320), cantitatea
     // veche pentru o linie păstrată peste 20, 99 pe un server mai vechi.
     const cap = /invalid quantity \(1-(\d+)\)/i.exec(plain)?.[1] ?? String(MAX_LINE_QTY)
-    return `Cantitatea pe o linie trebuie să fie între 1 și ${cap}.`
+    return t('edit_errQuantity', { max: cap })
   }
-  if (/too many items/i.test(plain)) return 'Comanda poate avea cel mult 100 de produse.'
-  return 'Modificarea nu a fost salvată. Reîncearcă.'
+  if (/too many items/i.test(plain)) return t('edit_errTooMany')
+  return t('edit_errGeneric')
 }
 
 /**

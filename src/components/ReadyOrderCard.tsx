@@ -8,6 +8,8 @@ import type { Order } from '../lib/orders'
 import { D } from '../lib/constants'
 import { ActionErrorNote } from './ActionErrorNote'
 import { OrderLineDetails } from './OrderLineDetails'
+import { useT } from '../i18n/useT'
+import { ordersNs } from '../i18n/ns/orders'
 
 interface ReadyOrderCardProps {
   order: Order
@@ -24,6 +26,7 @@ function ReadyOrderCardInner({
   actionError = null,
   onDismissError,
 }: ReadyOrderCardProps) {
+  const { t } = useT(ordersNs)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div
@@ -48,7 +51,7 @@ function ReadyOrderCardInner({
               color: D.t1,
             }}
           >
-            {order.table?.name ?? 'Fără masă'}
+            {order.table?.name ?? t('noTable')}
           </div>
           {/* Ce se servește, cu cantitatea, opțiunile, extra-urile și nota
               (lotul O2a): înainte doar numele, fără cantitate. */}
@@ -79,7 +82,7 @@ function ReadyOrderCardInner({
               marginTop: 6,
             }}
           >
-            {order.total.toFixed(2)} lei
+            {t('money', { amount: order.total.toFixed(2) })}
           </div>
         </div>
         <button
@@ -102,7 +105,7 @@ function ReadyOrderCardInner({
             minHeight: 46,
           }}
         >
-          {pending ? 'Se salvează…' : 'Servit'}
+          {pending ? t('saving') : t('ready_serve')}
         </button>
       </div>
       {actionError != null && (

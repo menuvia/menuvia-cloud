@@ -33,12 +33,16 @@
 // ─────────────────────────────────────────────────────────────
 import type { Order, OrderStatus } from './orders'
 import type { TapScope } from './tapGuard'
+// Doar tipul (șters la compilare): eticheta e o CHEIE din namespace-ul
+// `orders`, tradusă de cardul ospătarului la randare (lotul L4a).
+import type ordersRo from '../i18n/ns/orders/ro'
 
 export interface WaiterForwardStep {
   /** Statusul-țintă; `advanceOrderStatus` derivă din el acțiunea serverului. */
   target: Extract<OrderStatus, 'preparing' | 'ready' | 'served'>
-  /** Textul butonului — aceleași cuvinte ca Bucătăria și „Gata de servit”. */
-  label: string
+  /** Cheia textului butonului (`step_*` din `orders`) — aceleași cuvinte ca
+   *  Bucătăria și „Gata de servit”. WaiterPage citește doar `target`/`scope`. */
+  labelKey: Extract<keyof typeof ordersRo, `step_${string}`>
   /**
    * 'list' DOAR când pasul intră în `ready` sau iese din el: secțiunea „Gata
    * de servit” apare/dispare, iar „Stadiu mese” re-sortează mesele după
@@ -55,13 +59,13 @@ export function waiterForwardStep(
     case 'new':
     case 'confirmed':
       // start_preparing e acceptat din AMBELE stări (confirm nu e necesar).
-      return { target: 'preparing', label: 'Marchează în pregătire', scope: 'card' }
+      return { target: 'preparing', labelKey: 'step_preparing', scope: 'card' }
     case 'preparing':
       return order.source === 'pickup'
-        ? { target: 'ready', label: 'Gata', scope: 'list' }
-        : { target: 'served', label: 'Servit', scope: 'card' }
+        ? { target: 'ready', labelKey: 'step_ready', scope: 'list' }
+        : { target: 'served', labelKey: 'step_served', scope: 'card' }
     case 'ready':
-      return { target: 'served', label: 'Servit', scope: 'list' }
+      return { target: 'served', labelKey: 'step_served', scope: 'list' }
     default:
       // served → plata (PayModal); paid / closed / cancelled → terminale.
       return null

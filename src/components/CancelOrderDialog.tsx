@@ -17,6 +17,11 @@
 import { useState } from 'react'
 import type { Order, OrderPaymentRow } from '../lib/orders'
 import { D } from '../lib/constants'
+import { useT } from '../i18n/useT'
+import { ordersNs } from '../i18n/ns/orders'
+import { fillNodes } from '../i18n/fillNodes'
+import type { StringKey, Translator } from '../i18n/core'
+import type ordersRo from '../i18n/ns/orders/ro'
 
 export interface CancelResult {
   ok: boolean
@@ -39,15 +44,19 @@ interface Props {
   onClose: () => void
 }
 
-const GENERIC_ERROR =
-  'Anularea a fost respinsă. Verifică rolul tău sau motivul comenzii și încearcă din nou.'
+// Eticheta metodei din `order_payments.method`; o metodă necunoscută rămâne
+// afișată cu id-ul ei (ca înainte).
+const METHOD_KEY: Readonly<Record<string, StringKey<typeof ordersRo>>> = {
+  cash: 'method_cash',
+  card_pos: 'method_card_pos',
+  card_online: 'method_card_online',
+  meal_voucher: 'method_meal_voucher',
+  other: 'method_other',
+}
 
-const METHOD_LABEL: Record<string, string> = {
-  cash: 'Numerar',
-  card_pos: 'Card (POS)',
-  card_online: 'Card online',
-  meal_voucher: 'Tichet de masă',
-  other: 'Altă metodă',
+function paymentMethodLabel(t: Translator<typeof ordersRo>['t'], method: string): string {
+  const key = Object.prototype.hasOwnProperty.call(METHOD_KEY, method) ? METHOD_KEY[method] : undefined
+  return key ? t(key) : method
 }
 
 /** Dialogul de anulare: tristate pe plăți (necunoscut → serverul decide), storno cu motiv când există bani încasați. */
@@ -58,6 +67,7 @@ export default function CancelOrderDialog({
   onVoidAndCancel,
   onClose,
 }: Props) {
+  const { t } = useT(ordersNs)
   const [reason, setReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
   // Eroarea de refuz trebuie afișată AICI, nu doar prin banner-ul din pagina
@@ -83,7 +93,7 @@ export default function CancelOrderDialog({
     // eroarea DIRECT în dialog; la succes părintele demontează dialogul.
     if (!res.ok) {
       setSubmitting(false)
-      setError(res.message || GENERIC_ERROR)
+      setError(res.message || t('cancel_errGeneric'))
     }
   }
 
@@ -108,7 +118,7 @@ export default function CancelOrderDialog({
       <div
         onClick={(e) => e.stopPropagation()}
         role="dialog"
-        aria-label="Anulează comanda"
+        aria-label={t('cancel_title')}
         style={{
           background: D.s2,
           border: `1px solid ${D.s3}`,
@@ -130,13 +140,13 @@ export default function CancelOrderDialog({
               color: D.t1,
             }}
           >
-            Anulează comanda
+            {t('cancel_title')}
           </div>
           <div style={{ fontSize: 12, color: D.t3, marginTop: 4 }}>
             #{order.id.slice(-6).toUpperCase()}
-            {order.table?.name ? ` · Masa ${order.table.name}` : ''}
+            {order.table?.name ? ` · ${t('tableLabel', { table: order.table.name })}` : ''}
             {' · '}
-            {order.total.toFixed(2)} lei
+            {t('money', { amount: order.total.toFixed(2) })}
           </div>
         </div>
 
@@ -157,23 +167,25 @@ export default function CancelOrderDialog({
             }}
           >
             <div style={{ color: D.red, fontWeight: 600 }}>
-              Comanda are {paidSoFar.toFixed(2)} lei plăți încasate și nu poate fi anulată direct.
+              {t('cancel_blocked', { amount: paidSoFar.toFixed(2) })}
             </div>
             <ul style={{ margin: 0, paddingLeft: 18, color: D.t2 }}>
               {(payments ?? []).map((p) => (
                 <li key={p.id}>
-                  {p.amount.toFixed(2)} lei · {METHOD_LABEL[p.method] ?? p.method}
+                  {t('money', { amount: p.amount.toFixed(2) })} · {paymentMethodLabel(t, p.method)}
                 </li>
               ))}
             </ul>
             <div style={{ color: D.t2 }}>
-              Dacă banii au fost <strong>returnați clientului</strong>, stornează plățile (cu motiv,
-              se înregistrează în audit) și comanda se anulează. Altfel finalizează prin plată.
+              {fillNodes(t('cancel_voidHelp'), {
+                returned: <strong>{t('cancel_voidHelpReturned')}</strong>,
+              })}
               {hasOnline && (
                 <>
                   {' '}
-                  <strong>Plățile online se rambursează manual din Stripe</strong> înainte de
-                  storno.
+                  {fillNodes(t('cancel_voidOnline'), {
+                    refund: <strong>{t('cancel_voidOnlineRefund')}</strong>,
+                  })}
                 </>
               )}
             </div>
@@ -183,15 +195,15 @@ export default function CancelOrderDialog({
         <div>
           <label style={{ fontSize: 12, color: D.t2, display: 'block', marginBottom: 6 }}>
             {blockedByPayments
-              ? 'Motiv (obligatoriu pentru stornare)'
+              ? t('cancel_reasonVoid')
               : reasonRequired
-                ? 'Motiv (obligatoriu — comanda a fost servită)'
-                : 'Motiv (opțional)'}
+                ? t('cancel_reasonServed')
+                : t('cancel_reasonOptional')}
           </label>
           <textarea
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="Ex: clientul a anulat, produs nedisponibil…"
+            placeholder={t('cancel_reasonPlaceholder')}
             autoFocus
             rows={3}
             style={{
@@ -241,7 +253,7 @@ export default function CancelOrderDialog({
               cursor: submitting ? 'wait' : 'pointer',
             }}
           >
-            Renunță
+            {t('cancel_dismiss')}
           </button>
           {blockedByPayments ? (
             <button
@@ -266,7 +278,7 @@ export default function CancelOrderDialog({
                 opacity: submitting || !onVoidAndCancel || reasonMissing ? 0.6 : 1,
               }}
             >
-              {submitting ? 'Se stornează…' : 'Stornează plățile și anulează'}
+              {submitting ? t('cancel_voiding') : t('cancel_voidAndCancel')}
             </button>
           ) : (
             <button
@@ -291,7 +303,7 @@ export default function CancelOrderDialog({
                 opacity: submitting || reasonMissing ? 0.6 : 1,
               }}
             >
-              {submitting ? 'Se anulează…' : 'Anulează comanda'}
+              {submitting ? t('cancel_cancelling') : t('cancel_title')}
             </button>
           )}
         </div>

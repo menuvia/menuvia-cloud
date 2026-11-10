@@ -15,6 +15,11 @@ import {
   describeStaffActionError,
   describeWaiterOrderSent,
 } from '../orders'
+import { makeTranslator } from '../../i18n/core'
+import ordersRo from '../../i18n/ns/orders/ro'
+
+// Textele vin din namespace-ul `orders` (lotul L4a); aici, în română.
+const ro = makeTranslator(ordersRo, 'ro')
 
 // Cuvinte care trădează un text brut al serverului ajuns pe ecran.
 const RAW_ENGLISH =
@@ -46,7 +51,7 @@ describe('updateOrderItems — eroarea păstrează motivul', () => {
     await expect(p).rejects.toBeInstanceOf(Error)
     await p.catch((e: unknown) => {
       expect((e as { code?: string }).code).toBe('40001')
-      expect(describeEditOrderError(e)).toMatch(/modificată între timp de altcineva/i)
+      expect(describeEditOrderError(e, ro)).toMatch(/modificată între timp de altcineva/i)
     })
   })
 })
@@ -138,7 +143,7 @@ describe('describeEditOrderError', () => {
 
   it('SM2 fiecare refuz cunoscut → text RO, fără textul brut al serverului', () => {
     for (const [name, err, re] of cases) {
-      const text = describeEditOrderError(err)
+      const text = describeEditOrderError(err, ro)
       expect(text, name).toMatch(re)
       expect(text, name).not.toMatch(/update_order_items/)
       expect(text, name).not.toMatch(RAW_ENGLISH)
@@ -150,7 +155,7 @@ describe('describeEditOrderError', () => {
       message:
         'update_order_items: grupul "Pâine" pentru produsul "Ciorbă" cere cel puțin 1 opțiune selectată',
       hint: 'missing_required_group',
-    })
+    }, ro)
     expect(text).toBe('grupul "Pâine" pentru produsul "Ciorbă" cere cel puțin 1 opțiune selectată')
   })
 
@@ -162,7 +167,7 @@ describe('describeEditOrderError', () => {
         'update_order_items: produsul "Supă" este epuizat — poți păstra cel mult cantitatea deja comandată (2)',
       hint: 'product_sold_out',
       code: 'P0001',
-    })
+    }, ro)
     expect(surplus).toMatch(/„Supă”/)
     expect(surplus).toMatch(/epuizat/i)
     expect(surplus).toMatch(/cel mult cantitatea deja comandată \(2\)/)
@@ -173,18 +178,18 @@ describe('describeEditOrderError', () => {
       message:
         'update_order_items: produsul "Clătită" este epuizat — poți păstra cel mult cantitatea deja comandată (0)',
       hint: 'product_sold_out',
-    })
+    }, ro)
     expect(added).toMatch(/„Clătită” e epuizat și nu mai poate fi adăugat/)
     expect(added).not.toMatch(RAW_ENGLISH)
 
     // Mesajul trigger-ului 130 (fără cantitate, fără hint pe o cale veche).
-    const raw = describeEditOrderError({ message: 'Produsul "Apă" este epuizat' })
+    const raw = describeEditOrderError({ message: 'Produsul "Apă" este epuizat' }, ro)
     expect(raw).toMatch(/„Apă” s-a epuizat între timp/)
     expect(raw).not.toMatch(/nu a fost salvată/i)
   })
 
   it('SM4 rețeaua (iPhone) → mesaj de conexiune', () => {
-    expect(describeEditOrderError(new Error('TypeError: Load failed'))).toMatch(/fără conexiune/i)
+    expect(describeEditOrderError(new Error('TypeError: Load failed'), ro)).toMatch(/fără conexiune/i)
   })
 })
 

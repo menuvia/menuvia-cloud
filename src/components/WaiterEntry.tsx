@@ -5,7 +5,14 @@
 // =============================================================
 
 import { useState, useEffect, useRef } from 'react'
-import { fetchTables, createOrder, lineTotal, MAX_LINE_QTY, MAX_ORDER_NOTE } from '../lib/orders'
+import {
+  fetchTables,
+  createOrder,
+  lineTotal,
+  MAX_LINE_QTY,
+  MAX_ORDER_NOTE,
+  type OrdersTranslator,
+} from '../lib/orders'
 import { invalidateStaffMenu, loadStaffMenu } from '../lib/staffMenuCache'
 import type { RestaurantTable, CartItem, OrderConfirmationPayload } from '../lib/orders'
 import type { Category, Product } from '../lib/qr'
@@ -16,8 +23,61 @@ import { toUserMessage } from '../lib/userMessages'
 import ModifierSheet from './ModifierSheet'
 import { OrderLineDetails } from './OrderLineDetails'
 import { confirm as confirmDialog } from './ui/confirm'
+import { useT } from '../i18n/useT'
+import { ordersNs } from '../i18n/ns/orders'
+import { commonNs } from '../i18n/ns/common'
+import { describeStaffError } from '../i18n/staffErrors'
+import type { Translator } from '../i18n/core'
+import type commonRo from '../i18n/ns/common/ro'
 
 // D imported from constants
+
+// Refuzul lui `create_order`, pentru ospătar.
+// În ROMÂNĂ: lanțul de dinainte, neatins — mesajul ROMÂNESC al serverului
+// rămâne (numește produsul: „Produsul "Pizza" este epuizat", „Grupul … pentru
+// produsul …"), deci ospătarul află CARE linie s-o scoată (recenzia #346); un
+// mesaj englezesc sau intern („Invalid quantity: 24 (must be 1-20)") devine
+// textul clar al cheii oaspetelui, nu ajunge brut.
+// În altă limbă: un text românesc de la server NU ajunge pe ecran
+// (`describeStaffError`): hint-ul cunoscut își are textul în `orders`, restul
+// cade pe clasa erorii sau pe „Comanda nu a fost trimisă”.
+function describeEntryError(
+  err: unknown,
+  tr: OrdersTranslator,
+  tc: Translator<typeof commonRo>,
+): string {
+  if (tc.lang === 'ro') {
+    return toUserMessage(err, '') || describeGuestError('ro', err, { fallback: 'err_order_not_sent' })
+  }
+  const { t } = tr
+  const gone = t('entry_errProductGone')
+  const options = t('entry_errOptions')
+  const orderingOff = t('entry_errOrderingOff')
+  const notes = t('entry_errNotesTooLong')
+  return describeStaffError(err, tc, {
+    fallback: t('entry_errNotSent'),
+    hints: {
+      missing_required_group: t('entry_errMissingGroup'),
+      product_sold_out: t('entry_errSoldOut'),
+      product_inactive: gone,
+      product_draft: gone,
+      product_not_found: gone,
+      product_unavailable: gone,
+      product_wrong_restaurant: gone,
+      invalid_options: options,
+      duplicate_options: options,
+      too_many_in_group: options,
+      duplicate_extras: options,
+      invalid_extras: options,
+      invalid_quantity: t('entry_errQuantity', { max: MAX_LINE_QTY }),
+      too_many_items: t('entry_errTooMany'),
+      notes_too_long: notes,
+      item_notes_too_long: notes,
+      restaurant_inactive: orderingOff,
+      plan_upgrade_required: orderingOff,
+    },
+  })
+}
 
 interface Props {
   restaurantId: string
@@ -40,6 +100,9 @@ export default function WaiterEntry({
   onOrderCreated,
   initialTableId,
 }: Props) {
+  const tr = useT(ordersNs)
+  const { t, tp } = tr
+  const tc = useT(commonNs)
   const [step, setStep] = useState<Step>('table')
   const [tables, setTables] = useState<RestaurantTable[]>([])
   const [selectedTable, setSelectedTable] = useState<RestaurantTable | null>(null)
@@ -78,7 +141,7 @@ export default function WaiterEntry({
         setStep('menu')
       })
       .catch(() => {
-        if (!isCancelled()) setLoadError('Nu s-a putut încărca meniul. Verifică conexiunea.')
+        if (!isCancelled()) setLoadError(t('entry_errMenu'))
       })
   }
 
@@ -96,16 +159,20 @@ export default function WaiterEntry({
         // Pre-select din „Stadiu mese": dacă masa cerută există, sărim direct la
         // meniu (rundă nouă pe aceeași masă). Fără initialTableId → flux normal.
         if (initialTableId) {
-          const match = ts.find((t) => t.id === initialTableId)
+          const match = ts.find((row) => row.id === initialTableId)
           if (match) openMenu(match, () => cancelled)
         }
       })
-      .catch(() => setLoadError('Nu s-au putut încărca mesele. Verifică conexiunea.'))
+      .catch(() => setLoadError(t('entry_errTables')))
     return () => {
       cancelled = true
     }
-    // openMenu e o funcție locală fără stare proprie (citește doar ref-uri și
-    // setteri stabili) — re-rularea efectului la fiecare randare ar re-cere mesele.
+    // openMenu e o funcție locală fără stare proprie (citește ref-uri, setteri
+    // stabili și traducătorul `t`) — re-rularea efectului la fiecare randare ar
+    // re-cere mesele. `t` (citit și direct, în `.catch` de mai sus) rămâne
+    // DELIBERAT în afara deps: e memoizat pe limbă, iar o schimbare de limbă în
+    // timpul încărcării costă cel mult un mesaj de eroare în limba veche — nu
+    // merită re-cererea meselor.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restaurantId, initialTableId])
 
@@ -119,10 +186,10 @@ export default function WaiterEntry({
     if (cart.length > 0) {
       const n = cart.reduce((sum, i) => sum + i.quantity, 0)
       const ok = await confirmDialog({
-        title: 'Renunți la comanda începută?',
-        description: `${n} ${n === 1 ? 'produs din coș se pierde' : 'produse din coș se pierd'}. Comanda NU a fost trimisă la bucătărie.`,
-        confirmLabel: 'Renunță la comandă',
-        cancelLabel: 'Continuă comanda',
+        title: t('entry_discardTitle'),
+        description: tp('entry_discardDesc', n),
+        confirmLabel: t('entry_discardConfirm'),
+        cancelLabel: t('entry_discardKeep'),
         destructive: true,
       })
       if (!ok) return
@@ -180,15 +247,8 @@ export default function WaiterEntry({
       }
     }
 
-    // Mesajul ROMÂNESC al serverului rămâne: numește produsul („Produsul
-    // "Pizza" este epuizat", „Grupul … pentru produsul …"), deci ospătarul află
-    // CARE linie s-o scoată (recenzia #346). Un mesaj englezesc sau intern
-    // („Invalid quantity: 24 (must be 1-20)") devine textul clar al cheii, nu
-    // ajunge brut; harta de staff vine odată cu limbile (L0).
-    setSubmitError(
-      toUserMessage(lastError, '') ||
-        describeGuestError('ro', lastError, { fallback: 'err_order_not_sent' }),
-    )
+    // Mesajul serverului în limba ospătarului (describeEntryError, mai sus).
+    setSubmitError(describeEntryError(lastError, tr, tc))
     // Refuz pe meniu învechit (epuizat, produs scos, opțiune/extra
     // indisponibil): meniul ținut un minut în cache e cel greșit. Îl uităm și
     // îl cerem din nou, ca la „scoate și adaugă din nou" ospătarul să vadă ce
@@ -238,11 +298,11 @@ export default function WaiterEntry({
               color: D.t1,
             }}
           >
-            Selectează masa
+            {t('entry_selectTable')}
           </span>
           <button
             onClick={() => void requestClose()}
-            aria-label={'Închide comanda nouă'}
+            aria-label={t('entry_closeAria')}
             style={{
               background: 'none',
               border: 'none',
@@ -275,7 +335,7 @@ export default function WaiterEntry({
                   setLoadError(null)
                   fetchTables(restaurantId)
                     .then(setTables)
-                    .catch(() => setLoadError('Încă nu merge. Verifică internetul.'))
+                    .catch(() => setLoadError(t('entry_errStill')))
                 }}
                 style={{
                   background: 'rgba(224,85,85,0.15)',
@@ -289,7 +349,7 @@ export default function WaiterEntry({
                   fontFamily: 'inherit',
                 }}
               >
-                Reîncearcă
+                {tc.t('retry')}
               </button>
             </div>
           )}
@@ -306,12 +366,12 @@ export default function WaiterEntry({
               cursor: 'pointer',
             }}
           >
-            Fără masă
+            {t('noTable')}
           </button>
-          {tables.map((t) => (
+          {tables.map((table) => (
             <button
-              key={t.id}
-              onClick={() => goToMenu(t)}
+              key={table.id}
+              onClick={() => goToMenu(table)}
               style={{
                 background: D.s2,
                 border: `1px solid ${D.s3}`,
@@ -324,7 +384,7 @@ export default function WaiterEntry({
                 cursor: 'pointer',
               }}
             >
-              {t.name}
+              {table.name}
             </button>
           ))}
         </div>
@@ -364,7 +424,7 @@ export default function WaiterEntry({
             color: D.t1,
           }}
         >
-          {selectedTable != null ? selectedTable.name : 'Fără masă'}
+          {selectedTable != null ? selectedTable.name : t('noTable')}
         </span>
         {/* Distanță mare între „Coș" și „✕": cele două erau la 12 px. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
@@ -383,12 +443,12 @@ export default function WaiterEntry({
                 cursor: 'pointer',
               }}
             >
-              Coș ({cart.length})
+              {t('entry_cartCount', { n: cart.length })}
             </button>
           )}
           <button
             onClick={() => void requestClose()}
-            aria-label={'Închide comanda nouă'}
+            aria-label={t('entry_closeAria')}
             style={{
               background: 'none',
               border: 'none',
@@ -479,7 +539,7 @@ export default function WaiterEntry({
               >
                 {product.name}
                 {product.is_sold_out && (
-                  <span style={{ color: D.red, fontSize: 12, marginLeft: 8 }}>Epuizat</span>
+                  <span style={{ color: D.red, fontSize: 12, marginLeft: 8 }}>{t('soldOut')}</span>
                 )}
               </div>
               {product.description != null && product.description.length > 0 && (
@@ -496,7 +556,7 @@ export default function WaiterEntry({
                 marginLeft: 12,
               }}
             >
-              {product.price.toFixed(2)} lei
+              {t('money', { amount: product.price.toFixed(2) })}
             </div>
           </button>
         ))}
@@ -547,7 +607,7 @@ export default function WaiterEntry({
                 color: D.t1,
               }}
             >
-              Coș
+              {t('entry_cart')}
             </div>
 
             {cart.map((item) => (
@@ -577,7 +637,7 @@ export default function WaiterEntry({
                     }}
                   />
                   <div style={{ color: D.gold, fontSize: 13 }}>
-                    {lineTotal(item).toFixed(2)} lei
+                    {t('money', { amount: lineTotal(item).toFixed(2) })}
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -638,11 +698,11 @@ export default function WaiterEntry({
                 color: D.t1,
               }}
             >
-              Total: {cartTotal.toFixed(2)} lei
+              {t('entry_total', { amount: cartTotal.toFixed(2) })}
             </div>
 
             <textarea
-              placeholder="Mențiuni comandă (opțional)"
+              placeholder={t('entry_notesPlaceholder')}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               maxLength={MAX_ORDER_NOTE}
@@ -678,7 +738,7 @@ export default function WaiterEntry({
                 cursor: cart.length > 0 && !submitting ? 'pointer' : 'not-allowed',
               }}
             >
-              {submitting ? 'Se trimite...' : 'Trimite comanda'}
+              {submitting ? t('entry_sending') : t('entry_send')}
             </button>
           </div>
         </div>
