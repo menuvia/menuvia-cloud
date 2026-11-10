@@ -30,11 +30,19 @@ import { Skeleton } from './ui/Skeleton'
 import { Button } from './ui/Button'
 import { Icon } from './ui/Icon'
 import { Spinner } from './ui/Spinner'
-import { toUserMessage, zeroRowsAsDenied } from '../lib/userMessages'
-import { soldOutSourceLabel, soldOutFormTarget } from '../lib/soldOut'
+import { zeroRowsAsDenied } from '../lib/userMessages'
+import { soldOutSourceKind, soldOutFormTarget } from '../lib/soldOut'
 import { confirm as confirmDialog } from './ui/confirm'
 import { fetchProductGroupIds, setProductModifierGroups } from '../lib/modifierLinks'
 import { parseDecimalInput, priceInputText } from '../lib/decimal'
+import { describeProductError, ingredientUnitLabel } from '../lib/productMessages'
+import { describeAiError } from '../lib/translationMessages'
+import { useT } from '../i18n/useT'
+import { fillNodes } from '../i18n/fillNodes'
+import { productsNs } from '../i18n/ns/products'
+import { commonNs } from '../i18n/ns/common'
+import { translationsNs } from '../i18n/ns/translations'
+import type productsRo from '../i18n/ns/products/ro'
 
 const ProductsCsvImport = lazy(() => import('./ProductsCsvImport'))
 const AiMenuImport = lazy(() => import('./AiMenuImport'))
@@ -48,12 +56,34 @@ const UNCATEGORIZED = '__uncategorized__'
 // Referință stabilă pentru „fără ciornă” (ExtraTranslations compară pe ea).
 const NO_DRAFTS: Readonly<Record<string, string>> = Object.freeze({})
 
+// Eroarea de validare a fișei se ține ca DATE (cheia), nu ca text: se
+// traduce la randare, deci urmează limba chiar dacă alerta rămâne pe ecran.
+type FormErrorKey = 'val_nameRequired' | 'val_priceNegative' | 'val_priceInvalid'
+// Etichetele alergenilor / etichetelor dietetice / câmpurilor nutriționale
+// vin din `products` (în română EXACT `label`/`desc` din lib/constants).
+type AllergenId = (typeof ALLERGENS)[number]['id']
+type DietId = (typeof DIETARY_TAGS)[number]['id']
+const allergenKey = (id: AllergenId) => `allergen_${id}` as const
+const allergenDescKey = (id: AllergenId) => `allergenDesc_${id}` as const
+const dietKey = (id: DietId) => `diet_${id}` as const
+type ProductsKey = keyof typeof productsRo
+// Antetul tabelului (desktop): cheia e și cheia React (înainte, eticheta
+// românească).
+const COLUMN_KEYS = ['col_product', 'col_category', 'col_price', 'col_status', 'col_actions'] as const satisfies readonly ProductsKey[]
+// Insigna „Epuizat · <sursa>” a unui produs epuizat: regula sursei e UNA,
+// `soldOutSourceKind` (lib/soldOut); în română textul e EXACT „EPUIZAT · ” +
+// `soldOutSourceLabel(true, sursa).toUpperCase()` (testul LV9).
+function soldOutBadgeKey(source: Product['sold_out_source']): 'list_soldOutStock' | 'list_soldOutManual' {
+  return soldOutSourceKind(true, source) === 'stock' ? 'list_soldOutStock' : 'list_soldOutManual'
+}
+
 // Un produs fără categorie e invizibil pentru clienți: meniul public (QR și
 // /m/:slug) și comanda ospătarului îl grupează doar sub categorii.
 function NotOnMenuBadge() {
+  const { t } = useT(productsNs)
   return (
     <span
-      title="Alege o categorie ca produsul să apară în meniu"
+      title={t('badge_noCategoryTitle')}
       style={{
         color: D.amber,
         background: D.amberA,
@@ -65,7 +95,7 @@ function NotOnMenuBadge() {
         whiteSpace: 'nowrap',
       }}
     >
-      Fără categorie · nu apare în meniu
+      {t('badge_noCategory')}
     </span>
   )
 }
@@ -129,6 +159,11 @@ function ProductModal({
   // lista se reîmprospătează, altfel arăta starea veche (MENU-05).
   onServerChange?: () => void
 }) {
+  const { t, tp } = useT(productsNs)
+  const tc = useT(commonNs)
+  // Refuzurile AI (imagine, valori nutriționale) au aceleași texte ca în
+  // secțiunea Traduceri a fișei; namespace-ul e cerut deja SUS în tab.
+  const trTr = useT(translationsNs)
   const isMobile = useIsMobile()
   // Scroll-lock-ul e gestionat acum de <Modal> (sharedUI) — nu-l mai dublăm aici.
   const [uploading, setUploading] = useState(false)
@@ -143,7 +178,7 @@ function ProductModal({
   // Eroarea de validare stă INLINE, lângă butoane, cu role="alert": persistă până
   // la următoarea încercare sau editare (un toast dispare în 3 s, înainte ca
   // omul să afle ce câmp e greșit).
-  const [formError, setFormError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<FormErrorKey | null>(null)
   // Câmpul vinovat: `aria-invalid` + `aria-describedby` (id stabil din useId,
   // pe alertă) stau DOAR pe el — fiecare stare invalidă e legată de propria eroare.
   const [formErrorField, setFormErrorField] = useState<'name' | 'price' | null>(null)
@@ -163,11 +198,11 @@ function ProductModal({
     if (!file || uploading) return
     // Validare client tip + dimensiune înainte de decode/resize pe canvas (eroare prietenoasă).
     if (!file.type.startsWith('image/')) {
-      pmToast('Te rugăm încarcă un fișier imagine (JPG, PNG, WEBP).', 'error')
+      pmToast(t('img_notImage'), 'error')
       return
     }
     if (file.size > 10 * 1024 * 1024) {
-      pmToast('Imaginea e prea mare (max 10MB). Comprim-o și reîncearcă.', 'error')
+      pmToast(t('img_tooLarge'), 'error')
       return
     }
     setUploading(true)
@@ -234,7 +269,7 @@ function ProductModal({
       }))
     } catch (e) {
       console.error('Upload failed', e)
-      pmToast(toUserMessage(e, 'Încărcarea imaginii a eșuat. Reîncearcă.'), 'error')
+      pmToast(describeProductError(e, { t }, tc, t('img_uploadFailed')), 'error')
     }
     setUploading(false)
   }
@@ -286,10 +321,10 @@ function ProductModal({
     // salvează separat, pe loc, deci „Salvează” al fișei nu le-ar duce nicăieri.
     if (JSON.stringify(form) === initialFormJson && !extraTrDirty) return true
     return confirmDialog({
-      title: 'Renunți la modificări?',
-      description: 'Modificările din fișă nu sunt salvate și se pierd.',
-      confirmLabel: 'Renunță',
-      cancelLabel: 'Rămân în fișă',
+      title: t('discard_title'),
+      description: t('discard_desc'),
+      confirmLabel: t('discard_confirm'),
+      cancelLabel: t('discard_stay'),
       destructive: true,
     })
   }
@@ -297,10 +332,10 @@ function ProductModal({
     if (!onOpenVatRates) return
     if (JSON.stringify(form) !== initialFormJson || extraTrDirty) {
       const ok = await confirmDialog({
-        title: 'Închizi fișa produsului?',
-        description: 'Modificările din fișă nu sunt salvate și se pierd.',
-        confirmLabel: 'Închide fișa',
-        cancelLabel: 'Rămân în fișă',
+        title: t('vatExit_title'),
+        description: t('discard_desc'),
+        confirmLabel: t('vatExit_confirm'),
+        cancelLabel: t('discard_stay'),
         destructive: true,
       })
       if (!ok) return
@@ -331,7 +366,7 @@ function ProductModal({
 
   async function handleGenerateNutrition() {
     if (!form.name?.trim()) {
-      pmToast('Adaugă întâi numele produsului.', 'error')
+      pmToast(t('ai_nameFirst'), 'error')
       return
     }
     setAiNutriBusy(true)
@@ -357,9 +392,9 @@ function ProductModal({
       markAiFields(marked)
       // Alergenii: DOAR sugestii de confirmat manual (nu se publică fără click explicit).
       setAiAllergenSuggestions(n.allergens)
-      pmToast('Valori generate de AI — verifică-le. Alergenii necesită confirmare manuală.', 'success')
+      pmToast(t('ai_nutriDone'), 'success')
     } catch (e) {
-      pmToast(toUserMessage(e, 'Eroare la generarea nutriției.'), 'error')
+      pmToast(describeAiError(e, trTr, tc, t('ai_nutriFailed')), 'error')
     } finally {
       setAiNutriBusy(false)
     }
@@ -367,7 +402,7 @@ function ProductModal({
 
   async function handleGenerateImage() {
     if (!product?.id) {
-      pmToast('Salvează întâi produsul, apoi generează imaginea.', 'error')
+      pmToast(t('ai_imgSaveFirst'), 'error')
       return
     }
     setAiImgBusy(true)
@@ -386,9 +421,9 @@ function ProductModal({
       // Serverul a salvat DEJA imaginea pe produs (ai-generate-image): lista se
       // reîmprospătează, iar mesajul spune că e publicată (MENU-05).
       onServerChange?.()
-      pmToast('Imagine generată de AI și publicată în meniu — verifică-o.', 'success')
+      pmToast(t('ai_imgDone'), 'success')
     } catch (e) {
-      pmToast(toUserMessage(e, 'Eroare la generarea imaginii.'), 'error')
+      pmToast(describeAiError(e, trTr, tc, t('ai_imgFailed')), 'error')
     } finally {
       setAiImgBusy(false)
     }
@@ -541,7 +576,7 @@ function ProductModal({
           translations: (data.translations as Translations | null | undefined) ?? null,
         },
       ])
-    else if (error) pmToast(toUserMessage(error, 'Nu am putut adăuga extra-ul.'), 'error')
+    else if (error) pmToast(describeProductError(error, { t }, tc, t('err_extraAdd')), 'error')
   }
 
   async function removeExtra(id: string) {
@@ -550,7 +585,7 @@ function ProductModal({
       await supabase.from('product_extras').delete().eq('id', id).select('id'),
     )
     if (!error) setExtras((prev) => prev.filter((e) => e.id !== id))
-    else pmToast(toUserMessage(error, 'Nu am putut șterge extra-ul.'), 'error')
+    else pmToast(describeProductError(error, { t }, tc, t('err_extraDelete')), 'error')
   }
 
   // ── Grupurile de opțiuni ale produsului (lotul O1b, MENU-02) ─────────
@@ -606,7 +641,7 @@ function ProductModal({
       await setProductModifierGroups(product.id, next)
     } catch (e) {
       setLinkedGroupIds(prev)
-      pmToast(toUserMessage(e, 'Nu am putut salva opțiunile produsului.'), 'error')
+      pmToast(describeProductError(e, { t }, tc, t('err_groupsSave')), 'error')
     } finally {
       setOptSaving(false)
     }
@@ -653,7 +688,7 @@ function ProductModal({
       // Rețeta schimbată poate epuiza/debloca produsul pe server (mig 313).
       onServerChange?.()
     } catch (err) {
-      pmToast(toUserMessage(err, 'Nu am putut salva rețeta.'), 'error')
+      pmToast(describeProductError(err, { t }, tc, t('err_recipeSave')), 'error')
     }
   }
 
@@ -664,7 +699,7 @@ function ProductModal({
       setRecipeRows((prev) => prev.filter((r) => r.ingredient_id !== ingredientId))
       onServerChange?.()
     } catch (err) {
-      pmToast(toUserMessage(err, 'Nu am putut șterge ingredientul.'), 'error')
+      pmToast(describeProductError(err, { t }, tc, t('err_ingredientDelete')), 'error')
     }
   }
 
@@ -676,7 +711,7 @@ function ProductModal({
         await supabase.from('product_pairings').delete().eq('id', existing.id).select('id'),
       )
       if (!error) setPairings((prev) => prev.filter((p) => p.id !== existing.id))
-      else pmToast(toUserMessage(error, 'Nu am putut elimina perechea.'), 'error')
+      else pmToast(describeProductError(error, { t }, tc, t('err_pairingRemove')), 'error')
     } else {
       if (pairings.length >= 3) return // limit 3 pairings
       const newOrder =
@@ -687,7 +722,7 @@ function ProductModal({
         .select()
         .single()
       if (!error && data) setPairings((prev) => [...prev, data])
-      else if (error) pmToast(toUserMessage(error, 'Nu am putut adăuga perechea.'), 'error')
+      else if (error) pmToast(describeProductError(error, { t }, tc, t('err_pairingAdd')), 'error')
     }
   }
   const upd = (k: keyof Product, v: unknown) => {
@@ -726,19 +761,19 @@ function ProductModal({
     // Fără el, un nume gol se crea tăcut, iar un preț negativ era respins
     // de CHECK-ul din DB cu o eroare Postgres brută, neinteligibilă.
     if (!(form.name ?? '').trim()) {
-      setFormError('Numele produsului e obligatoriu')
+      setFormError('val_nameRequired')
       setFormErrorField('name')
       return
     }
     // Minusul întâi: câmpul e text (lotul O5a), iar „-5” nu are formă de preț,
     // deci altfel ar fi primit mesajul generic „nu e un număr valid”.
     if (priceText.trim().startsWith('-') || (form.price != null && form.price < 0)) {
-      setFormError('Prețul nu poate fi negativ')
+      setFormError('val_priceNegative')
       setFormErrorField('price')
       return
     }
     if (Number.isNaN(parseDecimalInput(priceText))) {
-      setFormError('Prețul nu e un număr valid (ex. 12,50)')
+      setFormError('val_priceInvalid')
       setFormErrorField('price')
       return
     }
@@ -747,11 +782,10 @@ function ProductModal({
     // fi pierdut tăcut (recenzia O6c). Omul alege, nu ghicim noi.
     if (!keepOpen && extraTrDirty) {
       const ok = await confirmDialog({
-        title: 'Traducerile extra-urilor nu sunt salvate',
-        description:
-          'Ai tastat traduceri pentru extra-uri fără „Salvează traducerile”. Ele se salvează separat și se pierd când se închide fișa.',
-        confirmLabel: 'Salvează fișa fără ele',
-        cancelLabel: 'Rămân în fișă',
+        title: t('extraTr_title'),
+        description: t('extraTr_desc'),
+        confirmLabel: t('extraTr_confirm'),
+        cancelLabel: t('discard_stay'),
       })
       if (!ok) return
     }
@@ -824,31 +858,31 @@ function ProductModal({
   }
   return (
     <Modal
-      title={product ? 'Editează produs' : 'Adaugă produs'}
+      title={product ? t('sheet_titleEdit') : t('sheet_titleAdd')}
       onClose={onClose}
       confirmClose={confirmDiscard}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
         <div ref={nameWrapRef}>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
-            Nume *
+            {t('field_nameReq')}
           </label>
           <Inp
-            label="Nume"
+            label={t('field_name')}
             value={form.name || ''}
             onChange={(v) => upd('name', v)}
             invalid={formErrorField === 'name'}
             describedBy={formErrorField === 'name' ? formErrorId : undefined}
-            placeholder="Spaghete Carbonara"
+            placeholder={t('field_namePh')}
           />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
           <div>
             <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
-              Preț (lei) *
+              {t('field_priceReq')}
             </label>
             <Inp
-              label="Preț (lei)"
+              label={t('field_price')}
               value={priceText}
               invalid={formErrorField === 'price'}
               describedBy={formErrorField === 'price' ? formErrorId : undefined}
@@ -858,15 +892,15 @@ function ProductModal({
                 upd('price', n == null || Number.isNaN(n) ? 0 : n)
               }}
               inputMode="decimal"
-              placeholder="32,00"
+              placeholder={t('field_pricePh')}
             />
           </div>
           <div>
             <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
-              Categorie
+              {t('field_category')}
             </label>
             <Sel
-              label="Categorie"
+              label={t('field_category')}
               value={form.category_id || ''}
               onChange={(v) => {
                 // Opțiunea specială NU e o categorie: deschide input-ul inline;
@@ -877,13 +911,13 @@ function ProductModal({
                 else upd('category_id', v === '' ? null : v)
               }}
             >
-              <option value="">Fără categorie</option>
+              <option value="">{t('field_noCategory')}</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.emoji} {c.name}
                 </option>
               ))}
-              <option value="__new__">➕ Categorie nouă…</option>
+              <option value="__new__">{t('field_newCategoryOption')}</option>
             </Sel>
             {!form.category_id && (
               <div
@@ -891,18 +925,18 @@ function ProductModal({
                 style={{ fontSize: '0.72rem', color: D.amber, marginTop: 5, lineHeight: 1.4 }}
               >
                 {categories.length === 0
-                  ? 'Creează întâi o categorie: produsele fără categorie nu apar în meniul clienților.'
-                  : 'Fără categorie, produsul nu apare în meniul clienților.'}
+                  ? t('field_noCategoriesYet')
+                  : t('field_noCategoryNote')}
               </div>
             )}
             {newCatOpen && (
               <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
                 <div style={{ flex: 1 }}>
                   <Inp
-                    label="Nume categorie nouă"
+                    label={t('field_newCategoryName')}
                     value={newCatName}
                     onChange={setNewCatName}
-                    placeholder="Nume categorie nouă"
+                    placeholder={t('field_newCategoryName')}
                   />
                 </div>
                 <Button
@@ -912,7 +946,7 @@ function ProductModal({
                   disabled={newCatName.trim().length === 0}
                   loading={newCatBusy}
                 >
-                  {newCatBusy ? 'Se creează…' : 'Creează'}
+                  {newCatBusy ? t('field_creating') : t('field_create')}
                 </Button>
                 <button
                   type="button"
@@ -928,7 +962,7 @@ function ProductModal({
                     fontSize: '0.74rem',
                   })}
                 >
-                  Anulează
+                  {tc.t('cancel')}
                 </button>
               </div>
             )}
@@ -940,7 +974,7 @@ function ProductModal({
         {showVat && (
         <div>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
-            Cotă TVA
+            {t('vat_label')}
           </label>
           {vatLoad !== 'ready' || vatRates.length === 0 ? (
             <div
@@ -959,10 +993,10 @@ function ProductModal({
             >
               <span style={{ flex: '1 1 200px' }}>
                 {vatLoad === 'loading'
-                  ? 'Se încarcă cotele TVA...'
+                  ? t('vat_loading')
                   : vatLoad === 'error'
-                    ? 'Nu am putut încărca cotele TVA.'
-                    : 'Nu există cote TVA configurate. Le setezi din Setări → Comenzi & plăți → Cote TVA.'}
+                    ? t('vat_loadError')
+                    : t('vat_none')}
               </span>
               {vatLoad === 'error' && (
                 <button
@@ -977,7 +1011,7 @@ function ProductModal({
                     border: `1px solid ${D.goldBorder}`,
                   })}
                 >
-                  Reîncearcă
+                  {tc.t('retry')}
                 </button>
               )}
               {vatLoad !== 'loading' && onOpenVatRates && (
@@ -993,7 +1027,7 @@ function ProductModal({
                     border: `1px solid ${D.goldBorder}`,
                   })}
                 >
-                  Deschide cotele TVA
+                  {t('vat_open')}
                 </button>
               )}
             </div>
@@ -1048,7 +1082,7 @@ function ProductModal({
               <div style={{ fontSize: '0.7rem', color: D.t3, marginTop: 5, lineHeight: 1.5 }}>
                 {(() => {
                   const r = vatRates.find((r) => r.vat_group === (form.vat_group ?? 1))
-                  return r?.description ?? 'Configurabil în Setări → Comenzi & plăți → Cote TVA'
+                  return r?.description ?? t('vat_configurable')
                 })()}
               </div>
             </>
@@ -1057,27 +1091,27 @@ function ProductModal({
         )}
         <div>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
-            Descriere
+            {t('field_description')}
           </label>
           <textarea
-            aria-label="Descriere"
+            aria-label={t('field_description')}
             value={form.description || ''}
             onChange={(e) => upd('description', e.target.value)}
-            placeholder="Descriere produs..."
+            placeholder={t('field_descriptionPh')}
             rows={3}
             style={{ ...inp, height: 'auto', resize: 'vertical' }}
           />
         </div>
         <div>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
-            Status
+            {t('field_status')}
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
             {(
               [
-                ['is_active', 'Activ', 'Apare în meniu'],
-                ['is_daily_special', 'Specialitate', '⭐ apare evidențiat'],
-                ['is_sold_out', 'Epuizat', 'Afișat dezactivat'],
+                ['is_active', t('status_active'), t('status_activeDesc')],
+                ['is_daily_special', t('status_special'), t('status_specialDesc')],
+                ['is_sold_out', t('status_soldOut'), t('status_soldOutDesc')],
               ] as [keyof Product, string, string][]
             ).map(([k, l, desc]) => (
               <div
@@ -1110,13 +1144,13 @@ function ProductModal({
         {/* Image upload */}
         <div>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
-            Imagine produs
+            {t('img_label')}
           </label>
           {imgPreview ? (
             <div style={{ position: 'relative', display: 'inline-block' }}>
               <img
                 src={imgPreview}
-                alt="Preview"
+                alt={t('img_alt')}
                 style={{
                   width: 120,
                   height: 120,
@@ -1127,8 +1161,8 @@ function ProductModal({
               />
               <button
                 onClick={removeImage}
-                aria-label="Elimină imaginea"
-                title="Elimină imaginea"
+                aria-label={t('img_remove')}
+                title={t('img_remove')}
                 style={{
                   position: 'absolute',
                   top: -8,
@@ -1153,7 +1187,7 @@ function ProductModal({
             <label
               role="button"
               tabIndex={0}
-              aria-label="Încarcă imagine produs"
+              aria-label={t('img_upload')}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
@@ -1185,7 +1219,7 @@ function ProductModal({
                 }}
                 disabled={uploading}
               />
-              {uploading ? 'Se încarcă...' : '+ Imagine'}
+              {uploading ? t('loadingDots') : t('img_add')}
             </label>
           )}
           {/* Generare imagine cu AI (doar OpenAI/Gemini; necesită produs salvat) */}
@@ -1195,7 +1229,7 @@ function ProductModal({
               type="button"
               onClick={() => void handleGenerateImage()}
               disabled={aiImgBusy || !product?.id}
-              title={!product?.id ? 'Salvează întâi produsul' : 'Generează o imagine cu AI'}
+              title={!product?.id ? t('img_aiSaveFirstTitle') : t('img_aiTitle')}
               style={btn({
                 background: 'transparent',
                 color: D.gold,
@@ -1206,12 +1240,12 @@ function ProductModal({
                 opacity: aiImgBusy || !product?.id ? 0.5 : 1,
               })}
             >
-              {aiImgBusy ? 'Se generează…' : '✨ Generează imagine'}
+              {aiImgBusy ? t('generating') : t('img_aiGenerate')}
             </button>
             )}
             {isAiField('image_url') && (
               <span style={{ display: 'inline-block', marginLeft: 8, fontSize: '0.68rem', color: D.amber }}>
-                ✨ generată de AI — verifică
+                {t('img_aiBadge')}
               </span>
             )}
           </div>
@@ -1219,14 +1253,13 @@ function ProductModal({
         {/* Taguri dietetice */}
         <div>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 4 }}>
-            Etichete dietetice
+            {t('diet_label')}
             {isAiField('dietary_tags') && (
-              <span style={{ marginLeft: 8, fontSize: '0.68rem', color: D.amber }}>✨ sugerat de AI — verifică</span>
+              <span style={{ marginLeft: 8, fontSize: '0.68rem', color: D.amber }}>{t('diet_aiBadge')}</span>
             )}
           </label>
           <div style={{ fontSize: '0.7rem', color: D.t3, marginBottom: 8, lineHeight: 1.5 }}>
-            Opțional. Ajută clienții să găsească produse potrivite cu
-            dieta lor (vegetarian, picant, etc).
+            {t('diet_hint')}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {DIETARY_TAGS.map((tag) => {
@@ -1252,7 +1285,7 @@ function ProductModal({
                     transition: 'all .15s',
                   }}
                 >
-                  {tag.emoji} {tag.label}
+                  {tag.emoji} {t(dietKey(tag.id))}
                 </button>
               )
             })}
@@ -1261,11 +1294,10 @@ function ProductModal({
         {/* Alergeni EU 1169/2011 */}
         <div>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 4 }}>
-            Alergeni
+            {t('allergen_label')}
           </label>
           <div style={{ fontSize: '0.7rem', color: D.t3, marginBottom: 8, lineHeight: 1.5 }}>
-            Bifează dacă produsul conține. Cerință legală (EU
-            1169/2011) — protejează clienții cu alergii.
+            {t('allergen_hint')}
           </div>
           <div
             style={{
@@ -1281,7 +1313,7 @@ function ProductModal({
                   key={a.id}
                   type="button"
                   onClick={() => toggleAllergen(a.id)}
-                  title={a.desc}
+                  title={t(allergenDescKey(a.id))}
                   aria-pressed={active}
                   style={{
                     minHeight: isMobile ? 44 : undefined,
@@ -1303,7 +1335,7 @@ function ProductModal({
                   }}
                 >
                   <span>{a.emoji}</span>
-                  <span>{a.label}</span>
+                  <span>{t(allergenKey(a.id))}</span>
                 </button>
               )
             })}
@@ -1312,8 +1344,8 @@ function ProductModal({
           {aiAllergenSuggestions.filter((id) => !(form.allergens || []).includes(id)).length > 0 && (
             <div style={{ marginTop: 10, padding: '8px 10px', background: D.s3, border: `1px solid ${D.amberBorder}`, borderRadius: 8 }}>
               <div style={{ fontSize: '0.7rem', color: D.amber, marginBottom: 6, fontWeight: 600 }}>
-                <Icon name="sparkle" size={12} color={D.amber} /> Sugerat de AI — confirmă doar ce e
-                corect (răspundere legală):
+                <Icon name="sparkle" size={12} color={D.amber} />{' '}
+                {t('allergen_aiSuggested')}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {aiAllergenSuggestions
@@ -1340,7 +1372,7 @@ function ProductModal({
                           border: `1px dashed ${D.amberBorder}`,
                         }}
                       >
-                        + {a.emoji} {a.label}
+                        + {a.emoji} {t(allergenKey(a.id))}
                       </button>
                     )
                   })}
@@ -1358,9 +1390,12 @@ function ProductModal({
                 borderRadius: 7,
               }}
             >
-              ⚠️ Conține:{' '}
+              {t('allergen_contains')}{' '}
               {(form.allergens || [])
-                .map((id) => ALLERGENS.find((a) => a.id === id)?.label)
+                .map((id) => {
+                  const a = ALLERGENS.find((x) => x.id === id)
+                  return a ? t(allergenKey(a.id)) : undefined
+                })
                 .filter(Boolean)
                 .join(', ')}
             </div>
@@ -1410,21 +1445,20 @@ function ProductModal({
               >
                 ▸
               </span>
-              <span>Detalii suplimentare</span>
-              <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>(opțional)</span>
+              <span>{t('more_title')}</span>
+              <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>{t('optional')}</span>
             </span>
             <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>
-              {
-                [
+              {t('more_filled', {
+                n: [
                   form.prep_time_minutes != null,
-                  form.portion_size != null && form.portion_size.length > 0,
+                  !!form.portion_size,
                   form.calories != null,
                   form.protein_g != null,
                   form.carbs_g != null,
                   form.fat_g != null,
-                ].filter(Boolean).length
-              }{' '}
-              din 6 completate
+                ].filter(Boolean).length,
+              })}
             </span>
           </button>
 
@@ -1444,11 +1478,11 @@ function ProductModal({
                   <label
                     style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}
                   >
-                    Timp pregătire
+                    {t('more_prepTime')}
                   </label>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <Inp
-                      label="Timp pregătire (minute)"
+                      label={t('more_prepTimeLabel')}
                       value={form.prep_time_minutes == null ? '' : String(form.prep_time_minutes)}
                       onChange={(v) =>
                         upd('prep_time_minutes', v.length > 0 ? parseInt(v) || null : null)
@@ -1456,10 +1490,10 @@ function ProductModal({
                       type="number"
                       placeholder="15"
                     />
-                    <span style={{ fontSize: '0.78rem', color: D.t3 }}>min</span>
+                    <span style={{ fontSize: '0.78rem', color: D.t3 }}>{t('more_minutes')}</span>
                   </div>
                   <div style={{ fontSize: '0.7rem', color: D.t3, marginTop: 5 }}>
-                    Apare ca ⏱️ ~15 min
+                    {t('more_prepTimeHint')}
                   </div>
                 </div>
 
@@ -1467,16 +1501,16 @@ function ProductModal({
                   <label
                     style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}
                   >
-                    Cantitate / porție
+                    {t('more_portion')}
                   </label>
                   <Inp
-                    label="Cantitate / porție"
+                    label={t('more_portion')}
                     value={form.portion_size || ''}
                     onChange={(v) => upd('portion_size', v.length > 0 ? v : null)}
-                    placeholder="350g"
+                    placeholder={t('more_portionPh')}
                   />
                   <div style={{ fontSize: '0.7rem', color: D.t3, marginTop: 5 }}>
-                    Ex: 350g, 500ml, 2 buc
+                    {t('more_portionHint')}
                   </div>
                 </div>
               </div>
@@ -1485,9 +1519,9 @@ function ProductModal({
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', gap: 8 }}>
                   <label style={{ fontSize: '0.78rem', color: D.t2 }}>
-                    Valori nutriționale
+                    {t('more_nutrition')}
                     {(isAiField('calories') || isAiField('protein_g') || isAiField('carbs_g') || isAiField('fat_g')) && (
-                      <span style={{ marginLeft: 8, fontSize: '0.68rem', color: D.amber }}>✨ estimate de AI — verifică</span>
+                      <span style={{ marginLeft: 8, fontSize: '0.68rem', color: D.amber }}>{t('more_nutritionAiBadge')}</span>
                     )}
                   </label>
                   {canUseAi && (
@@ -1505,21 +1539,21 @@ function ProductModal({
                       opacity: aiNutriBusy ? 0.5 : 1,
                     })}
                   >
-                    {aiNutriBusy ? 'Se generează…' : '✨ Generează cu AI'}
+                    {aiNutriBusy ? t('generating') : t('more_nutritionAi')}
                   </button>
                   )}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 10 }}>
                   {([
-                    { key: 'calories', label: 'Calorii (kcal)', int: true },
-                    { key: 'protein_g', label: 'Proteine (g)', int: false },
-                    { key: 'carbs_g', label: 'Carbohidrați (g)', int: false },
-                    { key: 'fat_g', label: 'Grăsimi (g)', int: false },
+                    { key: 'calories', labelKey: 'more_calories', int: true },
+                    { key: 'protein_g', labelKey: 'more_protein', int: false },
+                    { key: 'carbs_g', labelKey: 'more_carbs', int: false },
+                    { key: 'fat_g', labelKey: 'more_fat', int: false },
                   ] as const).map((nf) => (
                     <div key={nf.key}>
-                      <label style={{ display: 'block', fontSize: '0.7rem', color: D.t3, marginBottom: 4 }}>{nf.label}</label>
+                      <label style={{ display: 'block', fontSize: '0.7rem', color: D.t3, marginBottom: 4 }}>{t(nf.labelKey)}</label>
                       <Inp
-                        label={nf.label}
+                        label={t(nf.labelKey)}
                         type="number"
                         value={form[nf.key] == null ? '' : String(form[nf.key])}
                         onChange={(v) => {
@@ -1533,7 +1567,7 @@ function ProductModal({
                   ))}
                 </div>
                 <div style={{ fontSize: '0.68rem', color: D.t3, marginTop: 6 }}>
-                  Valori per porție. Cele generate de AI sunt estimative — corectează-le dacă e nevoie.
+                  {t('more_nutritionHint')}
                 </div>
               </div>
 
@@ -1547,8 +1581,8 @@ function ProductModal({
                   lineHeight: 1.55,
                 }}
               >
-                💡 <strong style={{ color: D.t2 }}>Aceste detalii sunt opționale.</strong> Apar în
-                meniu doar dacă le completezi. Lasă goale dacă nu sunt relevante pentru produs.
+                💡 <strong style={{ color: D.t2 }}>{t('more_tipStrong')}</strong>{' '}
+                {t('more_tipRest')}
               </div>
             </div>
           )}
@@ -1564,24 +1598,24 @@ function ProductModal({
               id="product-options-title"
               style={{ color: D.t2, fontSize: '0.85rem', fontWeight: 600, marginBottom: 4 }}
             >
-              Opțiuni
+              {t('groups_title')}
             </div>
             <div style={{ fontSize: '0.75rem', color: D.t3, marginBottom: 10, lineHeight: 1.5 }}>
-              Grupurile bifate apar în fișa produsului, pentru client și pentru ospătar.
+              {t('groups_hint')}
             </div>
             {!product?.id ? (
               <div style={{ fontSize: '0.78rem', color: D.t2 }}>
-                Salvează produsul mai întâi, apoi alege-i opțiunile.
+                {t('groups_saveFirst')}
               </div>
             ) : optLoad === 'loading' ? (
-              <div style={{ fontSize: '0.78rem', color: D.t3 }}>Se încarcă opțiunile…</div>
+              <div style={{ fontSize: '0.78rem', color: D.t3 }}>{t('groups_loading')}</div>
             ) : optLoad === 'error' ? (
               <div role="alert" style={{ fontSize: '0.78rem', color: D.red }}>
-                Nu am putut încărca grupurile de opțiuni.
+                {t('groups_loadError')}
               </div>
             ) : optGroups.length === 0 ? (
               <div style={{ fontSize: '0.78rem', color: D.t2 }}>
-                Nu ai încă grupuri de opțiuni. Le creezi din Meniu → Opțiuni.
+                {t('groups_none')}
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -1607,7 +1641,7 @@ function ProductModal({
                     />
                     <span>{g.name}</span>
                     {g.is_required && (
-                      <span style={{ fontSize: '0.7rem', color: D.gold }}>Obligatoriu</span>
+                      <span style={{ fontSize: '0.7rem', color: D.gold }}>{t('groups_required')}</span>
                     )}
                   </label>
                 ))}
@@ -1649,12 +1683,11 @@ function ProductModal({
               >
                 ▸
               </span>
-              <span>Extras & Pereche</span>
-              <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>(opțional)</span>
+              <span>{t('upsell_title')}</span>
+              <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>{t('optional')}</span>
             </span>
             <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>
-              {extras.length} {extras.length === 1 ? 'extra' : 'extra-uri'} · {pairings.length}{' '}
-              {pairings.length === 1 ? 'pereche' : 'perechi'}
+              {tp('upsell_extrasCount', extras.length)} · {tp('upsell_pairingsCount', pairings.length)}
             </span>
           </button>
 
@@ -1672,14 +1705,14 @@ function ProductModal({
                     border: `1px dashed ${D.border}`,
                   }}
                 >
-                  ℹ️ <strong>Salvează produsul mai întâi.</strong> După ce produsul este creat, poți
-                  reveni aici pentru a adăuga extra-uri și produse pereche.
+                  ℹ️ <strong>{t('saveFirstStrong')}</strong>{' '}
+                  {t('upsell_saveFirstRest')}
                 </div>
               ) : upsellLoading ? (
                 <div
                   style={{ fontSize: '0.78rem', color: D.t3, padding: '12px', textAlign: 'center' }}
                 >
-                  Se încarcă...
+                  {t('loadingDots')}
                 </div>
               ) : (
                 <>
@@ -1694,15 +1727,14 @@ function ProductModal({
                       }}
                     >
                       <label style={{ fontSize: '0.82rem', fontWeight: 600, color: D.t1 }}>
-                        💎 Extras (add-on plătite)
+                        {t('upsell_extrasTitle')}
                       </label>
                       <span style={{ fontSize: '0.7rem', color: D.t3 }}>{extras.length} / 6</span>
                     </div>
                     <div
                       style={{ fontSize: '0.7rem', color: D.t3, marginBottom: 10, lineHeight: 1.5 }}
                     >
-                      Adaos LA produs cu cost extra. Ex: „+5 lei brânză extra", „+3 lei bacon".
-                      Clientul le bifează în fereastra produsului, înainte să adauge în coș.
+                      {t('upsell_extrasHint')}
                     </div>
 
                     {extras.length > 0 && (
@@ -1733,15 +1765,15 @@ function ProductModal({
                                 {e.name}
                               </span>
                               <span style={{ fontSize: '0.85rem', fontWeight: 600, color: D.gold }}>
-                                +{e.price.toFixed(2)} lei
+                                {t('upsell_extraPrice', { amount: e.price.toFixed(2) })}
                               </span>
                               <button
                                 type="button"
                                 onClick={() => {
                                   void removeExtra(e.id)
                                 }}
-                                aria-label={`Șterge extra-ul ${e.name}`}
-                                title="Șterge"
+                                aria-label={t('upsell_extraDelete', { name: e.name })}
+                                title={tc.t('delete')}
                                 style={{
                                   width: 24,
                                   height: 24,
@@ -1792,15 +1824,14 @@ function ProductModal({
                       }}
                     >
                       <label style={{ fontSize: '0.82rem', fontWeight: 600, color: D.t1 }}>
-                        💡 Pereche (sugestii după adăugarea în coș)
+                        {t('upsell_pairingsTitle')}
                       </label>
                       <span style={{ fontSize: '0.7rem', color: D.t3 }}>{pairings.length} / 3</span>
                     </div>
                     <div
                       style={{ fontSize: '0.7rem', color: D.t3, marginBottom: 10, lineHeight: 1.5 }}
                     >
-                      Produse care MERG BINE cu acesta. Apar ca pop-up după ce clientul adaugă în
-                      coș. Ex: friptură → vin, cartofi pai.
+                      {t('upsell_pairingsHint')}
                     </div>
 
                     {/* Perechi cu produse scoase din meniu (MENU-12): ocupau unul
@@ -1823,13 +1854,13 @@ function ProductModal({
                             marginBottom: 6,
                           }}
                         >
-                          <span style={{ flex: 1 }}>Produs scos din meniu (ocupă un loc)</span>
+                          <span style={{ flex: 1 }}>{t('upsell_pairingGone')}</span>
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => void togglePairing(pr.paired_product_id)}
                           >
-                            Scoate
+                            {t('upsell_pairingRemove')}
                           </Button>
                         </div>
                       ))}
@@ -1844,7 +1875,7 @@ function ProductModal({
                           textAlign: 'center',
                         }}
                       >
-                        Nu există alte produse active. Adaugă mai multe produse mai întâi.
+                        {t('upsell_noOtherProducts')}
                       </div>
                     ) : (
                       <div
@@ -1924,7 +1955,7 @@ function ProductModal({
                                 {p.name}
                               </span>
                               <span style={{ color: D.t3, fontSize: '0.72rem' }}>
-                                {p.price.toFixed(2)} lei
+                                {t('money', { amount: p.price.toFixed(2) })}
                               </span>
                             </button>
                           )
@@ -1943,8 +1974,8 @@ function ProductModal({
                       lineHeight: 1.55,
                     }}
                   >
-                    💡 <strong style={{ color: D.t2 }}>Diferența:</strong> Extras = adaos LA produs
-                    (brânză extra). Pereche = produs SEPARAT sugerat (vin, salată).
+                    💡 <strong style={{ color: D.t2 }}>{t('upsell_diffStrong')}</strong>{' '}
+                    {t('upsell_diffRest')}
                   </div>
                 </>
               )}
@@ -1986,14 +2017,14 @@ function ProductModal({
               >
                 ▸
               </span>
-              <span>Rețetă (ingrediente consumate)</span>
-              <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>(opțional)</span>
+              <span>{t('recipe_title')}</span>
+              <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>{t('optional')}</span>
             </span>
             <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>
               {/* Contorul doar după ce rețeta s-a încărcat (MENU-14): înainte
                   „0 ingrediente” pe o rețetă plină îl făcea pe om s-o refacă. */}
               {showRecipe && !recipeLoading
-                ? `${recipeRows.length} ${recipeRows.length === 1 ? 'ingredient' : 'ingrediente'}`
+                ? tp('recipe_count', recipeRows.length)
                 : null}
             </span>
           </button>
@@ -2012,14 +2043,14 @@ function ProductModal({
                     border: `1px dashed ${D.border}`,
                   }}
                 >
-                  ℹ️ <strong>Salvează produsul mai întâi.</strong> După ce produsul e creat, poți
-                  adăuga ingrediente în rețetă pentru a urmări costuri și stoc.
+                  ℹ️ <strong>{t('saveFirstStrong')}</strong>{' '}
+                  {t('recipe_saveFirstRest')}
                 </div>
               ) : recipeLoading ? (
                 <div
                   style={{ fontSize: '0.78rem', color: D.t3, padding: '12px', textAlign: 'center' }}
                 >
-                  Se încarcă...
+                  {t('loadingDots')}
                 </div>
               ) : allIngredients.length === 0 ? (
                 <div
@@ -2033,14 +2064,13 @@ function ProductModal({
                     border: `1px dashed ${D.border}`,
                   }}
                 >
-                  ℹ️ <strong>Nu ai ingrediente în stoc încă.</strong> Mergi la Meniu → Stocuri →
-                  Ingrediente și adaugă-le pe cele folosite în acest produs.
+                  ℹ️ <strong>{t('recipe_noIngredientsStrong')}</strong>{' '}
+                  {t('recipe_noIngredientsRest')}
                 </div>
               ) : (
                 <>
                   <div style={{ fontSize: '0.72rem', color: D.t3, lineHeight: 1.5 }}>
-                    Definește câte unități din fiecare ingredient se consumă pentru 1 bucată din
-                    acest produs. La fiecare comandă plătită, sistemul scade automat din stoc.
+                    {t('recipe_hint')}
                   </div>
 
                   {recipeRows.length > 0 && (
@@ -2082,18 +2112,18 @@ function ProductModal({
                                 fontWeight: 600,
                               }}
                             >
-                              {r.quantity} {ing.unit}
+                              {r.quantity} {ingredientUnitLabel(ing.unit, { t })}
                             </span>
                             <span style={{ fontSize: '0.7rem', color: D.t3 }}>
-                              ({(r.quantity * ing.cost_per_unit).toFixed(2)} lei)
+                              {t('recipe_lineCost', { amount: (r.quantity * ing.cost_per_unit).toFixed(2) })}
                             </span>
                             <button
                               type="button"
                               onClick={() => {
                                 void deleteRecipeItem(r.ingredient_id)
                               }}
-                              aria-label={`Șterge ingredientul ${ing.name}`}
-                              title="Șterge"
+                              aria-label={t('recipe_ingredientDelete', { name: ing.name })}
+                              title={tc.t('delete')}
                               style={{
                                 width: 24,
                                 height: 24,
@@ -2135,14 +2165,15 @@ function ProductModal({
                         lineHeight: 1.55,
                       }}
                     >
-                      💰 <strong>Cost total rețetă:</strong>{' '}
-                      {recipeRows
-                        .reduce((sum, r) => {
-                          const ing = allIngredients.find((i) => i.id === r.ingredient_id)
-                          return sum + (ing ? r.quantity * ing.cost_per_unit : 0)
-                        }, 0)
-                        .toFixed(2)}{' '}
-                      lei
+                      💰 <strong>{t('recipe_totalCost')}</strong>{' '}
+                      {t('money', {
+                        amount: recipeRows
+                          .reduce((sum, r) => {
+                            const ing = allIngredients.find((i) => i.id === r.ingredient_id)
+                            return sum + (ing ? r.quantity * ing.cost_per_unit : 0)
+                          }, 0)
+                          .toFixed(2),
+                      })}
                       {form.price &&
                         form.price > 0 &&
                         (() => {
@@ -2159,7 +2190,7 @@ function ProductModal({
                                 fontWeight: 700,
                               }}
                             >
-                              → marja {margin.toFixed(0)}%
+                              {t('recipe_margin', { pct: margin.toFixed(0) })}
                             </span>
                           )
                         })()}
@@ -2185,7 +2216,7 @@ function ProductModal({
               fontSize: '0.84rem',
             }}
           >
-            {formError}
+            {t(formError)}
           </div>
         )}
         <div
@@ -2201,7 +2232,7 @@ function ProductModal({
               })
             }
           >
-            Anulează
+            {tc.t('cancel')}
           </Button>
           {/* „Salvează și adaugă următorul" — doar la create (audit aug 2026:
               30 de produse = 30 de cicluri de modal). După succes modalul rămâne
@@ -2214,7 +2245,7 @@ function ProductModal({
               disabled={uploading}
               loading={saving}
             >
-              {saving ? 'Se salvează…' : 'Salvează și adaugă următorul'}
+              {saving ? t('saving') : t('saveAndNext')}
             </Button>
           )}
           <Button
@@ -2223,11 +2254,11 @@ function ProductModal({
             disabled={uploading}
             loading={saving}
           >
-            {saving ? 'Se salvează…' : 'Salvează'}
+            {saving ? t('saving') : tc.t('save')}
           </Button>
         </div>
       </div>
-      <Toast toasts={pmToasts} local />
+      <Toast local toasts={pmToasts} />
     </Modal>
   )
 }
@@ -2240,6 +2271,7 @@ function RecipeAddForm({
   ingredients: StocksIngredient[]
   onAdd: (ingredientId: string, quantity: number) => void | Promise<void>
 }) {
+  const { t } = useT(productsNs)
   const [selectedId, setSelectedId] = useState('')
   const [quantity, setQuantity] = useState('')
 
@@ -2264,7 +2296,7 @@ function RecipeAddForm({
           textAlign: 'center',
         }}
       >
-        Toate ingredientele sunt deja adăugate la rețetă
+        {t('recipe_allAdded')}
       </div>
     )
   }
@@ -2281,7 +2313,7 @@ function RecipeAddForm({
       }}
     >
       <select
-        aria-label="Ingredient"
+        aria-label={t('recipe_ingredient')}
         value={selectedId}
         onChange={(e) => setSelectedId(e.target.value)}
         style={{
@@ -2295,7 +2327,7 @@ function RecipeAddForm({
           height: 36,
         }}
       >
-        <option value="">Alege ingredient...</option>
+        <option value="">{t('recipe_chooseIngredient')}</option>
         {ingredients.map((i) => (
           <option key={i.id} value={i.id}>
             {i.emoji ?? '🥬'} {i.name}
@@ -2304,14 +2336,14 @@ function RecipeAddForm({
       </select>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
         <Inp
-          label={sel ? `Cantitate ${sel.name} (${sel.unit})` : 'Cantitate'}
+          label={sel ? t('recipe_quantityOf', { name: sel.name, unit: ingredientUnitLabel(sel.unit, { t }) }) : t('recipe_quantity')}
           value={quantity}
           onChange={setQuantity}
           type="number"
           placeholder="0"
         />
         <span style={{ fontSize: '0.7rem', color: D.t3, whiteSpace: 'nowrap' }}>
-          {sel?.unit ?? ''}
+          {sel ? ingredientUnitLabel(sel.unit, { t }) : ''}
         </span>
       </div>
       <Button
@@ -2320,7 +2352,7 @@ function RecipeAddForm({
         onClick={submit}
         disabled={selectedId.length === 0 || quantity.length === 0}
       >
-        + Adaugă
+        {t('add')}
       </Button>
     </div>
   )
@@ -2332,6 +2364,7 @@ function ExtraForm({
 }: {
   onAdd: (name: string, price: number, emoji: string) => void | Promise<void>
 }) {
+  const { t } = useT(productsNs)
   const [name, setName] = useState('')
   const [price, setPrice] = useState('')
   const [emoji, setEmoji] = useState('')
@@ -2355,16 +2388,16 @@ function ExtraForm({
         alignItems: 'center',
       }}
     >
-      <Inp label="Emoji extra" value={emoji} onChange={setEmoji} placeholder="🧀" />
-      <Inp label="Nume extra" value={name} onChange={setName} placeholder="Brânză extra" />
-      <Inp label="Preț extra (lei)" value={price} onChange={setPrice} type="number" placeholder="5.00" />
+      <Inp label={t('extra_emoji')} value={emoji} onChange={setEmoji} placeholder="🧀" />
+      <Inp label={t('extra_name')} value={name} onChange={setName} placeholder={t('extra_namePh')} />
+      <Inp label={t('extra_price')} value={price} onChange={setPrice} type="number" placeholder="5.00" />
       <Button
         variant="primary"
         size="sm"
         onClick={submit}
         disabled={name.trim().length === 0 || price.length === 0}
       >
-        + Adaugă
+        {t('add')}
       </Button>
     </div>
   )
@@ -2413,6 +2446,15 @@ export default function ProductsTab({
   // „Verifică traducerile” după lotul AI: duce în Meniu → Traduceri (lotul O6c).
   onOpenTranslations?: () => void
 }) {
+  // Traducătorii SUS, înaintea oricărui return timpuriu: fișa, ordinea,
+  // antetul și insigna folosesc aceleași namespace-uri, deci nu suspendă la
+  // deschidere (precondiția L4b/L4c). `translations` = traducerile din fișă
+  // (ProductTranslations, ExtraTranslations — lotul L5a, partea 2); aici doar
+  // ca să fie încărcat înainte ca fișa să se deschidă (clichetul LV10).
+  const tr = useT(productsNs)
+  const { t, tp } = tr
+  const tc = useT(commonNs)
+  useT(translationsNs)
   const showVat = surface?.vat === true
   const showExtras = surface?.extras === true
   const showRecipes = canManageRecipes && surface?.stocks === true
@@ -2532,7 +2574,7 @@ export default function ProductsTab({
   if ((error || catError) && !modal)
     return (
       <QueryError
-        message={error || catError || 'Eroare necunoscută'}
+        message={error || catError || t('unknownError')}
         onRetry={() => {
           refetchProducts()
           refetchCats()
@@ -2552,13 +2594,13 @@ export default function ProductsTab({
     if (modal === 'add') {
       const { error: e } = await create(form)
       if (e) {
-        fail(toUserMessage(e))
+        fail(describeProductError(e, tr, tc))
         return false
       }
       // Telemetria funelului (audit aug 2026): pasul „introdu meniul" nu era
       // măsurat deloc. track e no-op fără consimțământ analytics; zero PII.
       track('product_created', { source: 'products_tab' })
-      toast('Produs adăugat')
+      toast(t('toast_added'))
       if (!opts?.keepOpen) setModal(null)
       return true
     } else if (modal) {
@@ -2572,7 +2614,7 @@ export default function ProductsTab({
       }
       const { error: e } = await update(opened.id, payload)
       if (e) {
-        fail(toUserMessage(e))
+        fail(describeProductError(e, tr, tc))
         return false
       }
       // „Epuizat” NU pleacă în PATCH-ul formularului (mig 313): doar dacă omul
@@ -2581,11 +2623,11 @@ export default function ProductsTab({
       if (soldOutTarget !== null) {
         const r = await toggleSoldOut(opened.id, !soldOutTarget)
         if (r.error) {
-          fail(toUserMessage(r.error))
+          fail(describeProductError(r.error, tr, tc))
           return false
         }
       }
-      toast('Actualizat')
+      toast(t('toast_updated'))
       setModal(null)
       return true
     }
@@ -2599,7 +2641,7 @@ export default function ProductsTab({
   ): Promise<string | null> => {
     const r = await createCategory({ name })
     if (r.error || !r.data) {
-      const message = toUserMessage(r.error, 'Nu am putut crea categoria.')
+      const message = describeProductError(r.error, tr, tc, t('err_categoryCreate'))
       if (onError) onError(message)
       else toast(message, 'error')
       return null
@@ -2609,16 +2651,16 @@ export default function ProductsTab({
   const handleDelete = async () => {
     if (!delId) return
     const { error: e } = await remove(delId)
-    if (e) toast(toUserMessage(e), 'error')
-    else toast('Șters')
+    if (e) toast(describeProductError(e, tr, tc), 'error')
+    else toast(t('toast_deleted'))
     setDelId(null)
   }
   const handleToggleActive = async (p: Product) => {
     setTogglingId(p.id)
     try {
       const { error } = await toggleActive(p.id, p.is_active)
-      if (!error) toast(p.is_active ? 'Dezactivat' : 'Activat')
-      else toast(toUserMessage(error), 'error')
+      if (!error) toast(p.is_active ? t('toast_deactivated') : t('toast_activated'))
+      else toast(describeProductError(error, tr, tc), 'error')
     } finally {
       setTogglingId(null)
     }
@@ -2645,7 +2687,7 @@ export default function ProductsTab({
     singleVatGroup != null ? vatRates.find((r) => r.vat_group === singleVatGroup) : undefined
   const singleVatLabel = singleVatRate
     ? `${singleVatRate.label} ${singleVatRate.rate_percent}%`
-    : `grupa ${singleVatGroup ?? 1}`
+    : t('list_vatGroup', { n: singleVatGroup ?? 1 })
 
   return (
     <div>
@@ -2662,7 +2704,7 @@ export default function ProductsTab({
       >
         <div>
           <p style={{ color: D.t3, fontSize: '0.78rem', marginTop: 3 }}>
-            {products.length} total · {products.filter((p) => p.is_active).length} active
+            {t('list_summary', { total: products.length, active: products.filter((p) => p.is_active).length })}
           </p>
         </div>
         {/* Pe un catalog GOL antetul nu are butoane: starea goală de mai jos are
@@ -2693,7 +2735,7 @@ export default function ProductsTab({
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Caută..."
+          placeholder={t('list_search')}
           style={{
             ...inp,
             flex: '1 1 160px',
@@ -2718,10 +2760,10 @@ export default function ProductsTab({
               categoriile reale; „Fără categorie" e chihlimbar fiindcă e un
               avertisment (produsele de acolo nu apar în meniu), nu o categorie. */}
           {[
-            { id: 'all', label: 'Toate', warn: false },
-            ...(uncategorizedCount > 0
-              ? [{ id: UNCATEGORIZED, label: `Fără categorie (${uncategorizedCount})`, warn: true }]
-              : []),
+            { id: 'all', label: t('list_all'), warn: false },
+            ...(uncategorizedCount === 0
+              ? []
+              : [{ id: UNCATEGORIZED, label: t('list_uncategorized', { n: uncategorizedCount }), warn: true }]),
             ...categories.map((c) => ({
               id: c.id,
               label: [c.emoji, c.name].filter(Boolean).join(' '),
@@ -2756,7 +2798,7 @@ export default function ProductsTab({
       {orderCategory && !search.trim() && orderCategoryProducts.length >= 2 && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
           <Button variant="secondary" size="sm" onClick={() => setOrderOpen(true)}>
-            Ordonează produsele
+            {t('list_reorder')}
           </Button>
         </div>
       )}
@@ -2768,10 +2810,10 @@ export default function ProductsTab({
           onSave={async (ids) => {
             const { error: e } = await reorderProducts(ids)
             if (e) {
-              toast(toUserMessage(e, 'Ordinea nu a putut fi salvată.'), 'error')
+              toast(describeProductError(e, tr, tc, t('err_orderSave')), 'error')
               return false
             }
-            toast('Ordinea a fost salvată')
+            toast(t('toast_orderSaved'))
             return true
           }}
         />
@@ -2795,8 +2837,7 @@ export default function ProductsTab({
         >
           <Icon name="info" size={14} color={D.amber} />
           <span style={{ flex: '1 1 240px' }}>
-            Toate produsele sunt pe aceeași grupă TVA ({singleVatLabel}). Verifică băuturile și
-            alcoolul înainte de primul bon — grupa se schimbă din fișa produsului.
+            {t('list_vatNote', { label: singleVatLabel })}
           </span>
           {onOpenVatRates && (
             <button
@@ -2811,7 +2852,7 @@ export default function ProductsTab({
                 border: `1px solid ${D.goldBorder}`,
               })}
             >
-              Vezi cotele TVA
+              {t('list_vatSee')}
             </button>
           )}
         </div>
@@ -2835,7 +2876,7 @@ export default function ProductsTab({
               borderBottom: `1px solid ${D.border}`,
             }}
           >
-            {['Produs', 'Categorie', 'Preț', 'Status', 'Acțiuni'].map((h) => (
+            {COLUMN_KEYS.map((h) => (
               <div
                 key={h}
                 style={{
@@ -2846,7 +2887,7 @@ export default function ProductsTab({
                   letterSpacing: '0.06em',
                 }}
               >
-                {h}
+                {t(h)}
               </div>
             ))}
           </div>
@@ -2860,12 +2901,8 @@ export default function ProductsTab({
           // nu le mai are) — deci le arată și când în căutare s-a tastat ceva.
           <EmptyState
             icon={search && products.length > 0 ? 'search' : 'menu'}
-            title={search && products.length > 0 ? 'Niciun produs găsit' : 'Niciun produs încă'}
-            description={
-              search && products.length > 0
-                ? 'Încearcă alt termen de căutare sau șterge filtrul.'
-                : 'Adaugă primul produs din meniu — manual, din poză sau prin CSV.'
-            }
+            title={search && products.length !== 0 ? t('empty_noMatch') : t('empty_none')}
+            description={search && products.length !== 0 ? t('empty_noMatchDesc') : t('empty_noneDesc')}
             action={
               !search || products.length === 0 ? (
                 // Importul din poză = acțiunea PRIMARĂ pe meniu gol (audit aug
@@ -2879,7 +2916,7 @@ export default function ProductsTab({
                       icon={<Icon name="camera" size={16} />}
                       onClick={() => setAiImportOpen(true)}
                     >
-                      Importă din poză
+                      {t('empty_importPhoto')}
                     </Button>
                   )}
                   {/* Fără AI, adăugarea manuală devine acțiunea principală. */}
@@ -2895,7 +2932,7 @@ export default function ProductsTab({
                       setModal('add')
                     }}
                   >
-                    Adaugă manual
+                    {t('empty_addManual')}
                   </Button>
                   <Button
                     variant="ghost"
@@ -2903,7 +2940,7 @@ export default function ProductsTab({
                     icon={<Icon name="download" size={16} />}
                     onClick={() => setCsvImportOpen(true)}
                   >
-                    Importă din CSV
+                    {t('empty_importCsv')}
                   </Button>
                 </div>
               ) : undefined
@@ -2962,8 +2999,8 @@ export default function ProductsTab({
                         <span
                           title={
                             p.sold_out_source === 'stock'
-                              ? 'Un ingredient din rețetă e sub o porție. Revine singur când stocul crește.'
-                              : 'Marcat epuizat de personal.'
+                              ? t('list_soldOutStockTitle')
+                              : t('list_soldOutManualTitle')
                           }
                           style={{
                             fontSize: '0.6rem',
@@ -2974,12 +3011,12 @@ export default function ProductsTab({
                             fontWeight: 600,
                           }}
                         >
-                          EPUIZAT · {(soldOutSourceLabel(true, p.sold_out_source) ?? '').toUpperCase()}
+                          {t(soldOutBadgeKey(p.sold_out_source))}
                         </span>
                       )}
                       {!p.is_sold_out && p.sold_out_source === 'manual' && (
                         <span
-                          title="Deblocat de personal deși stocul e sub o porție. Regula de stoc se reia după ce stocul crește."
+                          title={t('list_unblockedTitle')}
                           style={{
                             fontSize: '0.6rem',
                             background: D.amberA,
@@ -2989,7 +3026,7 @@ export default function ProductsTab({
                             fontWeight: 600,
                           }}
                         >
-                          DEBLOCAT MANUAL
+                          {t('list_unblocked')}
                         </span>
                       )}
                     </div>
@@ -3011,11 +3048,11 @@ export default function ProductsTab({
                     }}
                   >
                     <div style={{ fontSize: '0.9rem', color: D.gold, fontWeight: 600 }}>
-                      {p.price.toFixed(2)} lei
+                      {t('money', { amount: p.price.toFixed(2) })}
                     </div>
                     {showVat && (
                       <div style={{ fontSize: '0.62rem', color: D.t3, fontWeight: 500 }}>
-                        TVA {vatLabel(p.vat_group ?? 1)}
+                        {t('list_vat', { rate: vatLabel(p.vat_group ?? 1) })}
                       </div>
                     )}
                   </div>
@@ -3024,7 +3061,7 @@ export default function ProductsTab({
                   <button
                     onClick={() => void handleToggleActive(p)}
                     disabled={togglingId === p.id}
-                    aria-label={p.is_active ? 'Dezactivează produsul' : 'Activează produsul'}
+                    aria-label={p.is_active ? t('list_deactivate') : t('list_activate')}
                     style={{
                       minHeight: 44,
                       borderRadius: 7,
@@ -3042,7 +3079,7 @@ export default function ProductsTab({
                     }}
                   >
                     {togglingId === p.id ? (
-                      <Spinner size="sm" />
+                      <Spinner size="sm" label={t('list_toggling')} />
                     ) : (
                       <span
                         style={{
@@ -3053,12 +3090,12 @@ export default function ProductsTab({
                         }}
                       />
                     )}
-                    {p.is_active ? 'Activ' : 'Inactiv'}
+                    {p.is_active ? t('list_active') : t('list_inactive')}
                   </button>
                   <button
                     onClick={() => setModal(p)}
-                    aria-label="Editează produsul"
-                    title="Editează"
+                    aria-label={t('list_editAria')}
+                    title={tc.t('edit')}
                     style={{
                       width: 44,
                       height: 44,
@@ -3076,8 +3113,8 @@ export default function ProductsTab({
                   </button>
                   <button
                     onClick={() => setDelId(p.id)}
-                    aria-label="Șterge produsul"
-                    title="Șterge"
+                    aria-label={t('list_deleteAria')}
+                    title={tc.t('delete')}
                     style={{
                       width: 44,
                       height: 44,
@@ -3142,15 +3179,15 @@ export default function ProductsTab({
                             fontWeight: 600,
                           }}
                         >
-                          ⭐ SPECIAL
+                          {t('list_special')}
                         </span>
                       )}
                       {p.is_sold_out && (
                         <span
                           title={
                             p.sold_out_source === 'stock'
-                              ? 'Un ingredient din rețetă e sub o porție. Revine singur când stocul crește.'
-                              : 'Marcat epuizat de personal.'
+                              ? t('list_soldOutStockTitle')
+                              : t('list_soldOutManualTitle')
                           }
                           style={{
                             fontSize: '0.6rem',
@@ -3161,12 +3198,12 @@ export default function ProductsTab({
                             fontWeight: 600,
                           }}
                         >
-                          EPUIZAT · {(soldOutSourceLabel(true, p.sold_out_source) ?? '').toUpperCase()}
+                          {t(soldOutBadgeKey(p.sold_out_source))}
                         </span>
                       )}
                       {!p.is_sold_out && p.sold_out_source === 'manual' && (
                         <span
-                          title="Deblocat de personal deși stocul e sub o porție. Regula de stoc se reia după ce stocul crește."
+                          title={t('list_unblockedTitle')}
                           style={{
                             fontSize: '0.6rem',
                             background: D.amberA,
@@ -3176,7 +3213,7 @@ export default function ProductsTab({
                             fontWeight: 600,
                           }}
                         >
-                          DEBLOCAT MANUAL
+                          {t('list_unblocked')}
                         </span>
                       )}
                     </div>
@@ -3201,11 +3238,11 @@ export default function ProductsTab({
                 </div>
                 <div>
                   <div style={{ fontSize: '0.875rem', color: D.t1, fontWeight: 500 }}>
-                    {p.price.toFixed(2)} lei
+                    {t('money', { amount: p.price.toFixed(2) })}
                   </div>
                   {showVat && (
                     <div style={{ fontSize: '0.65rem', color: D.t3, fontWeight: 500, marginTop: 2 }}>
-                      TVA {vatLabel(p.vat_group ?? 1)}
+                      {t('list_vat', { rate: vatLabel(p.vat_group ?? 1) })}
                     </div>
                   )}
                 </div>
@@ -3223,7 +3260,7 @@ export default function ProductsTab({
                     opacity: togglingId === p.id ? 0.6 : 1,
                   }}
                 >
-                  {togglingId === p.id && <Spinner size="sm" />}
+                  {togglingId === p.id && <Spinner size="sm" label={t('list_toggling')} />}
                   <span
                     style={{
                       padding: '3px 10px',
@@ -3235,18 +3272,18 @@ export default function ProductsTab({
                       border: `1px solid ${p.is_active ? D.greenBorder : D.border}`,
                     }}
                   >
-                    {p.is_active ? 'Activ' : 'Inactiv'}
+                    {p.is_active ? t('list_active') : t('list_inactive')}
                   </span>
                 </button>
                 <div style={{ display: 'flex', gap: 4 }}>
                   <button
                     onClick={async () => {
                       const r = await toggleSoldOut(p.id, p.is_sold_out)
-                      if (r.error) toast(toUserMessage(r.error, 'Nu s-a putut actualiza.'), 'error')
-                      else toast(p.is_sold_out ? 'Disponibil' : 'Epuizat')
+                      if (r.error) toast(describeProductError(r.error, tr, tc, t('err_update')), 'error')
+                      else toast(p.is_sold_out ? t('toast_available') : t('toast_soldOut'))
                     }}
-                    aria-label={p.is_sold_out ? 'Marchează disponibil' : 'Marchează epuizat'}
-                    title={p.is_sold_out ? 'Marchează disponibil' : 'Marchează epuizat'}
+                    aria-label={p.is_sold_out ? t('list_markAvailable') : t('list_markSoldOut')}
+                    title={p.is_sold_out ? t('list_markAvailable') : t('list_markSoldOut')}
                     style={{
                       width: 30,
                       height: 30,
@@ -3265,11 +3302,11 @@ export default function ProductsTab({
                   <button
                     onClick={async () => {
                       const r = await toggleDailySpecial(p.id, p.is_daily_special)
-                      if (r.error) toast(toUserMessage(r.error, 'Nu s-a putut actualiza.'), 'error')
-                      else toast(p.is_daily_special ? 'Normal' : 'Special!')
+                      if (r.error) toast(describeProductError(r.error, tr, tc, t('err_update')), 'error')
+                      else toast(p.is_daily_special ? t('toast_normal') : t('toast_special'))
                     }}
-                    aria-label={p.is_daily_special ? 'Scoate din specialități' : 'Marchează specialitate'}
-                    title={p.is_daily_special ? 'Scoate din specialități' : 'Marchează specialitate'}
+                    aria-label={p.is_daily_special ? t('list_unmarkSpecial') : t('list_markSpecial')}
+                    title={p.is_daily_special ? t('list_unmarkSpecial') : t('list_markSpecial')}
                     style={{
                       width: 30,
                       height: 30,
@@ -3287,8 +3324,8 @@ export default function ProductsTab({
                   </button>
                   <button
                     onClick={() => setModal(p)}
-                    aria-label="Editează produsul"
-                    title="Editează"
+                    aria-label={t('list_editAria')}
+                    title={tc.t('edit')}
                     style={{
                       width: 30,
                       height: 30,
@@ -3306,8 +3343,8 @@ export default function ProductsTab({
                   </button>
                   <button
                     onClick={() => setDelId(p.id)}
-                    aria-label="Șterge produsul"
-                    title="Șterge"
+                    aria-label={t('list_deleteAria')}
+                    title={tc.t('delete')}
                     style={{
                       width: 30,
                       height: 30,
@@ -3368,7 +3405,7 @@ export default function ProductsTab({
             onClose={() => setCsvImportOpen(false)}
             onDone={(n) => {
               setCsvImportOpen(false)
-              toast(`✓ ${n} produse importate`)
+              toast(tp('toast_imported', n))
               refetchProducts()
               refetchCats()
             }}
@@ -3421,17 +3458,18 @@ export default function ProductsTab({
         </Suspense>
       )}
       {delId && (
-        <Modal title="Șterge produs" onClose={() => setDelId(null)} width={380}>
+        <Modal title={t('del_title')} onClose={() => setDelId(null)} width={380}>
           <p style={{ color: D.t2, marginBottom: 22 }}>
-            Ești sigur că vrei să ștergi{' '}
-            <strong style={{ color: D.t1 }}>{products.find((p) => p.id === delId)?.name}</strong>?
+            {fillNodes(t('del_question'), {
+              name: <strong style={{ color: D.t1 }}>{products.find((p) => p.id === delId)?.name}</strong>,
+            })}
           </p>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <Button variant="secondary" onClick={() => setDelId(null)}>
-              Anulează
+              {tc.t('cancel')}
             </Button>
             <Button variant="danger" onClick={handleDelete}>
-              Șterge
+              {tc.t('delete')}
             </Button>
           </div>
         </Modal>

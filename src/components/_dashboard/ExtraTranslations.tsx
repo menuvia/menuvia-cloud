@@ -9,11 +9,17 @@
 // s-ar fi pierdut tăcut, împreună cu semnalul „nesalvat” (recenzia O6c). Din
 // ele fișa știe ce n-a fost salvat (`nameDraftsDirty`), la închidere și la
 // „Salvează”.
+// Textele din namespace-ul `translations` (lotul L5a): ProductsTab îl cere
+// SUS (clichetul LV10). Etichetele butoanelor sunt aceleași cu cele pomenite
+// de `products.extraTr_desc` („Salvează traducerile”).
 import { useState } from 'react'
 import { D } from '../../lib/constants'
 import { MENU_LANGS, aiFieldsOf, applyManualEdit, nameDraftsDirty, type Translations } from '../../lib/i18nMenu'
 import { saveRowTranslations } from '../../lib/menuTranslationsData'
-import { toUserMessage } from '../../lib/userMessages'
+import { FIELD_KEY, describeTranslationError, menuLangName, menuLangTitle } from '../../lib/translationMessages'
+import { useT } from '../../i18n/useT'
+import { commonNs } from '../../i18n/ns/common'
+import { translationsNs } from '../../i18n/ns/translations'
 import { Button } from '../ui/Button'
 import { Inp } from './sharedUI'
 import { AiReviewMark } from './ProductTranslations'
@@ -43,6 +49,9 @@ export function ExtraTranslations({
   onSaved: (id: string, translations: Translations) => void
   onToast: (msg: string, type?: string) => void
 }) {
+  const tr = useT(translationsNs)
+  const { t } = tr
+  const tc = useT(commonNs)
   const stored = extra.translations ?? null
   const dirty = nameDraftsDirty(drafts, stored)
   // Redeschisă după strângerea secțiunii, o ciornă rămasă se vede imediat.
@@ -59,16 +68,16 @@ export function ExtraTranslations({
     try {
       const written = await saveRowTranslations('product_extras', extra.id, (fresh) =>
         Object.keys(edits).reduce<Translations>(
-          (tr, code) => applyManualEdit(tr, code, { name: edits[code] }, baseLang),
+          (acc, code) => applyManualEdit(acc, code, { name: edits[code] }, baseLang),
           fresh,
         ),
       )
       onSaved(extra.id, written)
       // Ce s-a tastat în timpul salvării rămâne ciornă.
       onDraftsChange(extra.id, (d) => (d === edits ? {} : d))
-      onToast('Traducerile extra-ului au fost salvate.')
+      onToast(t('ex_saved'))
     } catch (e) {
-      onToast(toUserMessage(e, 'Traducerile extra-ului nu au fost salvate.'), 'error')
+      onToast(describeTranslationError(e, tr, tc, t('ex_failed')), 'error')
     } finally {
       setSaving(false)
     }
@@ -78,25 +87,25 @@ export function ExtraTranslations({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div>
         <Button variant="ghost" size="sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-          Traduceri {done}/{langs.length}
+          {t('ex_toggle', { done, total: langs.length })}
         </Button>
       </div>
       {open && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ fontSize: '0.7rem', color: D.t3, lineHeight: 1.5 }}>
-            Se salvează pe loc, separat de «Salvează».
+            {t('ex_hint')}
           </div>
           {langs.map((code) => {
             const meta = MENU_LANGS.find((l) => l.code === code)
-            const label = meta?.label ?? code.toUpperCase()
+            const label = menuLangName(code, tr)
             const flagged = aiFieldsOf(stored?.[code]).includes('name') && !(code in drafts)
             return (
               <div key={code}>
                 <label style={{ display: 'block', fontSize: '0.72rem', color: D.t2, marginBottom: 4 }}>
-                  {meta?.flag} {label}
+                  {meta?.flag} {menuLangTitle(code, tr)}
                 </label>
                 <Inp
-                  label={`Nume în ${label} pentru «${extra.name}»`}
+                  label={t('fieldAria', { field: t(FIELD_KEY.name), lang: label, name: extra.name })}
                   value={drafts[code] ?? stored?.[code]?.name ?? ''}
                   onChange={(v) => onDraftsChange(extra.id, (d) => ({ ...d, [code]: v }))}
                   placeholder={extra.name}
@@ -107,7 +116,7 @@ export function ExtraTranslations({
           })}
           <div>
             <Button size="sm" loading={saving} disabled={!dirty} onClick={() => void save()}>
-              Salvează traducerile
+              {t('ex_save')}
             </Button>
           </div>
         </div>

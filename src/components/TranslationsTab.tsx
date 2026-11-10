@@ -10,6 +10,11 @@
 // din aceleași hook-uri ca tab-ul Produse. Partenerul vede ecranul
 // (PARTNER_TAB_IDS): toate tabelele scrise sunt în politicile lui (mig 286).
 // Fără h1: titlul paginii îl dă PageHeader din NAV_GROUPS.
+// Textele din namespace-ul `translations` (lotul L5a): numele limbilor
+// MENIULUI (ale oaspetelui) se afișează în limba PERSONALULUI prin
+// `menuLangName`/`menuLangTitle` (lib/translationMessages; în română exact
+// etichetele de dinainte din MENU_LANGS); erorile se țin ca DATE în stare și
+// se traduc la randare (`describeTranslationError`).
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useCategories, useProducts } from '../hooks/useData'
 import { D } from '../lib/constants'
@@ -29,7 +34,6 @@ import {
   isGuestVisibleProduct,
   langCoverage,
   menuPreviewPath,
-  roCount,
   type TrFilterMode,
   type TrKind,
   type TrUnit,
@@ -39,7 +43,10 @@ import {
   saveRowTranslations,
   type TranslationOptions,
 } from '../lib/menuTranslationsData'
-import { toUserMessage } from '../lib/userMessages'
+import { describeTranslationError, menuLangName, menuLangTitle } from '../lib/translationMessages'
+import { useT } from '../i18n/useT'
+import { commonNs } from '../i18n/ns/common'
+import { translationsNs } from '../i18n/ns/translations'
 import { QueryError } from './PageLoader'
 import { Inp } from './_dashboard/sharedUI'
 import { TranslationRow } from './_dashboard/TranslationRow'
@@ -61,21 +68,32 @@ type SectionId = 'categories' | 'products' | 'options' | 'extras'
 interface OptState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   data: TranslationOptions | null
-  error: string | null
+  /** Eroarea ca DATĂ (tradusă la randare); are sens doar pe `error`. */
+  error: unknown
+}
+/** Refuzul unui rând, ca DATĂ: textul de rezervă depinde de acțiune. */
+interface RowError {
+  err: unknown
+  action: 'save' | 'confirm'
 }
 
-const KIND_LABEL: Record<TrKind, string> = {
-  category: 'Categorie',
-  product: 'Produs',
-  group: 'Grup de opțiuni',
-  option: 'Opțiune',
-  extra: 'Extra',
-}
+const KIND_KEY = {
+  category: 'kind_category',
+  product: 'kind_product',
+  group: 'kind_group',
+  option: 'kind_option',
+  extra: 'kind_extra',
+} as const satisfies Record<TrKind, string>
+const SECTION_KEY = {
+  categories: 'sec_categories',
+  products: 'sec_products',
+  options: 'sec_options',
+  extras: 'sec_extras',
+} as const satisfies Record<SectionId, string>
 const OPTION_KINDS: readonly TrKind[] = ['group', 'option', 'extra']
 const MENU_KINDS: readonly TrKind[] = ['category', 'product']
 
 const langMeta = (code: string) => MENU_LANGS.find((l) => l.code === code)
-const langLabel = (code: string) => langMeta(code)?.label ?? code.toUpperCase()
 const draftKey = (unitKey: string, lang: string) => `${unitKey}|${lang}`
 
 function without<T>(rec: Record<string, T>, key: string): Record<string, T> {
@@ -118,6 +136,11 @@ export default function TranslationsTab({
   /** Setări → Aspect meniu (doar adminul; partenerul n-are Setările). */
   onOpenLanguageSettings?: () => void
 }) {
+  // Traducătorii SUS, înaintea oricărui return timpuriu: rândurile
+  // (TranslationRow) și insigna AI cer aceleași namespace-uri (clichetul LX10).
+  const tr = useT(translationsNs)
+  const { t, tp } = tr
+  const tc = useT(commonNs)
   const {
     products,
     loading: pLoading,
@@ -164,11 +187,7 @@ export default function TranslationsTab({
       })
       .catch((e: unknown) => {
         if (cancelled) return
-        setOpt({
-          status: 'error',
-          data: null,
-          error: toUserMessage(e, 'Nu am putut citi opțiunile și extra-urile.'),
-        })
+        setOpt({ status: 'error', data: null, error: e })
       })
     return () => {
       cancelled = true
@@ -215,7 +234,7 @@ export default function TranslationsTab({
   const [query, setQuery] = useState('')
   const [limits, setLimits] = useState<Partial<Record<SectionId, number>>>({})
   const [drafts, setDrafts] = useState<Record<string, Draft>>({})
-  const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
+  const [rowErrors, setRowErrors] = useState<Record<string, RowError>>({})
   const [busy, setBusy] = useState<Record<string, boolean>>({})
   // Rândurile salvate (cheie `unitate|limbă`): rămân pe ecran, cu „✓ Salvat”,
   // până la schimbarea limbii sau a filtrului — lista nu sare sub deget.
@@ -292,7 +311,7 @@ export default function TranslationsTab({
         setSavedKeys((s) => new Set(s).add(dk))
         return true
       } catch (e) {
-        setRowErrors((r) => ({ ...r, [dk]: toUserMessage(e, 'Traducerea nu a fost salvată. Reîncearcă.') }))
+        setRowErrors((r) => ({ ...r, [dk]: { err: e, action: 'save' } }))
         return false
       } finally {
         setBusy((b) => without(b, dk))
@@ -318,7 +337,7 @@ export default function TranslationsTab({
         setSavedKeys((s) => new Set(s).add(dk))
       })
       .catch((e: unknown) => {
-        setRowErrors((r) => ({ ...r, [dk]: toUserMessage(e, 'Nu am putut confirma traducerea. Reîncearcă.') }))
+        setRowErrors((r) => ({ ...r, [dk]: { err: e, action: 'confirm' } }))
       })
       .finally(() => setBusy((b) => without(b, dk)))
   }, [])
@@ -368,23 +387,20 @@ export default function TranslationsTab({
   }, [refetchProducts, refetchCats])
 
   const baseMeta = langMeta(baseLang)
-  const baseName = `${baseMeta?.flag ?? ''} ${baseMeta?.label ?? baseLang}`.trim()
+  const baseLabel = menuLangName(baseLang, tr, baseLang)
+  const baseName = `${baseMeta?.flag ?? ''} ${baseLabel}`.trim()
 
   // ── Stări de ecran ──
   if (langs.length === 0) {
     return (
       <EmptyState
         icon="menu"
-        title={`Meniul e oferit doar în ${baseMeta?.label ?? baseLang}`}
-        description={
-          onOpenLanguageSettings
-            ? 'Alege limbile în plus din Setări → Aspect meniu → Limbi meniu.'
-            : 'Proprietarul alege limbile meniului din Setări.'
-        }
+        title={t('tab_onlyBase', { lang: baseLabel })}
+        description={onOpenLanguageSettings ? t('tab_pickLangsAdmin') : t('tab_pickLangsOwner')}
         action={
           onOpenLanguageSettings ? (
             <Button variant="primary" onClick={onOpenLanguageSettings}>
-              Alege limbile
+              {t('tab_pickLangs')}
             </Button>
           ) : undefined
         }
@@ -394,7 +410,7 @@ export default function TranslationsTab({
   if (pError || cError) {
     return (
       <QueryError
-        message={toUserMessage(pError || cError, 'Nu am putut încărca meniul.')}
+        message={describeTranslationError(pError || cError, tr, tc, t('tab_loadFailed'))}
         onRetry={() => {
           void refetchProducts()
           void refetchCats()
@@ -404,13 +420,13 @@ export default function TranslationsTab({
   }
   if (pLoading || cLoading || lang == null) return <Skeleton variant="card" count={3} />
   if (!units.some((u) => u.kind === 'product')) {
-    return <EmptyState icon="menu" title="Meniul nu are încă produse vizibile clienților." />
+    return <EmptyState icon="menu" title={t('tab_noProducts')} />
   }
 
   const cov = coverage.get(lang) ?? { total: 0, done: 0, missing: 0, review: 0 }
   const pct = cov.total > 0 ? Math.round((cov.done / cov.total) * 100) : 100
   const visibleToGuests = guestLangs.includes(lang)
-  const curLabel = langLabel(lang)
+  const curLabel = menuLangName(lang, tr)
   // „Complet” se spune doar când ecranul chiar a văzut tot (recenzia O6c):
   // pe planul NECUNOSCUT opțiunile și extra-urile nu se citesc deloc, iar o
   // listă de produse/categorii plină până la plafonul PostgREST e posibil
@@ -420,16 +436,11 @@ export default function TranslationsTab({
   const complete = cov.missing === 0 && optionsComplete && !listsTruncated
   const draftCount = Object.keys(drafts).length
 
-  const sections: { id: SectionId; title: string; rows: TrUnit[]; sub: boolean }[] = [
-    { id: 'categories', title: 'Categorii', rows: shown.filter((u) => u.kind === 'category'), sub: false },
-    { id: 'products', title: 'Produse', rows: shown.filter((u) => u.kind === 'product'), sub: true },
-    {
-      id: 'options',
-      title: 'Opțiuni',
-      rows: shown.filter((u) => u.kind === 'group' || u.kind === 'option'),
-      sub: false,
-    },
-    { id: 'extras', title: 'Extra-uri', rows: shown.filter((u) => u.kind === 'extra'), sub: true },
+  const sections: { id: SectionId; rows: TrUnit[]; sub: boolean }[] = [
+    { id: 'categories', rows: shown.filter((u) => u.kind === 'category'), sub: false },
+    { id: 'products', rows: shown.filter((u) => u.kind === 'product'), sub: true },
+    { id: 'options', rows: shown.filter((u) => u.kind === 'group' || u.kind === 'option'), sub: false },
+    { id: 'extras', rows: shown.filter((u) => u.kind === 'extra'), sub: true },
   ]
 
   const previewButton = slug ? (
@@ -438,26 +449,36 @@ export default function TranslationsTab({
       disabled={!visibleToGuests}
       onClick={() => window.open(menuPreviewPath(slug, lang), '_blank', 'noopener')}
     >
-      Previzualizează în {curLabel}
+      {t('tab_preview', { lang: curLabel })}
     </Button>
   ) : null
 
   const renderRow = (u: TrUnit) => {
     const dk = draftKey(u.key, lang)
+    const rowErr = rowErrors[dk]
     return (
       <TranslationRow
         key={u.key}
         unitKey={u.key}
         lang={lang}
         langLabel={curLabel}
-        kindLabel={KIND_LABEL[u.kind]}
-        context={u.kind === 'option' ? `din grupul «${u.contextLabel}»` : undefined}
+        kindLabel={t(KIND_KEY[u.kind])}
+        context={u.kind === 'option' ? t('row_fromGroup', { group: u.contextLabel }) : undefined}
         source={u.source}
         fields={u.fields}
         stored={u.translations?.[lang]}
         draft={drafts[dk]}
         busy={busy[dk] === true || savingAll}
-        error={rowErrors[dk] ?? null}
+        error={
+          rowErr
+            ? describeTranslationError(
+                rowErr.err,
+                tr,
+                tc,
+                t(rowErr.action === 'save' ? 'tab_saveFailed' : 'tab_confirmFailed'),
+              )
+            : null
+        }
         saved={savedKeys.has(dk)}
         onChange={onChange}
         onSave={onSave}
@@ -489,13 +510,13 @@ export default function TranslationsTab({
     return (
       <section key={s.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <h2 style={{ fontSize: '0.95rem', fontWeight: 700, color: D.t1, margin: '8px 0 0' }}>
-          {s.title} <span style={{ color: D.t3, fontWeight: 400 }}>({s.rows.length})</span>
+          {t(SECTION_KEY[s.id])} <span style={{ color: D.t3, fontWeight: 400 }}>({s.rows.length})</span>
         </h2>
         {out}
         {s.rows.length > limit && (
           <div>
             <Button variant="ghost" size="sm" onClick={() => setLimits((m) => ({ ...m, [s.id]: limit + PAGE }))}>
-              Arată încă {Math.min(PAGE, s.rows.length - limit)}
+              {t('tab_showMore', { n: Math.min(PAGE, s.rows.length - limit) })}
             </Button>
           </div>
         )}
@@ -506,12 +527,11 @@ export default function TranslationsTab({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <p style={{ color: D.t2, fontSize: '0.85rem', lineHeight: 1.5, margin: 0 }}>
-        Meniul e scris în {baseName} (limba de bază). Aici completezi și verifici traducerile pentru
-        limbile oferite clienților.
+        {t('tab_intro', { base: baseName })}
       </p>
 
       {/* Limbile */}
-      <div role="group" aria-label="Limba traducerii" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
+      <div role="group" aria-label={t('tab_langGroup')} style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
         {langs.map((l) => {
           const c = coverage.get(l) ?? { total: 0, done: 0, missing: 0, review: 0 }
           const meta = langMeta(l)
@@ -525,8 +545,8 @@ export default function TranslationsTab({
               onClick={() => selectLang(l)}
               style={{ flexShrink: 0 }}
             >
-              {meta?.flag} {langLabel(l)} · {c.missing > 0 ? `${c.missing} lipsă` : '✓ complet'}
-              {c.review > 0 ? ` · ${c.review} de verificat` : ''}
+              {meta?.flag} {menuLangTitle(l, tr)} · {c.missing === 0 ? t('tab_complete') : tp('tab_missing', c.missing)}
+              {c.review === 0 ? '' : ` · ${t('toReview', { n: c.review })}`}
             </Button>
           )
         })}
@@ -535,7 +555,7 @@ export default function TranslationsTab({
       {/* Progresul și starea pentru oaspeți */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ fontSize: '0.85rem', color: D.t1 }}>
-          {cov.done} din {roCount(cov.total, 'text tradus', 'texte traduse')} ({pct}%)
+          {tp('tab_progress', cov.total, { done: cov.done, pct })}
         </div>
         <div style={{ height: 6, background: D.s3, borderRadius: 3, overflow: 'hidden' }} aria-hidden="true">
           <div style={{ height: '100%', width: `${pct}%`, background: D.gold }} />
@@ -552,9 +572,7 @@ export default function TranslationsTab({
               background: visibleToGuests ? D.greenA : D.amberA,
             }}
           >
-            {visibleToGuests
-              ? `Clienții văd meniul în ${curLabel}`
-              : 'Clienții nu văd încă limba: tradu măcar o categorie sau un produs'}
+            {visibleToGuests ? t('tab_guestsSee', { lang: curLabel }) : t('tab_guestsDont')}
           </span>
         </div>
       </div>
@@ -568,32 +586,31 @@ export default function TranslationsTab({
               disabled={wantOptions && opt.status === 'loading'}
               onClick={() => setAiOpen(true)}
             >
-              ✨ Tradu automat ce lipsește ({totalMissing})
+              {t('tab_aiMissing', { n: totalMissing })}
             </Button>
           )}
           {previewButton}
         </div>
         {slug && !visibleToGuests && (
           <div style={{ fontSize: '0.72rem', color: D.t3 }}>
-            Apare clienților după prima traducere a unei categorii sau a unui produs.
+            {t('tab_appearsAfter')}
           </div>
         )}
         {slug && isFlipbook && (
           <div style={{ fontSize: '0.72rem', color: D.t3 }}>
-            Pe stilul Flipbook clientul vede paginile încărcate, nu textele.
+            {t('tab_flipbook')}
           </div>
         )}
       </div>
 
       {showOptions === null && (
         <div role="status" style={{ fontSize: '0.8rem', color: D.t2 }}>
-          Nu știm încă dacă planul include opțiunile și extra-urile, deci nu sunt numărate aici.
+          {t('tab_planUnknown')}
         </div>
       )}
       {listsTruncated && (
         <div role="status" style={{ fontSize: '0.8rem', color: D.t2 }}>
-          Meniul are cel puțin {LIST_CAP} de produse sau categorii. Ecranul le vede doar pe primele {LIST_CAP}, deci nu
-          poate spune că totul e tradus.
+          {t('tab_truncated', { n: LIST_CAP })}
         </div>
       )}
       {complete && (
@@ -608,18 +625,18 @@ export default function TranslationsTab({
             fontWeight: 600,
           }}
         >
-          Meniul e tradus complet în {curLabel}.
+          {t('tab_completeAll', { lang: curLabel })}
         </div>
       )}
 
       {/* Filtrele */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-        <div role="group" aria-label="Ce rânduri arăt" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <div role="group" aria-label={t('tab_filterGroup')} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {(
             [
-              ['missing', `Lipsă (${missingRows})`],
-              ['review', `De verificat (${reviewRows})`],
-              ['all', 'Toate'],
+              ['missing', t('tab_fMissing', { n: missingRows })],
+              ['review', t('tab_fReview', { n: reviewRows })],
+              ['all', t('tab_fAll')],
             ] as [TrFilterMode, string][]
           ).map(([m, label]) => (
             <Button
@@ -635,13 +652,13 @@ export default function TranslationsTab({
         </div>
         <div style={{ flex: '1 1 200px', minWidth: 0 }}>
           <Inp
-            label="Caută în original și în traducere"
+            label={t('tab_searchLabel')}
             value={query}
             onChange={(v) => {
               setQuery(v)
               setLimits({})
             }}
-            placeholder="Caută…"
+            placeholder={t('tab_searchPlaceholder')}
           />
         </div>
       </div>
@@ -649,7 +666,7 @@ export default function TranslationsTab({
       {/* Rândurile */}
       {sections.slice(0, 2).map(renderSection)}
       {wantOptions && opt.status === 'loading' && (
-        <div style={{ fontSize: '0.8rem', color: D.t3 }}>Se încarcă opțiunile și extra-urile…</div>
+        <div style={{ fontSize: '0.8rem', color: D.t3 }}>{t('tab_optLoading')}</div>
       )}
       {wantOptions && opt.status === 'error' && (
         <div
@@ -666,9 +683,13 @@ export default function TranslationsTab({
             border: `1px solid ${D.border}`,
           }}
         >
-          <span>Opțiuni și extra-uri: {opt.error}</span>
+          <span>
+            {t('tab_optError', {
+              error: describeTranslationError(opt.error, tr, tc, t('tab_optLoadFailed')),
+            })}
+          </span>
           <Button variant="secondary" size="sm" onClick={() => setOptReload((n) => n + 1)}>
-            Reîncearcă
+            {tc.t('retry')}
           </Button>
         </div>
       )}
@@ -676,15 +697,15 @@ export default function TranslationsTab({
       {shown.length === 0 && !complete && (
         <div style={{ fontSize: '0.85rem', color: D.t3 }}>
           {query.trim()
-            ? 'Niciun rând nu se potrivește căutării.'
+            ? t('tab_noMatch')
             : mode === 'review'
-              ? `Nimic de verificat în ${curLabel}.`
-              : 'Nimic de arătat aici.'}
+              ? t('tab_nothingReview', { lang: curLabel })
+              : t('tab_nothing')}
         </div>
       )}
       {shown.length === 0 && complete && mode !== 'missing' && (
         <div style={{ fontSize: '0.85rem', color: D.t3 }}>
-          {query.trim() ? 'Niciun rând nu se potrivește căutării.' : `Nimic de verificat în ${curLabel}.`}
+          {query.trim() ? t('tab_noMatch') : t('tab_nothingReview', { lang: curLabel })}
         </div>
       )}
 
@@ -705,10 +726,10 @@ export default function TranslationsTab({
           }}
         >
           <span style={{ color: D.t2, fontSize: '0.8rem', marginRight: 'auto' }}>
-            Ai {roCount(draftCount, 'rând nesalvat', 'rânduri nesalvate')}
+            {tp('tab_unsaved', draftCount)}
           </span>
           <Button variant="primary" loading={savingAll} onClick={() => void saveAll()}>
-            Salvează tot
+            {t('tab_saveAll')}
           </Button>
         </div>
       )}
@@ -722,7 +743,7 @@ export default function TranslationsTab({
             menuLanguages={[...menuLanguages]}
             baseLang={baseLang}
             translateOnly
-            title="✨ Traduceri automate"
+            title={t('tab_aiTitle')}
             optionRows={wantOptions && opt.status === 'ready' ? optionRows : undefined}
             onClose={() => setAiOpen(false)}
             onDone={onAiDone}

@@ -9,14 +9,12 @@ import type { TrSource } from '../../lib/menuTranslations'
 import { Button } from '../ui/Button'
 import { Inp, inp } from './sharedUI'
 import { AiReviewMark } from './ProductTranslations'
+import { FIELD_KEY } from '../../lib/translationMessages'
+import { useT } from '../../i18n/useT'
+import { commonNs } from '../../i18n/ns/common'
+import { translationsNs } from '../../i18n/ns/translations'
 
 type Draft = Partial<Record<TranslatedField, string>>
-
-const FIELD_LABEL: Record<TranslatedField, string> = {
-  name: 'Nume',
-  description: 'Descriere',
-  meta_text: 'Subtitlu',
-}
 
 export const TranslationRow = memo(function TranslationRow({
   unitKey,
@@ -53,6 +51,8 @@ export const TranslationRow = memo(function TranslationRow({
   onSave: (unitKey: string, lang: string) => void
   onConfirm: (unitKey: string, lang: string) => void
 }) {
+  const { t } = useT(translationsNs)
+  const tc = useT(commonNs)
   const flagged = aiFieldsOf(stored)
   const review = fields.filter((f) => flagged.includes(f))
   const hasDraft = draft != null && Object.keys(draft).length > 0
@@ -103,13 +103,14 @@ export const TranslationRow = memo(function TranslationRow({
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
           {fields.map((f) => {
-            const label = `${FIELD_LABEL[f]} în ${langLabel} pentru «${source.name}»`
+            const fieldLabel = t(FIELD_KEY[f])
+            const label = t('fieldAria', { field: fieldLabel, lang: langLabel, name: source.name })
             const original =
               (f === 'name' ? source.name : f === 'description' ? source.description : source.meta_text) ?? ''
             return (
               <div key={f}>
                 <div style={{ fontSize: '0.7rem', color: D.t3, marginBottom: 3 }}>
-                  {FIELD_LABEL[f]} ({langLabel})
+                  {t('fieldIn', { field: fieldLabel, lang: langLabel })}
                 </div>
                 {f === 'name' ? (
                   <Inp
@@ -137,16 +138,16 @@ export const TranslationRow = memo(function TranslationRow({
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
         {saved && !hasDraft && (
-          <span style={{ fontSize: '0.78rem', color: D.greenText, fontWeight: 600 }}>✓ Salvat</span>
+          <span style={{ fontSize: '0.78rem', color: D.greenText, fontWeight: 600 }}>{t('row_saved')}</span>
         )}
         {hasDraft && (
           <Button type="submit" size="sm" loading={busy}>
-            Salvează
+            {tc.t('save')}
           </Button>
         )}
         {!hasDraft && review.length > 0 && (
           <Button variant="secondary" size="sm" loading={busy} onClick={() => onConfirm(unitKey, lang)}>
-            Confirmă
+            {t('row_confirm')}
           </Button>
         )}
       </div>

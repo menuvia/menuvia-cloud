@@ -13,6 +13,8 @@ import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import { D } from '../../lib/constants'
 import { Icon } from '../ui/Icon'
 import { Button } from '../ui/Button'
+import { useT } from '../../i18n/useT'
+import { productsNs } from '../../i18n/ns/products'
 
 export function ProductsToolbar({
   mobile,
@@ -33,6 +35,7 @@ export function ProductsToolbar({
   onImportCsv: () => void
   onBulkAi?: () => void
 }) {
+  const { t } = useT(productsNs)
   const [importOpen, setImportOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -85,12 +88,12 @@ export function ProductsToolbar({
       <Button
         variant="secondary"
         onClick={onBulkAi}
-        aria-label="Generează AI pentru tot meniul (imagini și nutriție)"
-        title="Generează imagini + nutriție cu AI pentru tot meniul"
+        aria-label={t('toolbar_bulkAiAria')}
+        title={t('toolbar_bulkAiTitle')}
         icon={<Icon name="sparkle" size={16} color={D.gold} />}
         style={compact}
       >
-        {mobile ? 'AI' : 'Generează AI'}
+        {mobile ? t('toolbar_bulkAiShort') : t('toolbar_bulkAi')}
       </Button>
       )}
 
@@ -115,7 +118,7 @@ export function ProductsToolbar({
           icon={<Icon name="download" size={16} />}
           style={compact}
         >
-          Importă
+          {t('toolbar_import')}
           <Icon name="chevronDown" size={14} color={D.t2} />
         </Button>
         {importOpen && (
@@ -144,12 +147,12 @@ export function ProductsToolbar({
             {onImportPhoto && (
               <button type="button" style={menuItem} onClick={() => choose(onImportPhoto)}>
                 <Icon name="camera" size={16} color={D.t2} />
-                Din poză (AI)
+                {t('toolbar_importPhoto')}
               </button>
             )}
             <button type="button" style={menuItem} onClick={() => choose(onImportCsv)}>
               <Icon name="download" size={16} color={D.t2} />
-              Din fișier CSV
+              {t('toolbar_importCsv')}
             </button>
           </div>
         )}
@@ -161,7 +164,7 @@ export function ProductsToolbar({
         icon={canAdd ? undefined : <Icon name="lock" size={16} />}
         style={compact}
       >
-        {canAdd ? '+ Adaugă produs' : 'Limită atinsă — Upgrade'}
+        {canAdd ? t('toolbar_add') : t('toolbar_limit')}
       </Button>
     </div>
   )
