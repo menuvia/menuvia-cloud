@@ -3,8 +3,13 @@
 // unde nu se vedea a cărei comenzi era și rămânea până la următoarea acțiune
 // (ux-staff-action-errors). Textul vine deja în română din
 // describeStaffActionError; dispare singur (useOrders) sau la „✕".
+// Lotul L4b: eticheta butonului „✕” vine din namespace-ul `orders` (aceeași
+// notă stă pe cardurile ospătarului și ale bucătăriei). Mesajul rămâne cel
+// primit de la apelant.
 import { D } from '../lib/constants'
 import { Icon } from './ui/Icon'
+import { useT } from '../i18n/useT'
+import { ordersNs } from '../i18n/ns/orders'
 
 export function ActionErrorNote({
   message,
@@ -13,6 +18,7 @@ export function ActionErrorNote({
   message: string
   onDismiss?: () => void
 }) {
+  const { t } = useT(ordersNs)
   return (
     <div
       role="alert"
@@ -38,7 +44,7 @@ export function ActionErrorNote({
         <button
           type="button"
           onClick={onDismiss}
-          aria-label={'Închide mesajul'}
+          aria-label={t('actionError_dismiss')}
           style={{
             background: 'transparent',
             border: 'none',

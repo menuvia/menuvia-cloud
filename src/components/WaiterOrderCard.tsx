@@ -1,14 +1,17 @@
 // ─────────────────────────────────────────────────────────────
 // PayModal + OrderCard — extracted from WaiterPage
 // Lotul L4a: OrderCard citește textele din namespace-ul `orders` (+ „Editează”
-// din `common`). PayModal e ecran fiscal de Plan 3 și RĂMÂNE în română până la
-// lotul lui (textele lui sunt cele numărate în baseline-ul SK5 al fișierului).
+// din `common`).
+// Lotul L4b: vârsta comenzii de pe card trece prin `elapsedT` (unitățile din
+// `common`; în română exact `elapsed()` de dinainte), iar PayModal citește
+// namespace-ul `payments` (+ „Anulează” din `common`). Logica de bani a
+// modalului (`handed`, validarea de input, preflight-ul în cenți, tipsMode) e
+// NEATINSĂ: doar textul a devenit cheie.
 // ─────────────────────────────────────────────────────────────
 import { memo, useState, useEffect } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { Order, PaymentMethod } from '../lib/orders'
 import { D } from '../lib/constants'
-import { elapsed } from '../lib/utils'
 import { ageLevel } from '../lib/orderAge'
 import { isScheduledPickupAhead, urgencyAnchor } from '../lib/pickupOrders'
 import { Icon } from './ui/Icon'
@@ -17,27 +20,32 @@ import PickupDetails from './PickupDetails'
 import { OrderLineDetails } from './OrderLineDetails'
 import { confirm as confirmDialog } from './ui/confirm'
 import { ActionErrorNote } from './ActionErrorNote'
-import { toUserMessage } from '../lib/userMessages'
 import { waiterForwardStep } from '../lib/waiterSteps'
 import { useT } from '../i18n/useT'
 import { ordersNs } from '../i18n/ns/orders'
 import { commonNs } from '../i18n/ns/common'
 import { fillNodes } from '../i18n/fillNodes'
-import type { StringKey } from '../i18n/core'
+import type { StringKey, Translator } from '../i18n/core'
+import type commonRo from '../i18n/ns/common/ro'
+import { elapsedT } from '../i18n/elapsed'
 import type ordersRo from '../i18n/ns/orders/ro'
+import { paymentsNs } from '../i18n/ns/payments'
+import { describeStaffError } from '../i18n/staffErrors'
 
 // FIX: vechiul cod calcula elapsed() o dată la render → timer înghețat
 // în WaiterPage (KitchenPage folosea deja ElapsedTimer). Hook partajat acum.
 // Ceasul bate la 15 s, iar textul se calculează la randare din ancora CURENTĂ:
 // ancora se poate schimba între două bătăi (ora de ridicare tocmai a trecut),
 // iar un text memorat ar rămâne pe vechea ancoră până la următoarea bătaie.
-function useElapsed(anchor: string): string {
+// Lotul L4b: unitățile vin din `common` (`elapsedT`); în română textul e
+// exact `elapsed()` de dinainte.
+function useElapsed(anchor: string, tc: Translator<typeof commonRo>): string {
   const [, setTick] = useState(0)
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 15_000)
     return () => clearInterval(id)
   }, [])
-  return elapsed(anchor)
+  return elapsedT(anchor, tc)
 }
 
 // Stările în care o comandă e încă deschisă (ne-terminală) — aceleași ca în
@@ -95,6 +103,10 @@ function PayModal({
   onApplyHappyHour,
 }: PayModalProps) {
   useBodyScrollLock(true)
+  // Hook-urile de limbă, necondiționat, sus. WaiterPage cere `payments` la
+  // montare, deci aici nu se suspendă la deschiderea modalului.
+  const { t } = useT(paymentsNs)
+  const tc = useT(commonNs)
   const [method, setMethod] = useState<PaymentMethod>('cash')
   // Cale de bani: blocăm butonul cât timp plata e în curs, ca un dublu-click
   // rapid să nu trimită plata de două ori.
@@ -139,11 +151,11 @@ function PayModal({
   // Supra-încasarea NU se transformă singură în bacșiș (advance_order o respinge
   // cu `overpayment`); textul spune exact asta și oferă mutarea explicită.
   const preflight: string | null = !amountValid
-    ? 'Suma încasată nu e un număr valid (trebuie să fie mai mare ca 0).'
+    ? t('pay_preInvalid')
     : netCents < restCents
-      ? `Suma pe notă (${netOnBill.toFixed(2)} fără bacșiș) e sub restul de plată (${orderTotal.toFixed(2)}). Pentru încasare în tranșe folosește „Plată parțială".`
+      ? t('pay_preUnder', { net: netOnBill.toFixed(2), rest: orderTotal.toFixed(2) })
       : netCents > restCents
-        ? `Suma pe notă (${netOnBill.toFixed(2)} fără bacșiș) depășește restul (${orderTotal.toFixed(2)}) — serverul va respinge plata. Dacă diferența e bacșiș, trece-o la Bacșiș.`
+        ? t('pay_preOver', { net: netOnBill.toFixed(2), rest: orderTotal.toFixed(2) })
         : null
   const canMoveOverToTips = amountValid && netCents > restCents
   /** Mută diferența peste rest în bacșiș: suma înmânată rămâne, nota ajunge exact la rest. */
@@ -161,12 +173,12 @@ function PayModal({
   const subtotal = hasDiscount ? orderTotal + order.discount_amount : orderTotal
 
   const methods: { key: PaymentMethod; label: string }[] = [
-    { key: 'cash', label: 'Cash' },
-    { key: 'card_pos', label: 'Card POS' },
+    { key: 'cash', label: t('pay_method_cash') },
+    { key: 'card_pos', label: t('pay_method_card_pos') },
     // Tichete de masă (mig 230/231) — legal acoperă doar produse alimentare
     // (fără alcool/tutun); verificarea rămâne la staff, ca la POS-urile clasice.
-    { key: 'meal_voucher', label: 'Tichete de masă' },
-    { key: 'other', label: 'Altă metodă' },
+    { key: 'meal_voucher', label: t('pay_method_meal_voucher') },
+    { key: 'other', label: t('pay_method_other') },
   ]
 
   return (
@@ -209,12 +221,12 @@ function PayModal({
             color: D.t1,
           }}
         >
-          Înregistrează plată
+          {t('pay_title')}
         </div>
 
         <div>
           <div style={{ color: D.t2, fontSize: 13, marginBottom: 6 }}>
-            Masă: {order.table?.name ?? '—'}
+            {t('pay_table', { table: order.table?.name ?? '—' })}
           </div>
 
           {hasDiscount ? (
@@ -228,8 +240,8 @@ function PayModal({
                   padding: '2px 0',
                 }}
               >
-                <span>Subtotal:</span>
-                <span style={{ color: D.t1 }}>{subtotal.toFixed(2)} lei</span>
+                <span>{t('pay_subtotal')}</span>
+                <span style={{ color: D.t1 }}>{t('money', { amount: subtotal.toFixed(2) })}</span>
               </div>
               <div
                 style={{
@@ -241,10 +253,13 @@ function PayModal({
                 }}
               >
                 <span>
-                  Reducere
-                  {order.discount_type === 'percent' ? ` (${order.discount_value}%)` : ''}:
+                  {order.discount_type === 'percent'
+                    ? t('pay_discountPct', { value: String(order.discount_value) })
+                    : t('pay_discount')}
                 </span>
-                <span style={{ color: D.green }}>− {order.discount_amount.toFixed(2)} lei</span>
+                <span style={{ color: D.green }}>
+                  {t('pay_minusMoney', { amount: order.discount_amount.toFixed(2) })}
+                </span>
               </div>
               <div
                 style={{
@@ -257,11 +272,11 @@ function PayModal({
                   fontWeight: 700,
                 }}
               >
-                <span style={{ color: D.t1 }}>Total de plată:</span>
+                <span style={{ color: D.t1 }}>{t('pay_totalDue')}</span>
                 <span
                   style={{ color: D.green, fontFamily: 'Fraunces, Georgia, serif', fontSize: 22 }}
                 >
-                  {order.total.toFixed(2)} lei
+                  {t('money', { amount: order.total.toFixed(2) })}
                 </span>
               </div>
             </div>
@@ -274,7 +289,7 @@ function PayModal({
                 color: D.green,
               }}
             >
-              {order.total.toFixed(2)} lei
+              {t('money', { amount: order.total.toFixed(2) })}
             </div>
           )}
 
@@ -291,12 +306,12 @@ function PayModal({
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: D.t2 }}>
-                <span>Plătit parțial:</span>
-                <span style={{ color: D.t1 }}>− {alreadyPaid.toFixed(2)} lei</span>
+                <span>{t('pay_partiallyPaid')}</span>
+                <span style={{ color: D.t1 }}>{t('pay_minusMoney', { amount: alreadyPaid.toFixed(2) })}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 700 }}>
-                <span style={{ color: D.t1 }}>Rest de plată:</span>
-                <span style={{ color: D.green }}>{orderTotal.toFixed(2)} lei</span>
+                <span style={{ color: D.t1 }}>{t('pay_rest')}</span>
+                <span style={{ color: D.green }}>{t('money', { amount: orderTotal.toFixed(2) })}</span>
               </div>
             </div>
           )}
@@ -308,7 +323,7 @@ function PayModal({
               role="note"
               style={{ marginTop: 8, fontSize: 12, color: D.t2, fontFamily: 'DM Sans, sans-serif' }}
             >
-              Reducerea nu se mai poate modifica: comanda are deja plăți înregistrate.
+              {t('pay_discountLocked')}
             </div>
           )}
           {onDiscountClick && alreadyPaid <= 0 && (
@@ -334,7 +349,7 @@ function PayModal({
               }}
             >
               <Icon name="tag" size={14} />
-              {hasDiscount ? 'Modifică / scoate reducerea' : 'Aplică reducere'}
+              {hasDiscount ? t('pay_discountEdit') : t('pay_discountApply')}
             </button>
           )}
         </div>
@@ -353,11 +368,16 @@ function PayModal({
               <Icon name="sparkle" size={20} color={D.gold} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: D.gold }}>
-                  Promoție activă!
+                  {t('pay_promoActive')}
                 </div>
                 <div style={{ fontSize: 11, color: D.t2 }}>
-                  {happyHourSuggestion.rule_name} · {happyHourSuggestion.discount_value}
-                  {happyHourSuggestion.discount_type === 'percent' ? '%' : ' lei'}
+                  {t(
+                    happyHourSuggestion.discount_type === 'percent' ? 'pay_promoPct' : 'pay_promoAmount',
+                    {
+                      rule: happyHourSuggestion.rule_name,
+                      value: String(happyHourSuggestion.discount_value),
+                    },
+                  )}
                 </div>
               </div>
               <div
@@ -386,7 +406,7 @@ function PayModal({
                 fontFamily: 'DM Sans, sans-serif',
               }}
             >
-              Aplică promoția
+              {t('pay_promoApply')}
             </button>
           </div>
         )}
@@ -418,11 +438,18 @@ function PayModal({
         {/* Tips selector */}
         <div>
           <div style={{ color: D.t2, fontSize: 12, marginBottom: 6 }}>
-            Bacșiș {tipsAmount > 0 ? `(${tipsAmount.toFixed(2)} lei)` : ''}
+            {/* „Bacșiș ” + suma: spațiul dintre expresii e cel de dinainte (rămâne și la 0). */}
+            {t('pay_tips')}{' '}
+            {tipsAmount > 0 ? t('pay_tipsAmount', { amount: tipsAmount.toFixed(2) }) : ''}
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
             {(['none', '5', '10', '15', 'custom'] as const).map((opt) => {
-              const label = opt === 'none' ? 'Fără' : opt === 'custom' ? 'Sumă' : `${opt}%`
+              const label =
+                opt === 'none'
+                  ? t('pay_tipNone')
+                  : opt === 'custom'
+                    ? t('pay_tipCustom')
+                    : t('pay_tipPct', { pct: opt })
               const active = tipsMode === opt
               return (
                 <button
@@ -473,8 +500,8 @@ function PayModal({
         {/* Amount input */}
         <div>
           <div style={{ color: D.t2, fontSize: 12, marginBottom: 6 }}>
-            Sumă încasată (lei){' '}
-            {tipsAmount > 0 && <span style={{ color: D.t3 }}>— include bacșiș</span>}
+            {t('pay_amountLabel')}{' '}
+            {tipsAmount > 0 && <span style={{ color: D.t3 }}>{t('pay_amountInclTips')}</span>}
           </div>
           <input
             type="number"
@@ -516,7 +543,7 @@ function PayModal({
                     cursor: 'pointer',
                   }}
                 >
-                  Trece {overBy.toFixed(2)} lei la bacșiș
+                  {t('pay_moveToTips', { amount: overBy.toFixed(2) })}
                 </button>
               )}
             </div>
@@ -553,11 +580,12 @@ function PayModal({
             void Promise.resolve(onConfirm(method, handed, tipsAmount))
               .then((res) => {
                 if (res && typeof res === 'object' && res.ok === false) {
-                  setErrorMsg(res.message || 'Plata nu a fost înregistrată. Verifică și reîncearcă.')
+                  setErrorMsg(res.message || t('pay_errRejected'))
                 }
               })
               .catch((e: unknown) => {
-                setErrorMsg(toUserMessage(e, 'Plata nu a fost înregistrată.'))
+                // În română exact `toUserMessage(e, 'Plata nu a fost înregistrată.')`.
+                setErrorMsg(describeStaffError(e, tc, { fallback: t('pay_errNotRecorded') }))
               })
               .finally(() => setSubmitting(false))
           }}
@@ -574,7 +602,7 @@ function PayModal({
             opacity: submitting ? 0.7 : 1,
           }}
         >
-          {submitting ? 'Se procesează…' : 'Confirmă plata'}
+          {submitting ? t('pay_processing') : t('pay_confirm')}
         </button>
 
         <button
@@ -590,7 +618,7 @@ function PayModal({
             cursor: 'pointer',
           }}
         >
-          Anulează
+          {tc.t('cancel')}
         </button>
       </div>
     </div>
@@ -671,6 +699,7 @@ function OrderCardInner({
   // minute. Până la ora promisă rămâne vârsta de la plasare (culoarea e calmă).
   const elapsedStr = useElapsed(
     isScheduledPickupAhead(order) ? order.created_at : urgencyAnchor(order),
+    tc,
   )
   // Lotul G: vârsta colorată, cu aceleași praguri ca în Bucătărie (10 / 20 min,
   // pickup-ul măsurat față de ora promisă). După „Servit" comanda nu mai

@@ -1,0 +1,85 @@
+import type { Translation } from '../../core'
+import type ro from './ro'
+
+const de: Translation<typeof ro> = {
+  money: '{amount} lei',
+
+  pay_title: 'Zahlung erfassen',
+  pay_table: 'Tisch: {table}',
+  pay_subtotal: 'Zwischensumme:',
+  pay_discount: 'Rabatt:',
+  pay_discountPct: 'Rabatt ({value} %):',
+  pay_minusMoney: '− {amount} lei',
+  pay_totalDue: 'Zu zahlen:',
+  pay_partiallyPaid: 'Teilweise bezahlt:',
+  pay_rest: 'Offener Betrag:',
+  pay_discountLocked: 'Der Rabatt kann nicht mehr geändert werden: Für die Bestellung sind bereits Zahlungen erfasst.',
+  pay_discountEdit: 'Rabatt ändern / entfernen',
+  pay_discountApply: 'Rabatt gewähren',
+  pay_promoActive: 'Aktion aktiv!',
+  pay_promoPct: '{rule} · {value} %',
+  pay_promoAmount: '{rule} · {value} lei',
+  pay_promoApply: 'Aktion anwenden',
+  pay_method_cash: 'Bar',
+  pay_method_card_pos: 'Karte (Terminal)',
+  pay_method_meal_voucher: 'Gutscheine',
+  pay_method_other: 'Andere',
+  pay_tips: 'Trinkgeld',
+  pay_tipsAmount: '({amount} lei)',
+  pay_tipNone: 'Ohne',
+  pay_tipCustom: 'Betrag',
+  pay_tipPct: '{pct} %',
+  pay_amountLabel: 'Erhaltener Betrag (lei)',
+  pay_amountInclTips: '— inkl. Trinkgeld',
+  pay_preInvalid: 'Der erhaltene Betrag ist keine gültige Zahl (er muss größer als 0 sein).',
+  pay_preUnder:
+    'Der erhaltene Betrag ohne Trinkgeld ({net}) liegt unter dem offenen Betrag ({rest}). Für eine Zahlung in Raten nutzen Sie „Teilzahlung“.',
+  pay_preOver:
+    'Der erhaltene Betrag ohne Trinkgeld ({net}) übersteigt den offenen Betrag ({rest}) — der Server wird die Zahlung ablehnen. Wenn die Differenz Trinkgeld ist, buchen Sie sie als Trinkgeld.',
+  pay_moveToTips: '{amount} lei als Trinkgeld buchen',
+  pay_errRejected: 'Die Zahlung wurde nicht erfasst. Bitte prüfen und erneut versuchen.',
+  pay_errNotRecorded: 'Die Zahlung wurde nicht erfasst.',
+  pay_processing: 'Wird verarbeitet…',
+  pay_confirm: 'Zahlung bestätigen',
+
+  payRej_amountMismatch:
+    'Der Betrag entspricht nicht dem offenen Betrag. Prüfen Sie den Betrag (ohne Trinkgeld) und versuchen Sie es erneut.',
+  payRej_amountRequired: 'Geben Sie den erhaltenen Betrag ein.',
+  payRej_method:
+    'Diese Zahlungsart kann nicht manuell erfasst werden (Online-Zahlungen kommen über Stripe).',
+  payRej_fiscal: 'Im Tarif mit Fiskalisierung wird die Bestellung mit einer Zahlung abgeschlossen (Fiskalbeleg).',
+  payRej_role: 'Ihre Rolle erlaubt das Erfassen von Zahlungen nicht.',
+  payRej_terminal: 'Die Bestellung ist bereits abgeschlossen.',
+  payRej_withServer: 'Die Zahlung wurde nicht erfasst: {msg}',
+  payRej_network: 'Keine Verbindung — die Zahlung wurde nicht gesendet. Bitte erneut versuchen.',
+
+  disc_title: '🎁 Rabatt auf die Bestellung',
+  disc_active: 'Aktiver Rabatt:',
+  disc_activePct: '{value} %',
+  disc_off: '({amount} lei Rabatt)',
+  disc_reasonShown: 'Grund: {reason}',
+  disc_modePct: 'Prozent (%)',
+  disc_modeAmount: 'Fester Betrag (lei)',
+  disc_labelPct: 'Prozent (1–100)',
+  disc_labelAmount: 'Betrag in lei',
+  disc_phPct: 'z. B. 10',
+  disc_phAmount: 'z. B. 5.00',
+  disc_reasonLabel: 'Grund (optional)',
+  disc_reasonPh: 'z. B. Stammgast, Problem mit dem Essen, Happy Hour',
+  disc_subtotal: 'Zwischensumme:',
+  disc_discount: 'Rabatt:',
+  disc_minusMoney: '− {amount} lei',
+  disc_newTotal: 'Neuer Gesamtbetrag:',
+  disc_remove: '🗑 Aktuellen Rabatt entfernen',
+  disc_applying: 'Wird angewendet…',
+  disc_update: 'Ändern',
+  disc_apply: 'Anwenden',
+  disc_errApply: 'Fehler beim Anwenden',
+  disc_errRemove: 'Fehler beim Entfernen',
+  disc_errOverPayments:
+    'Für die Bestellung sind bereits Zahlungen erfasst — der Rabatt kann nicht mehr geändert werden.',
+  disc_errOnlinePayment:
+    'Für die Bestellung läuft eine Online-Zahlung — der Rabatt kann erst nach deren Abschluss geändert werden.',
+}
+
+export default de

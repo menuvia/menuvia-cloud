@@ -6,9 +6,15 @@ import { isNetworkError } from './networkError'
 // iar dicționarul personalului nu are voie să intre acolo (SK4).
 import type { Translator } from '../i18n/core'
 import type ordersRo from '../i18n/ns/orders/ro'
+import type waiterRo from '../i18n/ns/waiter/ro'
+import type paymentsRo from '../i18n/ns/payments/ro'
 
 /** Traducătorul namespace-ului `orders` — textele helperilor de mai jos. */
 export type OrdersTranslator = Translator<typeof ordersRo>
+/** Traducătorul namespace-ului `waiter` (ecranul ospătarului, lotul L4b). */
+export type WaiterTranslator = Translator<typeof waiterRo>
+/** Traducătorul namespace-ului `payments` (încasarea și reducerea, lotul L4b). */
+export type PaymentsTranslator = Translator<typeof paymentsRo>
 
 export type OrderStatus =
   | 'new'
@@ -418,30 +424,35 @@ export async function advanceOrderStatus(
   return fetchOrderById(orderId)
 }
 
-/** Textul RO pentru hint-urile de business ale lui `advance_order` (ramura cancel). */
-export function describeCancelRejection(err: unknown): string {
+/**
+ * Textul refuzului lui `advance_order` (ramura cancel) și al storno-ului, în
+ * limba personalului (lotul L4b: `cancelRej_*` din namespace-ul `orders`).
+ * Aceeași ordine a ramurilor și aceleași hint-uri ca înainte. În ROMÂNĂ
+ * mesajul serverului primează exact ca înainte (are suma, mig 270); în altă
+ * limbă un text românesc al serverului NU se arată (ecran amestecat), deci
+ * rămâne textul hint-ului, iar un hint necunoscut cade pe textul generic.
+ */
+export function describeCancelRejection(err: unknown, tr: OrdersTranslator): string {
+  const { t } = tr
   const hint = (err as { hint?: unknown } | null)?.hint
+  const serverMsg = tr.lang === 'ro' && err instanceof Error && err.message ? err.message : ''
   switch (hint) {
     case 'cancel_over_payments':
-      return (
-        (err instanceof Error && err.message) ||
-        'Comanda are plăți încasate și nu poate fi anulată. Finalizează prin plată.'
-      )
+      return serverMsg || t('cancelRej_overPayments')
     case 'cancel_reason_required':
-      return 'Motivul e obligatoriu pentru anularea unei comenzi servite.'
+      return t('cancelRej_reasonRequired')
     case 'void_reason_required':
-      return 'Motivul e obligatoriu pentru stornarea unei plăți.'
+      return t('cancelRej_voidReasonRequired')
     case 'role_insufficient':
-      return 'Rolul tău nu permite această acțiune (doar proprietarul sau managerul pot storna plăți sau anula).'
+      return t('cancelRej_role')
     case 'order_terminal':
-      return 'Comanda e deja finalizată și nu mai poate fi anulată.'
+      return t('cancelRej_terminal')
     default:
-      // Un hint nou/necunoscut NU ascunde motivul real: mesajul serverului
-      // primează, textul generic e doar pentru erori fără mesaj.
-      return (
-        (err instanceof Error && err.message) ||
-        'Anularea a fost respinsă. Verifică rolul tău sau motivul comenzii și încearcă din nou.'
-      )
+      // Un hint nou/necunoscut NU ascunde motivul real: în română mesajul
+      // serverului primează, textul generic e doar pentru erori fără mesaj.
+      if (serverMsg) return serverMsg
+      if (tr.lang !== 'ro' && isNetworkError(err)) return t('cancelRej_network')
+      return t('cancel_errGeneric')
   }
 }
 
@@ -470,29 +481,37 @@ export async function voidPaymentsAndCancel(
   return data as { order_id: string; voided_count: number; voided_amount: number }
 }
 
-/** Textul RO pentru hint-urile de business ale lui `advance_order` (ramura mark_paid). */
-export function describePayRejection(err: unknown): string {
+/**
+ * Textul refuzului lui `advance_order` (ramura mark_paid), în limba
+ * personalului (lotul L4b: `payRej_*` din namespace-ul `payments`). Aceeași
+ * ordine a ramurilor și aceleași hint-uri ca înainte. În ROMÂNĂ mesajul
+ * serverului primează exact ca înainte (sumele pe under/overpayment, mig 264);
+ * în altă limbă un text românesc al serverului NU se arată (ecran amestecat),
+ * deci rămâne textul hint-ului, iar un hint necunoscut cade pe textul generic.
+ */
+export function describePayRejection(err: unknown, tr: PaymentsTranslator): string {
+  const { t } = tr
   const hint = (err as { hint?: unknown } | null)?.hint
-  const serverMsg = err instanceof Error && err.message ? err.message : ''
+  const serverMsg = tr.lang === 'ro' && err instanceof Error && err.message ? err.message : ''
   switch (hint) {
     case 'underpayment':
     case 'overpayment':
-      // Serverul spune exact suma și plafonul — e mesajul cel mai util.
-      return serverMsg || 'Suma nu corespunde restului de plată. Verifică suma (fără bacșiș) și reîncearcă.'
+      // Serverul spune exact suma și plafonul — e mesajul cel mai util (în română).
+      return serverMsg || t('payRej_amountMismatch')
     case 'paid_amount_required':
-      return 'Introdu suma încasată.'
+      return t('payRej_amountRequired')
     case 'invalid_payment_method':
-      return 'Metoda de plată nu poate fi înregistrată manual (plățile online vin din Stripe).'
+      return t('payRej_method')
     case 'fiscal_plan_requires_payment':
-      return 'Pe planul cu fiscalizare comanda se finalizează prin plată (bon fiscal).'
+      return t('payRej_fiscal')
     case 'role_insufficient':
-      return 'Rolul tău nu permite înregistrarea plăților.'
+      return t('payRej_role')
     case 'order_terminal':
-      return 'Comanda e deja finalizată.'
+      return t('payRej_terminal')
     default:
-      return serverMsg
-        ? `Plata nu a fost înregistrată: ${serverMsg}`
-        : 'Plata nu a fost înregistrată. Verifică și reîncearcă.'
+      if (serverMsg) return t('payRej_withServer', { msg: serverMsg })
+      if (tr.lang !== 'ro' && isNetworkError(err)) return t('payRej_network')
+      return t('pay_errRejected')
   }
 }
 
@@ -690,19 +709,19 @@ export interface EditOrderItemPayload {
  * trimisă la bucătărie SAU salvată DOAR pe telefon — coada offline întoarce o
  * confirmare sintetică `LOCAL-…` (offlineSync.savePendingOrder). Înainte foaia
  * se închidea fără niciun semn, deci ospătarul nu știa că bucătăria NU a
- * primit comanda.
+ * primit comanda. Textul vine din namespace-ul `waiter` (lotul L4b).
  */
-export function describeWaiterOrderSent(c: Pick<OrderConfirmationPayload, 'short_id'>): {
+export function describeWaiterOrderSent(
+  c: Pick<OrderConfirmationPayload, 'short_id'>,
+  tr: WaiterTranslator,
+): {
   kind: 'success' | 'warning'
   text: string
 } {
   if (c.short_id.startsWith('LOCAL-')) {
-    return {
-      kind: 'warning',
-      text: `Fără conexiune: comanda #${c.short_id} e salvată DOAR pe acest telefon. Pleacă singură la bucătărie când revine internetul — ține aplicația deschisă.`,
-    }
+    return { kind: 'warning', text: tr.t('sent_local', { id: c.short_id }) }
   }
-  return { kind: 'success', text: `Comanda #${c.short_id} a fost trimisă la bucătărie.` }
+  return { kind: 'success', text: tr.t('sent_ok', { id: c.short_id }) }
 }
 
 // Edit items pe comandă non-terminală, fără plăți parțiale.

@@ -17,6 +17,9 @@ const en: Translation<typeof ro> = {
   err_not_found: 'This item no longer exists or you don’t have access to it.',
   err_duplicate: 'An item with these details already exists.',
   err_forbidden: 'This action isn’t allowed for your role.',
+  elapsed_s: '{n}s',
+  elapsed_m: '{n}m',
+  elapsed_hm: '{h}h {m}m',
   items_count: { one: '{n} item', other: '{n} items' },
 }
 

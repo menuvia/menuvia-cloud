@@ -12,7 +12,15 @@ import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { confirm } from './ui/confirm'
-import { toUserMessage } from '../lib/userMessages'
+// Lotul L4b: textele vin din namespace-ul `waiter`; erorile prin
+// `describeStaffError` (în română exact `toUserMessage` de dinainte).
+import { useT } from '../i18n/useT'
+import { waiterNs } from '../i18n/ns/waiter'
+import { commonNs } from '../i18n/ns/common'
+import { describeStaffError } from '../i18n/staffErrors'
+import { fillNodes } from '../i18n/fillNodes'
+import type { StringKey } from '../i18n/core'
+import type waiterRo from '../i18n/ns/waiter/ro'
 
 interface Props {
   restaurantId: string
@@ -29,13 +37,18 @@ interface Table {
   seats: number | null
 }
 
-// Rolul intern (engleză) → etichetă afișată, aliniat cu TeamManager /
+// Rolul intern (engleză) → cheia etichetei afișate, aliniat cu TeamManager /
 // InviteAcceptPage. Fallback la valoarea brută pentru un rol necunoscut.
-const ROLE_LABELS: Record<string, string> = {
-  owner: 'Proprietar',
-  manager: 'Manager',
-  waiter: 'Ospătar',
-  kitchen: 'Bucătărie',
+const ROLE_KEYS: Readonly<Record<string, StringKey<typeof waiterRo>>> = {
+  owner: 'role_owner',
+  manager: 'role_manager',
+  waiter: 'role_waiter',
+  kitchen: 'role_kitchen',
+}
+
+function roleLabel(t: (key: StringKey<typeof waiterRo>) => string, role: string): string {
+  const key = Object.prototype.hasOwnProperty.call(ROLE_KEYS, role) ? ROLE_KEYS[role] : undefined
+  return key ? t(key) : role
 }
 
 // ─── Shared styles ─────────────────────────────────────────────
@@ -71,13 +84,17 @@ function displayName(m: WaiterMember) {
 
 export default function WaiterAssignments({ restaurantId }: Props) {
   const { user } = useAuth()
+  const { t, tp } = useT(waiterNs)
+  const tc = useT(commonNs)
   const [waiters, setWaiters] = useState<WaiterMember[]>([])
   const [tables, setTables] = useState<Table[]>([])
   // Map: user_id → Set<table_id>
   const [assignments, setAssignments] = useState<Map<string, Set<string>>>(new Map())
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null) // user_id being saved
-  const [error, setError] = useState<string | null>(null)
+  // Eroarea brută (+ dacă e de încărcare, cu textul ei de rezervă): mesajul se
+  // compune la randare, în limba curentă.
+  const [error, setError] = useState<{ err: unknown; load: boolean } | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
   const showToast = (msg: string) => {
@@ -141,7 +158,7 @@ export default function WaiterAssignments({ restaurantId }: Props) {
       }
       setAssignments(map)
     } catch (e: unknown) {
-      setError(toUserMessage(e, 'Eroare la încărcare'))
+      setError({ err: e, load: true })
     }
     setLoading(false)
   }, [restaurantId])
@@ -187,13 +204,13 @@ export default function WaiterAssignments({ restaurantId }: Props) {
         )
         if (error) throw error
       }
-      showToast(isAssigned ? 'Masă eliminată' : 'Masă alocată')
+      showToast(isAssigned ? t('assign_tableRemoved') : t('assign_tableAssigned'))
     } catch (e: unknown) {
       // Rollback
       const rollback = new Map(assignments)
       rollback.set(waiterUserId, current)
       setAssignments(rollback)
-      setError(toUserMessage(e))
+      setError({ err: e, load: false })
     }
     setSaving(null)
   }
@@ -204,9 +221,9 @@ export default function WaiterAssignments({ restaurantId }: Props) {
     // confirmare explicită înainte de a șterge, ca un click accidental să nu
     // schimbe brusc ce vede ospătarul pe telefon.
     const ok = await confirm({
-      title: 'Ștergi toate alocările acestui ospătar?',
-      description: 'Ospătarul va vedea toate comenzile restaurantului, nu doar mesele lui.',
-      confirmLabel: 'Șterge alocările',
+      title: t('assign_clearTitle'),
+      description: t('assign_clearDesc'),
+      confirmLabel: t('assign_clearConfirm'),
       destructive: true,
     })
     if (!ok) return
@@ -222,10 +239,10 @@ export default function WaiterAssignments({ restaurantId }: Props) {
         .eq('user_id', waiterUserId)
         .eq('restaurant_id', restaurantId)
       if (error) throw error
-      showToast('Alocări eliminate — ospătarul vede toate mesele')
+      showToast(t('assign_cleared'))
     } catch (e: unknown) {
       setAssignments(prev)
-      setError(toUserMessage(e))
+      setError({ err: e, load: false })
     }
     setSaving(null)
   }
@@ -248,10 +265,10 @@ export default function WaiterAssignments({ restaurantId }: Props) {
         .from('waiter_table_assignments')
         .upsert(rows, { onConflict: 'user_id,table_id' })
       if (error) throw error
-      showToast('Toate mesele alocate')
+      showToast(t('assign_allAssigned'))
     } catch (e: unknown) {
       setAssignments(prev)
-      setError(toUserMessage(e))
+      setError({ err: e, load: false })
     }
     setSaving(null)
   }
@@ -268,7 +285,14 @@ export default function WaiterAssignments({ restaurantId }: Props) {
   if (error)
     return (
       <div>
-        <QueryError message={error} onRetry={load} />
+        <QueryError
+          message={describeStaffError(
+            error.err,
+            tc,
+            error.load ? { fallback: t('assign_loadError') } : {},
+          )}
+          onRetry={load}
+        />
       </div>
     )
 
@@ -277,7 +301,7 @@ export default function WaiterAssignments({ restaurantId }: Props) {
       {/* Header */}
       <div style={{ marginBottom: 20 }}>
         <p style={{ color: D.t3, fontSize: '0.78rem', marginTop: 3 }}>
-          Alocă mesele pe ospătari — fiecare ospătar vede pe telefon doar comenzile lui
+          {t('assign_intro')}
         </p>
       </div>
 
@@ -298,21 +322,25 @@ export default function WaiterAssignments({ restaurantId }: Props) {
           <Icon name="info" size={16} />
         </span>
         <div style={{ fontSize: '0.78rem', color: D.t2, lineHeight: 1.7 }}>
-          <strong style={{ color: D.t1 }}>Fără alocare</strong> — ospătarul vede toate comenzile
-          (comportament implicit).
+          {fillNodes(t('assign_legendNone'), {
+            label: <strong style={{ color: D.t1 }}>{t('assign_legendNoneLabel')}</strong>,
+          })}
           <br />
-          <strong style={{ color: D.t1 }}>Cu alocare</strong> — ospătarul vede DOAR comenzile de la
-          mesele lui alocate.
+          {fillNodes(t('assign_legendSome'), {
+            label: <strong style={{ color: D.t1 }}>{t('assign_legendSomeLabel')}</strong>,
+          })}
         </div>
       </div>
 
       {waiters.length === 0 ? (
         <EmptyState
           icon="users"
-          title="Niciun ospătar adăugat."
+          title={t('assign_emptyTitle')}
           description={
             <>
-              Adaugă membri din <strong style={{ color: D.t1 }}>Setări → Echipă</strong>.
+              {fillNodes(t('assign_emptyDesc'), {
+                where: <strong style={{ color: D.t1 }}>{t('assign_emptyWhere')}</strong>,
+              })}
             </>
           }
         />
@@ -374,15 +402,15 @@ export default function WaiterAssignments({ restaurantId }: Props) {
                             letterSpacing: '0.05em',
                           }}
                         >
-                          {ROLE_LABELS[waiter.role] ?? waiter.role}
+                          {roleLabel(t, waiter.role)}
                         </span>
                         {hasAssignments ? (
                           <span style={{ fontSize: '0.72rem', color: D.gold }}>
-                            {assigned.size} mese alocate
+                            {tp('assign_count', assigned.size)}
                           </span>
                         ) : (
                           <span style={{ fontSize: '0.72rem', color: D.t3 }}>
-                            Toate mesele (nicio alocare)
+                            {t('assign_all')}
                           </span>
                         )}
                       </div>
@@ -408,7 +436,7 @@ export default function WaiterAssignments({ restaurantId }: Props) {
                           opacity: isSaving ? 0.5 : 1,
                         }}
                       >
-                        Șterge toate
+                        {t('assign_clearAll')}
                       </button>
                     )}
                     <button
@@ -428,16 +456,16 @@ export default function WaiterAssignments({ restaurantId }: Props) {
                         fontWeight: 600,
                       }}
                     >
-                      Toate mesele
+                      {t('assign_assignAll')}
                     </button>
                   </div>
                 </div>
 
                 {/* Tables grid */}
                 <div style={{ padding: '12px 18px' }}>
-                  <div style={sLabel}>Click pe masă pentru a aloca / dealoca</div>
+                  <div style={sLabel}>{t('assign_hint')}</div>
                   {tables.length === 0 ? (
-                    <div style={{ fontSize: '0.8rem', color: D.t3 }}>Nicio masă activă.</div>
+                    <div style={{ fontSize: '0.8rem', color: D.t3 }}>{t('assign_noTables')}</div>
                   ) : (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
                       {tables.map((table) => {
@@ -447,7 +475,7 @@ export default function WaiterAssignments({ restaurantId }: Props) {
                             key={table.id}
                             onClick={() => void toggle(waiter.user_id, table.id)}
                             disabled={isSaving}
-                            title={`${table.name}${table.seats ? ` · ${table.seats} loc.` : ''}`}
+                            title={`${table.name}${table.seats ? ` · ${tp('seats', table.seats)}` : ''}`}
                             style={{
                               display: 'inline-flex',
                               alignItems: 'center',
