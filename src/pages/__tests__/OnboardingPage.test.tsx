@@ -13,7 +13,8 @@
 //     iar mesele create în BAZĂ se numesc „Table N” (subtitlul pasului 3 o
 //     promite); OL2 germana stocată rămâne română cât timp nu e activată pentru
 //     personal (`FUNNEL_LANGS`); OL3 numărătoarea e plural pe regulile limbii —
-//     „Creează 1 masă”, nu „1 mese” (mutația care pică: textul vechi `{n} mese`)
+//     „Creează 1 masă”, nu „1 mese” (mutația care pică: textul vechi `{n} mese`);
+//     OL4 eroarea creării restaurantului nu pune textul brut pe ecran
 // Pattern de mock-uri ca în ReservePage.test.tsx (supabase + module).
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -107,6 +108,7 @@ vi.mock('../../components/AiMenuImport', () => ({
 import OnboardingPage from '../OnboardingPage'
 import { preloadNamespace } from '../../i18n/core'
 import { onboardingNs } from '../../i18n/ns/onboarding'
+import { commonNs } from '../../i18n/ns/common'
 
 // Din process.cwd(), NU din import.meta.url (capcana din qr-scan.test.ts, #269).
 const ONBOARDING_SRC = readFileSync(resolve(process.cwd(), 'src/pages/OnboardingPage.tsx'), 'utf8')
@@ -353,6 +355,7 @@ describe('OnboardingPage — ecranul final', () => {
 describe('OnboardingPage — limba (lotul L2b)', () => {
   it('OL1 engleza din stocare: tot fluxul în engleză, mesele se numesc „Table N”', async () => {
     await preloadNamespace(onboardingNs, 'en')
+    await preloadNamespace(commonNs, 'en')
     window.localStorage.setItem('menuvia_ui_lang', 'en')
     const user = userEvent.setup()
     createRestaurantMock.mockResolvedValue({ restaurant_id: 'r1', restaurant_slug: 'the-fork' })
@@ -388,5 +391,48 @@ describe('OnboardingPage — limba (lotul L2b)', () => {
     await user.click(screen.getByRole('button', { name: /creează 1 masă →/i }))
     expect(await screen.findByTestId('ob-summary-tables-qr')).toHaveTextContent('1 masă cu QR')
     expect(db.inserts.find((i) => i.table === 'tables')?.rows.map((r) => r.name)).toEqual(['Masa 1'])
+  })
+
+  // OL4 (recenzia CodeRabbit pe #360): eșecul creării restaurantului NU mai
+  // pune pe ecran textul brut al erorii. Refuzul românesc al serverului
+  // (plafonul de locații) rămâne afișat ca atare în română (`toUserMessage`),
+  // dar nu ajunge pe ecranul englezesc; „Failed to fetch” devine mesajul de
+  // rețea al limbii; alocarea slug-ului își păstrează textul ei. Mutațiile care
+  // pică: `setError(msg)` de dinainte (textul românesc în engleză și
+  // „Failed to fetch” brut) și pierderea ramurii de slug.
+  it('OL4 eroarea creării: în engleză fără textul serverului, în română ca înainte', async () => {
+    const roRefusal = 'Ai atins numărul maxim de restaurante pentru planul tău.'
+    await preloadNamespace(onboardingNs, 'en')
+    await preloadNamespace(commonNs, 'en')
+    window.localStorage.setItem('menuvia_ui_lang', 'en')
+    const user = userEvent.setup()
+    createRestaurantMock.mockRejectedValueOnce({ message: roRefusal, code: 'P0001' })
+    const { unmount } = render(
+      <Suspense fallback={null}>
+        <OnboardingPage onComplete={vi.fn()} />
+      </Suspense>,
+    )
+    await user.type(await screen.findByLabelText(/restaurant name/i), 'The Fork')
+    await user.click(screen.getByRole('button', { name: /continue/i }))
+    expect(await screen.findByText('Unknown error')).toBeInTheDocument()
+    expect(screen.queryByText(roRefusal)).not.toBeInTheDocument()
+
+    createRestaurantMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    await user.click(screen.getByRole('button', { name: /continue/i }))
+    expect(await screen.findByText('No connection. Check your internet and try again.')).toBeInTheDocument()
+    expect(screen.queryByText(/failed to fetch/i)).not.toBeInTheDocument()
+
+    createRestaurantMock.mockRejectedValueOnce(new Error('could not allocate a unique slug'))
+    await user.click(screen.getByRole('button', { name: /continue/i }))
+    expect(await screen.findByText("We couldn't create the menu link. Try again.")).toBeInTheDocument()
+    unmount()
+
+    // Controlul în română: refuzul serverului se afișează ca atare.
+    window.localStorage.clear()
+    createRestaurantMock.mockRejectedValueOnce({ message: roRefusal, code: 'P0001' })
+    render(<OnboardingPage onComplete={vi.fn()} />)
+    await user.type(screen.getByLabelText(/numele restaurantului/i), 'La Bella')
+    await user.click(screen.getByRole('button', { name: /continuă/i }))
+    expect(await screen.findByText(roRefusal)).toBeInTheDocument()
   })
 })

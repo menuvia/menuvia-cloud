@@ -80,7 +80,8 @@ const SRC = 'src'
 // livrată înaintea primului ei consumator).
 // Fundația limbilor personalului (lotul L0b) a stat aici până la primii ei
 // consumatori: `core`/`useT`/`format` în L2a (autentificarea), `common` și
-// `staffErrors` în L3a (Acasă din panou) — registrul e acum gol.
+// `staffErrors` în L2b (eroarea creării restaurantului din onboarding,
+// recenzia CodeRabbit pe #360) — registrul e acum gol.
 /** @type {Record<string, string>} */
 const ALLOWED_UNREACHABLE = {}
 
