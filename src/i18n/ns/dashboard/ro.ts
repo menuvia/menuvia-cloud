@@ -2,9 +2,11 @@
 // navigarea, bara de sus pe mobil, banda vizitei de fondator / agent,
 // întrebările „ai modificări nesalvate”, încărcarea tab-urilor, ecranul
 // „Rezervările nu sunt activate”, intrările spre ecranele live, modalul
-// limitei de produse, plus comutatorul de limbă din Setări → Abonament & cont
-// (UiLanguageCard) — lotul L3b. SURSA DE ADEVĂR: en/fr/de au tipul
-// `Translation<typeof ro>`. Româna e BYTE-identică cu textele de dinainte.
+// limitei de produse, plus descrierea comutatorului de limbă din Setări →
+// Abonament & cont (UiLanguageCard) — lotul L3b — și butonul „Ajutor” din bara
+// laterală (HelpButton, lotul L4c; restul comutatorului e în `common`).
+// SURSA DE ADEVĂR: en/fr/de au tipul `Translation<typeof ro>`. Româna e
+// BYTE-identică cu textele de dinainte.
 // „Reîncearcă” vine din `common` (retry). Numele comerciale ale planurilor NU
 // sunt aici: vin din PLAN_LABELS / plans.ts (regula 4), ca `{plan}`.
 const ro = {
@@ -152,21 +154,25 @@ const ro = {
   upgrade_cta: 'Activează {plan} →',
   upgrade_notNow: 'Nu acum',
 
+  // ── Butonul „Ajutor” din bara laterală (HelpButton, lotul L4c) ──
+  // Etichetele acțiunilor: în română EXACT cele din `buildHelpOptions`
+  // (lib/agentContact.ts, folosit și de teste) — HelpButton le alege după
+  // tipul acțiunii și după sursă (agent / suport).
+  help_button: 'Ajutor',
+  help_agent: 'Agentul tău Menuvia, te poate ajuta:',
+  help_agentNamed: 'Agentul tău Menuvia, {name}, te poate ajuta:',
+  help_support: 'Ai o întrebare sau o problemă? Scrie-ne pe email.',
+  help_call: 'Sună agentul',
+  help_whatsapp: 'WhatsApp',
+  help_emailAgent: 'Scrie pe email',
+  help_emailSupport: 'Scrie-ne pe email',
+
   // ── Limba interfeței (UiLanguageCard, Setări → Abonament & cont) ──
-  lang_title: 'Limba interfeței',
+  // Restul textelor comutatorului (titlul, salvarea, erorile, numele
+  // limbilor) stau în `common` (lotul L4c): le folosește și comutatorul
+  // compact din antetul Ospătarului și al Bucătăriei.
   lang_desc:
     'Limba panoului, a ecranului de ospătar și a bucătăriei. Se păstrează în contul tău, pe orice dispozitiv. Limbile meniului pentru clienți se aleg separat, din Aspect meniu.',
-  lang_saving: 'Se salvează…',
-  lang_saveFailed: 'Limba nu s-a putut salva. Reîncearcă.',
-  // 42703: coloana `profiles.ui_language` (mig 323) lipsește — clientul a
-  // ajuns înaintea migrației.
-  lang_columnMissing:
-    'Limba nu se poate salva încă în cont: serverul nu are ultima actualizare. Panoul rămâne în limba de acum.',
-  // Fiecare limbă în limba EI, identic în toate cele patru fișiere.
-  lang_name_ro: 'Română',
-  lang_name_en: 'English',
-  lang_name_fr: 'Français',
-  lang_name_de: 'Deutsch',
 }
 
 export default ro

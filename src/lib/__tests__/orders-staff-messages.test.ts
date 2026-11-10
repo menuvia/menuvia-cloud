@@ -14,6 +14,7 @@ import {
   describeEditOrderError,
   describeStaffActionError,
   describeWaiterOrderSent,
+  staffActionFailure,
 } from '../orders'
 import { makeTranslator } from '../../i18n/core'
 import ordersRo from '../../i18n/ns/orders/ro'
@@ -216,7 +217,7 @@ describe('describeStaffActionError — acțiunile rapide (Confirmă / Gata / Ser
       ],
     ]
     for (const [hint, message, re] of byHint) {
-      const text = describeStaffActionError(Object.assign(new Error(message), { hint }))
+      const text = describeStaffActionError(staffActionFailure(Object.assign(new Error(message), { hint })), ro)
       expect(text, hint).toMatch(re)
       expect(text, hint).not.toMatch(RAW_ENGLISH)
     }
@@ -224,17 +225,18 @@ describe('describeStaffActionError — acțiunile rapide (Confirmă / Gata / Ser
 
   it('SM6 hint necunoscut → text generic RO, NU mesajul brut', () => {
     const text = describeStaffActionError(
-      Object.assign(new Error('Unknown action: teleport'), { hint: 'unknown_action' }),
+      staffActionFailure(Object.assign(new Error('Unknown action: teleport'), { hint: 'unknown_action' })),
+      ro,
     )
     expect(text).toMatch(/nu a fost salvată/i)
     expect(text).not.toMatch(/unknown/i)
   })
 
   it('SM7 cădere de rețea (Chrome și iPhone) → „Fără conexiune"', () => {
-    expect(describeStaffActionError(new Error('TypeError: Failed to fetch'))).toMatch(
+    expect(describeStaffActionError(staffActionFailure(new Error('TypeError: Failed to fetch')), ro)).toMatch(
       /fără conexiune/i,
     )
-    expect(describeStaffActionError({ message: 'TypeError: Load failed', code: '' })).toMatch(
+    expect(describeStaffActionError(staffActionFailure({ message: 'TypeError: Load failed', code: '' }), ro)).toMatch(
       /fără conexiune/i,
     )
   })
@@ -251,7 +253,7 @@ describe('describeStaffActionError — acțiunile rapide (Confirmă / Gata / Ser
     const err = await advanceOrderStatus('o1', { status: 'served', _currentStatus: 'ready' }).catch(
       (e: unknown) => e,
     )
-    expect(describeStaffActionError(err)).toMatch(/s-a schimbat între timp/i)
+    expect(describeStaffActionError(staffActionFailure(err), ro)).toMatch(/s-a schimbat între timp/i)
   })
 })
 

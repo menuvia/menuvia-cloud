@@ -7,6 +7,7 @@ import { lazy, Suspense, useState, useEffect, useRef, useMemo, useCallback } fro
 import { useAuth } from '../contexts/AuthContext'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { SignOutButton } from '../components/SignOutButton'
+import { UiLanguageSelect } from '../components/UiLanguageSelect'
 import { useOrders } from '../hooks/useOrders'
 import { useFeatures } from '../hooks/useFeatures'
 import { hasFeature } from '../lib/features'
@@ -974,6 +975,8 @@ export default function WaiterPage() {
           >
             {tw.t('header_newOrder')}
           </Button>
+          {/* Comutatorul de limbă (lotul L4c): invizibil cu o singură limbă activă. */}
+          <UiLanguageSelect />
           {/* Ieșirea din cont, pentru ORICE rol — ospătarul nu avea niciuna. */}
           <SignOutButton
             variant="header"

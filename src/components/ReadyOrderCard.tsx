@@ -1,10 +1,10 @@
 // Cardul „Gata de servit" de pe ecranul ospătarului (scos din WaiterPage).
 // Butonul „Servit" stă dezactivat cât acțiunea e în curs, iar refuzul
-// serverului apare SUB card, în română (ux-staff-double-tap-advance +
+// serverului apare SUB card, în limba personalului (ux-staff-double-tap-advance +
 // ux-staff-action-errors). Garda de dublu-tap ÎNTRE carduri (cardul vecin
 // urcă sub deget după „Servit") e în pagină, pe handler — lib/tapGuard.ts.
 import { memo } from 'react'
-import type { Order } from '../lib/orders'
+import type { Order, StaffActionFailure } from '../lib/orders'
 import { D } from '../lib/constants'
 import { ActionErrorNote } from './ActionErrorNote'
 import { OrderLineDetails } from './OrderLineDetails'
@@ -15,7 +15,7 @@ interface ReadyOrderCardProps {
   order: Order
   onServe: (order: Order) => void
   pending?: boolean
-  actionError?: string | null
+  actionError?: StaffActionFailure | null
   onDismissError?: (id: string) => void
 }
 
@@ -110,7 +110,7 @@ function ReadyOrderCardInner({
       </div>
       {actionError != null && (
         <ActionErrorNote
-          message={actionError}
+          error={actionError}
           onDismiss={onDismissError ? () => onDismissError(order.id) : undefined}
         />
       )}

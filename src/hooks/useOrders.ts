@@ -11,8 +11,12 @@ import {
   type PaymentMethod,
   type AdvanceOrderPayload,
   type RealtimeConnectionStatus,
+  type StaffActionFailure,
   describeStaffActionError,
+  staffActionFailure,
 } from '../lib/orders'
+import { makeTranslator } from '../i18n/core'
+import { ordersNs } from '../i18n/ns/orders'
 
 // Refetch periodic ca plasă de siguranță dacă realtime pică tăcut.
 // 30s e suficient pentru un POS (comenzile apar mai devreme via realtime
@@ -34,6 +38,12 @@ export const ACTION_ERROR_TTL_MS = 8_000
 // avalanșă când rețeaua pâlpâie.
 const RESYNC_AFTER_HIDDEN_MS = 10_000
 const RESYNC_MIN_GAP_MS = 2_000
+
+// Mesajul Error-ului aruncat pe dublu-tap cu `throwOnError` (plată / anulare):
+// rămâne ROMÂNESC, ca înainte — în română dialogul îl afișează ca mesaj al
+// erorii, în altă limbă `describeCancelRejection` / `describePayRejection`
+// îl ignoră și arată textul lor (hook-ul nu știe limba; lotul L4c).
+const RO_ORDERS = makeTranslator(ordersNs.ro, 'ro')
 
 const KITCHEN_STATUSES: OrderStatus[] = ['new', 'confirmed', 'preparing', 'ready']
 // `closed` E exclus: fetchWaiterOrders folosește lista POZITIVĂ (fără closed),
@@ -152,20 +162,18 @@ interface UseOrdersResult {
   /** Comenzile cu o acțiune în curs — butoanele lor stau dezactivate (anti dublu-tap). */
   pendingIds: ReadonlySet<string>
   /**
-   * Eroarea ultimei acțiuni rapide eșuate, PE COMANDĂ, în română
-   * (describeStaffActionError) — se afișează lângă butonul apăsat și dispare
-   * singură după ACTION_ERROR_TTL_MS sau la următoarea acțiune pe comandă.
+   * Refuzul ultimei acțiuni rapide eșuate, PE COMANDĂ, ca DATE (hint + rețea,
+   * lotul L4c) — nota de pe card (ActionErrorNote) îl traduce la randare cu
+   * describeStaffActionError; dispare singur după ACTION_ERROR_TTL_MS sau la
+   * următoarea acțiune pe comandă.
    */
-  actionErrors: Readonly<Record<string, string>>
+  actionErrors: Readonly<Record<string, StaffActionFailure>>
   dismissActionError: (orderId: string) => void
 }
 
-function withoutKey(
-  rec: Readonly<Record<string, string>>,
-  key: string,
-): Readonly<Record<string, string>> {
+function withoutKey<V>(rec: Readonly<Record<string, V>>, key: string): Readonly<Record<string, V>> {
   if (!(key in rec)) return rec
-  const next: Record<string, string> = {}
+  const next: Record<string, V> = {}
   for (const [k, v] of Object.entries(rec)) if (k !== key) next[k] = v
   return next
 }
@@ -183,7 +191,7 @@ export function useOrders(
   const [snapshotFor, setSnapshotFor] = useState<string | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<RealtimeConnectionStatus>('connecting')
   const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(() => new Set<string>())
-  const [actionErrors, setActionErrors] = useState<Readonly<Record<string, string>>>({})
+  const [actionErrors, setActionErrors] = useState<Readonly<Record<string, StaffActionFailure>>>({})
   // Sursa SINCRONĂ a lock-ului de dublu-tap: al doilea tap din același frame
   // vine înainte ca state-ul `pendingIds` să se fi re-randat.
   const pendingSetRef = useRef<Set<string>>(new Set())
@@ -523,10 +531,10 @@ export function useOrders(
     setActionErrors((prev) => withoutKey(prev, orderId))
   }, [])
 
-  const showActionError = useCallback((orderId: string, message: string) => {
+  const showActionError = useCallback((orderId: string, failure: StaffActionFailure) => {
     const old = errorTimersRef.current.get(orderId)
     if (old) clearTimeout(old)
-    setActionErrors((prev) => ({ ...prev, [orderId]: message }))
+    setActionErrors((prev) => ({ ...prev, [orderId]: failure }))
     errorTimersRef.current.set(
       orderId,
       setTimeout(() => {
@@ -560,9 +568,10 @@ export function useOrders(
       // e în curs pe comandă, orice altă acțiune pe ea e refuzată pe loc.
       if (pendingSetRef.current.has(orderId)) {
         if (opts?.throwOnError) {
-          throw Object.assign(new Error(describeStaffActionError({ hint: 'action_in_progress' })), {
-            hint: 'action_in_progress',
-          })
+          throw Object.assign(
+            new Error(describeStaffActionError({ hint: 'action_in_progress', network: false }, RO_ORDERS)),
+            { hint: 'action_in_progress' },
+          )
         }
         return false
       }
@@ -617,7 +626,7 @@ export function useOrders(
             })
         }
         if (opts?.throwOnError) throw e
-        if (gen === genRef.current) showActionError(orderId, describeStaffActionError(e))
+        if (gen === genRef.current) showActionError(orderId, staffActionFailure(e))
         return false
       } finally {
         pendingAdvancesRef.current = Math.max(0, pendingAdvancesRef.current - 1)

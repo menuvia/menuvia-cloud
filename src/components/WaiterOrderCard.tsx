@@ -10,7 +10,7 @@
 // ─────────────────────────────────────────────────────────────
 import { memo, useState, useEffect } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
-import type { Order, PaymentMethod } from '../lib/orders'
+import type { Order, PaymentMethod, StaffActionFailure } from '../lib/orders'
 import { D } from '../lib/constants'
 import { ageLevel } from '../lib/orderAge'
 import { isScheduledPickupAhead, urgencyAnchor } from '../lib/pickupOrders'
@@ -667,8 +667,8 @@ interface OrderCardProps {
   // O acțiune pe comandă e în curs (useOrders.pendingIds): „Închide comanda"
   // stă dezactivat — anti dublu-tap.
   pending?: boolean
-  // Refuzul ultimei acțiuni rapide, în română, afișat PE CARD.
-  actionError?: string | null
+  // Refuzul ultimei acțiuni rapide (date, tradus de nota de pe card — L4c).
+  actionError?: StaffActionFailure | null
   onDismissError?: (id: string) => void
 }
 
@@ -1105,7 +1105,7 @@ function OrderCardInner({
       )}
       {actionError != null && (
         <ActionErrorNote
-          message={actionError}
+          error={actionError}
           onDismiss={onDismissError ? () => onDismissError(order.id) : undefined}
         />
       )}

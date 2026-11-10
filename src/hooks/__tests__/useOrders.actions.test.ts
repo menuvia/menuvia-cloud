@@ -26,6 +26,15 @@ vi.mock('../../lib/orders', async (importOriginal) => {
 
 import { useOrders, ACTION_ERROR_TTL_MS } from '../useOrders'
 import { makeOrder } from '../../components/__tests__/fixtures'
+import { describeStaffActionError, type StaffActionFailure } from '../../lib/orders'
+import { makeTranslator } from '../../i18n/core'
+import ordersRo from '../../i18n/ns/orders/ro'
+
+// Lotul L4c: useOrders ține refuzul ca DATE; textul (în română) e cel pe care
+// îl randează nota de pe card — aceleași aserțiuni ca înainte, pe text.
+const ro = makeTranslator(ordersRo, 'ro')
+const text = (f: StaffActionFailure | undefined): string | undefined =>
+  f === undefined ? undefined : describeStaffActionError(f, ro)
 
 async function tick(ms = 0): Promise<void> {
   await act(async () => {
@@ -131,8 +140,8 @@ describe('useOrders.advance — eroarea, lângă acțiune', () => {
       ok = await result.current.advance('B', 'preparing', { status: 'ready' })
     })
     expect(ok).toBe(false)
-    expect(result.current.actionErrors.B).toMatch(/s-a schimbat între timp/i)
-    expect(result.current.actionErrors.B).not.toMatch(/order|state/i)
+    expect(text(result.current.actionErrors.B)).toMatch(/s-a schimbat între timp/i)
+    expect(text(result.current.actionErrors.B)).not.toMatch(/order|state/i)
     expect(result.current.error).toBeNull()
 
     await tick(ACTION_ERROR_TTL_MS)
@@ -221,7 +230,7 @@ describe('useOrders.advance — eroarea, lângă acțiune', () => {
     })
     await tick(0)
     expect(result.current.orders.find((o) => o.id === 'A')?.status).toBe('new')
-    expect(result.current.actionErrors.A).toMatch(/fără conexiune/i)
+    expect(text(result.current.actionErrors.A)).toMatch(/fără conexiune/i)
   })
 
   it('UA7 o acțiune nouă pe comandă șterge eroarea veche', async () => {

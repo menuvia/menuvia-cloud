@@ -126,17 +126,17 @@ const en: Translation<typeof ro> = {
   upgrade_cta: 'Activate {plan} →',
   upgrade_notNow: 'Not now',
 
-  lang_title: 'Interface language',
+  help_button: 'Help',
+  help_agent: 'Your Menuvia agent can help you:',
+  help_agentNamed: 'Your Menuvia agent, {name}, can help you:',
+  help_support: 'Have a question or a problem? Email us.',
+  help_call: 'Call the agent',
+  help_whatsapp: 'WhatsApp',
+  help_emailAgent: 'Send an email',
+  help_emailSupport: 'Email us',
+
   lang_desc:
     'The language of the dashboard, the waiter screen and the kitchen. It’s saved to your account and applies on every device. The languages of your guests’ menu are chosen separately, in Menu appearance.',
-  lang_saving: 'Saving…',
-  lang_saveFailed: 'The language couldn’t be saved. Please try again.',
-  lang_columnMissing:
-    'The language can’t be saved to your account yet: the server hasn’t received the latest update. The dashboard stays in its current language.',
-  lang_name_ro: 'Română',
-  lang_name_en: 'English',
-  lang_name_fr: 'Français',
-  lang_name_de: 'Deutsch',
 }
 
 export default en

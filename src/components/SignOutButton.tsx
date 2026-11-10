@@ -5,12 +5,18 @@
 // în mijlocul serviciului). Fără `onSignOut`, ieșirea face o încărcare completă
 // pe /auth: starea paginii de lucru (comenzi, cozi, abonări realtime) dispare
 // odată cu sesiunea, iar următorul om pornește de la autentificare.
+// Lotul L4c: textele vin din `common` (butonul stă în Panou, la Ospătar și în
+// Bucătărie); `warning` vine deja tradus de la pagină. Eroarea se ține ca
+// DATE și se traduce la randare, prin describeStaffError (în română exact
+// `toUserMessage` de dinainte).
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { D } from '../lib/constants'
 import { Icon } from './ui/Icon'
 import { confirm as confirmDialog } from './ui/confirm'
-import { toUserMessage } from '../lib/userMessages'
+import { useT } from '../i18n/useT'
+import { commonNs } from '../i18n/ns/common'
+import { describeStaffError } from '../i18n/staffErrors'
 
 export function SignOutButton({
   variant,
@@ -24,20 +30,24 @@ export function SignOutButton({
   warning?: string
 }) {
   const { signOut } = useAuth()
+  const tc = useT(commonNs)
+  const { t } = tc
   const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
+  // Refuzul ieșirii, ca DATE (`{ err }`: o respingere poate fi și `undefined`).
+  const [failure, setFailure] = useState<{ err: unknown } | null>(null)
 
   async function handleClick(): Promise<void> {
     const ok = await confirmDialog({
-      title: 'Ieși din cont?',
-      description: [warning, 'Pe acest dispozitiv va trebui să te autentifici din nou.']
-        .filter(Boolean)
-        .join(' '),
-      confirmLabel: 'Ieși din cont',
+      title: t('signOut_confirmTitle'),
+      description: [warning, t('signOut_confirmDesc')].filter(Boolean).join(' '),
+      confirmLabel: t('signOut'),
+      // Explicit: fără el, ConfirmDialog ia „Anulează” din cromul care urmează
+      // `<html lang>` (rămas `ro` pe rutele de personal) → dialog amestecat.
+      cancelLabel: t('cancel'),
     })
     if (!ok) return
     setBusy(true)
-    setErr(null)
+    setFailure(null)
     try {
       if (onSignOut) {
         await onSignOut()
@@ -48,7 +58,7 @@ export function SignOutButton({
     } catch (e) {
       // O ieșire eșuată NU are voie să pară reușită (sau să tacă): omul crede
       // că a lăsat tableta liberă, iar sesiunea lui e încă deschisă.
-      setErr(toUserMessage(e, 'Nu am putut ieși din cont. Reîncearcă.'))
+      setFailure({ err: e })
     } finally {
       setBusy(false)
     }
@@ -70,8 +80,8 @@ export function SignOutButton({
       type="button"
       onClick={() => void handleClick()}
       disabled={busy}
-      aria-label="Ieși din cont"
-      title="Ieși din cont"
+      aria-label={t('signOut')}
+      title={t('signOut')}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -93,11 +103,11 @@ export function SignOutButton({
       }}
     >
       <Icon name="logout" size={sidebar ? 16 : 14} />
-      {busy ? 'Se iese…' : 'Ieși din cont'}
+      {busy ? t('signOut_busy') : t('signOut')}
     </button>
-    {err && (
+    {failure != null && (
       <span role="alert" style={{ color: D.red, fontSize: '0.72rem', lineHeight: 1.4 }}>
-        {err}
+        {describeStaffError(failure.err, tc, { fallback: t('signOut_failed') })}
       </span>
     )}
     </div>

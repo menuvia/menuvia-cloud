@@ -131,17 +131,17 @@ const fr: Translation<typeof ro> = {
   upgrade_cta: 'Activer {plan} →',
   upgrade_notNow: 'Pas maintenant',
 
-  lang_title: 'Langue de l’interface',
+  help_button: 'Aide',
+  help_agent: 'Votre agent Menuvia peut vous aider :',
+  help_agentNamed: 'Votre agent Menuvia, {name}, peut vous aider :',
+  help_support: 'Une question ou un problème ? Écrivez-nous par e-mail.',
+  help_call: 'Appeler l’agent',
+  help_whatsapp: 'WhatsApp',
+  help_emailAgent: 'Écrire par e-mail',
+  help_emailSupport: 'Nous écrire par e-mail',
+
   lang_desc:
     'La langue de votre espace, de l’écran serveur et de la cuisine. Elle est enregistrée dans votre compte et s’applique sur tous vos appareils. Les langues du menu de vos clients se choisissent séparément, dans Apparence du menu.',
-  lang_saving: 'Enregistrement…',
-  lang_saveFailed: 'Impossible d’enregistrer la langue. Réessayez.',
-  lang_columnMissing:
-    'La langue ne peut pas encore être enregistrée dans votre compte : le serveur n’a pas reçu la dernière mise à jour. Votre espace reste dans la langue actuelle.',
-  lang_name_ro: 'Română',
-  lang_name_en: 'English',
-  lang_name_fr: 'Français',
-  lang_name_de: 'Deutsch',
 }
 
 export default fr

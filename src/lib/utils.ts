@@ -5,8 +5,9 @@ import { D } from './constants'
 import { staffAudio } from './staffAudio'
 
 /** Vârsta de la `createdAt` (ISO) despărțită pe unități — sursa unică a
- *  calculului, citită de `elapsed()` (aici) și de varianta tradusă `elapsedT`
- *  (src/i18n/elapsed.ts, lotul L4b). */
+ *  calculului, citită de `elapsedT` (src/i18n/elapsed.ts, lotul L4b), care
+ *  pune unitățile în limba personalului. Varianta românească scrisă în cod,
+ *  `elapsed()`, a fost ștearsă în L4c (Bucătăria era ultimul consumator). */
 export type ElapsedParts =
   | { unit: 's'; n: number }
   | { unit: 'm'; n: number }
@@ -18,15 +19,6 @@ export function elapsedParts(createdAt: string): ElapsedParts {
   const min = Math.floor(sec / 60)
   if (min < 60) return { unit: 'm', n: min }
   return { unit: 'hm', h: Math.floor(min / 60), m: min % 60 }
-}
-
-/** Human-readable elapsed time since `createdAt` ISO string (în română; pe
- *  ecranele migrate se folosește `elapsedT` din src/i18n/elapsed.ts). */
-export function elapsed(createdAt: string): string {
-  const p = elapsedParts(createdAt)
-  if (p.unit === 's') return `${p.n}s`
-  if (p.unit === 'm') return `${p.n}m`
-  return `${p.h}h ${p.m}m`
 }
 
 /** Color based on order age: green → amber → red */

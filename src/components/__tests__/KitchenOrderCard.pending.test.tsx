@@ -64,7 +64,8 @@ describe('KitchenOrderCard — acțiunea în curs și eroarea ei', () => {
       <KitchenOrderCard
         order={makeOrder({ id: 'A', status: 'preparing' })}
         onAdvance={vi.fn()}
-        actionError="Comanda s-a schimbat între timp — probabil a mutat-o deja un coleg."
+        // Lotul L4c: refuzul vine ca DATE (hint), nota îl traduce la randare.
+        actionError={{ hint: 'invalid_transition', network: false }}
         onDismissError={onDismiss}
       />,
     )

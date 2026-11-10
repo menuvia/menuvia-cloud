@@ -4,7 +4,10 @@
 // (OrderAuditSheet + `describeAuditEntry`), cardul „Gata de servit”
 // (ReadyOrderCard), detaliile de ridicare (PickupDetails), cardul de comandă al
 // ospătarului (OrderCard din WaiterOrderCard + pasul din `lib/waiterSteps`) și
-// comanda manuală (WaiterEntry). SURSA DE ADEVĂR: en/fr/de au tipul
+// comanda manuală (WaiterEntry); din lotul L4c și refuzul acțiunilor rapide
+// (`describeStaffActionError`, `actionErr_*`) și panoul „Epuizate”
+// (StaffSoldOutSheet, `so_*`), comune Ospătarului și Bucătăriei. SURSA DE
+// ADEVĂR: en/fr/de au tipul
 // `Translation<typeof ro>`. Româna e BYTE-identică cu textele de dinainte —
 // inclusiv „Se trimite...” cu trei puncte și ghilimelele drepte din
 // „Anulează" (textele de dinainte, păstrate ca atare).
@@ -67,6 +70,20 @@ const ro = {
 
   // ── Nota de refuz de pe card (ActionErrorNote — ospătar, bucătărie) ──
   actionError_dismiss: 'Închide mesajul',
+  // Refuzul unei acțiuni rapide (describeStaffActionError, lib/orders.ts —
+  // lotul L4c): useOrders ține refuzul ca DATE (hint + rețea), nota îl
+  // traduce la randare. În română EXACT textele de dinainte.
+  actionErr_network: 'Fără conexiune — acțiunea nu a fost salvată. Reîncearcă.',
+  actionErr_invalidTransition: 'Comanda s-a schimbat între timp — probabil a mutat-o deja un coleg.',
+  actionErr_terminal: 'Comanda e deja finalizată.',
+  actionErr_notFound: 'Comanda nu mai există.',
+  actionErr_role: 'Rolul tău nu permite această acțiune.',
+  actionErr_unauthorized: 'Nu ai acces la comenzile acestui restaurant.',
+  actionErr_authRequired: 'Sesiunea a expirat — autentifică-te din nou.',
+  actionErr_fiscalPlan:
+    'Pe planul cu fiscalizare comanda se finalizează prin plată (bon fiscal), nu prin închidere.',
+  actionErr_inProgress: 'Acțiunea pe această comandă e deja în curs.',
+  actionErr_generic: 'Acțiunea nu a fost salvată. Reîncearcă.',
 
   // ── Editarea comenzii (EditOrderSheet) ──
   edit_title: 'Editează comanda',
@@ -248,6 +265,32 @@ const ro = {
   entry_notesPlaceholder: 'Mențiuni comandă (opțional)',
   entry_sending: 'Se trimite...',
   entry_send: 'Trimite comanda',
+
+  // ── Panoul „Epuizate” (StaffSoldOutSheet — Ospătar și Bucătărie; lotul L4c).
+  //    Stă AICI, nu în `kitchen`: ambele ecrane cer `orders` sus, deci foaia
+  //    nu suspendă la deschidere. „Epuizat” = `soldOut`, „Reîncearcă” vine
+  //    din `common`. Numele produselor sunt date (`{name}`). ──
+  so_title: 'Produse epuizate',
+  so_intro:
+    'Un produs epuizat apare „Epuizat” pe meniu și nu mai poate fi comandat. Produsele cu rețetă se epuizează singure când un ingredient scade sub o porție și revin când stocul crește.',
+  so_search: 'Caută un produs',
+  so_loadError: 'Nu am putut încărca produsele.',
+  so_updateError: 'Nu s-a putut actualiza produsul.',
+  so_loading: 'Se încarcă produsele…',
+  so_countNone: 'Niciun produs epuizat.',
+  // Româna: „produse epuizate” pentru orice n ≥ 2 (textul de dinainte).
+  so_count: { one: '{n} produs epuizat.', few: '{n} produse epuizate.', other: '{n} produse epuizate.' },
+  so_noMatch: 'Niciun produs găsit.',
+  so_available: 'Disponibil',
+  // {status} = „Epuizat” / „Disponibil”, {source} = de unde vine starea.
+  so_statusWithSource: '{status} · {source}',
+  so_src_stock: 'din stoc',
+  so_src_manual: 'manual',
+  so_src_unblocked: 'deblocat manual',
+  so_markAvailable: 'Marchează disponibil',
+  so_markSoldOut: 'Marchează epuizat',
+  so_markAvailableAria: 'Marchează disponibil: {name}',
+  so_markSoldOutAria: 'Marchează epuizat: {name}',
 }
 
 export default ro
