@@ -17,7 +17,7 @@
 // Un blip de rețea nu are voie să închidă dashboard-ul cuiva care a acceptat
 // deja — aceeași disciplină ca tristate-ul de plan și ca bannerul casei.
 // ─────────────────────────────────────────────────────────────
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { D } from '../lib/constants'
 import { FocusTrap } from './ui/FocusTrap'
@@ -29,6 +29,11 @@ import {
   recordTermsAcceptance,
 } from '../lib/terms'
 import { ROUTE_CHANGE_EVENT } from '../lib/routeEvents'
+import { userErrorKind } from '../lib/userMessages'
+import { FunnelLangProvider } from '../i18n/UiLangContext'
+import { useT } from '../i18n/useT'
+import { fillNodes } from '../i18n/fillNodes'
+import { termsNs } from '../i18n/ns/terms'
 
 /**
  * Rutele pe care gate-ul NU are voie să apară. Recuperarea parolei creează o
@@ -65,7 +70,8 @@ export default function TermsAcceptanceGate() {
   const onAuthRoute = AUTH_PATHS.includes(path)
   const [checked, setChecked] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // Eroarea BRUTĂ: textul ei se alege în dialog, în limba omului.
+  const [failure, setFailure] = useState<{ err: unknown } | null>(null)
   // Consemnarea automată se încearcă O SINGURĂ dată per cont; dacă pică, omul
   // vede ecranul și decide el. Reținem PENTRU CINE am încercat, ca o schimbare
   // de cont pe același tab să nu moștenească încercarea precedentă.
@@ -89,7 +95,7 @@ export default function TermsAcceptanceGate() {
   // nu are voie să-l aibă.
   useEffect(() => {
     setChecked(false)
-    setError(null)
+    setFailure(null)
     setAutoFailedFor(null)
   }, [uid])
 
@@ -120,16 +126,12 @@ export default function TermsAcceptanceGate() {
   const accept = useCallback(async () => {
     if (!checked || busy) return
     setBusy(true)
-    setError(null)
+    setFailure(null)
     try {
       await recordTermsAcceptance(TERMS_VERSION, email ?? undefined)
       await refreshProfile()
     } catch (err) {
-      setError(
-        err instanceof Error && err.message
-          ? err.message
-          : 'Nu am putut consemna acceptarea. Reîncearcă.',
-      )
+      setFailure({ err })
     } finally {
       setBusy(false)
     }
@@ -139,6 +141,53 @@ export default function TermsAcceptanceGate() {
   // Consemnare automată în curs pentru cineva care A bifat deja: nu-l oprim.
   if (hasOwnPending && autoFailedFor !== uid) return null
 
+  // Limba: `FunnelLangProvider`, ca pe /auth (poarta apare chiar după
+  // înscriere sau confirmarea emailului). `Suspense` propriu: încărcarea
+  // dicționarului nu are voie să suspende poarta de deasupra, care ține starea.
+  return (
+    <FunnelLangProvider>
+      <Suspense fallback={null}>
+        <TermsGateDialog
+          checked={checked}
+          onCheck={setChecked}
+          busy={busy}
+          failure={failure}
+          onAccept={() => void accept()}
+          onSignOut={() => void signOut().catch(() => undefined) /* sesiunea rămâne; butonul se poate apăsa din nou */}
+        />
+      </Suspense>
+    </FunnelLangProvider>
+  )
+}
+
+function TermsGateDialog({
+  checked,
+  onCheck,
+  busy,
+  failure,
+  onAccept,
+  onSignOut,
+}: {
+  checked: boolean
+  onCheck: (v: boolean) => void
+  busy: boolean
+  failure: { err: unknown } | null
+  onAccept: () => void
+  onSignOut: () => void
+}) {
+  const { t, lang } = useT(termsNs)
+  // În română, exact mesajul de dinainte (textul erorii, altfel rezerva); în
+  // altă limbă un text românesc de la server ar face ecranul amestecat.
+  const err = failure?.err
+  const error = !failure
+    ? null
+    : lang === 'ro'
+      ? err instanceof Error && err.message
+        ? err.message
+        : t('recordFailed')
+      : userErrorKind(err).kind === 'network'
+        ? t('network')
+        : t('recordFailed')
   return (
     <div
       role="dialog"
@@ -185,11 +234,10 @@ export default function TermsAcceptanceGate() {
             fontWeight: 600,
           }}
         >
-          Acceptă Termenii ca să continui
+          {t('title')}
         </h2>
         <p style={{ color: D.t2, fontSize: '0.9rem', lineHeight: 1.6, marginTop: 0 }}>
-          Avem nevoie de acordul tău consemnat pentru Termeni și pentru Politica de
-          confidențialitate. Durează o secundă și se cere o singură dată.
+          {t('body')}
         </p>
 
         <label
@@ -209,19 +257,22 @@ export default function TermsAcceptanceGate() {
             id="terms-gate-check"
             type="checkbox"
             checked={checked}
-            onChange={(e) => setChecked(e.target.checked)}
+            onChange={(e) => onCheck(e.target.checked)}
             style={{ marginTop: 3, width: 17, height: 17, accentColor: D.gold, flexShrink: 0 }}
           />
           <span>
-            Am citit și accept{' '}
-            <a href="/termeni" target="_blank" rel="noreferrer" style={{ color: D.gold }}>
-              Termenii
-            </a>{' '}
-            și{' '}
-            <a href="/confidentialitate" target="_blank" rel="noreferrer" style={{ color: D.gold }}>
-              Politica de confidențialitate
-            </a>
-            .
+            {fillNodes(t('sentence'), {
+              terms: (
+                <a href="/termeni" target="_blank" rel="noreferrer" style={{ color: D.gold }}>
+                  {t('linkTerms')}
+                </a>
+              ),
+              privacy: (
+                <a href="/confidentialitate" target="_blank" rel="noreferrer" style={{ color: D.gold }}>
+                  {t('linkPrivacy')}
+                </a>
+              ),
+            })}
           </span>
         </label>
 
@@ -244,7 +295,7 @@ export default function TermsAcceptanceGate() {
         )}
 
         <button
-          onClick={() => void accept()}
+          onClick={onAccept}
           disabled={!checked || busy}
           data-testid="terms-accept"
           style={{
@@ -260,14 +311,14 @@ export default function TermsAcceptanceGate() {
             cursor: !checked || busy ? 'default' : 'pointer',
           }}
         >
-          {busy ? 'Se consemnează...' : 'Accept și continui'}
+          {busy ? t('recording') : t('accept')}
         </button>
 
         {/* Ieșirea din cont e obligatorie: fără ea, cineva care nu vrea să
             accepte (sau la care consemnarea pică) rămâne blocat în propriul
             cont, fără nicio cale de ieșire. */}
         <button
-          onClick={() => void signOut().catch(() => undefined) /* sesiunea rămâne; butonul se poate apăsa din nou */}
+          onClick={onSignOut}
           disabled={busy}
           style={{
             width: '100%',
@@ -283,7 +334,7 @@ export default function TermsAcceptanceGate() {
             cursor: busy ? 'default' : 'pointer',
           }}
         >
-          Ieși din cont
+          {t('signOut')}
         </button>
       </div>
     </div>

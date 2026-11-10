@@ -78,18 +78,17 @@ const SRC = 'src'
 // Scutiri: modul → motiv. Un modul care NU e importat de aplicație, dar trebuie
 // să rămână (ex. un punct de intrare citit de alt instrument, sau o fundație
 // livrată înaintea primului ei consumator).
+// `core.ts`/`useT.ts`/`format.ts` au primul consumator în L2a (autentificarea);
+// `common` și `staffErrors` îl primesc odată cu primul ecran al panoului (L3).
 const I18N_FOUNDATION_WHY =
-  'fundația limbilor personalului (lotul L0b, Partea II) intră înaintea primului ecran care o folosește (L1/L3); DC1b cere scoaterea scutirii în PR-ul care o conectează'
+  'fundația limbilor personalului (lotul L0b, Partea II) intră înaintea primului ecran care o folosește (L3, panoul); DC1b cere scoaterea scutirii în PR-ul care o conectează'
 const ALLOWED_UNREACHABLE = {
-  'src/i18n/core.ts': I18N_FOUNDATION_WHY,
-  'src/i18n/format.ts': I18N_FOUNDATION_WHY,
   'src/i18n/ns/common/de.ts': I18N_FOUNDATION_WHY,
   'src/i18n/ns/common/en.ts': I18N_FOUNDATION_WHY,
   'src/i18n/ns/common/fr.ts': I18N_FOUNDATION_WHY,
   'src/i18n/ns/common/index.ts': I18N_FOUNDATION_WHY,
   'src/i18n/ns/common/ro.ts': I18N_FOUNDATION_WHY,
   'src/i18n/staffErrors.ts': I18N_FOUNDATION_WHY,
-  'src/i18n/useT.ts': I18N_FOUNDATION_WHY,
 }
 
 // Exporturi moarte CUNOSCUTE, lăsate deliberat în fișiere pe care această

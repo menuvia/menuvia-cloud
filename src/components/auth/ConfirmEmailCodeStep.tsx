@@ -19,65 +19,30 @@ import {
   classifyAuthError,
   isOtpComplete,
   resendCooldownLeft,
-  resendErrorMessage,
   sanitizeOtpInput,
-  verifyOtpErrorMessage,
-  type OtpLang,
 } from '../../lib/otp'
+import { useT } from '../../i18n/useT'
+import { authNs } from '../../i18n/ns/auth'
 
 const ERROR = '#B3403F'
 const ERROR_BG = 'rgba(179,64,63,0.08)'
 const ERROR_BORDER = 'rgba(179,64,63,0.3)'
 
-const TEXT = {
-  ro: {
-    title: 'Verifică emailul',
-    sentPrefix: 'Am trimis un email la',
-    instructions:
-      'Scrie aici codul de 6 cifre din el sau apasă linkul din email — te aduce direct înapoi în contul tău.',
-    codeLabel: 'Cod din email',
-    verifyBtn: 'Confirmă codul',
-    verifying: 'Se verifică...',
-    incomplete: 'Scrie cele 6 cifre din email.',
-    resend: 'Retrimite emailul',
-    resendIn: (s: number) => `Retrimite peste ${s} s`,
-    resending: 'Se trimite...',
-    resent: 'Am trimis un email nou. Folosește cel mai recent cod.',
-    back: 'Înapoi la autentificare',
-  },
-  en: {
-    title: 'Check your email',
-    sentPrefix: 'We sent an email to',
-    instructions:
-      'Enter the 6-digit code from it here, or click the link in the email — it brings you right back into your account.',
-    codeLabel: 'Code from the email',
-    verifyBtn: 'Confirm code',
-    verifying: 'Verifying...',
-    incomplete: 'Enter the 6 digits from the email.',
-    resend: 'Resend email',
-    resendIn: (s: number) => `Resend in ${s} s`,
-    resending: 'Sending...',
-    resent: 'We sent a new email. Use the most recent code.',
-    back: 'Back to sign in',
-  },
-} as const
-
 export default function ConfirmEmailCodeStep({
   email,
-  lang,
   redirectTo,
   onVerified,
   onBack,
 }: {
   email: string
-  lang: OtpLang
   /** Aceeași destinație ca linkul de la signup (cu `?plan=` când există). */
   redirectTo: string
   /** Sesiunea a apărut (codul a fost bun): AuthPage continuă ca după un login. */
   onVerified: (email: string) => void
   onBack: () => void
 }) {
-  const t = TEXT[lang]
+  // Limba vine din `FunnelLangProvider`-ul paginii (AuthPage).
+  const { t } = useT(authNs)
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [resending, setResending] = useState(false)
@@ -102,7 +67,7 @@ export default function ConfirmEmailCodeStep({
     if (busy) return
     setNotice(null)
     if (!isOtpComplete(code)) {
-      setError(t.incomplete)
+      setError(t('confirmIncomplete'))
       return
     }
     setBusy(true)
@@ -113,7 +78,7 @@ export default function ConfirmEmailCodeStep({
       type: 'signup',
     })
     if (verifyErr || !data.session) {
-      setError(verifyOtpErrorMessage(classifyAuthError(verifyErr), lang))
+      setError(t(`otpVerify_${classifyAuthError(verifyErr)}`))
       setBusy(false)
       return
     }
@@ -135,7 +100,7 @@ export default function ConfirmEmailCodeStep({
     const stamp = Date.now()
     if (resendErr) {
       const kind = classifyAuthError(resendErr)
-      setError(resendErrorMessage(kind, lang))
+      setError(t(`otpResend_${kind}`))
       // Rate-limit-ul serverului: nu lăsăm butonul să lovească din nou imediat.
       if (kind === 'rate_limit') {
         setSentAt(stamp)
@@ -146,7 +111,7 @@ export default function ConfirmEmailCodeStep({
     setSentAt(stamp)
     setNow(stamp)
     setCode('')
-    setNotice(t.resent)
+    setNotice(t('confirmResent'))
   }
 
   const resendDisabled = resending || left > 0
@@ -164,12 +129,12 @@ export default function ConfirmEmailCodeStep({
           marginBottom: 12,
         }}
       >
-        {t.title}
+        {t('confirmTitle')}
       </h2>
       <p style={{ color: MKT.text2, marginBottom: 20, lineHeight: 1.6 }}>
-        {t.sentPrefix} <strong style={{ color: MKT.text }}>{email}</strong>.
+        {t('confirmSentPrefix')} <strong style={{ color: MKT.text }}>{email}</strong>.
         <br />
-        {t.instructions}
+        {t('confirmInstructions')}
       </p>
 
       <form
@@ -189,7 +154,7 @@ export default function ConfirmEmailCodeStep({
               fontWeight: 500,
             }}
           >
-            {t.codeLabel}
+            {t('confirmCodeLabel')}
           </label>
           <input
             id="auth-otp"
@@ -256,7 +221,7 @@ export default function ConfirmEmailCodeStep({
             cursor: busy ? 'not-allowed' : 'pointer',
           }}
         >
-          {busy ? t.verifying : t.verifyBtn}
+          {busy ? t('confirmVerifying') : t('confirmVerifyBtn')}
         </button>
       </form>
 
@@ -282,7 +247,7 @@ export default function ConfirmEmailCodeStep({
           minHeight: 44,
         }}
       >
-        {resending ? t.resending : left > 0 ? t.resendIn(left) : t.resend}
+        {resending ? t('confirmResending') : left > 0 ? t('confirmResendIn', { s: left }) : t('confirmResend')}
       </button>
       <div>
         <button
@@ -299,7 +264,7 @@ export default function ConfirmEmailCodeStep({
             minHeight: 44,
           }}
         >
-          {t.back}
+          {t('confirmBack')}
         </button>
       </div>
     </div>
