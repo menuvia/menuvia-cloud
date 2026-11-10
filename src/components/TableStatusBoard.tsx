@@ -17,6 +17,12 @@ import type { IconName } from './ui/Icon'
 import type { Order, WaiterCall } from '../lib/orders'
 import type { FloorLayout } from '../lib/floorPlan'
 import TableStatusMap, { type MapTableState } from './TableStatusMap'
+import { useT } from '../i18n/useT'
+import { waiterNs } from '../i18n/ns/waiter'
+import type { StringKey, Translator } from '../i18n/core'
+import type waiterRo from '../i18n/ns/waiter/ro'
+
+type WaiterT = Translator<typeof waiterRo>
 
 interface BoardTable {
   id: string
@@ -37,24 +43,25 @@ interface TableStatusBoardProps {
 
 // Meta per stare: culoare, etichetă, icon. Ordinea de mai jos = și prioritatea
 // de sortare (worst-first): cere nota → cheamă → de servit → ocupată → liberă.
+// Eticheta e cheia din namespace-ul `waiter` (lotul L4b), tradusă la randare.
 const STATE_META: Record<
   TableState,
-  { label: string; color: string; icon: IconName; priority: number }
+  { labelKey: StringKey<typeof waiterRo>; color: string; icon: IconName; priority: number }
 > = {
-  bill: { label: 'Cere nota', color: D.red, icon: 'receipt', priority: 0 },
-  calling: { label: 'Cheamă ospătar', color: D.amber, icon: 'bell', priority: 1 },
-  ready: { label: 'De servit', color: D.green, icon: 'check', priority: 2 },
-  occupied: { label: 'Ocupată', color: D.gold, icon: 'utensils', priority: 3 },
-  free: { label: 'Liberă', color: D.t3, icon: 'table', priority: 4 },
+  bill: { labelKey: 'state_bill', color: D.red, icon: 'receipt', priority: 0 },
+  calling: { labelKey: 'state_calling', color: D.amber, icon: 'bell', priority: 1 },
+  ready: { labelKey: 'state_ready', color: D.green, icon: 'check', priority: 2 },
+  occupied: { labelKey: 'state_occupied', color: D.gold, icon: 'utensils', priority: 3 },
+  free: { labelKey: 'state_free', color: D.t3, icon: 'table', priority: 4 },
 }
 
 // „de 45 min" / „de 1h 20m" din cel mai vechi created_at al rundelor.
-function openSince(oldestIso: string, now: number): string {
+function openSince(oldestIso: string, now: number, t: WaiterT['t']): string {
   const mins = Math.max(0, Math.floor((now - new Date(oldestIso).getTime()) / 60000))
-  if (mins < 60) return `de ${mins} min`
+  if (mins < 60) return t('board_openMin', { n: mins })
   const h = Math.floor(mins / 60)
   const m = mins % 60
-  return m === 0 ? `de ${h}h` : `de ${h}h ${m}m`
+  return m === 0 ? t('board_openH', { h }) : t('board_openHM', { h, m })
 }
 
 interface ComputedTable {
@@ -85,6 +92,7 @@ const BoardTableCard = memo(function BoardTableCard({
   onAddToTable: (tableId: string | null) => void
   renderOrderCard: (order: Order) => ReactNode
 }) {
+  const { t, tp } = useT(waiterNs)
   const meta = STATE_META[c.state]
   const occupied = c.rounds > 0
   return (
@@ -119,7 +127,7 @@ const BoardTableCard = memo(function BoardTableCard({
             {c.name}
           </span>
           {c.seats != null && (
-            <span style={{ fontSize: 11, color: D.t3, flexShrink: 0 }}>{c.seats} loc.</span>
+            <span style={{ fontSize: 11, color: D.t3, flexShrink: 0 }}>{tp('seats', c.seats)}</span>
           )}
         </div>
         <span
@@ -138,7 +146,7 @@ const BoardTableCard = memo(function BoardTableCard({
           }}
         >
           <Icon name={meta.icon} size={12} color={meta.color} />
-          {meta.label}
+          {t(meta.labelKey)}
         </span>
       </div>
 
@@ -153,11 +161,11 @@ const BoardTableCard = memo(function BoardTableCard({
                 color: D.t1,
               }}
             >
-              {c.total.toFixed(2)} lei
+              {t('money', { amount: c.total.toFixed(2) })}
             </span>
             <span style={{ fontSize: 12, color: D.t2 }}>
-              {c.rounds === 1 ? '1 rundă' : `${c.rounds} runde`}
-              {c.oldestIso ? ` · ${openSince(c.oldestIso, now)}` : ''}
+              {tp('board_rounds', c.rounds)}
+              {c.oldestIso ? ` · ${openSince(c.oldestIso, now, t)}` : ''}
             </span>
           </div>
 
@@ -181,10 +189,10 @@ const BoardTableCard = memo(function BoardTableCard({
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button onClick={() => onAddToTable(c.id)} style={primaryBtn}>
               <Icon name="plus" size={15} />
-              Adaugă la masă
+              {t('board_addToTable')}
             </button>
             <button onClick={() => onToggle(c.key)} aria-expanded={isOpen} style={ghostBtn}>
-              {isOpen ? 'Ascunde' : `Vezi (${c.rounds})`}
+              {isOpen ? t('board_hide') : t('board_show', { n: c.rounds })}
               <Icon name={isOpen ? 'chevronDown' : 'chevronRight'} size={14} />
             </button>
           </div>
@@ -199,11 +207,11 @@ const BoardTableCard = memo(function BoardTableCard({
         </>
       ) : (
         <>
-          <div style={{ fontSize: 12, color: D.t3 }}>Nicio comandă deschisă</div>
+          <div style={{ fontSize: 12, color: D.t3 }}>{t('board_noOrders')}</div>
           {c.id != null && (
             <button onClick={() => onAddToTable(c.id)} style={ghostBtnWide}>
               <Icon name="plus" size={15} />
-              Deschide comandă
+              {t('board_openOrder')}
             </button>
           )}
         </>
@@ -220,6 +228,7 @@ export default function TableStatusBoard({
   renderOrderCard,
   floorLayout,
 }: TableStatusBoardProps) {
+  const { t } = useT(waiterNs)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [mapMode, setMapMode] = useState<'grid' | 'map'>('grid')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -227,8 +236,8 @@ export default function TableStatusBoard({
   // render, ceea ce invalida orice memoizare a derivărilor de mai jos.
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 30_000)
-    return () => clearInterval(t)
+    const id = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(id)
   }, [])
 
   // OPT-9: TOATE derivările (grupări, stări, sortare, countere) se
@@ -264,8 +273,8 @@ export default function TableStatusBoard({
     return 'free'
   }
 
-  const computed: ComputedTable[] = tables.map((t) => {
-    const tableOrders = ordersByTable.get(t.id) ?? []
+  const computed: ComputedTable[] = tables.map((tb) => {
+    const tableOrders = ordersByTable.get(tb.id) ?? []
     const total = tableOrders.reduce((s, o) => s + o.total, 0)
     const oldestIso =
       tableOrders.length > 0
@@ -275,12 +284,12 @@ export default function TableStatusBoard({
           )
         : null
     return {
-      key: t.id,
-      id: t.id,
-      name: t.name,
-      seats: t.seats,
+      key: tb.id,
+      id: tb.id,
+      name: tb.name,
+      seats: tb.seats,
       orders: tableOrders,
-      state: computeState(t.id, tableOrders),
+      state: computeState(tb.id, tableOrders),
       total,
       rounds: tableOrders.length,
       oldestIso,
@@ -298,7 +307,7 @@ export default function TableStatusBoard({
     computed.push({
       key: '__none__',
       id: null,
-      name: 'Fără masă',
+      name: t('noTable'),
       seats: null,
       orders: noneOrders,
       state: 'occupied',
@@ -325,7 +334,7 @@ export default function TableStatusBoard({
   ).length
 
   return { computed, noneOrdersCount: noneOrders.length, occupiedCount, freeCount, attentionCount }
-  }, [tables, orders, waiterCalls])
+  }, [tables, orders, waiterCalls, t])
   const { computed, noneOrdersCount, occupiedCount, freeCount, attentionCount } = derived
 
   // ATENȚIE: toate hook-urile ÎNAINTE de orice early-return (Rules of Hooks).
@@ -345,8 +354,8 @@ export default function TableStatusBoard({
     return (
       <EmptyState
         icon="table"
-        title="Nicio masă configurată"
-        description={'Adaugă mese în „Mese & QR” ca să vezi stadiul lor aici.'}
+        title={t('board_emptyTitle')}
+        description={t('board_emptyDesc')}
       />
     )
   }
@@ -354,14 +363,14 @@ export default function TableStatusBoard({
   // ── Pregătire pentru modul Hartă ──
   const hasMap = (floorLayout?.floors?.[0]?.tables?.length ?? 0) > 0
   const tablesByName = new Map<string, string>()
-  for (const t of tables) tablesByName.set(t.name.trim().toLowerCase(), t.id)
+  for (const tb of tables) tablesByName.set(tb.name.trim().toLowerCase(), tb.id)
   const stateById = new Map<string, MapTableState>()
   for (const c of computed) {
     if (c.id == null) continue
     const meta = STATE_META[c.state]
     stateById.set(c.id, {
       color: meta.color,
-      label: meta.label,
+      label: t(meta.labelKey),
       occupied: c.rounds > 0,
       total: c.total,
     })
@@ -382,14 +391,14 @@ export default function TableStatusBoard({
         }}
       >
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          <SummaryPill label="Cer atenție" value={attentionCount} color={D.amber} />
-          <SummaryPill label="Ocupate" value={occupiedCount} color={D.gold} />
-          <SummaryPill label="Libere" value={freeCount} color={D.t3} />
+          <SummaryPill label={t('board_attention')} value={attentionCount} color={D.amber} />
+          <SummaryPill label={t('board_occupied')} value={occupiedCount} color={D.gold} />
+          <SummaryPill label={t('board_free')} value={freeCount} color={D.t3} />
         </div>
         {hasMap && (
           <div
             role="tablist"
-            aria-label="Mod afișare mese"
+            aria-label={t('board_modeAria')}
             style={{
               display: 'inline-flex',
               gap: 4,
@@ -401,10 +410,10 @@ export default function TableStatusBoard({
           >
             {(
               [
-                ['grid', 'Grilă', 'menu'],
-                ['map', 'Hartă', 'table'],
+                ['grid', 'board_grid', 'menu'],
+                ['map', 'board_map', 'table'],
               ] as const
-            ).map(([m, label, icon]) => {
+            ).map(([m, labelKey, icon]) => {
               const active = mapMode === m
               return (
                 <button
@@ -430,7 +439,7 @@ export default function TableStatusBoard({
                   }}
                 >
                   <Icon name={icon} size={14} color={active ? D.bg : D.t2} />
-                  {label}
+                  {t(labelKey)}
                 </button>
               )
             })}
@@ -466,7 +475,7 @@ export default function TableStatusBoard({
                   padding: '12px 8px',
                 }}
               >
-                Atinge o masă pe hartă ca să vezi detaliile.
+                {t('board_tapHint')}
               </div>
             )}
           </div>

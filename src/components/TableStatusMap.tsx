@@ -12,19 +12,26 @@ import { memo } from 'react'
 import type { KeyboardEvent } from 'react'
 import { CANVAS_W, CANVAS_H, resolveTableId, type FloorLayout } from '../lib/floorPlan'
 import { D } from '../lib/constants'
+import { useT } from '../i18n/useT'
+import { waiterNs } from '../i18n/ns/waiter'
 
 // Info de colorare per masă reală (tables.id) — calculată în TableStatusBoard.
 export interface MapTableState {
   color: string // culoarea de status (STATE_META)
-  label: string // eticheta de status („Ocupată" etc.), pentru aria-label
+  label: string // eticheta de status („Ocupată" etc., deja tradusă), pentru aria-label
   occupied: boolean
   total: number
 }
 
+// Alias-uri (nu `Map<…>` direct în interfață): două generice pe rânduri
+// consecutive păcăleau scanerul de text vizibil (SK5) — tipurile sunt aceleași.
+type StateById = Map<string, MapTableState>
+type TableIdByName = Map<string, string>
+
 interface Props {
   layout: FloorLayout
-  stateById: Map<string, MapTableState>
-  tablesByName: Map<string, string>
+  stateById: StateById
+  tablesByName: TableIdByName
   selectedId: string | null
   onSelectTable: (realId: string) => void
 }
@@ -38,6 +45,8 @@ function TableStatusMap({
   selectedId,
   onSelectTable,
 }: Props) {
+  // Lotul L4b: traducătorul nu se numește `t` — `t` e masa din `floor.tables`.
+  const tw = useT(waiterNs)
   // Multi-etaj = follow-up: randăm primul etaj (ca vizualizatorul public).
   const floor = layout.floors[0]
   if (!floor) return null
@@ -60,7 +69,7 @@ function TableStatusMap({
         height="100%"
         preserveAspectRatio="xMidYMid meet"
         role="group"
-        aria-label="Harta sălii — stadiul meselor"
+        aria-label={tw.t('map_aria')}
         style={{ display: 'block' }}
       >
         {/* Zone: fundal subtil + etichetă */}
@@ -198,7 +207,7 @@ function TableStatusMap({
                     fill={color}
                     style={{ userSelect: 'none', pointerEvents: 'none' }}
                   >
-                    {st.total.toFixed(0)} lei
+                    {tw.t('money', { amount: st.total.toFixed(0) })}
                   </text>
                 )}
                 {/* Punct de status în colț — semnal redundant față de culoare */}

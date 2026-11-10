@@ -34,6 +34,16 @@ const en: Translation<typeof ro> = {
   cancel_voidAndCancel: 'Void payments and cancel',
   cancel_cancelling: 'Cancelling…',
 
+  cancelRej_overPayments: 'The order has payments collected and can’t be cancelled. Complete it with a payment.',
+  cancelRej_reasonRequired: 'A reason is required to cancel an order that has been served.',
+  cancelRej_voidReasonRequired: 'A reason is required to void a payment.',
+  cancelRej_role:
+    'Your role doesn’t allow this action (only the owner or a manager can void payments or cancel orders).',
+  cancelRej_terminal: 'The order is already completed and can no longer be cancelled.',
+  cancelRej_network: 'No connection — the cancellation wasn’t sent. Try again.',
+
+  actionError_dismiss: 'Dismiss the message',
+
   edit_title: 'Edit order',
   edit_errMenuLoad: 'The menu couldn’t be loaded',
   edit_errEmpty:

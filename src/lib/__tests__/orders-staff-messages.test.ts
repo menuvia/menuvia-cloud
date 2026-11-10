@@ -17,9 +17,12 @@ import {
 } from '../orders'
 import { makeTranslator } from '../../i18n/core'
 import ordersRo from '../../i18n/ns/orders/ro'
+import waiterRo from '../../i18n/ns/waiter/ro'
 
 // Textele vin din namespace-ul `orders` (lotul L4a); aici, în română.
 const ro = makeTranslator(ordersRo, 'ro')
+// `describeWaiterOrderSent` citește namespace-ul `waiter` (lotul L4b).
+const roWaiter = makeTranslator(waiterRo, 'ro')
 
 // Cuvinte care trădează un text brut al serverului ajuns pe ecran.
 const RAW_ENGLISH =
@@ -254,14 +257,14 @@ describe('describeStaffActionError — acțiunile rapide (Confirmă / Gata / Ser
 
 describe('describeWaiterOrderSent — ospătarul află unde a ajuns comanda', () => {
   it('SM9 comanda rămasă DOAR pe telefon (coada offline, LOCAL-) → avertisment explicit', () => {
-    const m = describeWaiterOrderSent({ short_id: 'LOCAL-4821' })
+    const m = describeWaiterOrderSent({ short_id: 'LOCAL-4821' }, roWaiter)
     expect(m.kind).toBe('warning')
     expect(m.text).toMatch(/DOAR pe acest telefon/)
     expect(m.text).toContain('LOCAL-4821')
   })
 
   it('SM10 comanda ajunsă la server → confirmare cu numărul ei', () => {
-    const m = describeWaiterOrderSent({ short_id: 'A1B2C3' })
+    const m = describeWaiterOrderSent({ short_id: 'A1B2C3' }, roWaiter)
     expect(m.kind).toBe('success')
     expect(m.text).toBe('Comanda #A1B2C3 a fost trimisă la bucătărie.')
   })

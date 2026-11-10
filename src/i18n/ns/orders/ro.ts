@@ -8,8 +8,8 @@
 // `Translation<typeof ro>`. Româna e BYTE-identică cu textele de dinainte —
 // inclusiv „Se trimite...” cu trei puncte și ghilimelele drepte din
 // „Anulează" (textele de dinainte, păstrate ca atare).
-// NU sunt aici: PayModal (același fișier cu OrderCard, ecran fiscal de Plan 3 —
-// rămâne în română, lot separat) și „Reîncearcă” / „Editează” / „Șterge” /
+// NU sunt aici: PayModal (același fișier cu OrderCard — namespace-ul
+// `payments`, lotul L4b) și „Reîncearcă” / „Editează” / „Șterge” /
 // „Se încarcă…”, care vin din `common` (retry/edit/delete/loading). „Anulează”
 // de pe card stă AICI, deliberat (`card_cancel`, nu `common.cancel`): în germană
 // trebuie să fie „Stornieren”, butonul pe care îl numesc `edit_errEmpty` și
@@ -51,6 +51,22 @@ const ro = {
   cancel_voiding: 'Se stornează…',
   cancel_voidAndCancel: 'Stornează plățile și anulează',
   cancel_cancelling: 'Se anulează…',
+
+  // ── Refuzul anulării (describeCancelRejection, lib/orders.ts — lotul L4b) ──
+  // În română mesajul serverului primează (are suma, mig 270); în altă limbă
+  // un text românesc al serverului NU se arată, deci se afișează textul hint-ului.
+  // Ramura implicită fără mesaj folosește `cancel_errGeneric` (același text).
+  cancelRej_overPayments: 'Comanda are plăți încasate și nu poate fi anulată. Finalizează prin plată.',
+  cancelRej_reasonRequired: 'Motivul e obligatoriu pentru anularea unei comenzi servite.',
+  cancelRej_voidReasonRequired: 'Motivul e obligatoriu pentru stornarea unei plăți.',
+  cancelRej_role:
+    'Rolul tău nu permite această acțiune (doar proprietarul sau managerul pot storna plăți sau anula).',
+  cancelRej_terminal: 'Comanda e deja finalizată și nu mai poate fi anulată.',
+  // Doar în alte limbi (în română rămâne mesajul serverului, ca înainte).
+  cancelRej_network: 'Fără conexiune — anularea nu a fost trimisă. Reîncearcă.',
+
+  // ── Nota de refuz de pe card (ActionErrorNote — ospătar, bucătărie) ──
+  actionError_dismiss: 'Închide mesajul',
 
   // ── Editarea comenzii (EditOrderSheet) ──
   edit_title: 'Editează comanda',

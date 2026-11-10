@@ -17,6 +17,9 @@ const de: Translation<typeof ro> = {
   err_not_found: 'Dieses Element existiert nicht mehr oder du hast keinen Zugriff darauf.',
   err_duplicate: 'Ein Element mit diesen Daten existiert bereits.',
   err_forbidden: 'Diese Aktion ist für deine Rolle nicht erlaubt.',
+  elapsed_s: '{n} s',
+  elapsed_m: '{n} Min.',
+  elapsed_hm: '{h} Std. {m} Min.',
   items_count: { one: '{n} Produkt', other: '{n} Produkte' },
 }
 

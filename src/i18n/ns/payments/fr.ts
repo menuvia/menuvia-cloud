@@ -1,0 +1,85 @@
+import type { Translation } from '../../core'
+import type ro from './ro'
+
+const fr: Translation<typeof ro> = {
+  money: '{amount} lei',
+
+  pay_title: 'Enregistrer le paiement',
+  pay_table: 'Table : {table}',
+  pay_subtotal: 'Sous-total :',
+  pay_discount: 'Remise :',
+  pay_discountPct: 'Remise ({value} %) :',
+  pay_minusMoney: '− {amount} lei',
+  pay_totalDue: 'Total à payer :',
+  pay_partiallyPaid: 'Payé en partie :',
+  pay_rest: 'Reste à payer :',
+  pay_discountLocked: 'La remise ne peut plus être modifiée : la commande a déjà des paiements enregistrés.',
+  pay_discountEdit: 'Modifier / retirer la remise',
+  pay_discountApply: 'Appliquer une remise',
+  pay_promoActive: 'Promotion en cours !',
+  pay_promoPct: '{rule} · {value} %',
+  pay_promoAmount: '{rule} · {value} lei',
+  pay_promoApply: 'Appliquer la promotion',
+  pay_method_cash: 'Espèces',
+  pay_method_card_pos: 'Carte (TPE)',
+  pay_method_meal_voucher: 'Titres-restaurant',
+  pay_method_other: 'Autre',
+  pay_tips: 'Pourboire',
+  pay_tipsAmount: '({amount} lei)',
+  pay_tipNone: 'Aucun',
+  pay_tipCustom: 'Montant',
+  pay_tipPct: '{pct} %',
+  pay_amountLabel: 'Montant encaissé (lei)',
+  pay_amountInclTips: '— pourboire inclus',
+  pay_preInvalid: 'Le montant encaissé n’est pas un nombre valide (il doit être supérieur à 0).',
+  pay_preUnder:
+    'Le montant encaissé hors pourboire ({net}) est inférieur au reste à payer ({rest}). Pour un paiement en plusieurs fois, utilisez « Paiement partiel ».',
+  pay_preOver:
+    'Le montant encaissé hors pourboire ({net}) dépasse le reste à payer ({rest}) — le système refusera le paiement. Si la différence est un pourboire, passez-la en Pourboire.',
+  pay_moveToTips: 'Passer {amount} lei en pourboire',
+  pay_errRejected: 'Le paiement n’a pas été enregistré. Vérifiez et réessayez.',
+  pay_errNotRecorded: 'Le paiement n’a pas été enregistré.',
+  pay_processing: 'Traitement…',
+  pay_confirm: 'Confirmer le paiement',
+
+  payRej_amountMismatch:
+    'Le montant ne correspond pas au reste à payer. Vérifiez le montant (sans pourboire) et réessayez.',
+  payRej_amountRequired: 'Saisissez le montant encaissé.',
+  payRej_method:
+    'Ce moyen de paiement ne peut pas être enregistré manuellement (les paiements en ligne viennent de Stripe).',
+  payRej_fiscal: 'Avec la formule incluant la fiscalisation, la commande se finalise par un paiement (ticket fiscal).',
+  payRej_role: 'Votre rôle ne permet pas d’enregistrer des paiements.',
+  payRej_terminal: 'La commande est déjà finalisée.',
+  payRej_withServer: 'Le paiement n’a pas été enregistré : {msg}',
+  payRej_network: 'Pas de connexion — le paiement n’a pas été envoyé. Réessayez.',
+
+  disc_title: '🎁 Remise sur la commande',
+  disc_active: 'Remise active :',
+  disc_activePct: '{value} %',
+  disc_off: '({amount} lei de remise)',
+  disc_reasonShown: 'Motif : {reason}',
+  disc_modePct: 'Pourcentage (%)',
+  disc_modeAmount: 'Montant fixe (lei)',
+  disc_labelPct: 'Pourcentage (1–100)',
+  disc_labelAmount: 'Montant en lei',
+  disc_phPct: 'ex. : 10',
+  disc_phAmount: 'ex. : 5.00',
+  disc_reasonLabel: 'Motif (facultatif)',
+  disc_reasonPh: 'ex. : client fidèle, problème avec le plat, happy hour',
+  disc_subtotal: 'Sous-total :',
+  disc_discount: 'Remise :',
+  disc_minusMoney: '− {amount} lei',
+  disc_newTotal: 'Nouveau total :',
+  disc_remove: '🗑 Supprimer la remise actuelle',
+  disc_applying: 'Application…',
+  disc_update: 'Modifier',
+  disc_apply: 'Appliquer',
+  disc_errApply: 'Erreur lors de l’application',
+  disc_errRemove: 'Erreur lors de la suppression',
+  disc_errOverPayments:
+    'La commande a déjà des paiements enregistrés — la remise ne peut plus être modifiée.',
+  disc_errOnlinePayment:
+    'La commande a un paiement en ligne en cours — la remise ne peut pas être modifiée avant sa finalisation.',
+}
+
+export default fr

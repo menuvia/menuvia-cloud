@@ -19,6 +19,11 @@ const ro = {
   err_not_found: 'Elementul nu mai există sau nu ai acces la el.',
   err_duplicate: 'Există deja un element cu aceste date.',
   err_forbidden: 'Acțiune nepermisă pentru rolul tău.',
+  // Vârsta unei comenzi (`elapsedT`, src/i18n/elapsed.ts) — în română EXACT
+  // `elapsed()` din lib/utils: „30s”, „5m”, „1h 30m”.
+  elapsed_s: '{n}s',
+  elapsed_m: '{n}m',
+  elapsed_hm: '{h}h {m}m',
   items_count: { one: '{n} produs', few: '{n} produse', other: '{n} de produse' },
 }
 

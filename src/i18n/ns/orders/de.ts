@@ -33,6 +33,17 @@ const de: Translation<typeof ro> = {
   cancel_voidAndCancel: 'Zahlungen und Bestellung stornieren',
   cancel_cancelling: 'Wird storniert…',
 
+  cancelRej_overPayments:
+    'Die Bestellung hat bereits kassierte Zahlungen und kann nicht storniert werden. Schließen Sie sie mit einer Zahlung ab.',
+  cancelRej_reasonRequired: 'Für das Stornieren einer servierten Bestellung ist ein Grund erforderlich.',
+  cancelRej_voidReasonRequired: 'Für das Stornieren einer Zahlung ist ein Grund erforderlich.',
+  cancelRej_role:
+    'Ihre Rolle erlaubt diese Aktion nicht (nur Inhaber oder Manager können Zahlungen oder Bestellungen stornieren).',
+  cancelRej_terminal: 'Die Bestellung ist bereits abgeschlossen und kann nicht mehr storniert werden.',
+  cancelRej_network: 'Keine Verbindung — die Stornierung wurde nicht gesendet. Bitte erneut versuchen.',
+
+  actionError_dismiss: 'Meldung schließen',
+
   edit_title: 'Bestellung bearbeiten',
   edit_errMenuLoad: 'Die Speisekarte konnte nicht geladen werden',
   edit_errEmpty:

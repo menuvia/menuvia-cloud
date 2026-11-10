@@ -33,6 +33,17 @@ const fr: Translation<typeof ro> = {
   cancel_voidAndCancel: 'Annuler paiements et commande',
   cancel_cancelling: 'Annulation…',
 
+  cancelRej_overPayments:
+    'La commande a des paiements encaissés et ne peut pas être annulée. Finalisez-la par un paiement.',
+  cancelRej_reasonRequired: 'Le motif est obligatoire pour annuler une commande servie.',
+  cancelRej_voidReasonRequired: 'Le motif est obligatoire pour annuler un paiement.',
+  cancelRej_role:
+    'Votre rôle ne permet pas cette action (seuls le propriétaire ou un manager peuvent annuler les paiements ou la commande).',
+  cancelRej_terminal: 'La commande est déjà finalisée et ne peut plus être annulée.',
+  cancelRej_network: 'Pas de connexion — l’annulation n’a pas été envoyée. Réessayez.',
+
+  actionError_dismiss: 'Fermer le message',
+
   edit_title: 'Modifier la commande',
   edit_errMenuLoad: 'Le menu n’a pas pu être chargé',
   edit_errEmpty:

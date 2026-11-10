@@ -83,8 +83,9 @@ const ALLOWED = [
   },
   {
     file: 'src/components/WaiterOrderCard.tsx',
-    contains: "setErrorMsg(res.message || 'Plata nu a fost înregistrată.",
-    reason: '`res` e refuzul tradus de describePayRejection (sume, metodă, rol) — românesc',
+    contains: "setErrorMsg(res.message || t('pay_errRejected'))",
+    reason:
+      '`res` e refuzul tradus de describePayRejection (sume, metodă, rol) în limba personalului; textul de rezervă e din dicționarul `payments` (lotul L4b)',
   },
   {
     file: 'src/components/PayTableSheet.tsx',

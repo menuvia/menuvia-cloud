@@ -65,7 +65,14 @@ import { PageHeader } from '../components/ui/PageHeader'
 import { EmptyState } from '../components/ui/EmptyState'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { sortByDue } from '../lib/pickupOrders'
-import { toUserMessage } from '../lib/userMessages'
+// Lotul L4b: textele ecranului vin din namespace-ul `waiter` (+ `orders` pentru
+// refuzul anulării, `common` pentru „Reîncearcă” / „Închide” și erori).
+import { useT } from '../i18n/useT'
+import { waiterNs } from '../i18n/ns/waiter'
+import { ordersNs } from '../i18n/ns/orders'
+import { commonNs } from '../i18n/ns/common'
+import { paymentsNs } from '../i18n/ns/payments'
+import { describeStaffError } from '../i18n/staffErrors'
 
 // ── Helpers vizuale ───────────────────────────────────────────
 
@@ -129,6 +136,16 @@ export default function WaiterPage() {
   // UI-ul pe cel mai operațional ecran — un ospătar cu tava în mână nu are ce
   // face cu un dialog modal de sistem.
   const toast = useToast()
+  // Hook-urile de limbă stau SUS, înaintea oricărui return timpuriu. Traducătorul
+  // nu se numește `t`: pagina are deja variabile locale `t` (ora rezervării,
+  // mesele din `.map`).
+  const tw = useT(waiterNs)
+  const to = useT(ordersNs)
+  const tc = useT(commonNs)
+  // `payments` (PayModal, DiscountModal, `describePayRejection`): cerut AICI,
+  // sus, ca modalele de plată să nu suspende la deschidere — PayModal nu are
+  // `<Suspense>` propriu, deci o primă încărcare a limbii ar fi golit pagina.
+  const tpay = useT(paymentsNs)
   // FIX: use RestaurantContext — no more local membership query, supports multi-restaurant
   const {
     activeId: restaurantId,
@@ -172,16 +189,15 @@ export default function WaiterPage() {
         const r = await reprintKitchenTicket(o.id)
         // „În coadă”, nu „a plecat”: RPC-ul doar pune tichetul în coada
         // bridge-ului; tipărirea se vede în Setări → Bridge.
-        if (r === 'ok') toast.success('Tichetul a fost pus în coada bucătăriei.')
-        else if (r === 'no_kitchen_printer')
-          toast.warning('Nu e conectată nicio imprimantă de bucătărie (Setări → Bridge).')
-        else toast.error('Tichetul nu a putut fi retipărit. Reîncearcă.')
+        if (r === 'ok') toast.success(tw.t('reprint_ok'))
+        else if (r === 'no_kitchen_printer') toast.warning(tw.t('reprint_noPrinter'))
+        else toast.error(tw.t('reprint_err'))
       } finally {
         reprintingRef.current.delete(o.id)
         setReprintingIds(new Set(reprintingRef.current))
       }
     },
-    [toast],
+    [toast, tw],
   )
   // Handler STABIL pentru OrderCard (memo, OPT-8); undefined = fără buton.
   const onReprint = useMemo(
@@ -376,8 +392,18 @@ export default function WaiterPage() {
     } catch (err) {
       // Nu mai inghitim tacut o eroare pe o cale de bani (poate masca un refuz de gate / rol).
       console.error('[WaiterPage] plata partiala a esuat', err)
-      const msg = err instanceof Error ? err.message : 'Eroare necunoscută'
-      toast.error(`Plata nu a fost înregistrată: ${msg}. Verifică și reîncearcă.`)
+      // În română: mesajul serverului ca atare (textul de dinainte). În altă
+      // limbă un text românesc al serverului nu se arată: clasa erorii, plafonul
+      // de supra-încasare (hint `overpayment`, mig 258) sau textul generic.
+      const msg = err instanceof Error ? err.message : tw.t('split_errUnknown')
+      toast.error(
+        tw.lang === 'ro'
+          ? tw.t('split_errWithMsg', { msg })
+          : describeStaffError(err, tc, {
+              fallback: tw.t('split_errGeneric'),
+              hints: { overpayment: tw.t('split_errOverpayment'), insufficient_role: tpay.t('payRej_role') },
+            }),
+      )
     }
     setSplitLoading(false)
   }
@@ -419,7 +445,8 @@ export default function WaiterPage() {
 
   // Mese disponibile pentru alocare manuală la așezare
   const [tables, setTables] = useState<{ id: string; name: string; seats: number | null }[]>([])
-  const [tablesLoadError, setTablesLoadError] = useState<string | null>(null)
+  // Eroarea brută: textul se compune la randare, în limba curentă.
+  const [tablesLoadError, setTablesLoadError] = useState<{ err: unknown } | null>(null)
   useEffect(() => {
     if (!restaurantId) {
       setTables([])
@@ -437,7 +464,7 @@ export default function WaiterPage() {
       .then(({ data, error: e }) => {
         if (cancelled) return
         if (e) {
-          setTablesLoadError(toUserMessage(e, 'Nu am putut încărca mesele.'))
+          setTablesLoadError({ err: e })
           setTables([])
         } else {
           setTables((data ?? []) as typeof tables)
@@ -510,10 +537,10 @@ export default function WaiterPage() {
           setAssignedTableIds((prev) => (prev === 'loading' ? null : prev))
           return
         }
-        const ids = data ?? []
-        setAssignedTableIds(
-          ids.length > 0 ? new Set(ids.map((r: Record<string, string>) => r.table_id)) : null,
-        )
+        // Fără `>` urmat de un generic pe același rând (fals-pozitiv al
+        // scanerului SK5); logica e aceeași: zero alocări → null (toate mesele).
+        const ids = (data ?? []) as Array<{ table_id: string }>
+        setAssignedTableIds(ids.length === 0 ? null : new Set(ids.map((r) => r.table_id)))
       } catch {
         if (cancelled) return
         setAssignedTableIds((prev) => (prev === 'loading' ? null : prev))
@@ -632,7 +659,7 @@ export default function WaiterPage() {
       setPayOrder(null)
       return { ok: true }
     } catch (e) {
-      return { ok: false, message: describePayRejection(e) }
+      return { ok: false, message: describePayRejection(e, tpay) }
     }
   }
 
@@ -654,11 +681,11 @@ export default function WaiterPage() {
   // închidea fără niciun semn (ux-staff-order-sent-feedback).
   const handleOrderSent = useCallback(
     (confirmation: OrderConfirmationPayload): void => {
-      const msg = describeWaiterOrderSent(confirmation)
+      const msg = describeWaiterOrderSent(confirmation, tw)
       if (msg.kind === 'warning') toast.warning(msg.text, 10_000)
       else toast.success(msg.text)
     },
-    [toast],
+    [toast, tw],
   )
 
   // „Închide masa": toate comenzile deschise ale sesiunii + sesiunea (QR).
@@ -672,21 +699,37 @@ export default function WaiterPage() {
         try {
           const r = await closeSessionOrders(sessionId)
           const cancelled = r.cancelled_count ?? 0
+          const ordersPart = tw.tp('closeTable_orders', r.closed_count)
           toast.success(
             r.already_closed === true
-              ? 'Masa era deja închisă.'
-              : `Masa a fost închisă (${r.closed_count} ${r.closed_count === 1 ? 'comandă' : 'comenzi'}${
-                  cancelled > 0
-                    ? `, ${cancelled} ${cancelled === 1 ? 'rundă neservită anulată' : 'runde neservite anulate'}`
-                    : ''
-                }).`,
+              ? tw.t('closeTable_already')
+              : cancelled > 0
+                ? tw.t('closeTable_doneCancelled', {
+                    orders: ordersPart,
+                    rounds: tw.tp('closeTable_rounds', cancelled),
+                  })
+                : tw.t('closeTable_done', { orders: ordersPart }),
           )
         } catch (e: unknown) {
-          toast.error(toUserMessage(e, 'Masa nu a putut fi închisă. Reîncearcă.'))
+          // În română: mesajul serverului ca atare (textul de dinainte). În altă
+          // limbă refuzurile de business au textul lor — altfel cădeau pe
+          // „Reîncearcă", deși serverul le va respinge din nou.
+          toast.error(
+            describeStaffError(e, tc, {
+              fallback: tw.t('closeTable_err'),
+              hints:
+                tw.lang === 'ro'
+                  ? undefined
+                  : {
+                      fiscal_plan_requires_payment: tw.t('closeTable_errFiscal'),
+                      cancel_over_payments: tw.t('closeTable_errPayments'),
+                    },
+            }),
+          )
         }
       })()
     },
-    [user, toast],
+    [user, toast, tw, tc],
   )
 
   // OPT-8: memoizate — byStatus e stabil (useCallback pe [orders]) și listele
@@ -737,10 +780,10 @@ export default function WaiterPage() {
   // nu doar prin culoare + title (title nu apare la touch, mobilul e cazul principal).
   const connectionLabel =
     connectionStatus === 'connected'
-      ? 'Live conectat'
+      ? tw.t('header_conn_connected')
       : connectionStatus === 'connecting'
-        ? 'Se conectează…'
-        : 'Deconectat — se face refresh automat la 30s'
+        ? tw.t('header_conn_connecting')
+        : tw.t('header_conn_disconnected')
 
   if (loading) {
     return (
@@ -753,7 +796,7 @@ export default function WaiterPage() {
           justifyContent: 'center',
         }}
       >
-        <span style={{ color: D.t2, fontFamily: 'DM Sans, sans-serif' }}>Se încarcă...</span>
+        <span style={{ color: D.t2, fontFamily: 'DM Sans, sans-serif' }}>{tw.t('loading')}</span>
       </div>
     )
   }
@@ -799,10 +842,10 @@ export default function WaiterPage() {
                 window.history.pushState({}, '', '/dashboard')
                 window.dispatchEvent(new PopStateEvent('popstate'))
               }}
-              title="Înapoi la panoul de administrare"
+              title={tw.t('header_backTitle')}
               style={{ flexShrink: 0 }}
             >
-              Înapoi la panou
+              {tw.t('header_back')}
             </Button>
           )}
           <div style={{ minWidth: 0, flex: '1 1 auto' }}>
@@ -810,7 +853,7 @@ export default function WaiterPage() {
               <PageHeader
                 as="h1"
                 compact
-                title={isAdminRole ? 'Comenzi live' : 'Ospătar'}
+                title={isAdminRole ? tw.t('header_titleAdmin') : tw.t('header_titleWaiter')}
                 style={{ flex: '0 1 auto', minWidth: 0 }}
               />
               <span
@@ -848,8 +891,7 @@ export default function WaiterPage() {
                 }}
               >
                 <Icon name="table" size={12} />
-                {assignedTableIds.size}{' '}
-                {assignedTableIds.size === 1 ? 'masă alocată' : 'mese alocate'} · Comenzile tale
+                {tw.tp('header_assigned', assignedTableIds.size)}
               </div>
             ) : (
               <div
@@ -865,7 +907,7 @@ export default function WaiterPage() {
                 {restaurantName.length > 0
                   ? restaurantName
                   : isAdminRole
-                    ? 'Vizualizare admin · vezi tot live'
+                    ? tw.t('header_adminView')
                     : ''}
               </div>
             )}
@@ -888,7 +930,7 @@ export default function WaiterPage() {
             <select
               value={restaurantId ?? ''}
               onChange={(e) => setActive(e.target.value)}
-              aria-label="Selectează restaurantul activ"
+              aria-label={tw.t('header_selectRestaurant')}
               style={{
                 background: D.s3,
                 border: `1px solid ${D.s3}`,
@@ -915,10 +957,10 @@ export default function WaiterPage() {
             variant="secondary"
             onClick={() => setShowSoldOut(true)}
             icon={<Icon name="alert" size={15} />}
-            aria-label="Produse epuizate — marchează ce s-a terminat"
+            aria-label={tw.t('header_soldOutAria')}
             style={{ flexShrink: 0 }}
           >
-            Epuizate
+            {tw.t('header_soldOut')}
           </Button>
           <Button
             variant="primary"
@@ -930,16 +972,14 @@ export default function WaiterPage() {
             icon={<Icon name="plus" size={16} />}
             style={{ flexShrink: 0 }}
           >
-            Comandă nouă
+            {tw.t('header_newOrder')}
           </Button>
           {/* Ieșirea din cont, pentru ORICE rol — ospătarul nu avea niciuna. */}
           <SignOutButton
             variant="header"
             warning={
               offlineQueue.pendingCount > 0
-                ? `Ai ${offlineQueue.pendingCount} ${
-                    offlineQueue.pendingCount === 1 ? 'comandă salvată' : 'comenzi salvate'
-                  } doar pe acest telefon, încă netrimise.`
+                ? tw.tp('header_signOutPending', offlineQueue.pendingCount)
                 : undefined
             }
           />
@@ -966,15 +1006,14 @@ export default function WaiterPage() {
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <Icon name={offlineQueue.isOffline ? 'wifi' : 'refresh'} size={14} />
             {offlineQueue.isOffline
-              ? 'Mod Offline — Comenzile se salvează pe telefon și pleacă singure când revine conexiunea.'
+              ? tw.t('offline_mode')
               : offlineQueue.authRequired
-                ? 'Sesiunea a expirat — comenzile salvate pe telefon NU pleacă până te reconectezi.'
-                : 'Se trimit comenzile salvate pe telefon (reîncercare automată).'}
+                ? tw.t('offline_authRequired')
+                : tw.t('offline_syncing')}
           </span>
           {offlineQueue.pendingCount > 0 && (
             <span style={{ background: D.scrim, padding: '2px 8px', borderRadius: 12 }}>
-              {offlineQueue.pendingCount}{' '}
-              {offlineQueue.pendingCount === 1 ? 'comandă în așteptare' : 'comenzi în așteptare'}
+              {tw.tp('offline_pending', offlineQueue.pendingCount)}
             </span>
           )}
         </div>
@@ -997,12 +1036,12 @@ export default function WaiterPage() {
           }}
         >
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Icon name="alert" size={14} />O comandă offline nu a putut fi trimisă și a fost
-            anulată ({offlineQueue.droppedReason}). Reintrodu-o manual.
+            <Icon name="alert" size={14} />
+            {tw.t('offline_dropped', { reason: offlineQueue.droppedReason })}
           </span>
           <button
             onClick={offlineQueue.dismissDropped}
-            aria-label="Închide avertismentul"
+            aria-label={tw.t('offline_dismissAria')}
             style={{
               background: D.scrim,
               color: D.onSolid,
@@ -1026,8 +1065,7 @@ export default function WaiterPage() {
           role="status"
           style={{ background: D.amberA, color: D.amber, padding: '8px 24px', fontSize: 13 }}
         >
-          Se afișează doar cele mai noi {STAFF_ORDERS_FETCH_LIMIT} comenzi deschise — finalizează
-          sau anulează comenzile vechi ca lista să fie completă.
+          {tw.t('list_truncated', { limit: STAFF_ORDERS_FETCH_LIMIT })}
         </div>
       )}
 
@@ -1038,8 +1076,8 @@ export default function WaiterPage() {
           role="alert"
           style={{ background: D.redA, color: D.red, padding: '8px 24px', fontSize: 13 }}
         >
-          Nu am putut încărca comenzile. Verifică conexiunea — lista se reîmprospătează
-          automat. <span style={{ opacity: 0.65, fontSize: 11 }}>({error})</span>
+          {tw.t('list_loadError')}{' '}
+          <span style={{ opacity: 0.65, fontSize: 11 }}>({error})</span>
         </div>
       )}
 
@@ -1073,14 +1111,14 @@ export default function WaiterPage() {
               fontSize: 13,
             }}
           >
-            <span>Nu am putut încărca planul restaurantului — plata și închiderea comenzilor sunt indisponibile.</span>
+            <span>{tw.t('plan_loadError')}</span>
             <Button
               variant="primary"
               size="sm"
               onClick={() => void restaurantFeatures.reload()}
               style={{ flexShrink: 0 }}
             >
-              Reîncearcă
+              {tc.t('retry')}
             </Button>
           </div>
         )}
@@ -1089,7 +1127,7 @@ export default function WaiterPage() {
         {paymentsEnabled === true && (
           <div
             role="tablist"
-            aria-label="Vedere comenzi"
+            aria-label={tw.t('view_aria')}
             style={{
               display: 'inline-flex',
               gap: 4,
@@ -1102,10 +1140,10 @@ export default function WaiterPage() {
           >
             {(
               [
-                ['lista', 'Listă comenzi', 'orders'],
-                ['mese', 'Stadiu mese', 'table'],
+                ['lista', 'view_list', 'orders'],
+                ['mese', 'view_tables', 'table'],
               ] as const
-            ).map(([v, label, icon]) => {
+            ).map(([v, labelKey, icon]) => {
               const active = view === v
               return (
                 <button
@@ -1131,7 +1169,7 @@ export default function WaiterPage() {
                   }}
                 >
                   <Icon name={icon} size={15} color={active ? D.bg : D.t2} />
-                  {label}
+                  {tw.t(labelKey)}
                 </button>
               )
             })}
@@ -1161,7 +1199,7 @@ export default function WaiterPage() {
               }}
             >
               <Icon name="calendar" size={14} />
-              Rezervări azi ({activeReservations.length})
+              {tw.t('resv_title', { n: activeReservations.length })}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {activeReservations.map((r) => {
@@ -1210,15 +1248,16 @@ export default function WaiterPage() {
                         }}
                       >
                         {r.status === 'seated'
-                          ? 'AȘEZAT'
+                          ? tw.t('resv_seated')
                           : r.status === 'confirmed'
-                            ? 'CONFIRMAT'
-                            : 'ÎN AȘTEPTARE'}
+                            ? tw.t('resv_confirmed')
+                            : tw.t('resv_pending')}
                       </span>
                     </div>
                     <div style={{ fontSize: 13, color: D.t2, marginBottom: 10 }}>
-                      {r.party_size} {r.party_size === 1 ? 'persoană' : 'persoane'}
-                      {r.table?.name ? ` · Masa ${r.table.name}` : ' · fără masă'}
+                      {tw.tp('resv_party', r.party_size)}
+                      {' · '}
+                      {r.table?.name ? tw.t('resv_atTable', { table: r.table.name }) : tw.t('resv_noTable')}
                       {' · '}
                       <a href={'tel:' + r.customer_phone} style={{ color: D.gold }}>
                         {r.customer_phone}
@@ -1239,7 +1278,7 @@ export default function WaiterPage() {
                         }}
                       >
                         <Icon name="leaf" size={13} />
-                        Cere zona: {r.requested_zone}
+                        {tw.t('resv_zone', { zone: r.requested_zone })}
                       </div>
                     )}
                     {r.special_requests && (
@@ -1254,7 +1293,7 @@ export default function WaiterPage() {
                           borderRadius: 6,
                         }}
                       >
-                        „{r.special_requests}"
+                        {tw.t('resv_special', { text: r.special_requests })}
                       </div>
                     )}
                     {r.status !== 'seated' &&
@@ -1281,7 +1320,7 @@ export default function WaiterPage() {
                                 fontSize: 13,
                               }}
                             >
-                              <option value="">Alege masă…</option>
+                              <option value="">{tw.t('resv_pickTable')}</option>
                               {tables.map((t) => (
                                 <option key={t.id} value={t.id}>
                                   {t.name}
@@ -1295,26 +1334,26 @@ export default function WaiterPage() {
                               onClick={() => {
                                 if (!canSeat) return
                                 void seatReservation(r.id, pick).catch((e) =>
-                                  toast.error(toUserMessage(e)),
+                                  toast.error(describeStaffError(e, tc)),
                                 )
                               }}
                               disabled={!canSeat}
-                              title={canSeat ? 'Marchează ca așezat' : 'Alege întâi o masă'}
+                              title={canSeat ? tw.t('resv_seatTitle') : tw.t('resv_pickFirst')}
                               style={{ flex: 1 }}
                             >
-                              Așezat
+                              {tw.t('resv_seat')}
                             </Button>
                             <Button
                               variant="secondary"
                               size="sm"
                               onClick={() => {
-                                if (!confirm('Marchezi ca no-show?')) return
+                                if (!confirm(tw.t('resv_noShowConfirm'))) return
                                 void updateReservationStatus(r.id, 'no_show').catch((e) =>
-                                  toast.error(toUserMessage(e)),
+                                  toast.error(describeStaffError(e, tc)),
                                 )
                               }}
                             >
-                              No-show
+                              {tw.t('resv_noShow')}
                             </Button>
                           </div>
                         )
@@ -1334,7 +1373,11 @@ export default function WaiterPage() {
                   borderRadius: 6,
                 }}
               >
-                Nu am putut încărca lista meselor: {tablesLoadError}
+                {tw.t('resv_tablesError', {
+                  error: describeStaffError(tablesLoadError.err, tc, {
+                    fallback: tw.t('resv_tablesErrorFallback'),
+                  }),
+                })}
               </div>
             )}
           </div>
@@ -1347,7 +1390,7 @@ export default function WaiterPage() {
           <>
         {readyOrders.length > 0 && (
           <div>
-            <SectionHeading label="Gata de servit" count={readyOrders.length} color={D.green} />
+            <SectionHeading label={tw.t('section_ready')} count={readyOrders.length} color={D.green} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {readyOrders.map((order, i) => (
                 <RevealItem key={order.id} delay={Math.min(i, 5) * 40}>
@@ -1367,7 +1410,7 @@ export default function WaiterPage() {
         {/* Section 0 - Waiter Calls */}
         {waiterCalls.length > 0 && (
           <div>
-            <SectionHeading label="Apeluri ospătar" count={waiterCalls.length} color={D.amber} />
+            <SectionHeading label={tw.t('section_calls')} count={waiterCalls.length} color={D.amber} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {/* „Cere nota" înaintea chemărilor simple — clientul care vrea
                   să plătească e mai urgent decât cel care vrea să întrebe ceva */}
@@ -1409,9 +1452,9 @@ export default function WaiterPage() {
                         name={call.call_type === 'bill' ? 'receipt' : 'bell'}
                         size={16}
                         color={D.amber}
-                        label={call.call_type === 'bill' ? 'Cere nota' : 'Apel ospătar'}
+                        label={call.call_type === 'bill' ? tw.t('call_billAria') : tw.t('call_waiterAria')}
                       />
-                      {call.table?.name ?? 'Masă necunoscută'}
+                      {call.table?.name ?? tw.t('call_unknownTable')}
                       {call.call_type === 'bill' && (
                         <span
                           style={{
@@ -1425,11 +1468,11 @@ export default function WaiterPage() {
                             verticalAlign: 'middle',
                           }}
                         >
-                          CERE NOTA
+                          {tw.t('call_billBadge')}
                           {call.tip_amount != null && Number(call.tip_amount) > 0 && (
                             <>
                               {' '}
-                              · bacșiș propus {Number(call.tip_amount).toFixed(2)} lei
+                              {tw.t('call_tip', { amount: Number(call.tip_amount).toFixed(2) })}
                             </>
                           )}
                         </span>
@@ -1447,7 +1490,7 @@ export default function WaiterPage() {
                     className="pressable"
                     onClick={() => handleResolveCall(call.id)}
                   >
-                    Preiau
+                    {tw.t('call_take')}
                   </Button>
                 </div>
               ))}
@@ -1458,7 +1501,7 @@ export default function WaiterPage() {
         {/* Section 2 — All open orders */}
         <div>
           <SectionHeading
-            label="Toate comenzile deschise"
+            label={tw.t('section_open')}
             count={openOrders.length}
             color={D.t2}
           />
@@ -1467,7 +1510,7 @@ export default function WaiterPage() {
                 Fără refactor — doar render-ul e grupat; cardurile rămân identice. */}
             {Array.from(
               openOrders.reduce((m, o) => {
-                const key = o.table?.name ?? 'Fără masă'
+                const key = o.table?.name ?? tw.t('noTable')
                 const arr = m.get(key) ?? []
                 arr.push(o)
                 m.set(key, arr)
@@ -1498,7 +1541,7 @@ export default function WaiterPage() {
                     {tableName}
                   </span>
                   <span style={{ fontSize: 12, color: D.t2 }}>
-                    {tableOrders.length === 1 ? '1 comandă' : `${tableOrders.length} comenzi`}
+                    {tw.tp('group_orders', tableOrders.length)}
                   </span>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1529,7 +1572,7 @@ export default function WaiterPage() {
               </div>
             ))}
             {openOrders.length === 0 && (
-              <EmptyState icon="utensils" title="Nicio comandă deschisă" />
+              <EmptyState icon="utensils" title={tw.t('empty_open')} />
             )}
           </div>
         </div>
@@ -1672,10 +1715,12 @@ export default function WaiterPage() {
                 color: D.t1,
               }}
             >
-              Plată parțială
+              {tw.t('split_title')}
             </div>
             <div>
-              <div style={{ color: D.t2, fontSize: 13 }}>Masa: {splitOrder.table?.name ?? '-'}</div>
+              <div style={{ color: D.t2, fontSize: 13 }}>
+                {tw.t('split_table', { table: splitOrder.table?.name ?? '-' })}
+              </div>
               <div
                 style={{
                   fontFamily: D.fontDisplay,
@@ -1684,7 +1729,7 @@ export default function WaiterPage() {
                   color: D.gold,
                 }}
               >
-                {splitOrder.total.toFixed(2)} lei
+                {tw.t('money', { amount: splitOrder.total.toFixed(2) })}
               </div>
             </div>
 
@@ -1694,7 +1739,7 @@ export default function WaiterPage() {
               {splitPayments.length > 0 && (
                 <>
                   <div style={{ fontSize: 12, color: D.t2, marginBottom: 8 }}>
-                    Plăți înregistrate:
+                    {tw.t('split_recorded')}
                   </div>
                   {splitPayments.map((p) => (
                     <div
@@ -1708,9 +1753,17 @@ export default function WaiterPage() {
                       }}
                     >
                       <span>
-                        {p.method === 'cash' ? 'Cash' : p.method === 'card_pos' ? 'Card' : p.method === 'meal_voucher' ? 'Tichete de masă' : 'Altul'}
+                        {p.method === 'cash'
+                          ? tw.t('split_listCash')
+                          : p.method === 'card_pos'
+                            ? tw.t('split_listCard')
+                            : p.method === 'meal_voucher'
+                              ? tw.t('split_listVoucher')
+                              : tw.t('split_listOther')}
                       </span>
-                      <span style={{ color: D.green }}>{p.amount.toFixed(2)} lei</span>
+                      <span style={{ color: D.green }}>
+                        {tw.t('money', { amount: p.amount.toFixed(2) })}
+                      </span>
                     </div>
                   ))}
                 </>
@@ -1726,13 +1779,14 @@ export default function WaiterPage() {
                   fontWeight: 600,
                 }}
               >
-                <span style={{ color: D.t2 }}>Rămas:</span>
+                <span style={{ color: D.t2 }}>{tw.t('split_remaining')}</span>
                 <span style={{ color: D.t1 }}>
-                  {Math.max(
-                    0,
-                    splitOrder.total - splitPayments.reduce((s, p) => s + p.amount, 0),
-                  ).toFixed(2)}{' '}
-                  lei
+                  {tw.t('money', {
+                    amount: Math.max(
+                      0,
+                      splitOrder.total - splitPayments.reduce((s, p) => s + p.amount, 0),
+                    ).toFixed(2),
+                  })}
                 </span>
               </div>
             </div>
@@ -1756,13 +1810,19 @@ export default function WaiterPage() {
                     cursor: 'pointer',
                   }}
                 >
-                  {m === 'cash' ? 'Cash' : m === 'card_pos' ? 'Card' : m === 'meal_voucher' ? 'Tichete' : 'Altul'}
+                  {m === 'cash'
+                    ? tw.t('split_btnCash')
+                    : m === 'card_pos'
+                      ? tw.t('split_btnCard')
+                      : m === 'meal_voucher'
+                        ? tw.t('split_btnVoucher')
+                        : tw.t('split_btnOther')}
                 </button>
               ))}
             </div>
 
             <div>
-              <div style={{ color: D.t2, fontSize: 12, marginBottom: 6 }}>Suma (lei)</div>
+              <div style={{ color: D.t2, fontSize: 12, marginBottom: 6 }}>{tw.t('split_amountLabel')}</div>
               <input
                 type="number"
                 value={splitAmount}
@@ -1793,7 +1853,7 @@ export default function WaiterPage() {
               disabled={!splitAmount}
               loading={splitLoading}
             >
-              {splitLoading ? 'Se procesează...' : 'Adaugă plata'}
+              {splitLoading ? tw.t('split_processing') : tw.t('split_add')}
             </Button>
             <Button
               variant="secondary"
@@ -1801,7 +1861,7 @@ export default function WaiterPage() {
               className="pressable"
               onClick={() => setSplitOrder(null)}
             >
-              Închide
+              {tc.t('close')}
             </Button>
           </div>
         </div>
@@ -1835,7 +1895,7 @@ export default function WaiterPage() {
               void getOrderPayments(cancelOrder.id)
                 .then(setCancelPayments)
                 .catch(() => setCancelPayments(null))
-              return { ok: false, message: describeCancelRejection(e) }
+              return { ok: false, message: describeCancelRejection(e, to) }
             }
           }}
           onConfirm={async (reason) => {
@@ -1851,7 +1911,7 @@ export default function WaiterPage() {
             } catch (e) {
               // Refuzul serverului (cancel_over_payments / cancel_reason_required
               // / rol) ajunge ÎN dialog, cu textul lui, nu ca eroare generică.
-              return { ok: false, message: describeCancelRejection(e) }
+              return { ok: false, message: describeCancelRejection(e, to) }
             }
           }}
         />
@@ -1896,11 +1956,23 @@ export default function WaiterPage() {
 // Clientul își arată codul de 6 caractere de pe cardul de puncte; ospătarul
 // îl introduce aici. RPC-ul redeem_loyalty_reward e gate-uit server-side
 // (is_member + modul + plan + program activ) și scade pragul atomic.
+// Lotul L4b: rezultatul se ține ca DATE (nu ca text), iar mesajul se compune
+// la randare, în limba curentă. Recompensa e textul localului (dată).
+type RedeemResult =
+  | { kind: 'ok'; reward: string; points: number }
+  | { kind: 'not_enough'; points: number; threshold: number | null }
+  | { kind: 'not_found' }
+  | { kind: 'inactive' }
+  | { kind: 'failed' }
+  | { kind: 'error'; err: unknown }
+
 function LoyaltyRedeem({ restaurantId }: { restaurantId: string }) {
+  const { t } = useT(waiterNs)
+  const tc = useT(commonNs)
   const [open, setOpen] = useState(false)
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+  const [result, setResult] = useState<RedeemResult | null>(null)
 
   async function doRedeem(): Promise<void> {
     if (busy || code.trim().length < 4) return
@@ -1909,27 +1981,38 @@ function LoyaltyRedeem({ restaurantId }: { restaurantId: string }) {
     try {
       const r = await redeemLoyaltyReward(restaurantId, code)
       if (r.ok) {
-        setResult({
-          ok: true,
-          text: `Recompensă: ${r.reward_description}. Puncte rămase: ${r.points_left ?? 0}.`,
-        })
+        setResult({ kind: 'ok', reward: String(r.reward_description), points: r.points_left ?? 0 })
         setCode('')
       } else if (r.reason === 'not_enough_points') {
-        setResult({
-          ok: false,
-          text: `Puncte insuficiente: ${r.points ?? 0} din ${r.threshold ?? '—'} necesare.`,
-        })
+        setResult({ kind: 'not_enough', points: r.points ?? 0, threshold: r.threshold ?? null })
       } else if (r.reason === 'not_found') {
-        setResult({ ok: false, text: 'Cod negăsit — verifică-l cu clientul.' })
+        setResult({ kind: 'not_found' })
       } else if (r.reason === 'program_inactive') {
-        setResult({ ok: false, text: 'Programul de fidelizare nu e activ.' })
+        setResult({ kind: 'inactive' })
       } else {
-        setResult({ ok: false, text: 'Nu am putut verifica codul. Încearcă din nou.' })
+        setResult({ kind: 'failed' })
       }
     } catch (e) {
-      setResult({ ok: false, text: toUserMessage(e, 'Nu am putut verifica codul. Încearcă din nou.') })
+      setResult({ kind: 'error', err: e })
     }
     setBusy(false)
+  }
+
+  function resultText(res: RedeemResult): string {
+    switch (res.kind) {
+      case 'ok':
+        return t('loyalty_ok', { reward: res.reward, points: res.points })
+      case 'not_enough':
+        return t('loyalty_notEnough', { points: res.points, threshold: res.threshold ?? '—' })
+      case 'not_found':
+        return t('loyalty_notFound')
+      case 'inactive':
+        return t('loyalty_inactive')
+      case 'failed':
+        return t('loyalty_err')
+      case 'error':
+        return describeStaffError(res.err, tc, { fallback: t('loyalty_err') })
+    }
   }
 
   return (
@@ -1944,7 +2027,7 @@ function LoyaltyRedeem({ restaurantId }: { restaurantId: string }) {
         className="pressable"
         icon={<Icon name="star" size={15} color={D.gold} />}
       >
-        Fidelizare — cod client
+        {t('loyalty_button')}
       </Button>
       {open && (
         <div
@@ -1961,9 +2044,9 @@ function LoyaltyRedeem({ restaurantId }: { restaurantId: string }) {
             <input
               value={code}
               onChange={(e) => setCode(e.target.value.toUpperCase())}
-              placeholder="Ex: A1B2C3"
+              placeholder={t('loyalty_placeholder')}
               maxLength={6}
-              aria-label="Codul de fidelizare al clientului"
+              aria-label={t('loyalty_aria')}
               style={{
                 flex: 1,
                 minHeight: 40,
@@ -1987,7 +2070,7 @@ function LoyaltyRedeem({ restaurantId }: { restaurantId: string }) {
               loading={busy}
               className="pressable"
             >
-              {busy ? 'Se verifică…' : 'Răscumpără'}
+              {busy ? t('loyalty_checking') : t('loyalty_redeem')}
             </Button>
           </div>
           {result && (
@@ -1996,13 +2079,13 @@ function LoyaltyRedeem({ restaurantId }: { restaurantId: string }) {
                 marginTop: 10,
                 padding: '8px 12px',
                 borderRadius: 8,
-                background: result.ok ? D.greenA : D.redA,
-                color: result.ok ? D.green : D.red,
+                background: result.kind === 'ok' ? D.greenA : D.redA,
+                color: result.kind === 'ok' ? D.green : D.red,
                 fontSize: 13,
                 lineHeight: 1.5,
               }}
             >
-              {result.text}
+              {resultText(result)}
             </div>
           )}
         </div>

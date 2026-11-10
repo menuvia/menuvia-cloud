@@ -11,6 +11,11 @@ import userEvent from '@testing-library/user-event'
 import CancelOrderDialog from '../CancelOrderDialog'
 import { makeOrder } from './fixtures'
 import { describeCancelRejection } from '../../lib/orders'
+import { makeTranslator } from '../../i18n/core'
+import ordersRo from '../../i18n/ns/orders/ro'
+
+// Lotul L4b: textele refuzului vin din namespace-ul `orders`; aici, în română.
+const ro = makeTranslator(ordersRo, 'ro')
 
 const PAYMENTS = [
   { id: 'pay-1', amount: 60, method: 'cash', created_at: '2026-09-07T10:00:00Z' },
@@ -154,22 +159,22 @@ describe('describeCancelRejection', () => {
     const over = Object.assign(new Error('Comanda are plăți înregistrate (60 lei) și nu poate fi anulată'), {
       hint: 'cancel_over_payments',
     })
-    expect(describeCancelRejection(over)).toMatch(/60 lei/)
-    expect(describeCancelRejection(Object.assign(new Error('x'), { hint: 'cancel_reason_required' }))).toMatch(
+    expect(describeCancelRejection(over, ro)).toMatch(/60 lei/)
+    expect(describeCancelRejection(Object.assign(new Error('x'), { hint: 'cancel_reason_required' }), ro)).toMatch(
       /motivul e obligatoriu/i,
     )
-    expect(describeCancelRejection(Object.assign(new Error('x'), { hint: 'void_reason_required' }))).toMatch(
+    expect(describeCancelRejection(Object.assign(new Error('x'), { hint: 'void_reason_required' }), ro)).toMatch(
       /stornarea/i,
     )
-    expect(describeCancelRejection(Object.assign(new Error('x'), { hint: 'role_insufficient' }))).toMatch(
+    expect(describeCancelRejection(Object.assign(new Error('x'), { hint: 'role_insufficient' }), ro)).toMatch(
       /proprietarul sau managerul/i,
     )
-    expect(describeCancelRejection(Object.assign(new Error('x'), { hint: 'order_terminal' }))).toMatch(
+    expect(describeCancelRejection(Object.assign(new Error('x'), { hint: 'order_terminal' }), ro)).toMatch(
       /deja finalizată/i,
     )
     // Hint necunoscut → mesajul serverului primează; fără mesaj → textul generic.
-    expect(describeCancelRejection(new Error('boom'))).toBe('boom')
-    expect(describeCancelRejection(new Error(''))).toMatch(/verifică rolul tău/i)
-    expect(describeCancelRejection(null)).toMatch(/verifică rolul tău/i)
+    expect(describeCancelRejection(new Error('boom'), ro)).toBe('boom')
+    expect(describeCancelRejection(new Error(''), ro)).toMatch(/verifică rolul tău/i)
+    expect(describeCancelRejection(null, ro)).toMatch(/verifică rolul tău/i)
   })
 })

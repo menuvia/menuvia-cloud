@@ -11,7 +11,6 @@
 // la valoarea lor; nu au voie să crească nici ele.
 export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
   'src/App.tsx': 3,
-  'src/components/ActionErrorNote.tsx': 1,
   'src/components/AddLocationCard.tsx': 12,
   'src/components/AiBulkGenerate.tsx': 36,
   'src/components/AiChatbot.tsx': 37,
@@ -23,7 +22,6 @@ export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
   'src/components/CashRegisterTab.tsx': 104,
   'src/components/CategoriesTab.tsx': 51,
   'src/components/CheckoutReturnBanner.tsx': 9,
-  'src/components/DiscountModal.tsx': 19,
   'src/components/FloorPlanEditor.tsx': 92,
   'src/components/FounderActivationCard.tsx': 8,
   'src/components/FounderAiPanel.tsx': 22,
@@ -52,15 +50,11 @@ export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
   'src/components/SmsNotificationsCard.tsx': 10,
   'src/components/StaffSoldOutSheet.tsx': 18,
   'src/components/StocksTab.tsx': 136,
-  'src/components/TableStatusBoard.tsx': 20,
-  'src/components/TableStatusMap.tsx': 3,
   'src/components/TablesManager.tsx': 117,
   'src/components/TeamManager.tsx': 38,
   'src/components/TranslationsTab.tsx': 43,
   'src/components/VatRatesEditor.tsx': 21,
   'src/components/VatReportTab.tsx': 25,
-  'src/components/WaiterAssignments.tsx': 23,
-  'src/components/WaiterOrderCard.tsx': 39,
   'src/components/_dashboard/ExtraTranslations.tsx': 6,
   'src/components/_dashboard/ProductOrderModal.tsx': 8,
   'src/components/_dashboard/ProductTranslations.tsx': 18,
@@ -96,5 +90,4 @@ export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
   'src/pages/RezervariPage.tsx': 36,
   'src/pages/SalesInviteRedeemPage.tsx': 37,
   'src/pages/VerticalPage.tsx': 79,
-  'src/pages/WaiterPage.tsx': 90,
 }

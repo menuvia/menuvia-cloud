@@ -1,8 +1,10 @@
 // ─────────────────────────────────────────────────────────────
 // DiscountModal — Aplică / scoate reducere pe o comandă
 //
-// Folosit din WaiterPage (înainte de plată) și DashboardPage.
+// Folosit din WaiterPage (înainte de plată; butonul din PayModal).
 // Permisiune: doar owner/manager (verificat de RPC).
+// Textele vin din namespace-ul `payments` (+ „Anulează” din `common`, lotul
+// L4b). Calculul previzualizării și apelurile RPC sunt NEATINSE.
 //
 // Suportă:
 //   • Procent (1-100%)
@@ -17,7 +19,37 @@ import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { Order } from '../lib/orders'
 import { applyOrderDiscount, removeOrderDiscount, orderSubtotal } from '../lib/orders'
 import { D } from '../lib/constants'
-import { toUserMessage } from '../lib/userMessages'
+import { useT } from '../i18n/useT'
+import { paymentsNs } from '../i18n/ns/payments'
+import { commonNs } from '../i18n/ns/common'
+import { describeStaffError } from '../i18n/staffErrors'
+import type { Translator } from '../i18n/core'
+import type commonRo from '../i18n/ns/common/ro'
+import type paymentsRo from '../i18n/ns/payments/ro'
+
+/**
+ * Refuzul RPC-ului de reducere. În ROMÂNĂ exact `toUserMessage(e, fallback)`
+ * de dinainte (mesajul serverului ca atare — hint-urile NU se aplică, altfel
+ * româna s-ar schimba); în altă limbă hint-urile de business din mig 291 au
+ * textul lor, restul cade pe clasa erorii sau pe textul de rezervă.
+ */
+function describeDiscountError(
+  e: unknown,
+  t: Translator<typeof paymentsRo>['t'],
+  tc: Translator<typeof commonRo>,
+  fallback: string,
+): string {
+  return describeStaffError(e, tc, {
+    fallback,
+    hints:
+      tc.lang === 'ro'
+        ? undefined
+        : {
+            discount_over_payments: t('disc_errOverPayments'),
+            discount_online_payment: t('disc_errOnlinePayment'),
+          },
+  })
+}
 
 interface Props {
   order: Order
@@ -27,6 +59,9 @@ interface Props {
 
 export default function DiscountModal({ order, onClose, onApplied }: Props) {
   useBodyScrollLock(true)
+  // Hook-urile de limbă, necondiționat, sus (WaiterPage cere deja `payments`).
+  const { t } = useT(paymentsNs)
+  const tc = useT(commonNs)
   const subtotal = useMemo(() => orderSubtotal(order), [order])
   const hasExisting = order.discount_type != null && order.discount_value != null
 
@@ -58,7 +93,7 @@ export default function DiscountModal({ order, onClose, onApplied }: Props) {
       onApplied()
       onClose()
     } catch (e) {
-      setErr(toUserMessage(e, 'Eroare la aplicare'))
+      setErr(describeDiscountError(e, t, tc, t('disc_errApply')))
     } finally {
       setBusy(false)
     }
@@ -72,7 +107,7 @@ export default function DiscountModal({ order, onClose, onApplied }: Props) {
       onApplied()
       onClose()
     } catch (e) {
-      setErr(toUserMessage(e, 'Eroare la ștergere'))
+      setErr(describeDiscountError(e, t, tc, t('disc_errRemove')))
     } finally {
       setBusy(false)
     }
@@ -116,7 +151,7 @@ export default function DiscountModal({ order, onClose, onApplied }: Props) {
               color: D.t1,
             }}
           >
-            🎁 Reducere pe comandă
+            {t('disc_title')}
           </div>
           <button
             onClick={onClose}
@@ -145,14 +180,16 @@ export default function DiscountModal({ order, onClose, onApplied }: Props) {
             }}
           >
             <div style={{ marginBottom: 4 }}>
-              <strong>Reducere activă:</strong>{' '}
+              <strong>{t('disc_active')}</strong>{' '}
               {order.discount_type === 'percent'
-                ? `${order.discount_value}%`
-                : `${order.discount_value?.toFixed(2)} lei`}{' '}
-              ({order.discount_amount.toFixed(2)} lei off)
+                ? t('disc_activePct', { value: String(order.discount_value) })
+                : t('money', { amount: String(order.discount_value?.toFixed(2)) })}{' '}
+              {t('disc_off', { amount: order.discount_amount.toFixed(2) })}
             </div>
             {order.discount_reason && (
-              <div style={{ color: D.t2, fontSize: 12 }}>Motiv: {order.discount_reason}</div>
+              <div style={{ color: D.t2, fontSize: 12 }}>
+                {t('disc_reasonShown', { reason: order.discount_reason })}
+              </div>
             )}
           </div>
         )}
@@ -178,7 +215,7 @@ export default function DiscountModal({ order, onClose, onApplied }: Props) {
                 cursor: 'pointer',
               }}
             >
-              {m === 'percent' ? 'Procent (%)' : 'Sumă fixă (lei)'}
+              {m === 'percent' ? t('disc_modePct') : t('disc_modeAmount')}
             </button>
           ))}
         </div>
@@ -186,14 +223,14 @@ export default function DiscountModal({ order, onClose, onApplied }: Props) {
         {/* Value input */}
         <div>
           <label style={{ display: 'block', fontSize: 12, color: D.t2, marginBottom: 6 }}>
-            {mode === 'percent' ? 'Procent (1-100)' : 'Sumă în lei'}
+            {mode === 'percent' ? t('disc_labelPct') : t('disc_labelAmount')}
           </label>
           <input
             type="number"
             inputMode="decimal"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            placeholder={mode === 'percent' ? 'ex: 10' : 'ex: 5.00'}
+            placeholder={mode === 'percent' ? t('disc_phPct') : t('disc_phAmount')}
             min={0}
             max={mode === 'percent' ? 100 : undefined}
             step={mode === 'percent' ? 1 : 0.5}
@@ -216,13 +253,13 @@ export default function DiscountModal({ order, onClose, onApplied }: Props) {
         {/* Reason input */}
         <div>
           <label style={{ display: 'block', fontSize: 12, color: D.t2, marginBottom: 6 }}>
-            Motiv (opțional)
+            {t('disc_reasonLabel')}
           </label>
           <input
             type="text"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="ex: client fidel, problemă cu mâncarea, happy hour"
+            placeholder={t('disc_reasonPh')}
             maxLength={200}
             style={{
               width: '100%',
@@ -242,14 +279,24 @@ export default function DiscountModal({ order, onClose, onApplied }: Props) {
 
         {/* Live preview breakdown */}
         <div style={{ background: D.s3, borderRadius: 10, padding: 14, fontSize: 13 }}>
-          <Row label="Subtotal:" value={`${subtotal.toFixed(2)} lei`} color={D.t1} />
           <Row
-            label="Reducere:"
-            value={`− ${previewDiscount.toFixed(2)} lei`}
+            label={t('disc_subtotal')}
+            value={t('money', { amount: subtotal.toFixed(2) })}
+            color={D.t1}
+          />
+          <Row
+            label={t('disc_discount')}
+            value={t('disc_minusMoney', { amount: previewDiscount.toFixed(2) })}
             color={previewDiscount > 0 ? D.green : D.t3}
           />
           <div style={{ borderTop: `1px solid ${D.border}`, marginTop: 8, paddingTop: 8 }}>
-            <Row label="Total nou:" value={`${previewTotal.toFixed(2)} lei`} color={D.gold} bold />
+            {/* `bold` înaintea expresiilor: scanerul SK5 lua `bold />` după `}` drept text. */}
+            <Row
+              bold
+              label={t('disc_newTotal')}
+              value={t('money', { amount: previewTotal.toFixed(2) })}
+              color={D.gold}
+            />
           </div>
         </div>
 
@@ -286,7 +333,7 @@ export default function DiscountModal({ order, onClose, onApplied }: Props) {
                 opacity: busy ? 0.6 : 1,
               }}
             >
-              🗑 Șterge reducerea actuală
+              {t('disc_remove')}
             </button>
           )}
           <button
@@ -304,7 +351,7 @@ export default function DiscountModal({ order, onClose, onApplied }: Props) {
               cursor: busy ? 'wait' : 'pointer',
             }}
           >
-            Anulează
+            {tc.t('cancel')}
           </button>
           <button
             onClick={handleApply}
@@ -322,7 +369,7 @@ export default function DiscountModal({ order, onClose, onApplied }: Props) {
               opacity: busy ? 0.6 : 1,
             }}
           >
-            {busy ? 'Se aplică...' : hasExisting ? 'Modifică' : 'Aplică'}
+            {busy ? t('disc_applying') : hasExisting ? t('disc_update') : t('disc_apply')}
           </button>
         </div>
       </div>
