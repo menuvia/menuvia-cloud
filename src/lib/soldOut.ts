@@ -57,8 +57,9 @@ export function isMissingSoldOutRpc(err: unknown): boolean {
 
 /** Sursa stării, ca DATE: de ce e produsul epuizat (`stock` / `manual`) sau
  *  că a fost deblocat de mână (`unblocked`); `null` = nimic de spus. Regula
- *  e UNA: o citesc eticheta românească de mai jos și panoul „Epuizate” al
- *  personalului (StaffSoldOutSheet, tradus în `orders` — lotul L4c). */
+ *  e UNA: o citesc eticheta românească de mai jos, panoul „Epuizate” al
+ *  personalului (StaffSoldOutSheet, tradus în `orders` — lotul L4c) și lista
+ *  din fila Produse (tradusă în `products` — lotul L5a). */
 export type SoldOutSourceKind = 'stock' | 'manual' | 'unblocked'
 
 export function soldOutSourceKind(
@@ -77,8 +78,10 @@ const SOURCE_LABEL_RO: Record<SoldOutSourceKind, string> = {
 }
 
 /**
- * Eticheta sursei, în română (ProductsTab — panoul încă nemigrat): de ce e
- * produsul epuizat, sau că a fost deblocat de mână. `null` = nimic de spus.
+ * Eticheta sursei, în română: de ce e produsul epuizat, sau că a fost deblocat
+ * de mână. `null` = nimic de spus. Nu o mai randează niciun ecran (ProductsTab
+ * a trecut pe `soldOutSourceKind` + namespace-ul `products` în lotul L5a); a
+ * rămas ORACOLUL românesc al insignei „EPUIZAT · …” din listă (testul LV9).
  */
 export function soldOutSourceLabel(
   isSoldOut: boolean,

@@ -7,6 +7,9 @@ import { useState } from 'react'
 import { D } from '../../lib/constants'
 import { Button } from '../ui/Button'
 import { Modal } from './sharedUI'
+import { useT } from '../../i18n/useT'
+import { productsNs } from '../../i18n/ns/products'
+import { commonNs } from '../../i18n/ns/common'
 
 interface Item {
   id: string
@@ -25,6 +28,8 @@ export function ProductOrderModal({
   onSave: (orderedIds: string[]) => Promise<boolean>
   onClose: () => void
 }) {
+  const { t } = useT(productsNs)
+  const tc = useT(commonNs)
   const [order, setOrder] = useState<Item[]>(() => [...products])
   const [saving, setSaving] = useState(false)
   const changed = order.some((p, i) => p.id !== products[i]?.id)
@@ -55,9 +60,9 @@ export function ProductOrderModal({
   }
 
   return (
-    <Modal title={`Ordinea produselor din „${categoryName}”`} onClose={closeIfIdle} width={440}>
+    <Modal title={t('order_title', { name: categoryName })} onClose={closeIfIdle} width={440}>
       <div style={{ fontSize: '0.78rem', color: D.t2, marginBottom: 12, lineHeight: 1.5 }}>
-        Așa apar produsele în meniul clienților și la ospătar.
+        {t('order_hint')}
       </div>
       <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
         {order.map((p, i) => (
@@ -77,7 +82,7 @@ export function ProductOrderModal({
             <Button
               variant="ghost"
               size="sm"
-              aria-label={`Mută „${p.name}” mai sus`}
+              aria-label={t('order_up', { name: p.name })}
               disabled={saving || i === 0}
               onClick={() => move(i, -1)}
             >
@@ -86,7 +91,7 @@ export function ProductOrderModal({
             <Button
               variant="ghost"
               size="sm"
-              aria-label={`Mută „${p.name}” mai jos`}
+              aria-label={t('order_down', { name: p.name })}
               disabled={saving || i === order.length - 1}
               onClick={() => move(i, 1)}
             >
@@ -97,10 +102,10 @@ export function ProductOrderModal({
       </ol>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
         <Button variant="secondary" onClick={closeIfIdle} disabled={saving}>
-          Anulează
+          {tc.t('cancel')}
         </Button>
         <Button onClick={() => void save()} loading={saving} disabled={!changed}>
-          Salvează ordinea
+          {t('order_save')}
         </Button>
       </div>
     </Modal>

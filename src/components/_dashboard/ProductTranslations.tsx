@@ -10,6 +10,8 @@
 //   - „Am verificat” scoate marcajele unei limbi fără să schimbe textul.
 // Importă din lib/ai DOAR aiTranslateBatch: suitele ProductsTab mock-uiesc
 // modulul cu exact cinci exporturi.
+// Textele din namespace-ul `translations` (lotul L5a): ProductsTab îl cere
+// SUS (clichetul LV10), deci fișa nu suspendă la deschidere.
 import { useEffect, useRef, useState } from 'react'
 import { D } from '../../lib/constants'
 import { aiTranslateBatch } from '../../lib/ai'
@@ -22,14 +24,17 @@ import {
   type TranslatedField,
   type Translations,
 } from '../../lib/i18nMenu'
-import { roCount } from '../../lib/menuTranslations'
-import { toUserMessage } from '../../lib/userMessages'
+import { FIELD_KEY, describeTranslationError, menuLangName, menuLangTitle } from '../../lib/translationMessages'
+import { useT } from '../../i18n/useT'
+import { commonNs } from '../../i18n/ns/common'
+import { translationsNs } from '../../i18n/ns/translations'
 import { Button } from '../ui/Button'
 import { Inp, inp } from './sharedUI'
 
 const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
 
 export function AiReviewMark() {
+  const { t } = useT(translationsNs)
   return (
     <span
       style={{
@@ -44,7 +49,7 @@ export function AiReviewMark() {
         padding: '1px 6px',
       }}
     >
-      ✨ tradus automat — verifică
+      {t('aiMark')}
     </span>
   )
 }
@@ -74,6 +79,9 @@ export function ProductTranslations({
   canTranslateAi: boolean
   onToast: (msg: string, type?: string) => void
 }) {
+  const tr = useT(translationsNs)
+  const { t, tp } = tr
+  const tc = useT(commonNs)
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   // Formularul cel mai nou (după `await`): traducerea AI se aplică peste ce a
@@ -88,7 +96,7 @@ export function ProductTranslations({
 
   if (langs.length === 0) return null
 
-  const baseLabel = MENU_LANGS.find((l) => l.code === baseLang)?.label ?? baseLang
+  const baseLabel = menuLangName(baseLang, tr, baseLang)
   const descTrim = description.trim()
   const fields: Partial<Record<TranslatedField, boolean>> = { name: true, description: descTrim.length > 0 }
   const translatedCount = langs.filter(
@@ -115,13 +123,13 @@ export function ProductTranslations({
       const opts = { langs: gapLangs, base: baseLang, fields }
       const { filled } = mergeAiTranslations(latestRef.current, ai, opts)
       if (filled === 0) {
-        onToast('Nu am primit traduceri noi. Reîncearcă.', 'error')
+        onToast(t('pt_noNew'), 'error')
         return
       }
       onChange((prev) => mergeAiTranslations(prev, ai, opts).translations)
-      onToast(`Am completat ${roCount(filled, 'câmp', 'câmpuri')} — verifică-le, apoi Salvează.`)
+      onToast(tp('pt_filled', filled))
     } catch (e) {
-      onToast(toUserMessage(e, 'Traducerea automată nu a reușit. Reîncearcă.'), 'error')
+      onToast(describeTranslationError(e, tr, tc, t('pt_aiFailed')), 'error')
     } finally {
       setBusy(false)
     }
@@ -148,20 +156,19 @@ export function ProductTranslations({
           </span>
           {/* Spațiul explicit: într-un container flex nu se vede (gap-ul face
               distanța), dar fără el numele accesibil e „Traduceri(opțional)”. */}
-          <span>Traduceri</span>{' '}
-          <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>(opțional)</span>
+          <span>{t('pt_title')}</span>{' '}
+          <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>{t('pt_optional')}</span>
         </span>
         <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>
-          {translatedCount}/{langs.length} limbi
-          {reviewCount > 0 ? ` · ${reviewCount} de verificat` : ''}
+          {t('pt_langsCount', { done: translatedCount, total: langs.length })}
+          {reviewCount === 0 ? '' : ` · ${t('toReview', { n: reviewCount })}`}
         </span>
       </Button>
 
       {open && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 14 }}>
           <div style={{ fontSize: '0.72rem', color: D.t3, lineHeight: 1.5 }}>
-            Numele și descrierea în alte limbi. Originalul de sus ({baseLabel}) rămâne baza —
-            câmpurile lăsate goale afișează automat originalul.
+            {t('pt_intro', { base: baseLabel })}
           </div>
           {canTranslateAi && name.trim().length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -172,18 +179,18 @@ export function ProductTranslations({
                 disabled={gapLangs.length === 0}
                 onClick={() => void autoTranslate()}
               >
-                ✨ Tradu automat
+                {t('pt_auto')}
               </Button>
               <span style={{ fontSize: '0.72rem', color: D.t3 }}>
-                {gapLangs.length === 0
-                  ? 'Toate limbile au deja nume și descriere.'
-                  : 'Completează doar câmpurile goale; textul tău rămâne.'}
+                {gapLangs.length === 0 ? t('pt_allDone') : t('pt_autoHint')}
               </span>
             </div>
           )}
           {langs.map((code) => {
             const meta = MENU_LANGS.find((l) => l.code === code)
-            const label = meta?.label ?? code.toUpperCase()
+            const label = menuLangName(code, tr)
+            const nameLabel = t('fieldIn', { field: t(FIELD_KEY.name), lang: label })
+            const descLabel = t('fieldIn', { field: t(FIELD_KEY.description), lang: label })
             const entry = translations?.[code] ?? {}
             const flagged = aiFieldsOf(entry)
             return (
@@ -209,7 +216,7 @@ export function ProductTranslations({
                   }}
                 >
                   <span style={{ fontSize: '0.8rem', fontWeight: 600, color: D.t1 }}>
-                    {meta?.flag} {label}
+                    {meta?.flag} {menuLangTitle(code, tr)}
                   </span>
                   {flagged.length > 0 && (
                     <Button
@@ -217,7 +224,7 @@ export function ProductTranslations({
                       size="sm"
                       onClick={() => onChange((prev) => markTranslationReviewed(prev, code))}
                     >
-                      Am verificat
+                      {t('pt_reviewed')}
                     </Button>
                   )}
                 </div>
@@ -225,13 +232,13 @@ export function ProductTranslations({
                   <label
                     style={{ display: 'block', fontSize: '0.74rem', color: D.t2, marginBottom: 5 }}
                   >
-                    Nume ({label})
+                    {nameLabel}
                   </label>
                   <Inp
-                    label={`Nume (${label})`}
+                    label={nameLabel}
                     value={entry.name ?? ''}
                     onChange={(v) => onChange((prev) => setTranslationValue(prev, code, 'name', v))}
-                    placeholder={name || 'Nume produs'}
+                    placeholder={name || t('pt_namePlaceholder')}
                   />
                   {flagged.includes('name') && <AiReviewMark />}
                 </div>
@@ -239,16 +246,16 @@ export function ProductTranslations({
                   <label
                     style={{ display: 'block', fontSize: '0.74rem', color: D.t2, marginBottom: 5 }}
                   >
-                    Descriere ({label})
+                    {descLabel}
                   </label>
                   <textarea
-                    aria-label={`Descriere (${label})`}
+                    aria-label={descLabel}
                     value={entry.description ?? ''}
                     onChange={(e) => {
                       const v = e.target.value
                       onChange((prev) => setTranslationValue(prev, code, 'description', v))
                     }}
-                    placeholder={description || 'Descriere produs'}
+                    placeholder={description || t('pt_descPlaceholder')}
                     rows={2}
                     style={{ ...inp, height: 'auto', resize: 'vertical' }}
                   />
