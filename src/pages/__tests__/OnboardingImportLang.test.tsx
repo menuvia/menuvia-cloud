@@ -87,6 +87,16 @@ const QUOTA_RO = 'Ai atins limita lunară a asistentului AI.'
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const containsWhole = (text: string, piece: string): boolean =>
   new RegExp(`(?<!\\p{L})${escapeRe(piece)}(?!\\p{L})`, 'u').test(text)
+// Textul pe NODURI, despărțite prin „\n”: `textContent` lipește textele
+// elementelor vecine („…produse+ Adaugă produs…”), iar granița de cuvânt din
+// `containsWhole` n-ar mai găsi un fragment lipit de litera vecinului — un
+// control pozitiv ar cădea la zero, iar un rest real ar trece neobservat.
+function nodeText(root: Node): string {
+  const parts: string[] = []
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) parts.push(n.nodeValue ?? '')
+  return parts.join('\n')
+}
 
 function romanianLeftovers(text: string): string[] {
   const formsOf = (v: unknown): string[] =>
@@ -157,14 +167,14 @@ describe('Onboarding — importul din poze în limba funnel-ului', () => {
     expect(screen.queryByText('REZERVA-EXTERIOARĂ')).not.toBeInTheDocument()
     const card = modalOf('📸 Import the menu from photos')
     expect(card.textContent).toContain('Take or upload up to 4 clear photos of the menu')
-    expect(romanianLeftovers(card.textContent ?? '')).toEqual([])
+    expect(romanianLeftovers(nodeText(card))).toEqual([])
 
     await upload(card)
     expect(await screen.findByText(importsEn.err_aiQuota)).toBeInTheDocument()
     expect(screen.queryByText(QUOTA_RO)).not.toBeInTheDocument()
     // Onboarding-ul oferă doar ieșirea manuală (nu are CSV).
     expect(screen.queryByRole('button', { name: 'Import from CSV' })).not.toBeInTheDocument()
-    expect(romanianLeftovers(modalOf('📸 Import the menu from photos').textContent ?? '')).toEqual([])
+    expect(romanianLeftovers(nodeText(modalOf('📸 Import the menu from photos')))).toEqual([])
     await user.click(screen.getByRole('button', { name: 'Add the products manually' }))
     expect(screen.queryByText('📸 Import the menu from photos')).not.toBeInTheDocument()
     expect(screen.getByText('Add your first product')).toBeInTheDocument()

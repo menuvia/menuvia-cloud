@@ -170,6 +170,16 @@ const TARGETS: Record<'en' | 'fr' | 'de', readonly [Dict, Dict]> = {
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const containsWhole = (text: string, piece: string): boolean =>
   new RegExp(`(?<!\\p{L})${escapeRe(piece)}(?!\\p{L})`, 'u').test(text)
+// Textul pe NODURI, despărțite prin „\n”: `textContent` lipește textele
+// elementelor vecine („…produse+ Adaugă produs…”), iar granița de cuvânt din
+// `containsWhole` n-ar mai găsi un fragment lipit de litera vecinului — un
+// control pozitiv ar cădea la zero, iar un rest real ar trece neobservat.
+function nodeText(root: Node): string {
+  const parts: string[] = []
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) parts.push(n.nodeValue ?? '')
+  return parts.join('\n')
+}
 
 /** Fragmentele românești ale lui `imports` + `common` rămase în text (fără
  *  cele identice în limba țintă). Un text cu locuri `{x}` se verifică pe
@@ -217,7 +227,7 @@ const QUOTA_RO = 'Ai atins limita lunară a asistentului AI.'
 describe('AiMenuImport în limba personalului', () => {
   it('IM0: control pozitiv — ecranul românesc are resturi față de engleză', () => {
     const { container } = inLang(null, menuImport())
-    const left = romanianLeftovers(container.textContent ?? '', 'en')
+    const left = romanianLeftovers(nodeText(container), 'en')
     expect(left.length).toBeGreaterThan(3)
     expect(left.some((l) => l.startsWith('ai_uploadIntro:'))).toBe(true)
   })
@@ -232,7 +242,7 @@ describe('AiMenuImport în limba personalului', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Choose photos')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument()
-    expect(romanianLeftovers(container.textContent ?? '', 'en')).toEqual([])
+    expect(romanianLeftovers(nodeText(container), 'en')).toEqual([])
   })
 
   it('IM2: revizuirea în germană, cu plafonul planului', async () => {
@@ -257,7 +267,7 @@ describe('AiMenuImport în limba personalului', () => {
     expect(screen.getAllByRole('option', { name: '➕ Getränke (neu)' })).toHaveLength(3)
     expect(screen.getByRole('button', { name: '3 Produkte speichern' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Zurück' })).toBeInTheDocument()
-    expect(romanianLeftovers(container.textContent ?? '', 'de')).toEqual([])
+    expect(romanianLeftovers(nodeText(container), 'de')).toEqual([])
 
     await userEvent.click(screen.getByRole('button', { name: 'Erstes Produkt behalten, der Rest bleibt im Entwurf' }))
     expect(screen.queryByTestId('plan-limit')).not.toBeInTheDocument()
@@ -273,7 +283,7 @@ describe('AiMenuImport în limba personalului', () => {
     expect(screen.getByText('Vous pouvez aussi continuer sans l’IA :')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Importer depuis un CSV' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Ajouter les produits à la main' })).toBeInTheDocument()
-    expect(romanianLeftovers(fr.container.textContent ?? '', 'fr')).toEqual([])
+    expect(romanianLeftovers(nodeText(fr.container), 'fr')).toEqual([])
 
     // Textul englezesc brut al furnizorului nu ajunge pe ecran.
     h.aiMenuImport.mockRejectedValueOnce(aiErr('provider_failed', 502, 'Upstream provider returned 502 Bad Gateway'))
@@ -312,7 +322,7 @@ describe('AiMenuImport în limba personalului', () => {
       '1 product is still in the draft, not saved. Reopen the import and press “Resume import”.',
     )
     expect(screen.getByRole('button', { name: 'Done' })).toBeInTheDocument()
-    expect(romanianLeftovers(container.textContent ?? '', 'en')).toEqual([])
+    expect(romanianLeftovers(nodeText(container), 'en')).toEqual([])
 
     rerender(tree('de', node))
     expect(screen.getByText('1 Produkt gespeichert, 2 Probleme')).toBeInTheDocument()
@@ -320,7 +330,7 @@ describe('AiMenuImport în limba personalului', () => {
       screen.getByText('• Kategorie „Desserts“: konnte nicht angelegt werden (ihre Produkte kommen ohne Kategorie hinzu)'),
     ).toBeInTheDocument()
     expect(screen.getByText('• Pasta: konnte nicht gespeichert werden')).toBeInTheDocument()
-    expect(romanianLeftovers(container.textContent ?? '', 'de')).toEqual([])
+    expect(romanianLeftovers(nodeText(container), 'de')).toEqual([])
   })
 })
 
@@ -355,7 +365,7 @@ describe('AiBulkGenerate în limba personalului', () => {
 
   it('IK0: control pozitiv — lotul românesc are resturi față de engleză', () => {
     const { container } = inLang(null, bulk(MENU, { menuLanguages: ['en'] }))
-    const left = romanianLeftovers(container.textContent ?? '', 'en')
+    const left = romanianLeftovers(nodeText(container), 'en')
     expect(left.length).toBeGreaterThan(3)
     expect(left.some((l) => l.startsWith('bulk_intro:'))).toBe(true)
   })
@@ -369,7 +379,7 @@ describe('AiBulkGenerate în limba personalului', () => {
     expect(screen.getByText(importsEn.bulk_trNoteNames)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Generate for 2 products' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument()
-    expect(romanianLeftovers(container.textContent ?? '', 'en')).toEqual([])
+    expect(romanianLeftovers(nodeText(container), 'en')).toEqual([])
   })
 
   it('IK2: după rulare, în germană — erorile cu textul lor, fără mesajul românesc', async () => {
@@ -389,7 +399,7 @@ describe('AiBulkGenerate în limba personalului', () => {
     expect(screen.getByText(importsDe.bulk_reviewAll)).toBeInTheDocument()
     expect(screen.queryByText(new RegExp(escapeRe(NO_IMAGES)))).not.toBeInTheDocument()
     expect(screen.queryByText(/Upstream/)).not.toBeInTheDocument()
-    expect(romanianLeftovers(container.textContent ?? '', 'de')).toEqual([])
+    expect(romanianLeftovers(nodeText(container), 'de')).toEqual([])
   })
 
   it('IK3: doar traduceri, în franceză, cu cota epuizată', async () => {
@@ -402,7 +412,7 @@ describe('AiBulkGenerate în limba personalului', () => {
       screen.getByText(/^Traductions : 0 produit\. Achetez des crédits dans Paramètres → Assistant IA pour continuer\.$/),
     ).toBeInTheDocument()
     expect(screen.queryByText(QUOTA_RO)).not.toBeInTheDocument()
-    expect(romanianLeftovers(container.textContent ?? '', 'fr')).toEqual([])
+    expect(romanianLeftovers(nodeText(container), 'fr')).toEqual([])
   })
 })
 
@@ -422,7 +432,7 @@ function paste(text: string): void {
 describe('ProductsCsvImport în limba personalului', () => {
   it('IZ0: control pozitiv — ecranul românesc are resturi față de engleză', () => {
     const { container } = inLang(null, csv())
-    const left = romanianLeftovers(container.textContent ?? '', 'en')
+    const left = romanianLeftovers(nodeText(container), 'en')
     expect(left.length).toBeGreaterThan(3)
     expect(left.some((l) => l.startsWith('csv_subtitle:'))).toBe(true)
   })
@@ -438,7 +448,7 @@ describe('ProductsCsvImport în limba personalului', () => {
       'Columns: name, category and price are required. Missing categories are created automatically. VAT = 1-4 (default 1).',
     )
     expect(screen.getByText('Columns:').tagName).toBe('STRONG')
-    expect(romanianLeftovers(container.textContent ?? '', 'en')).toEqual([])
+    expect(romanianLeftovers(nodeText(container), 'en')).toEqual([])
 
     paste('Name,Kategorie,Preis,MwSt\nSchnitzel,Hauptgerichte,18.50,1\nSuppe,Hauptgerichte,abc,1\n')
     expect(container.textContent).toContain('Detected 2 rows: 1 valid, 1 with errors')
@@ -453,7 +463,7 @@ describe('ProductsCsvImport în limba personalului', () => {
     expect(container.textContent).toContain('Schnitzel')
     expect(screen.getAllByText('Hauptgerichte')).toHaveLength(2)
     expect(screen.getByRole('button', { name: 'Import 1 product →' })).toBeEnabled()
-    expect(romanianLeftovers(container.textContent ?? '', 'en')).toEqual([])
+    expect(romanianLeftovers(nodeText(container), 'en')).toEqual([])
   })
 
   it('IZ2: în germană, plafonul și eșecul importului; în română textul de dinainte', async () => {
@@ -470,7 +480,7 @@ describe('ProductsCsvImport în limba personalului', () => {
     await userEvent.click(screen.getByRole('button', { name: '1 Produkt importieren →' }))
     expect(await screen.findByText(importsDe.csv_errBaseline)).toBeInTheDocument()
     expect(screen.queryByText(importsRo.csv_errBaseline)).not.toBeInTheDocument()
-    expect(romanianLeftovers(container.textContent ?? '', 'de')).toEqual([])
+    expect(romanianLeftovers(nodeText(container), 'de')).toEqual([])
 
     // Aceeași rădăcină (UiLangScope) — `tree(null, …)` ar schimba tipul
     // rădăcinii, React ar remonta subarborele și starea (eroarea, pasul

@@ -169,6 +169,21 @@ function tree(lang: StaffLang | null, node: ReactNode) {
 }
 const inLang = (lang: StaffLang | null, node: ReactNode) => render(tree(lang, node))
 
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+// Pe CUVINTE ÎNTREGI (capcana (b) din L5a2): „Categorie” e subșir în englezescul
+// „Categories”, deci un `includes` simplu raporta un rest românesc fals. Granița
+// de cuvânt cere textul pe NODURI (`nodeText`): `textContent` lipește textele
+// elementelor vecine („…produse+ Adaugă produs…”), iar un fragment lipit de
+// litera vecinului n-ar mai fi găsit — controlul pozitiv ar cădea la zero.
+const containsWhole = (text: string, piece: string): boolean =>
+  new RegExp(`(?<!\\p{L})${escapeRe(piece)}(?!\\p{L})`, 'u').test(text)
+function nodeText(root: Node): string {
+  const parts: string[] = []
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) parts.push(n.nodeValue ?? '')
+  return parts.join('\n')
+}
+
 /** Fragmentele românești ale namespace-urilor `translations` + `common`
  *  rămase în text (fără cele identice în limba țintă). Un text cu locuri
  *  `{x}` se verifică pe bucățile lui fixe de cel puțin 6 caractere. */
@@ -184,7 +199,7 @@ function romanianLeftovers(text: string, targets: readonly [Dict, Dict]): string
       for (const form of formsOf(v)) {
         for (const piece of form.split(/\{\w+\}/)) {
           const p = piece.trim()
-          if (p.length >= 6 && !own.includes(p) && text.includes(p)) out.push(`${k}: ${p}`)
+          if (p.length >= 6 && !own.includes(p) && containsWhole(text, p)) out.push(`${k}: ${p}`)
         }
       }
     }
@@ -204,7 +219,7 @@ const rowOf = (label: string): HTMLElement => {
 describe('ecranul Traduceri în limba personalului', () => {
   it('LX0: control pozitiv — ecranul românesc are resturi față de engleză', () => {
     const { container } = inLang(null, tab())
-    const left = romanianLeftovers(container.textContent ?? '', EN)
+    const left = romanianLeftovers(nodeText(container), EN)
     expect(left.length).toBeGreaterThan(3)
     expect(left.some((l) => l.startsWith('tab_intro:'))).toBe(true)
   })
@@ -251,7 +266,7 @@ describe('ecranul Traduceri în limba personalului', () => {
     expect(screen.getByRole('button', { name: 'Prévisualiser en anglais' })).toBeInTheDocument()
     expect(screen.getByText('Les clients voient le menu en anglais')).toBeInTheDocument()
     expect(screen.getByRole('group', { name: 'Langue de la traduction' })).toBeInTheDocument()
-    expect(romanianLeftovers(container.textContent ?? '', FR)).toEqual([])
+    expect(romanianLeftovers(nodeText(container), FR)).toEqual([])
 
     // Germana n-are încă nicio traducere: pastila trece pe ea, nota spune de ce.
     await userEvent.click(screen.getByRole('button', { name: /Allemand · 5 manquants$/ }))
@@ -259,7 +274,7 @@ describe('ecranul Traduceri în limba personalului', () => {
     expect(
       screen.getByText('Elle apparaît aux clients après la première traduction d’une catégorie ou d’un produit.'),
     ).toBeInTheDocument()
-    expect(romanianLeftovers(container.textContent ?? '', FR)).toEqual([])
+    expect(romanianLeftovers(nodeText(container), FR)).toEqual([])
   })
 
   it('LX3: refuzul la salvare — în română mesajul de dinainte, în engleză tradus, retradus la schimbarea limbii', async () => {
@@ -283,7 +298,7 @@ describe('ecranul Traduceri în limba personalului', () => {
       'This item is no longer on the menu.',
     )
     expect(container.textContent).not.toContain(NOT_IN_MENU_RO)
-    expect(romanianLeftovers(container.textContent ?? '', EN)).toEqual([])
+    expect(romanianLeftovers(nodeText(container), EN)).toEqual([])
 
     // Aceeași stare, altă limbă: eroarea e o DATĂ, deci se retraduce.
     rerender(tree('de', tab({}, 'rl-switch')))
@@ -300,7 +315,7 @@ describe('ecranul Traduceri în limba personalului', () => {
       await screen.findByText('Optionen und Extras: Die Optionen und Extras konnten nicht gelesen werden.'),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Erneut versuchen' })).toBeInTheDocument()
-    expect(romanianLeftovers(container.textContent ?? '', DE)).toEqual([])
+    expect(romanianLeftovers(nodeText(container), DE)).toEqual([])
   })
 })
 
@@ -363,7 +378,7 @@ describe('traducerile din fișa produsului în limba personalului', () => {
     expect(screen.getByText('✨ automatisch übersetzt — bitte prüfen')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Als geprüft markieren' })).toBeInTheDocument()
     expect(screen.getByText(/Das Original oben \(Rumänisch\) bleibt die Grundlage/)).toBeInTheDocument()
-    expect(romanianLeftovers(container.textContent ?? '', DE)).toEqual([])
+    expect(romanianLeftovers(nodeText(container), DE)).toEqual([])
 
     await userEvent.click(screen.getByRole('button', { name: '✨ Automatisch übersetzen' }))
     await waitFor(() => expect(toast).toHaveBeenCalledTimes(1))
@@ -381,7 +396,7 @@ describe('traducerile din fișa produsului în limba personalului', () => {
     await userEvent.type(screen.getByLabelText('Name in German for “Bacon”'), 'Speck')
     await userEvent.click(screen.getByRole('button', { name: 'Save translations' }))
     await waitFor(() => expect(toast).toHaveBeenCalledWith('The extra’s translations have been saved.'))
-    expect(romanianLeftovers(container.textContent ?? '', EN)).toEqual([])
+    expect(romanianLeftovers(nodeText(container), EN)).toEqual([])
 
     // Dialogul de închidere a fișei numește ACELAȘI buton, în fiecare limbă.
     expect(productsEn.extraTr_desc).toContain(`“${trEn.ex_save}”`)
