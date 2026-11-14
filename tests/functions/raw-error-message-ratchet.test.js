@@ -98,6 +98,12 @@ const ALLOWED = [
     reason: 'câmpul `message` al toast-ului însuși (text deja ales de apelant)',
   },
   {
+    file: 'src/components/AiMenuImport.tsx',
+    contains: "setError({ kind: 'serverLimit', message: String(batch.error.message) })",
+    reason:
+      'mesajul de plafon al serverului e ținut ca DATĂ și apare DOAR în română, în propoziția de dinainte (`ai_errServerLimit` prin menuImportErrorText); în altă limbă îl înlocuiește `ai_limitReached` (lotul L5a2, IY11)',
+  },
+  {
     file: 'src/pages/PricingPage.tsx',
     contains: 'setCheckoutError({ message: err.message, action: err.action })',
     reason: 'CheckoutError poartă textul românesc din describeCheckoutFailure (CH1–CH8)',

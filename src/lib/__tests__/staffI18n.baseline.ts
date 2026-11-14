@@ -12,9 +12,7 @@
 export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
   'src/App.tsx': 3,
   'src/components/AddLocationCard.tsx': 12,
-  'src/components/AiBulkGenerate.tsx': 36,
   'src/components/AiChatbot.tsx': 37,
-  'src/components/AiMenuImport.tsx': 53,
   'src/components/AiSettingsTab.tsx': 34,
   'src/components/AnalyticsTab.tsx': 29,
   'src/components/BridgeOfflineBanner.tsx': 5,
@@ -40,7 +38,6 @@ export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
   'src/components/PWAPrompt.tsx': 8,
   'src/components/PageLoader.tsx': 5,
   'src/components/PartnerAccessList.tsx': 19,
-  'src/components/ProductsCsvImport.tsx': 58,
   'src/components/ReportsTab.tsx': 68,
   'src/components/ReservationsTab.tsx': 83,
   'src/components/SettingsTab.tsx': 159,
