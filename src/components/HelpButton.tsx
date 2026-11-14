@@ -4,12 +4,27 @@
 // contactului (get_my_agent întoarce telefonul/emailul numai atunci); altfel
 // adresa de suport din lib/domain.ts. Fără promisiuni de timp de răspuns: textul
 // numește un canal, nu un termen (PT1 interzice promisiunile personale).
+// Lotul L4c: textele vin din `dashboard` (butonul stă doar în bara laterală a
+// panoului). Etichetele acțiunilor se aleg după TIPUL acțiunii și după sursă
+// (`helpActionKey`); în română sunt exact cele din `buildHelpOptions`.
 import { useState } from 'react'
 import { D } from '../lib/constants'
 import { CONTACT_EMAIL } from '../lib/domain'
 import { useMyAgent } from '../hooks/useMyAgent'
-import { buildHelpOptions } from '../lib/agentContact'
+import { buildHelpOptions, type HelpAction, type HelpOptions } from '../lib/agentContact'
 import { Icon } from './ui/Icon'
+import { useT } from '../i18n/useT'
+import { dashboardNs } from '../i18n/ns/dashboard'
+
+type HelpActionKey = 'help_call' | 'help_whatsapp' | 'help_emailAgent' | 'help_emailSupport'
+
+// Nu se exportă: un export ne-componentă dintr-un .tsx pică
+// react-refresh/only-export-components (lint-ul e --max-warnings 0).
+function helpActionKey(a: HelpAction, source: HelpOptions['source']): HelpActionKey {
+  if (a.kind === 'call') return 'help_call'
+  if (a.kind === 'whatsapp') return 'help_whatsapp'
+  return source === 'agent' ? 'help_emailAgent' : 'help_emailSupport'
+}
 
 export function HelpButton({
   restaurantId,
@@ -19,6 +34,7 @@ export function HelpButton({
   // true doar pentru owner/manager: staff-ul fără drepturi primește direct suportul.
   enabled: boolean
 }) {
+  const { t } = useT(dashboardNs)
   const { agent } = useMyAgent(restaurantId, enabled)
   const [open, setOpen] = useState(false)
   const help = buildHelpOptions(agent, CONTACT_EMAIL)
@@ -44,7 +60,7 @@ export function HelpButton({
           fontFamily: 'DM Sans,sans-serif',
         }}
       >
-        <Icon name="info" size={16} /> Ajutor
+        <Icon name="info" size={16} /> {t('help_button')}
       </button>
       {open && (
         <div
@@ -61,8 +77,10 @@ export function HelpButton({
         >
           <div style={{ color: D.t2, fontSize: '0.78rem', lineHeight: 1.5 }}>
             {help.source === 'agent'
-              ? `Agentul tău Menuvia${help.agentName ? `, ${help.agentName}` : ''}, te poate ajuta:`
-              : 'Ai o întrebare sau o problemă? Scrie-ne pe email.'}
+              ? help.agentName
+                ? t('help_agentNamed', { name: help.agentName })
+                : t('help_agent')
+              : t('help_support')}
           </div>
           {help.actions.map((a) => (
             <a
@@ -79,7 +97,7 @@ export function HelpButton({
                 alignItems: 'center',
               }}
             >
-              {a.label}
+              {t(helpActionKey(a, help.source))}
             </a>
           ))}
         </div>

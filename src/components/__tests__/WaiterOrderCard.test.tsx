@@ -293,7 +293,8 @@ describe('OrderCard — acțiunea în curs și refuzul ei (ux-staff-double-tap-a
         onSplitOpen={vi.fn()}
         onCloseOrder={vi.fn()}
         paymentsEnabled={false}
-        actionError="Fără conexiune — acțiunea nu a fost salvată. Reîncearcă."
+        // Lotul L4c: refuzul vine ca DATE (fără rețea), nota îl traduce la randare.
+        actionError={{ hint: null, network: true }}
         onDismissError={onDismissError}
       />,
     )

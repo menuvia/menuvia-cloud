@@ -2,6 +2,12 @@
 // Menuvia — src/pages/KitchenPage.tsx
 // Kitchen Dashboard (/kitchen). Dark theme.
 // Restaurant selection via RestaurantContext — no local membership query.
+// Lotul L4c: textele vin din namespace-ul `kitchen` (+ `orders` pentru
+// cuvintele comune cu ospătarul și `common` pentru vârsta comenzii). Pagina
+// cere `kitchen`, `orders` și `common` SUS, înaintea oricărui return timpuriu:
+// nota de refuz (ActionErrorNote), detaliile de ridicare și panoul „Epuizate”
+// le folosesc și sunt montate CONDIȚIONAT — altfel, într-o limbă nouă, prima
+// eroare de pe un card ar suspenda și ar înlocui tot ecranul cu spinner-ul.
 // =============================================================
 
 import {
@@ -18,10 +24,10 @@ import {
 } from 'react'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { useOrders } from '../hooks/useOrders'
-import type { Order, OrderStatus } from '../lib/orders'
+import type { Order, OrderStatus, StaffActionFailure } from '../lib/orders'
 import { STAFF_ORDERS_FETCH_LIMIT } from '../lib/orders'
 import { D } from '../lib/constants'
-import { elapsed, urgencyColor, playSound } from '../lib/utils'
+import { urgencyColor, playSound } from '../lib/utils'
 import { takeNewlyLate } from '../lib/orderAge'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import { useAudioUnlock } from '../hooks/useAudioUnlock'
@@ -36,25 +42,43 @@ import PickupDetails from '../components/PickupDetails'
 import { OrderLineDetails } from '../components/OrderLineDetails'
 import { ActionErrorNote } from '../components/ActionErrorNote'
 import { SignOutButton } from '../components/SignOutButton'
+import { UiLanguageSelect } from '../components/UiLanguageSelect'
 import { isScheduledPickupAhead, sortByDue, urgencyAnchor } from '../lib/pickupOrders'
+import { useT } from '../i18n/useT'
+import { kitchenNs } from '../i18n/ns/kitchen'
+import { ordersNs } from '../i18n/ns/orders'
+import { commonNs } from '../i18n/ns/common'
+import { elapsedT } from '../i18n/elapsed'
 // Panoul „Epuizate” (mig 313): încărcat doar la deschidere.
 const StaffSoldOutSheet = lazy(() => import('../components/StaffSoldOutSheet'))
 
 // D imported from constants
 
-const KITCHEN_NEXT: Partial<Record<OrderStatus, { status: OrderStatus; label: string }>> = {
-  new: { status: 'confirmed', label: 'Confirmă' },
-  confirmed: { status: 'preparing', label: 'Marchează în pregătire' },
-  preparing: { status: 'ready', label: 'Gata' },
+// Eticheta pasului: „Confirmă” e a Bucătăriei (`kitchen.next_confirm`), iar
+// „Marchează în pregătire” / „Gata” sunt cuvintele ospătarului (`orders.step_*`
+// — aceleași pe ambele ecrane, lotul L4a).
+type KitchenStep = 'confirm' | 'preparing' | 'ready'
+const KITCHEN_NEXT: Partial<Record<OrderStatus, { status: OrderStatus; step: KitchenStep }>> = {
+  new: { status: 'confirmed', step: 'confirm' },
+  confirmed: { status: 'preparing', step: 'preparing' },
+  preparing: { status: 'ready', step: 'ready' },
 }
 
 // Board pe 3 coloane (DESIGN_SPEC Val 3): „Noi" cumulează new+confirmed —
 // vizual, fără schimbare de statusuri în backend. Butonul de pe card face
 // în continuare tranzițiile reale (new→confirmed→preparing→ready).
-const COLUMNS: { statuses: OrderStatus[]; label: string }[] = [
-  { statuses: ['new', 'confirmed'], label: 'Comenzi noi' },
-  { statuses: ['preparing'], label: 'În pregătire' },
-  { statuses: ['ready'], label: 'Gata de servit' },
+type ColumnId = 'new' | 'preparing' | 'ready'
+interface KitchenColumn {
+  id: ColumnId
+  statuses: OrderStatus[]
+  labelKey: 'col_new' | 'col_preparing' | 'col_ready'
+  // Iconița stării goale a coloanei (înainte dedusă din eticheta românească).
+  icon: IconName
+}
+const COLUMNS: KitchenColumn[] = [
+  { id: 'new', statuses: ['new', 'confirmed'], labelKey: 'col_new', icon: 'receipt' },
+  { id: 'preparing', statuses: ['preparing'], labelKey: 'col_preparing', icon: 'utensils' },
+  { id: 'ready', statuses: ['ready'], labelKey: 'col_ready', icon: 'check' },
 ]
 
 // Acțiunea MUTĂ cardul în altă coloană? Atunci cardul de dedesubt urcă sub
@@ -69,7 +93,7 @@ function kitchenActionMovesCard(current: OrderStatus, next: OrderStatus): boolea
   return columnOf(current) !== columnOf(next)
 }
 
-// elapsed, urgencyColor, playSound — imported from ../lib/utils
+// urgencyColor, playSound — imported from ../lib/utils; vârsta = elapsedT (src/i18n)
 
 // Nivel de urgență derivat din vârsta comenzii. Refolosește exact pragurile
 // din `urgencyColor` (10m → amber, 20m → red), dar le mapează la un nivel
@@ -103,10 +127,13 @@ function RevealItem({ children, delay = 0 }: { children: ReactNode; delay?: numb
 
 // Timer mare, citibil de la distanță. Culoarea + intensitatea cresc cu vârsta.
 // OPT-7: FĂRĂ interval propriu — părintele (OrderCard) se re-randează deja la
-// 10s prin urgencyTick, deci elapsed() calculat la render e mereu proaspăt.
+// 10s prin urgencyTick, deci vârsta calculată la render e mereu proaspătă.
 // Înainte: 2 timere per card (60 la 30 de comenzi), re-render-uri decalate.
+// Vârsta e `elapsedT` (lotul L4c): unitățile în limba personalului, în română
+// exact textele de dinainte („30s”, „5m”, „1h 30m”).
 function ElapsedTimer({ createdAt }: { createdAt: string }) {
-  const val = elapsed(createdAt)
+  const tc = useT(commonNs)
+  const val = elapsedT(createdAt, tc)
   const level = urgencyLevel(createdAt)
   const color = urgencyLevelColor(level) ?? D.t2
   const calm = level === 'calm'
@@ -150,8 +177,9 @@ interface OrderCardProps {
   // Acțiunea pe comandă e în curs: butonul stă dezactivat (anti dublu-tap —
   // după primul tap butonul arată deja PASUL URMĂTOR).
   pending?: boolean
-  // Refuzul ultimei acțiuni, în română, afișat SUB buton (nu sus, în pagină).
-  actionError?: string | null
+  // Refuzul ultimei acțiuni, ca DATE (useOrders), tradus de nota de SUB buton
+  // (nu sus, în pagină) — lotul L4c.
+  actionError?: StaffActionFailure | null
   onDismissError?: (id: string) => void
 }
 const OrderCard = memo(function OrderCard({
@@ -161,7 +189,17 @@ const OrderCard = memo(function OrderCard({
   actionError = null,
   onDismissError,
 }: OrderCardProps) {
+  const { t } = useT(kitchenNs)
+  const to = useT(ordersNs)
   const next = KITCHEN_NEXT[order.status]
+  const nextLabel =
+    next == null
+      ? ''
+      : next.step === 'confirm'
+        ? t('next_confirm')
+        : next.step === 'preparing'
+          ? to.t('step_preparing')
+          : to.t('step_ready')
   // Re-render la 10s (aceeași cadență ca ElapsedTimer) — altfel border-ul/fundalul
   // cardului rămâneau „calme" până la următorul poll (~30s) deși chip-ul de timp
   // devenise deja amber/roșu: stare vizuală contradictorie pe același card.
@@ -210,7 +248,7 @@ const OrderCard = memo(function OrderCard({
               color: D.t1,
             }}
           >
-            {order.table?.name ?? 'Fără masă'}
+            {order.table?.name ?? to.t('noTable')}
           </div>
           <div style={{ fontSize: 12, color: D.t2, marginTop: 2 }}>
             #{order.id.slice(-6).toUpperCase()} ·{' '}
@@ -226,15 +264,15 @@ const OrderCard = memo(function OrderCard({
               {order.source === 'qr' ? (
                 <>
                   <Icon name="qr" size={13} />
-                  QR
+                  {t('src_qr')}
                 </>
               ) : order.source === 'pickup' ? (
                 <>
                   <Icon name="box" size={13} />
-                  Pickup
+                  {to.t('card_srcPickup')}
                 </>
               ) : (
-                'Ospătar'
+                t('src_waiter')
               )}
             </span>
           </div>
@@ -284,12 +322,12 @@ const OrderCard = memo(function OrderCard({
             onAdvance(order.id, order.status, next.status)
           }}
         >
-          {pending ? 'Se salvează…' : next.label}
+          {pending ? to.t('saving') : nextLabel}
         </Button>
       )}
       {actionError != null && (
         <ActionErrorNote
-          message={actionError}
+          error={actionError}
           onDismiss={onDismissError ? () => onDismissError(order.id) : undefined}
         />
       )}
@@ -310,12 +348,13 @@ function RestaurantSelector({
   activeId: string | null
   setActive: (id: string) => void
 }) {
+  const { t } = useT(kitchenNs)
   if (memberships.length <= 1) return null
   return (
     <select
       value={activeId ?? ''}
       onChange={(e) => setActive(e.target.value)}
-      aria-label={'Selectează restaurantul'}
+      aria-label={t('selectRestaurant')}
       style={{
         background: D.s3,
         border: `1px solid ${D.s3}`,
@@ -353,6 +392,10 @@ export default function KitchenPage() {
     setActive,
     loading: ctxLoading,
   } = useRestaurantCtx()
+  // Toate trei SUS, înaintea oricărui return timpuriu (vezi antetul fișierului).
+  const { t } = useT(kitchenNs)
+  useT(ordersNs)
+  useT(commonNs)
   // Owner/manager ajung aici din panou și au nevoie de drumul înapoi;
   // bucătarul nu are panou (lib/roleRouting.ts îl trimite oricum aici).
   const isAdminRole = activeRole === 'owner' || activeRole === 'manager'
@@ -393,10 +436,10 @@ export default function KitchenPage() {
     connectionStatus === 'connected' ? D.green : connectionStatus === 'connecting' ? D.amber : D.red
   const connLabel =
     connectionStatus === 'connected'
-      ? 'Conectat'
+      ? t('conn_connected')
       : connectionStatus === 'connecting'
-        ? 'Se conectează...'
-        : 'Deconectat'
+        ? t('conn_connecting')
+        : t('conn_disconnected')
   const {
     supported: pushSupported,
     permission: pushPerm,
@@ -531,16 +574,16 @@ export default function KitchenPage() {
               window.history.pushState({}, '', '/dashboard')
               window.dispatchEvent(new PopStateEvent('popstate'))
             }}
-            title="Înapoi la panoul de administrare"
+            title={t('header_backTitle')}
             style={{ flexShrink: 0 }}
           >
-            Înapoi la panou
+            {t('header_back')}
           </Button>
         )}
         <PageHeader
           as="h1"
           compact
-          title={`Bucătărie${restaurantName.length > 0 ? ` — ${restaurantName}` : ''}`}
+          title={restaurantName.length === 0 ? t('title') : t('titleWithName', { name: restaurantName })}
           style={{ flex: '1 1 160px', minWidth: 0, alignItems: 'center' }}
         />
         </div>
@@ -566,9 +609,9 @@ export default function KitchenPage() {
               size="sm"
               onClick={() => setShowSoldOut(true)}
               icon={<Icon name="alert" size={16} />}
-              aria-label="Produse epuizate — marchează ce s-a terminat"
+              aria-label={t('soldOutAria')}
             >
-              Epuizate
+              {t('soldOut')}
             </Button>
           )}
           {pushSupported && pushPerm !== 'unsupported' && (
@@ -581,22 +624,22 @@ export default function KitchenPage() {
               disabled={pushLoading || (!pushSubscribed && pushPerm === 'denied')}
               aria-label={
                 pushSubscribed
-                  ? 'Notificări active — dezactivează'
+                  ? t('push_onAria')
                   : pushPerm === 'denied'
-                    ? 'Notificările sunt blocate din setările browserului'
-                    : 'Activează notificările pentru comenzi noi'
+                    ? t('push_blockedAria')
+                    : t('push_enable')
               }
               title={
                 pushSubscribed
-                  ? 'Notificări active — click pentru a dezactiva'
+                  ? t('push_onTitle')
                   : pushPerm === 'denied'
-                    ? 'Notificările sunt blocate în browser'
-                    : 'Activează notificările pentru comenzi noi'
+                    ? t('push_blockedTitle')
+                    : t('push_enable')
               }
               icon={<Icon name="bell" size={16} color={pushSubscribed ? D.gold : undefined} />}
             >
               {/* „Blocate" e vizibil și pe touch — title-ul nu se afișează pe tabletele din bucătărie */}
-              {pushSubscribed ? 'Activ' : pushPerm === 'denied' ? 'Blocate' : 'Notificări'}
+              {pushSubscribed ? t('push_on') : pushPerm === 'denied' ? t('push_blocked') : t('push_off')}
             </Button>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -611,6 +654,8 @@ export default function KitchenPage() {
             />
             <span style={{ fontSize: 12, color: D.t2, whiteSpace: 'nowrap' }}>{connLabel}</span>
           </div>
+          {/* Comutatorul de limbă (lotul L4c): invizibil cu o singură limbă activă. */}
+          <UiLanguageSelect />
           {/* Ieșirea din cont, pentru ORICE rol — bucătarul nu avea niciuna. */}
           <SignOutButton variant="header" />
         </div>
@@ -633,8 +678,7 @@ export default function KitchenPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Icon name="bell" size={18} color={D.gold} />
             <span style={{ fontSize: '0.82rem', color: D.t2, lineHeight: 1.4 }}>
-              Activează notificările ca să primești alerte pentru comenzi noi, chiar și cu tab-ul
-              închis.
+              {t('pushBanner_text')}
             </span>
           </div>
           <Button
@@ -646,7 +690,7 @@ export default function KitchenPage() {
             loading={pushLoading}
             style={{ flexShrink: 0 }}
           >
-            {pushLoading ? 'Se activează...' : 'Activează →'}
+            {pushLoading ? t('pushBanner_enabling') : t('pushBanner_enable')}
           </Button>
         </div>
       )}
@@ -671,10 +715,10 @@ export default function KitchenPage() {
             style={{ display: 'flex', alignItems: 'center', gap: 8, color: D.amber, fontSize: 13 }}
           >
             <Icon name="bell" size={16} color={D.amber} />
-            Sunetul pentru comenzile noi e oprit de browser până atingi ecranul o dată.
+            {t('sound_locked')}
           </span>
           <Button variant="primary" size="sm" onClick={sound.unlock} style={{ flexShrink: 0 }}>
-            Pornește sunetul
+            {t('sound_unlock')}
           </Button>
         </div>
       )}
@@ -684,8 +728,7 @@ export default function KitchenPage() {
           role="status"
           style={{ background: D.amberA, color: D.amber, padding: '8px 24px', fontSize: 13 }}
         >
-          Se afișează doar cele mai noi {STAFF_ORDERS_FETCH_LIMIT} comenzi active — finalizează
-          comenzile vechi ca lista să fie completă.
+          {t('list_truncated', { limit: STAFF_ORDERS_FETCH_LIMIT })}
         </div>
       )}
 
@@ -703,17 +746,18 @@ export default function KitchenPage() {
           }}
         >
           {/* Doar erorile de ÎNCĂRCARE a listei (refuzurile unei acțiuni stau pe card).
-              Mesaj acționabil în română; detaliul tehnic rămâne secundar, pentru
-              diagnoză. Dispare singur la următorul fetch reușit. */}
+              Mesaj acționabil în limba personalului; detaliul tehnic (netradus)
+              rămâne secundar, pentru diagnoză. Dispare singur la următorul fetch
+              reușit. */}
           <span style={{ minWidth: 0 }}>
-            Nu am putut sincroniza comenzile. Verifică conexiunea și reîncearcă.{' '}
+            {t('sync_error')}{' '}
             <span style={{ opacity: 0.65, fontSize: 11 }}>({error})</span>
           </span>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setDismissedError(error)}
-            aria-label={'Închide mesajul de eroare'}
+            aria-label={t('sync_dismiss')}
             style={{ flexShrink: 0, minWidth: 44, padding: 0 }}
           >
             <Icon name="close" size={16} />
@@ -743,7 +787,7 @@ export default function KitchenPage() {
           const colOrders = sortByDue(byStatus(col.statuses))
           return (
             <div
-              key={col.label}
+              key={col.id}
               style={{
                 background: D.s1,
                 borderRight: `1px solid ${D.s3}`,
@@ -771,7 +815,7 @@ export default function KitchenPage() {
                     letterSpacing: '0.05em',
                   }}
                 >
-                  {col.label}
+                  {t(col.labelKey)}
                 </span>
                 <span
                   style={{
@@ -811,18 +855,10 @@ export default function KitchenPage() {
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                     <EmptyState
                       compact
-                      icon={
-                        (col.label === 'Gata de servit'
-                          ? 'check'
-                          : col.label === 'În pregătire'
-                            ? 'utensils'
-                            : 'receipt') satisfies IconName
-                      }
-                      title="Nicio comandă"
+                      icon={col.icon}
+                      title={t('empty_title')}
                       description={
-                        orders.length === 0 && col.label === 'Comenzi noi'
-                          ? 'Comenzile prin QR vor apărea aici automat.'
-                          : undefined
+                        orders.length === 0 && col.id === 'new' ? t('empty_newHint') : undefined
                       }
                     />
                   </div>

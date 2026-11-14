@@ -43,6 +43,17 @@ const en: Translation<typeof ro> = {
   cancelRej_network: 'No connection — the cancellation wasn’t sent. Try again.',
 
   actionError_dismiss: 'Dismiss the message',
+  actionErr_network: 'No connection — the action wasn’t saved. Please try again.',
+  actionErr_invalidTransition: 'The order changed in the meantime — a colleague has probably moved it already.',
+  actionErr_terminal: 'The order is already completed.',
+  actionErr_notFound: 'The order no longer exists.',
+  actionErr_role: 'Your role doesn’t allow this action.',
+  actionErr_unauthorized: 'You don’t have access to this restaurant’s orders.',
+  actionErr_authRequired: 'Your session has expired — please sign in again.',
+  actionErr_fiscalPlan:
+    'On the plan with fiscal receipts, the order is completed with a payment (fiscal receipt), not by closing it.',
+  actionErr_inProgress: 'An action on this order is already in progress.',
+  actionErr_generic: 'The action wasn’t saved. Please try again.',
 
   edit_title: 'Edit order',
   edit_errMenuLoad: 'The menu couldn’t be loaded',
@@ -194,6 +205,26 @@ const en: Translation<typeof ro> = {
   entry_notesPlaceholder: 'Order notes (optional)',
   entry_sending: 'Sending…',
   entry_send: 'Send order',
+
+  so_title: 'Sold-out items',
+  so_intro:
+    'A sold-out item shows as “Sold out” on the menu and can’t be ordered. Items with a recipe sell out on their own when an ingredient drops below one portion, and come back when the stock goes up.',
+  so_search: 'Search for an item',
+  so_loadError: 'We couldn’t load the items.',
+  so_updateError: 'The item couldn’t be updated.',
+  so_loading: 'Loading items…',
+  so_countNone: 'No items are sold out.',
+  so_count: { one: '{n} item sold out.', other: '{n} items sold out.' },
+  so_noMatch: 'No items found.',
+  so_available: 'Available',
+  so_statusWithSource: '{status} · {source}',
+  so_src_stock: 'based on stock',
+  so_src_manual: 'manual',
+  so_src_unblocked: 'unblocked manually',
+  so_markAvailable: 'Mark available',
+  so_markSoldOut: 'Mark sold out',
+  so_markAvailableAria: 'Mark available: {name}',
+  so_markSoldOutAria: 'Mark sold out: {name}',
 }
 
 export default en

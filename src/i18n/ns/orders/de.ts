@@ -43,6 +43,18 @@ const de: Translation<typeof ro> = {
   cancelRej_network: 'Keine Verbindung — die Stornierung wurde nicht gesendet. Bitte erneut versuchen.',
 
   actionError_dismiss: 'Meldung schließen',
+  actionErr_network: 'Keine Verbindung — die Aktion wurde nicht gespeichert. Versuchen Sie es erneut.',
+  actionErr_invalidTransition:
+    'Die Bestellung wurde inzwischen geändert — wahrscheinlich hat sie ein Kollege bereits bearbeitet.',
+  actionErr_terminal: 'Die Bestellung ist bereits abgeschlossen.',
+  actionErr_notFound: 'Die Bestellung existiert nicht mehr.',
+  actionErr_role: 'Ihre Rolle erlaubt diese Aktion nicht.',
+  actionErr_unauthorized: 'Sie haben keinen Zugriff auf die Bestellungen dieses Restaurants.',
+  actionErr_authRequired: 'Die Sitzung ist abgelaufen — melden Sie sich erneut an.',
+  actionErr_fiscalPlan:
+    'Im Tarif mit Fiskalisierung wird die Bestellung mit einer Zahlung (Fiskalbeleg) abgeschlossen, nicht durch Schließen.',
+  actionErr_inProgress: 'Für diese Bestellung läuft bereits eine Aktion.',
+  actionErr_generic: 'Die Aktion wurde nicht gespeichert. Versuchen Sie es erneut.',
 
   edit_title: 'Bestellung bearbeiten',
   edit_errMenuLoad: 'Die Speisekarte konnte nicht geladen werden',
@@ -203,6 +215,26 @@ const de: Translation<typeof ro> = {
   entry_notesPlaceholder: 'Hinweise zur Bestellung (optional)',
   entry_sending: 'Wird gesendet…',
   entry_send: 'Bestellung senden',
+
+  so_title: 'Ausverkaufte Produkte',
+  so_intro:
+    'Ein ausverkauftes Produkt erscheint auf der Speisekarte als „Ausverkauft“ und kann nicht mehr bestellt werden. Produkte mit Rezept sind automatisch ausverkauft, wenn eine Zutat unter eine Portion fällt, und wieder verfügbar, sobald der Bestand steigt.',
+  so_search: 'Produkt suchen',
+  so_loadError: 'Die Produkte konnten nicht geladen werden.',
+  so_updateError: 'Das Produkt konnte nicht aktualisiert werden.',
+  so_loading: 'Produkte werden geladen…',
+  so_countNone: 'Kein Produkt ausverkauft.',
+  so_count: { one: '{n} Produkt ausverkauft.', other: '{n} Produkte ausverkauft.' },
+  so_noMatch: 'Kein Produkt gefunden.',
+  so_available: 'Verfügbar',
+  so_statusWithSource: '{status} · {source}',
+  so_src_stock: 'laut Bestand',
+  so_src_manual: 'manuell',
+  so_src_unblocked: 'manuell freigegeben',
+  so_markAvailable: 'Als verfügbar markieren',
+  so_markSoldOut: 'Als ausverkauft markieren',
+  so_markAvailableAria: 'Als verfügbar markieren: {name}',
+  so_markSoldOutAria: 'Als ausverkauft markieren: {name}',
 }
 
 export default de

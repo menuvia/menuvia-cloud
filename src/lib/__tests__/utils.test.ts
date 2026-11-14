@@ -1,9 +1,18 @@
 // src/lib/__tests__/utils.test.ts
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { elapsed, urgencyColor } from '../utils'
+import { urgencyColor } from '../utils'
 import { D } from '../constants'
+import { elapsedT } from '../../i18n/elapsed'
+import { makeTranslator } from '../../i18n/core'
+import commonRo from '../../i18n/ns/common/ro'
 
-describe('elapsed()', () => {
+// `elapsed()` (româna scrisă în cod) a fost șters în lotul L4c — ultimul
+// consumator, Bucătăria, folosește `elapsedT`. Aceleași aserțiuni, pe varianta
+// tradusă în română: textele trebuie să rămână EXACT cele de dinainte.
+const ro = makeTranslator(commonRo, 'ro')
+const elapsed = (createdAt: string): string => elapsedT(createdAt, ro)
+
+describe('elapsedT() în română (fostul elapsed())', () => {
   beforeEach(() => {
     // Fix date la 2026-05-17 12:00:00 UTC pentru tests deterministe
     vi.useFakeTimers()

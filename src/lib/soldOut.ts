@@ -55,17 +55,37 @@ export function isMissingSoldOutRpc(err: unknown): boolean {
   return code === 'PGRST202'
 }
 
+/** Sursa stării, ca DATE: de ce e produsul epuizat (`stock` / `manual`) sau
+ *  că a fost deblocat de mână (`unblocked`); `null` = nimic de spus. Regula
+ *  e UNA: o citesc eticheta românească de mai jos și panoul „Epuizate” al
+ *  personalului (StaffSoldOutSheet, tradus în `orders` — lotul L4c). */
+export type SoldOutSourceKind = 'stock' | 'manual' | 'unblocked'
+
+export function soldOutSourceKind(
+  isSoldOut: boolean,
+  source: SoldOutSource | undefined,
+): SoldOutSourceKind | null {
+  if (isSoldOut) return source === 'stock' ? 'stock' : 'manual'
+  if (source === 'manual') return 'unblocked'
+  return null
+}
+
+const SOURCE_LABEL_RO: Record<SoldOutSourceKind, string> = {
+  stock: 'din stoc',
+  manual: 'manual',
+  unblocked: 'deblocat manual',
+}
+
 /**
- * Eticheta sursei pentru personal (ProductsTab, panoul „Epuizate”): de ce e
+ * Eticheta sursei, în română (ProductsTab — panoul încă nemigrat): de ce e
  * produsul epuizat, sau că a fost deblocat de mână. `null` = nimic de spus.
  */
 export function soldOutSourceLabel(
   isSoldOut: boolean,
   source: SoldOutSource | undefined,
 ): string | null {
-  if (isSoldOut) return source === 'stock' ? 'din stoc' : 'manual'
-  if (source === 'manual') return 'deblocat manual'
-  return null
+  const kind = soldOutSourceKind(isSoldOut, source)
+  return kind == null ? null : SOURCE_LABEL_RO[kind]
 }
 
 /**

@@ -20,6 +20,21 @@ const en: Translation<typeof ro> = {
   elapsed_s: '{n}s',
   elapsed_m: '{n}m',
   elapsed_hm: '{h}h {m}m',
+  signOut: 'Sign out',
+  signOut_busy: 'Signing out…',
+  signOut_confirmTitle: 'Sign out?',
+  signOut_confirmDesc: 'You’ll need to sign in again on this device.',
+  signOut_failed: 'Couldn’t sign out. Please try again.',
+  lang_title: 'Interface language',
+  lang_saving: 'Saving…',
+  lang_saveFailed: 'The language couldn’t be saved. Please try again.',
+  lang_columnMissing:
+    'The language can’t be saved to your account yet: the server hasn’t received the latest update. The dashboard stays in its current language.',
+  lang_columnMissingShort: 'The language can’t be saved yet: the server hasn’t received the latest update.',
+  lang_name_ro: 'Română',
+  lang_name_en: 'English',
+  lang_name_fr: 'Français',
+  lang_name_de: 'Deutsch',
   items_count: { one: '{n} item', other: '{n} items' },
 }
 

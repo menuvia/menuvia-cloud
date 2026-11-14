@@ -130,17 +130,17 @@ const de: Translation<typeof ro> = {
   upgrade_cta: '{plan} aktivieren →',
   upgrade_notNow: 'Nicht jetzt',
 
-  lang_title: 'Sprache der Oberfläche',
+  help_button: 'Hilfe',
+  help_agent: 'Ihr Menuvia-Berater hilft Ihnen gern:',
+  help_agentNamed: 'Ihr Menuvia-Berater, {name}, hilft Ihnen gern:',
+  help_support: 'Haben Sie eine Frage oder ein Problem? Schreiben Sie uns eine E-Mail.',
+  help_call: 'Berater anrufen',
+  help_whatsapp: 'WhatsApp',
+  help_emailAgent: 'E-Mail schreiben',
+  help_emailSupport: 'Uns eine E-Mail schreiben',
+
   lang_desc:
     'Die Sprache des Verwaltungsbereichs, der Service-Ansicht und der Küche. Sie wird in Ihrem Konto gespeichert und gilt auf jedem Gerät. Die Sprachen der Speisekarte für Ihre Gäste wählen Sie separat unter „Aussehen der Speisekarte“.',
-  lang_saving: 'Wird gespeichert…',
-  lang_saveFailed: 'Die Sprache konnte nicht gespeichert werden. Versuchen Sie es erneut.',
-  lang_columnMissing:
-    'Die Sprache kann noch nicht in Ihrem Konto gespeichert werden: Der Server hat das letzte Update noch nicht erhalten. Der Verwaltungsbereich bleibt in der aktuellen Sprache.',
-  lang_name_ro: 'Română',
-  lang_name_en: 'English',
-  lang_name_fr: 'Français',
-  lang_name_de: 'Deutsch',
 }
 
 export default de

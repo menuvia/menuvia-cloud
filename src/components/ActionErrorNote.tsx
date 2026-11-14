@@ -1,24 +1,26 @@
 // Refuzul unei acțiuni rapide de staff (Confirmă / Gata / Servit / Închide
 // comanda), afișat PE CARD, lângă butonul apăsat — nu ca banner de pagină,
 // unde nu se vedea a cărei comenzi era și rămânea până la următoarea acțiune
-// (ux-staff-action-errors). Textul vine deja în română din
-// describeStaffActionError; dispare singur (useOrders) sau la „✕".
-// Lotul L4b: eticheta butonului „✕” vine din namespace-ul `orders` (aceeași
-// notă stă pe cardurile ospătarului și ale bucătăriei). Mesajul rămâne cel
-// primit de la apelant.
+// (ux-staff-action-errors). Dispare singur (useOrders) sau la „✕".
+// Lotul L4c: nota primește refuzul ca DATE (`StaffActionFailure`, ținut de
+// useOrders) și îl traduce la RANDARE cu describeStaffActionError, în limba
+// personalului — în română exact textele de dinainte; eticheta „✕” vine tot
+// din `orders` (aceeași notă stă pe cardurile ospătarului și ale bucătăriei).
 import { D } from '../lib/constants'
 import { Icon } from './ui/Icon'
 import { useT } from '../i18n/useT'
 import { ordersNs } from '../i18n/ns/orders'
+import { describeStaffActionError, type StaffActionFailure } from '../lib/orders'
 
 export function ActionErrorNote({
-  message,
+  error,
   onDismiss,
 }: {
-  message: string
+  error: StaffActionFailure
   onDismiss?: () => void
 }) {
-  const { t } = useT(ordersNs)
+  const to = useT(ordersNs)
+  const { t } = to
   return (
     <div
       role="alert"
@@ -39,7 +41,7 @@ export function ActionErrorNote({
         lineHeight: 1.35,
       }}
     >
-      <span style={{ minWidth: 0 }}>{message}</span>
+      <span style={{ minWidth: 0 }}>{describeStaffActionError(error, to)}</span>
       {onDismiss && (
         <button
           type="button"

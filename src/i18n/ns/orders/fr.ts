@@ -43,6 +43,18 @@ const fr: Translation<typeof ro> = {
   cancelRej_network: 'Pas de connexion — l’annulation n’a pas été envoyée. Réessayez.',
 
   actionError_dismiss: 'Fermer le message',
+  actionErr_network: 'Pas de connexion — l’action n’a pas été enregistrée. Réessayez.',
+  actionErr_invalidTransition:
+    'La commande a changé entre-temps — un collègue l’a probablement déjà fait avancer.',
+  actionErr_terminal: 'La commande est déjà finalisée.',
+  actionErr_notFound: 'La commande n’existe plus.',
+  actionErr_role: 'Votre rôle ne permet pas cette action.',
+  actionErr_unauthorized: 'Vous n’avez pas accès aux commandes de ce restaurant.',
+  actionErr_authRequired: 'Votre session a expiré — reconnectez-vous.',
+  actionErr_fiscalPlan:
+    'Avec la formule incluant la fiscalisation, la commande se finalise par un paiement (ticket fiscal), pas par une clôture.',
+  actionErr_inProgress: 'Une action est déjà en cours sur cette commande.',
+  actionErr_generic: 'L’action n’a pas été enregistrée. Réessayez.',
 
   edit_title: 'Modifier la commande',
   edit_errMenuLoad: 'Le menu n’a pas pu être chargé',
@@ -205,6 +217,26 @@ const fr: Translation<typeof ro> = {
   entry_notesPlaceholder: 'Remarques sur la commande (facultatif)',
   entry_sending: 'Envoi…',
   entry_send: 'Envoyer la commande',
+
+  so_title: 'Produits épuisés',
+  so_intro:
+    'Un produit épuisé apparaît comme « Épuisé » sur le menu et ne peut plus être commandé. Les produits avec recette s’épuisent d’eux-mêmes quand un ingrédient passe sous une portion, et reviennent quand le stock remonte.',
+  so_search: 'Rechercher un produit',
+  so_loadError: 'Impossible de charger les produits.',
+  so_updateError: 'Impossible de mettre à jour le produit.',
+  so_loading: 'Chargement des produits…',
+  so_countNone: 'Aucun produit épuisé.',
+  so_count: { one: '{n} produit épuisé.', many: '{n} de produits épuisés.', other: '{n} produits épuisés.' },
+  so_noMatch: 'Aucun produit trouvé.',
+  so_available: 'Disponible',
+  so_statusWithSource: '{status} · {source}',
+  so_src_stock: 'selon le stock',
+  so_src_manual: 'manuel',
+  so_src_unblocked: 'débloqué manuellement',
+  so_markAvailable: 'Marquer disponible',
+  so_markSoldOut: 'Marquer épuisé',
+  so_markAvailableAria: 'Marquer disponible : {name}',
+  so_markSoldOutAria: 'Marquer épuisé : {name}',
 }
 
 export default fr

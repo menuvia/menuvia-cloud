@@ -62,7 +62,6 @@ import TableStatusMap from '../TableStatusMap'
 import WaiterAssignments from '../WaiterAssignments'
 import { ActionErrorNote } from '../ActionErrorNote'
 import { describeCancelRejection, describeWaiterOrderSent, type Order, type WaiterCall } from '../../lib/orders'
-import { elapsed } from '../../lib/utils'
 import { elapsedT } from '../../i18n/elapsed'
 import { makeOrder, makeOrderItem } from './fixtures'
 import { makeTranslator, preloadNamespace, type Dict } from '../../i18n/core'
@@ -343,10 +342,10 @@ describe('alocarea meselor în limba personalului', () => {
 
 describe('nota de refuz și helperii puri', () => {
   it('LW5: ActionErrorNote — română (control) și germană', () => {
-    const ro = inLang(null, <ActionErrorNote message="x" onDismiss={vi.fn()} />)
+    const ro = inLang(null, <ActionErrorNote error={{ hint: null, network: false }} onDismiss={vi.fn()} />)
     expect(within(ro.container).getByRole('button', { name: 'Închide mesajul' })).toBeInTheDocument()
     ro.unmount()
-    inLang('de', <ActionErrorNote message="x" onDismiss={vi.fn()} />)
+    inLang('de', <ActionErrorNote error={{ hint: null, network: false }} onDismiss={vi.fn()} />)
     expect(screen.getByRole('button', { name: 'Meldung schließen' })).toBeInTheDocument()
   })
 
@@ -397,7 +396,10 @@ describe('nota de refuz și helperii puri', () => {
     const cen = makeTranslator<typeof commonRo>(commonEn, 'en')
     const cfr = makeTranslator<typeof commonRo>(commonFr, 'fr')
     const cde = makeTranslator<typeof commonRo>(commonDe, 'de')
-    for (const s of [0, 30, 60, 2700, 3600, 5400]) expect(elapsedT(ago(s), cro)).toBe(elapsed(ago(s)))
+    // Textele de dinainte ale lui `elapsed()` (șters în L4c, când Bucătăria a
+    // trecut și ea pe `elapsedT`).
+    const before = ['0s', '30s', '1m', '45m', '1h 0m', '1h 30m']
+    for (const [i, s] of [0, 30, 60, 2700, 3600, 5400].entries()) expect(elapsedT(ago(s), cro)).toBe(before[i])
     expect(elapsedT(ago(5400), cro)).toBe('1h 30m')
     expect(elapsedT(ago(5400), cen)).toBe('1h 30m')
     expect(elapsedT(ago(30), cfr)).toBe('30 s')

@@ -859,34 +859,52 @@ export function describeEditOrderError(err: unknown, tr: OrdersTranslator): stri
 }
 
 /**
- * Textul RO, scurt, pentru o acțiune rapidă respinsă pe ecranele de staff
- * (Confirmă / În pregătire / Gata / Servit / Închide comanda). Se afișează
- * LÂNGĂ butonul apăsat, nu ca banner de pagină: mesajele lui `advance_order`
- * sunt în engleză („Order not in a servable state (current: served)"), iar
- * contractul stabil e HINT-ul.
+ * Refuzul unei acțiuni rapide de staff (Confirmă / În pregătire / Gata /
+ * Servit / Închide comanda), ca DATE (lotul L4c): `useOrders` ține asta pe
+ * comandă, iar nota de pe card (ActionErrorNote) îl traduce la RANDARE, în
+ * limba personalului — un text memorat în stare n-ar urma schimbarea limbii.
+ * Mesajul serverului NU se păstrează: `advance_order` scrie în engleză
+ * („Order not in a servable state (current: served)"), contractul stabil e
+ * HINT-ul (și clasa „fără rețea").
  */
-export function describeStaffActionError(err: unknown): string {
-  if (isNetworkError(err)) return 'Fără conexiune — acțiunea nu a fost salvată. Reîncearcă.'
-  const { hint } = errorParts(err)
-  switch (hint) {
+export interface StaffActionFailure {
+  /** Hint-ul serverului (`invalid_transition`, `order_terminal`…), sau null. */
+  hint: string | null
+  /** Cererea n-a ajuns la server (fără conexiune). */
+  network: boolean
+}
+
+export function staffActionFailure(err: unknown): StaffActionFailure {
+  return { hint: errorParts(err).hint || null, network: isNetworkError(err) }
+}
+
+/**
+ * Textul scurt al refuzului, în limba personalului (`actionErr_*` din
+ * namespace-ul `orders`). Aceeași ordine ca înainte: rețeaua întâi, apoi
+ * hint-ul; în română EXACT textele de dinainte.
+ */
+export function describeStaffActionError(f: StaffActionFailure, tr: OrdersTranslator): string {
+  const { t } = tr
+  if (f.network) return t('actionErr_network')
+  switch (f.hint) {
     case 'invalid_transition':
-      return 'Comanda s-a schimbat între timp — probabil a mutat-o deja un coleg.'
+      return t('actionErr_invalidTransition')
     case 'order_terminal':
-      return 'Comanda e deja finalizată.'
+      return t('actionErr_terminal')
     case 'order_not_found':
-      return 'Comanda nu mai există.'
+      return t('actionErr_notFound')
     case 'role_insufficient':
-      return 'Rolul tău nu permite această acțiune.'
+      return t('actionErr_role')
     case 'unauthorized':
-      return 'Nu ai acces la comenzile acestui restaurant.'
+      return t('actionErr_unauthorized')
     case 'auth_required':
-      return 'Sesiunea a expirat — autentifică-te din nou.'
+      return t('actionErr_authRequired')
     case 'fiscal_plan_requires_payment':
-      return 'Pe planul cu fiscalizare comanda se finalizează prin plată (bon fiscal), nu prin închidere.'
+      return t('actionErr_fiscalPlan')
     case 'action_in_progress':
-      return 'Acțiunea pe această comandă e deja în curs.'
+      return t('actionErr_inProgress')
     default:
-      return 'Acțiunea nu a fost salvată. Reîncearcă.'
+      return t('actionErr_generic')
   }
 }
 
