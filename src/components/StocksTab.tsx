@@ -6,6 +6,14 @@
 //   • Furnizori — listă cu CRUD
 //   • NIR — purchase orders (intrări marfă)
 //   • Profitabilitate — view product margin
+//
+// Limba personalului (lotul L5b): tot textul vine din namespace-ul `stocks` (+
+// „Anulează”/„Salvează”/„Șterge”/„Editează”/„Reîncearcă” din `common`). Tab-ul
+// e LENEȘ în DashboardPage; componenta principală cere AMBELE namespace-uri SUS,
+// înaintea oricărui return, iar secțiunile și fișele (montate condiționat) le
+// citesc pe ACELEAȘI — deja încărcate, deci o fișă deschisă prima oară într-o
+// limbă nouă nu suspendă fila (precondiția L4b/L4c). Erorile fișelor se țin ca
+// DATE (`StockFormError`) și se traduc la randare (lib/stockMessages.ts).
 // ─────────────────────────────────────────────────────────────
 import { useState, useEffect } from 'react'
 import { FocusTrap } from './ui/FocusTrap'
@@ -15,7 +23,7 @@ import { D } from '../lib/constants'
 import { InlineSpinner } from './PageLoader'
 import { Icon, type IconName } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
-import { fetchVatRates, getVatLabel, getVatRate, type VatRate } from '../lib/vat'
+import { fetchVatRates, getVatRate, type VatRate } from '../lib/vat'
 import { toRomaniaYMD } from '../lib/dates'
 import {
   fetchIngredients,
@@ -29,7 +37,9 @@ import {
   receivePurchaseOrder,
   createPurchaseOrder,
   fetchProductProfitability,
-  formatStock,
+  formatStockT,
+  unitSymbolT,
+  MANUAL_ADJUST_NOTE,
 } from '../lib/stocks'
 import type {
   Ingredient,
@@ -39,7 +49,12 @@ import type {
   ProductProfitability,
 } from '../lib/stocks'
 import Autocomplete from './Autocomplete'
-import { toUserMessage } from '../lib/userMessages'
+import { stockFormErrorText, vatGroupLabel, type StockFormError } from '../lib/stockMessages'
+import { useT } from '../i18n/useT'
+import { stocksNs } from '../i18n/ns/stocks'
+import { commonNs } from '../i18n/ns/common'
+import { fillNodes } from '../i18n/fillNodes'
+import { staffLocale } from '../i18n/format'
 
 interface Props {
   restaurantId: string
@@ -98,6 +113,8 @@ function useEscapeClose(active: boolean, onClose: () => void) {
 }
 
 export default function StocksTab({ restaurantId, showVat }: Props) {
+  const { t, tp } = useT(stocksNs)
+  const tc = useT(commonNs)
   const [subTab, setSubTab] = useState<SubTab>('ingredients')
   const [stats, setStats] = useState<{
     ingredientsCount: number
@@ -149,7 +166,7 @@ export default function StocksTab({ restaurantId, showVat }: Props) {
       {/* Header */}
       <div>
         <div style={{ fontSize: '0.85rem', color: D.t3, lineHeight: 1.5 }}>
-          Stocuri, rețete, furnizori, profitabilitate.
+          {t('intro')}
         </div>
       </div>
 
@@ -170,7 +187,7 @@ export default function StocksTab({ restaurantId, showVat }: Props) {
             color: D.t2,
           }}
         >
-          Nu am putut încărca sumarul stocurilor.
+          {t('stats_loadError')}
           <button
             onClick={() => setStatsReload((n) => n + 1)}
             style={{
@@ -186,7 +203,7 @@ export default function StocksTab({ restaurantId, showVat }: Props) {
               fontFamily: 'DM Sans,sans-serif',
             }}
           >
-            Reîncearcă
+            {tc.t('retry')}
           </button>
         </div>
       )}
@@ -201,30 +218,33 @@ export default function StocksTab({ restaurantId, showVat }: Props) {
           }}
         >
           <StatCard
-            label="Ingrediente"
+            label={t('stat_ingredients')}
             value={String(stats.ingredientsCount)}
-            sub={stats.lowStockCount > 0 ? `${stats.lowStockCount} sub prag` : 'toate ok'}
+            sub={stats.lowStockCount === 0 ? t('stat_allOk') : tp('stat_belowMin', stats.lowStockCount)}
             color={stats.lowStockCount > 0 ? '#E0A050' : D.t1}
             icon="leaf"
           />
           <StatCard
-            label="Valoare stoc"
-            value={`${stats.totalStockValue.toLocaleString('ro-RO', { maximumFractionDigits: 0 })} lei`}
-            sub="total ingrediente"
+            label={t('stat_stockValue')}
+            // Bani: formatul de dinainte (ro-RO, fără zecimale) + „lei”, în orice limbă.
+            value={t('money', {
+              amount: stats.totalStockValue.toLocaleString('ro-RO', { maximumFractionDigits: 0 }),
+            })}
+            sub={t('stat_stockValueSub')}
             color={D.t1}
             icon="tag"
           />
           <StatCard
-            label="Furnizori"
+            label={t('stat_suppliers')}
             value={String(stats.suppliersCount)}
-            sub={stats.suppliersCount === 0 ? 'niciunul' : 'activi'}
+            sub={stats.suppliersCount === 0 ? t('stat_suppliersNone') : t('stat_suppliersActive')}
             color={D.t1}
             icon="box"
           />
           <StatCard
-            label="NIR-uri"
+            label={t('stat_nirs')}
             value={String(stats.pendingNirs)}
-            sub={stats.pendingNirs > 0 ? 'în așteptare' : 'toate ok'}
+            sub={stats.pendingNirs === 0 ? t('stat_allOk') : t('stat_nirsPending')}
             color={stats.pendingNirs > 0 ? D.gold : D.t1}
             icon="receipt"
           />
@@ -255,11 +275,10 @@ export default function StocksTab({ restaurantId, showVat }: Props) {
             }}
           >
             <Icon name="sparkle" size={18} />
-            Bun venit în Stocuri
+            {t('welcome_title')}
           </div>
           <div style={{ fontSize: '0.85rem', color: D.t2, marginBottom: 14, lineHeight: 1.5 }}>
-            Modulul de gestiune îți permite să urmărești stocul de ingrediente, să definești rețete
-            și să vezi profitabilitatea fiecărui produs.
+            {t('welcome_desc')}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
@@ -281,8 +300,9 @@ export default function StocksTab({ restaurantId, showVat }: Props) {
                 1
               </span>
               <div style={{ flex: 1, fontSize: '0.82rem', color: D.t2, lineHeight: 1.5 }}>
-                <strong style={{ color: D.t1 }}>Adaugă ingredientele</strong> — făină, ulei, brânză,
-                cașcaval. Pune cantitatea curentă și costul pe unitate.
+                {fillNodes(t('welcome_step1'), {
+                  title: <strong style={{ color: D.t1 }}>{t('welcome_step1Title')}</strong>,
+                })}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
@@ -304,9 +324,9 @@ export default function StocksTab({ restaurantId, showVat }: Props) {
                 2
               </span>
               <div style={{ flex: 1, fontSize: '0.82rem', color: D.t2, lineHeight: 1.5 }}>
-                <strong style={{ color: D.t1 }}>Definește rețetele</strong> — la editarea unui
-                produs (ex: Pizza Margherita), adaugi ingrediente cu cantitatea consumată per
-                bucată.
+                {fillNodes(t('welcome_step2'), {
+                  title: <strong style={{ color: D.t1 }}>{t('welcome_step2Title')}</strong>,
+                })}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
@@ -328,8 +348,9 @@ export default function StocksTab({ restaurantId, showVat }: Props) {
                 3
               </span>
               <div style={{ flex: 1, fontSize: '0.82rem', color: D.t2, lineHeight: 1.5 }}>
-                <strong style={{ color: D.t1 }}>Vezi profit + stoc automat</strong> — la fiecare
-                comandă finalizată, ingredientele scad automat și vezi marja per produs.
+                {fillNodes(t('welcome_step3'), {
+                  title: <strong style={{ color: D.t1 }}>{t('welcome_step3Title')}</strong>,
+                })}
               </div>
             </div>
           </div>
@@ -349,7 +370,7 @@ export default function StocksTab({ restaurantId, showVat }: Props) {
               fontFamily: 'DM Sans,sans-serif',
             }}
           >
-            Începe cu primul ingredient →
+            {t('welcome_cta')}
           </button>
         </div>
       )}
@@ -367,22 +388,22 @@ export default function StocksTab({ restaurantId, showVat }: Props) {
       >
         {(
           [
-            { id: 'ingredients', label: 'Ingrediente', icon: 'leaf' },
-            { id: 'suppliers', label: 'Furnizori', icon: 'box' },
-            { id: 'purchases', label: 'NIR', icon: 'receipt' },
-            { id: 'profitability', label: 'Profitabilitate', icon: 'tag' },
+            { id: 'ingredients', label: t('tab_ingredients'), icon: 'leaf' },
+            { id: 'suppliers', label: t('tab_suppliers'), icon: 'box' },
+            { id: 'purchases', label: t('tab_purchases'), icon: 'receipt' },
+            { id: 'profitability', label: t('tab_profitability'), icon: 'tag' },
           ] as const
-        ).map((t) => (
+        ).map((tabDef) => (
           <button
-            key={t.id}
-            onClick={() => setSubTab(t.id)}
+            key={tabDef.id}
+            onClick={() => setSubTab(tabDef.id)}
             style={{
               padding: '10px 16px',
               minHeight: 44,
               background: 'none',
               border: 'none',
-              borderBottom: `2px solid ${subTab === t.id ? D.gold : 'transparent'}`,
-              color: subTab === t.id ? D.gold : D.t2,
+              borderBottom: `2px solid ${subTab === tabDef.id ? D.gold : 'transparent'}`,
+              color: subTab === tabDef.id ? D.gold : D.t2,
               fontSize: '0.85rem',
               fontWeight: 600,
               fontFamily: 'DM Sans, sans-serif',
@@ -392,8 +413,8 @@ export default function StocksTab({ restaurantId, showVat }: Props) {
               gap: 6,
             }}
           >
-            <Icon name={t.icon} size={15} />
-            <span>{t.label}</span>
+            <Icon name={tabDef.icon} size={15} />
+            <span>{tabDef.label}</span>
           </button>
         ))}
       </div>
@@ -423,6 +444,9 @@ function IngredientsSection({
   restaurantId: string
   showVat: boolean
 }) {
+  const st = useT(stocksNs)
+  const { t, tp } = st
+  const tc = useT(commonNs)
   const [items, setItems] = useState<Ingredient[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
@@ -441,7 +465,7 @@ function IngredientsSection({
         if (!cancelled) setVatRates(r)
       })
       .catch(() => {
-        /* fallback: etichete „Grupa N" din getVatLabel */
+        /* fallback: etichete „Grupa N" (`vat_group`) din vatGroupLabel */
       })
     return () => {
       cancelled = true
@@ -466,12 +490,17 @@ function IngredientsSection({
     void load()
   }, [restaurantId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (loading) return <InlineSpinner label="Se încarcă stocurile..." />
-  if (loadError) return <LoadErrorBox label="Nu am putut încărca ingredientele." onRetry={() => void load()} />
+  if (loading) return <InlineSpinner label={t('ing_loading')} />
+  if (loadError) return <LoadErrorBox label={t('ing_loadError')} onRetry={() => void load()} />
 
   const lowStock = items.filter(
     (i) => i.min_stock_alert != null && i.current_stock < i.min_stock_alert,
   )
+  const lowNames = lowStock
+    .slice(0, 3)
+    .map((i) => i.name)
+    .join(', ')
+  const lowLine = lowStock.length > 3 ? tp('ing_lowMore', lowStock.length - 3, { names: lowNames }) : lowNames
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -494,37 +523,28 @@ function IngredientsSection({
             <div
               style={{ fontSize: '0.88rem', fontWeight: 700, color: '#E0A050', marginBottom: 2 }}
             >
-              {lowStock.length}{' '}
-              {lowStock.length === 1 ? 'ingredient sub prag' : 'ingrediente sub prag'}
+              {tp('ing_lowCount', lowStock.length)}
             </div>
-            <div style={{ fontSize: '0.78rem', color: D.t2 }}>
-              {lowStock
-                .slice(0, 3)
-                .map((i) => i.name)
-                .join(', ')}
-              {lowStock.length > 3 && ` și încă ${lowStock.length - 3}`}
-            </div>
+            <div style={{ fontSize: '0.78rem', color: D.t2 }}>{lowLine}</div>
           </div>
         </div>
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontSize: '0.85rem', color: D.t3 }}>
-          {items.length === 0
-            ? 'Niciun ingredient. Adaugă primul!'
-            : `${items.length} ingrediente active`}
+          {items.length === 0 ? t('ing_none') : tp('ing_count', items.length)}
         </div>
         <button onClick={() => setShowAdd(true)} style={btn({ background: D.gold, color: '#000' })}>
           <Icon name="plus" size={15} />
-          Adaugă ingredient
+          {t('ing_add')}
         </button>
       </div>
 
       {items.length === 0 ? (
         <EmptyState
           icon="leaf"
-          title="Niciun ingredient configurat încă"
-          description="Începe cu cele mai folosite (făină, ulei, lapte) și adaugă rețetele la produse"
+          title={t('ing_emptyTitle')}
+          description={t('ing_emptyDesc')}
         />
       ) : (
         <div
@@ -579,11 +599,11 @@ function IngredientsSection({
                       color: isLow ? '#E0A050' : D.t1,
                     }}
                   >
-                    {formatStock(ing.current_stock, ing.unit)}
+                    {formatStockT(ing.current_stock, ing.unit, st)}
                   </span>
                   {ing.min_stock_alert != null && (
                     <span style={{ fontSize: '0.7rem', color: D.t3 }}>
-                      / min {formatStock(ing.min_stock_alert, ing.unit)}
+                      {t('ing_min', { amount: formatStockT(ing.min_stock_alert, ing.unit, st) })}
                     </span>
                   )}
                 </div>
@@ -598,9 +618,12 @@ function IngredientsSection({
                   }}
                 >
                   <span>
-                    {ing.cost_per_unit.toFixed(2)} lei / {ing.unit}
+                    {t('ing_costPerUnit', {
+                      amount: ing.cost_per_unit.toFixed(2),
+                      unit: unitSymbolT(ing.unit, st),
+                    })}
                   </span>
-                  {showVat && <span>TVA {getVatLabel(vatRates, ing.vat_group)}</span>}
+                  {showVat && <span>{t('vat_badge', { rate: vatGroupLabel(vatRates, ing.vat_group, st) })}</span>}
                 </div>
 
                 <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
@@ -615,7 +638,7 @@ function IngredientsSection({
                       padding: '6px 10px',
                     })}
                   >
-                    Ajustează stoc
+                    {t('ing_adjust')}
                   </button>
                   <button
                     onClick={() => setEditing(ing)}
@@ -627,7 +650,7 @@ function IngredientsSection({
                       padding: '6px 10px',
                     })}
                   >
-                    Editează
+                    {tc.t('edit')}
                   </button>
                 </div>
               </div>
@@ -694,6 +717,9 @@ function IngredientModal({
   onClose: () => void
   onSave: () => void
 }) {
+  const st = useT(stocksNs)
+  const { t } = st
+  const tc = useT(commonNs)
   const [name, setName] = useState(ingredient?.name ?? '')
   const [unit, setUnit] = useState<IngredientUnit>(ingredient?.unit ?? 'kg')
   const [stock, setStock] = useState(String(ingredient?.current_stock ?? '0'))
@@ -703,12 +729,12 @@ function IngredientModal({
   const [emoji, setEmoji] = useState(ingredient?.emoji ?? '')
   const [category, setCategory] = useState(ingredient?.category ?? '')
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<StockFormError | null>(null)
   const isMobile = useIsMobile()
 
   async function save() {
     if (name.trim().length === 0) {
-      setError('Numele e obligatoriu')
+      setError({ kind: 'nameRequired' })
       return
     }
     setSaving(true)
@@ -731,7 +757,7 @@ function IngredientModal({
       }
       onSave()
     } catch (err) {
-      setError(toUserMessage(err))
+      setError({ kind: 'server', err })
       setSaving(false)
     }
   }
@@ -758,14 +784,14 @@ function IngredientModal({
             marginBottom: 16,
           }}
         >
-          {ingredient ? 'Editează ingredient' : 'Ingredient nou'}
+          {ingredient ? t('ingm_titleEdit') : t('ingm_titleNew')}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr', gap: 10 }}>
             <div>
               <label style={lbl} htmlFor="ing-emoji">
-                Emoji
+                {t('ingm_emoji')}
               </label>
               <input
                 id="ing-emoji"
@@ -778,35 +804,35 @@ function IngredientModal({
             </div>
             <div>
               <label style={lbl} htmlFor="ing-name">
-                Nume *
+                {t('ingm_name')}
               </label>
               <input
                 id="ing-name"
                 style={inp()}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Făină tip 000"
+                placeholder={t('ingm_namePh')}
               />
             </div>
           </div>
 
           <div>
             <label style={lbl} htmlFor="ing-category">
-              Categorie (opțional)
+              {t('ingm_category')}
             </label>
             <input
               id="ing-category"
               style={inp()}
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              placeholder="ex: Cereale, Lactate, Băuturi"
+              placeholder={t('ingm_categoryPh')}
             />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
             <div>
               <label style={lbl} htmlFor="ing-unit">
-                Unitate de măsură
+                {t('ingm_unit')}
               </label>
               <select
                 id="ing-unit"
@@ -816,7 +842,7 @@ function IngredientModal({
               >
                 {UNITS.map((u) => (
                   <option key={u} value={u}>
-                    {u}
+                    {unitSymbolT(u, st)}
                   </option>
                 ))}
               </select>
@@ -824,7 +850,7 @@ function IngredientModal({
             {showVat && (
             <div>
               <label style={lbl} htmlFor="ing-vat">
-                Cota TVA
+                {t('ingm_vat')}
               </label>
               <select
                 id="ing-vat"
@@ -842,12 +868,11 @@ function IngredientModal({
                     </option>
                   ))
                 ) : (
-                  <>
-                    <option value={1}>Grupa 1</option>
-                    <option value={2}>Grupa 2</option>
-                    <option value={3}>Grupa 3</option>
-                    <option value={4}>Grupa 4</option>
-                  </>
+                  [1, 2, 3, 4].map((g) => (
+                    <option key={g} value={g}>
+                      {t('vat_group', { n: g })}
+                    </option>
+                  ))
                 )}
               </select>
             </div>
@@ -857,7 +882,7 @@ function IngredientModal({
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
             <div>
               <label style={lbl} htmlFor="ing-stock">
-                Stoc curent ({unit})
+                {t('ingm_stock', { unit: unitSymbolT(unit, st) })}
               </label>
               <input
                 id="ing-stock"
@@ -870,7 +895,7 @@ function IngredientModal({
             </div>
             <div>
               <label style={lbl} htmlFor="ing-min-alert">
-                Alertă sub ({unit})
+                {t('ingm_minAlert', { unit: unitSymbolT(unit, st) })}
               </label>
               <input
                 id="ing-min-alert"
@@ -879,14 +904,14 @@ function IngredientModal({
                 step="0.01"
                 value={minAlert}
                 onChange={(e) => setMinAlert(e.target.value)}
-                placeholder="Opțional"
+                placeholder={t('ingm_optional')}
               />
             </div>
           </div>
 
           <div>
             <label style={lbl} htmlFor="ing-cost">
-              Cost per {unit} (lei)
+              {t('ingm_cost', { unit: unitSymbolT(unit, st) })}
             </label>
             <input
               id="ing-cost"
@@ -897,11 +922,11 @@ function IngredientModal({
               onChange={(e) => setCost(e.target.value)}
             />
             <div style={{ fontSize: '0.7rem', color: D.t3, marginTop: 4 }}>
-              Folosit pentru calcul profit. Va fi recalculat automat la fiecare NIR.
+              {t('ingm_costHint')}
             </div>
           </div>
 
-          {error && (
+          {error == null ? null : (
             <div
               style={{
                 padding: '8px 12px',
@@ -912,7 +937,7 @@ function IngredientModal({
                 fontSize: '0.78rem',
               }}
             >
-              {error}
+              {stockFormErrorText(error, st, tc)}
             </div>
           )}
 
@@ -921,8 +946,10 @@ function IngredientModal({
               <button
                 onClick={async () => {
                   const ok = await confirmDialog({
-                    title: `Șterge ${ingredient.name}?`,
-                    confirmLabel: 'Șterge',
+                    title: t('ingm_deleteTitle', { name: ingredient.name }),
+                    confirmLabel: tc.t('delete'),
+                    // EXPLICIT: implicitul urmează <html lang> (pe panou `ro`).
+                    cancelLabel: tc.t('cancel'),
                     destructive: true,
                   })
                   if (!ok) return
@@ -935,21 +962,21 @@ function IngredientModal({
                   border: `1px solid #c0392b44`,
                 })}
               >
-                Șterge
+                {tc.t('delete')}
               </button>
             )}
             <button
               onClick={onClose}
               style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
             >
-              Anulează
+              {tc.t('cancel')}
             </button>
             <button
               disabled={saving}
               onClick={() => void save()}
               style={btn({ background: D.gold, color: '#000', opacity: saving ? 0.6 : 1 })}
             >
-              {saving ? 'Salvez...' : 'Salvează'}
+              {saving ? t('saving') : tc.t('save')}
             </button>
           </div>
         </div>
@@ -968,23 +995,27 @@ function AdjustStockModal({
   onClose: () => void
   onSave: () => void
 }) {
+  const st = useT(stocksNs)
+  const { t } = st
+  const tc = useT(commonNs)
   const [newAmount, setNewAmount] = useState(String(ingredient.current_stock))
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<StockFormError | null>(null)
 
   async function save() {
     const n = parseFloat(newAmount)
     if (isNaN(n) || n < 0) {
-      setError('Cantitate invalidă')
+      setError({ kind: 'qtyInvalid' })
       return
     }
     setSaving(true)
     try {
-      await adjustStockManual(ingredient.id, n, notes || 'Ajustare manuală')
+      // Nota implicită e DATĂ (stock_movements.notes), nu text de ecran.
+      await adjustStockManual(ingredient.id, n, notes || MANUAL_ADJUST_NOTE)
       onSave()
     } catch (err) {
-      setError(toUserMessage(err))
+      setError({ kind: 'server', err })
       setSaving(false)
     }
   }
@@ -1011,7 +1042,7 @@ function AdjustStockModal({
             marginBottom: 4,
           }}
         >
-          Ajustează stoc
+          {t('ing_adjust')}
         </div>
         <div style={{ fontSize: '0.85rem', color: D.t2, marginBottom: 16 }}>
           {ingredient.emoji} {ingredient.name}
@@ -1020,7 +1051,7 @@ function AdjustStockModal({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
             <label style={lbl} htmlFor="adjust-amount">
-              Stoc curent: {formatStock(ingredient.current_stock, ingredient.unit)}
+              {t('adj_current', { amount: formatStockT(ingredient.current_stock, ingredient.unit, st) })}
             </label>
             <input
               id="adjust-amount"
@@ -1031,24 +1062,24 @@ function AdjustStockModal({
               onChange={(e) => setNewAmount(e.target.value)}
             />
             <div style={{ fontSize: '0.7rem', color: D.t3, marginTop: 4 }}>
-              Pune cantitatea reală pe care o ai în stoc acum
+              {t('adj_hint')}
             </div>
           </div>
 
           <div>
             <label style={lbl} htmlFor="adjust-notes">
-              Motiv (opțional)
+              {t('adj_reason')}
             </label>
             <input
               id="adjust-notes"
               style={inp()}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="ex: Inventar, risipă, schimb furnizor"
+              placeholder={t('adj_reasonPh')}
             />
           </div>
 
-          {error && (
+          {error == null ? null : (
             <div
               style={{
                 padding: '8px 12px',
@@ -1058,7 +1089,7 @@ function AdjustStockModal({
                 fontSize: '0.78rem',
               }}
             >
-              {error}
+              {stockFormErrorText(error, st, tc)}
             </div>
           )}
 
@@ -1067,14 +1098,14 @@ function AdjustStockModal({
               onClick={onClose}
               style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
             >
-              Anulează
+              {tc.t('cancel')}
             </button>
             <button
               disabled={saving}
               onClick={() => void save()}
               style={btn({ background: D.gold, color: '#000', opacity: saving ? 0.6 : 1 })}
             >
-              {saving ? 'Salvez...' : 'Salvează'}
+              {saving ? t('saving') : tc.t('save')}
             </button>
           </div>
         </div>
@@ -1087,6 +1118,8 @@ function AdjustStockModal({
 // SUPPLIERS section
 // ═══════════════════════════════════════════════════════════════
 function SuppliersSection({ restaurantId }: { restaurantId: string }) {
+  const { t, tp } = useT(stocksNs)
+  const tc = useT(commonNs)
   const [items, setItems] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
@@ -1132,21 +1165,21 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
     await load()
   }
 
-  if (loading) return <InlineSpinner label="Se încarcă furnizorii..." />
-  if (loadError) return <LoadErrorBox label="Nu am putut încărca furnizorii." onRetry={() => void load()} />
+  if (loading) return <InlineSpinner label={t('sup_loading')} />
+  if (loadError) return <LoadErrorBox label={t('sup_loadError')} onRetry={() => void load()} />
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontSize: '0.85rem', color: D.t3 }}>{items.length} furnizori</div>
+        <div style={{ fontSize: '0.85rem', color: D.t3 }}>{tp('sup_count', items.length)}</div>
         <button onClick={() => setShowAdd(true)} style={btn({ background: D.gold, color: '#000' })}>
           <Icon name="plus" size={15} />
-          Adaugă furnizor
+          {t('sup_add')}
         </button>
       </div>
 
       {items.length === 0 ? (
-        <EmptyState icon="box" title="Niciun furnizor încă" />
+        <EmptyState icon="box" title={t('sup_empty')} />
       ) : (
         <div
           style={{
@@ -1170,7 +1203,7 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
               </div>
               {s.vat_id && (
                 <div style={{ fontSize: '0.72rem', color: D.t3, marginBottom: 2 }}>
-                  CUI: {s.vat_id}
+                  {t('sup_vatId', { id: s.vat_id })}
                 </div>
               )}
               {s.phone && (
@@ -1201,7 +1234,7 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
               )}
               {s.payment_terms_days > 0 && (
                 <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 4 }}>
-                  Termen plată: {s.payment_terms_days} zile
+                  {tp('sup_terms', s.payment_terms_days)}
                 </div>
               )}
             </div>
@@ -1229,48 +1262,48 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
                 marginBottom: 16,
               }}
             >
-              Furnizor nou
+              {t('supm_title')}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div>
                 <label style={lbl} htmlFor="supplier-name">
-                  Nume firmă *
+                  {t('supm_name')}
                 </label>
                 <input
                   id="supplier-name"
                   style={inp()}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="ex: SC Lactate Brașov SRL"
+                  placeholder={t('supm_namePh')}
                 />
               </div>
               <div>
                 <label style={lbl} htmlFor="supplier-vat">
-                  CUI / CIF
+                  {t('supm_vat')}
                 </label>
                 <input
                   id="supplier-vat"
                   style={inp()}
                   value={vatId}
                   onChange={(e) => setVatId(e.target.value)}
-                  placeholder="RO12345678"
+                  placeholder={t('supm_vatPh')}
                 />
               </div>
               <div>
                 <label style={lbl} htmlFor="supplier-phone">
-                  Telefon
+                  {t('supm_phone')}
                 </label>
                 <input
                   id="supplier-phone"
                   style={inp()}
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  placeholder="07XX XXX XXX"
+                  placeholder={t('supm_phonePh')}
                 />
               </div>
               <div>
                 <label style={lbl} htmlFor="supplier-email">
-                  Email
+                  {t('supm_email')}
                 </label>
                 <input
                   id="supplier-email"
@@ -1285,13 +1318,13 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
                   onClick={() => setShowAdd(false)}
                   style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
                 >
-                  Anulează
+                  {tc.t('cancel')}
                 </button>
                 <button
                   onClick={() => void add()}
                   style={btn({ background: D.gold, color: '#000' })}
                 >
-                  Salvează
+                  {tc.t('save')}
                 </button>
               </div>
             </div>
@@ -1312,6 +1345,8 @@ function PurchasesSection({
   restaurantId: string
   showVat: boolean
 }) {
+  const { t, tp, lang } = useT(stocksNs)
+  const tc = useT(commonNs)
   const [items, setItems] = useState<PurchaseOrder[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [ingredients, setIngredients] = useState<Ingredient[]>([])
@@ -1360,8 +1395,8 @@ function PurchasesSection({
     void load()
   }, [restaurantId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (loading) return <InlineSpinner label="Se încarcă NIR-urile..." />
-  if (loadError) return <LoadErrorBox label="Nu am putut încărca NIR-urile." onRetry={() => void load()} />
+  if (loading) return <InlineSpinner label={t('nir_loading')} />
+  if (loadError) return <LoadErrorBox label={t('nir_loadError')} onRetry={() => void load()} />
 
   const canCreate = ingredients.length > 0
 
@@ -1371,9 +1406,7 @@ function PurchasesSection({
         style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
       >
         <div style={{ fontSize: '0.85rem', color: D.t3, flex: 1 }}>
-          {items.length === 0
-            ? 'Niciun NIR. Adaugă primul când primești marfă.'
-            : `${items.length} NIR-uri totale`}
+          {items.length === 0 ? t('nir_none') : tp('nir_count', items.length)}
         </div>
         <button
           disabled={!canCreate}
@@ -1385,7 +1418,7 @@ function PurchasesSection({
           })}
         >
           <Icon name="plus" size={15} />
-          NIR nou
+          {t('nir_new')}
         </button>
       </div>
 
@@ -1407,17 +1440,17 @@ function PurchasesSection({
           <span style={{ color: D.gold, flexShrink: 0, display: 'inline-flex', marginTop: 1 }}>
             <Icon name="info" size={15} />
           </span>
-          Pentru a crea un NIR, adaugă mai întâi cel puțin 1 ingredient în tab-ul Ingrediente.
+          {t('nir_needIngredient')}
         </div>
       )}
 
       {items.length === 0 && canCreate ? (
         <EmptyState
           icon="receipt"
-          title="Niciun NIR încă"
-          description="Click „+ NIR nou” când primești marfă de la furnizor"
+          title={t('nir_emptyTitle')}
+          description={t('nir_emptyDesc')}
         />
-      ) : items.length > 0 ? (
+      ) : items.length === 0 ? null : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {items.map((po) => {
             const supplier = suppliers.find((s) => s.id === po.supplier_id)
@@ -1437,13 +1470,14 @@ function PurchasesSection({
               >
                 <div style={{ flex: 1, minWidth: 180 }}>
                   <div style={{ fontSize: '0.88rem', fontWeight: 600, color: D.t1 }}>
-                    {po.invoice_number ?? `NIR #${po.id.slice(0, 8)}`}
+                    {po.invoice_number ?? t('nir_fallbackName', { id: po.id.slice(0, 8) })}
                   </div>
                   <div style={{ fontSize: '0.72rem', color: D.t3 }}>
                     {supplier?.name ?? '—'} ·{' '}
-                    {/* invoice_date vine ISO (YYYY-MM-DD) — formatăm ro-RO ca fallback-ul,
-                        altfel lista amestecă două formate de dată. */}
-                    {new Date(po.invoice_date ?? po.created_at).toLocaleDateString('ro-RO')}
+                    {/* invoice_date vine ISO (YYYY-MM-DD) — formatăm la fel ca fallback-ul,
+                        altfel lista amestecă două formate de dată. Locale-ul personalului
+                        (`staffLocale`: în română EXACT „ro-RO” de dinainte). */}
+                    {new Date(po.invoice_date ?? po.created_at).toLocaleDateString(staffLocale(lang))}
                   </div>
                 </div>
                 <div
@@ -1454,7 +1488,7 @@ function PurchasesSection({
                     color: D.t1,
                   }}
                 >
-                  {po.total.toFixed(2)} lei
+                  {t('money', { amount: po.total.toFixed(2) })}
                 </div>
                 <div
                   style={{
@@ -1473,20 +1507,22 @@ function PurchasesSection({
                   }}
                 >
                   {po.status === 'draft'
-                    ? 'Draft'
+                    ? t('nir_status_draft')
                     : po.status === 'received'
-                      ? 'Recepționat'
+                      ? t('nir_status_received')
                       : po.status === 'paid'
-                        ? 'Plătit'
-                        : 'Anulat'}
+                        ? t('nir_status_paid')
+                        : t('nir_status_cancelled')}
                 </div>
                 {po.status === 'draft' && (
                   <button
                     onClick={async () => {
                       const ok = await confirmDialog({
-                        title: 'Confirmă recepționarea?',
-                        description: 'Stocul va crește automat.',
-                        confirmLabel: 'Recepționează',
+                        title: t('nir_receiveTitle'),
+                        description: t('nir_receiveDesc'),
+                        confirmLabel: t('nir_receive'),
+                        // EXPLICIT: implicitul urmează <html lang> (pe panou `ro`).
+                        cancelLabel: tc.t('cancel'),
                       })
                       if (!ok) return
                       await receivePurchaseOrder(po.id)
@@ -1499,14 +1535,14 @@ function PurchasesSection({
                       padding: '6px 10px',
                     })}
                   >
-                    Recepționează
+                    {t('nir_receive')}
                   </button>
                 )}
               </div>
             )
           })}
         </div>
-      ) : null}
+      )}
 
       {showAdd && (
         <NirCreateModal
@@ -1554,6 +1590,9 @@ function NirCreateModal({
   onClose: () => void
   onSave: () => void
 }) {
+  const st = useT(stocksNs)
+  const { t } = st
+  const tc = useT(commonNs)
   // Default de rând = cota grupei 1 (mâncare) din config; 19 doar ca ultim
   // fallback. Fără TVA pe plan, cota e 0 (NIR simplificat).
   const defaultVat = showVat ? (getVatRate(vatRates, 1) ?? 19) : 0
@@ -1570,7 +1609,7 @@ function NirCreateModal({
     { ingredient_id: '', quantity: '', unit_price: '', vat_rate: defaultVat },
   ])
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<StockFormError | null>(null)
   const [receiveImmediately, setReceiveImmediately] = useState(true)
 
   function addRow() {
@@ -1620,7 +1659,7 @@ function NirCreateModal({
       (it) => it.ingredient_id.length > 0 && parseFloat(it.quantity) > 0,
     )
     if (validItems.length === 0) {
-      setError('Adaugă cel puțin un ingredient cu cantitate validă')
+      setError({ kind: 'noValidItems' })
       return
     }
 
@@ -1660,7 +1699,7 @@ function NirCreateModal({
 
       onSave()
     } catch (err) {
-      setError(toUserMessage(err))
+      setError({ kind: 'server', err })
       setSaving(false)
     }
   }
@@ -1690,17 +1729,17 @@ function NirCreateModal({
             marginBottom: 4,
           }}
         >
-          NIR nou
+          {t('nir_new')}
         </div>
         <div style={{ fontSize: '0.78rem', color: D.t3, marginBottom: 18 }}>
-          Înregistrează intrarea de marfă de la furnizor. Stocurile cresc la recepționare.
+          {t('nirm_desc')}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/* Header info */}
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
             <div>
-              <label style={lbl}>Furnizor (opțional)</label>
+              <label style={lbl}>{t('nirm_supplier')}</label>
               <Autocomplete
                 value={supplierName}
                 onChange={(v) => {
@@ -1717,14 +1756,14 @@ function NirCreateModal({
                   }
                 }}
                 options={suppliers.map((s) => s.name)}
-                placeholder="Tastează pentru a căuta sau crea nou..."
-                emptyHint={`Apasă Salvează ca să creezi furnizorul "${supplierName.trim()}"`}
+                placeholder={t('nirm_supplierPh')}
+                emptyHint={t('nirm_supplierCreate', { name: supplierName.trim() })}
                 style={{ height: 36 }}
               />
             </div>
             <div>
               <label style={lbl} htmlFor="nir-invoice-date">
-                Data factură
+                {t('nirm_date')}
               </label>
               <input
                 id="nir-invoice-date"
@@ -1738,21 +1777,21 @@ function NirCreateModal({
 
           <div>
             <label style={lbl} htmlFor="nir-invoice-number">
-              Număr factură
+              {t('nirm_number')}
             </label>
             <input
               id="nir-invoice-number"
               style={inp()}
               value={invoiceNumber}
               onChange={(e) => setInvoiceNumber(e.target.value)}
-              placeholder="ex: F-2024-1234"
+              placeholder={t('nirm_numberPh')}
             />
           </div>
 
           {/* Items table */}
           <div>
             <div style={{ fontSize: '0.82rem', fontWeight: 600, color: D.t1, marginBottom: 8 }}>
-              Produse
+              {t('nirm_items')}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {items.map((it, idx) => {
@@ -1778,10 +1817,10 @@ function NirCreateModal({
                         value={it.ingredient_id}
                         onChange={(e) => selectIngredient(idx, e.target.value)}
                       >
-                        <option value="">Alege ingredient...</option>
+                        <option value="">{t('nirm_pickIngredient')}</option>
                         {ingredients.map((i) => (
                           <option key={i.id} value={i.id}>
-                            {i.emoji ?? '🥬'} {i.name} ({i.unit})
+                            {i.emoji ?? '🥬'} {i.name} ({unitSymbolT(i.unit, st)})
                           </option>
                         ))}
                       </select>
@@ -1789,7 +1828,7 @@ function NirCreateModal({
                         type="button"
                         onClick={() => removeRow(idx)}
                         disabled={items.length === 1}
-                        aria-label="Șterge rândul"
+                        aria-label={t('nirm_removeRow')}
                         style={{
                           width: 44,
                           height: 44,
@@ -1819,7 +1858,7 @@ function NirCreateModal({
                     >
                       <div>
                         <div style={{ fontSize: '0.66rem', color: D.t3, marginBottom: 2 }}>
-                          Cantitate
+                          {t('nirm_qty')}
                         </div>
                         <input
                           style={{ ...inp({ height: 34, fontSize: '0.82rem' }) }}
@@ -1832,7 +1871,7 @@ function NirCreateModal({
                       </div>
                       <div>
                         <div style={{ fontSize: '0.66rem', color: D.t3, marginBottom: 2 }}>
-                          Preț/unitate
+                          {t('nirm_unitPrice')}
                         </div>
                         <input
                           style={{ ...inp({ height: 34, fontSize: '0.82rem' }) }}
@@ -1845,7 +1884,7 @@ function NirCreateModal({
                       </div>
                       {showVat && (
                       <div>
-                        <div style={{ fontSize: '0.66rem', color: D.t3, marginBottom: 2 }}>TVA</div>
+                        <div style={{ fontSize: '0.66rem', color: D.t3, marginBottom: 2 }}>{t('nirm_vat')}</div>
                         <select
                           style={{ ...inp({ height: 34, fontSize: '0.82rem' }) }}
                           value={it.vat_rate}
@@ -1881,7 +1920,7 @@ function NirCreateModal({
                       }}
                     >
                       <span style={{ fontSize: '0.74rem', color: D.t3 }}>
-                        {showVat ? 'Total linie (cu TVA)' : 'Total linie'}
+                        {showVat ? t('nirm_lineTotalVat') : t('nirm_lineTotal')}
                       </span>
                       <span
                         style={{
@@ -1891,7 +1930,7 @@ function NirCreateModal({
                           fontFamily: 'Fraunces,serif',
                         }}
                       >
-                        {lineTotal.toFixed(2)} lei
+                        {t('money', { amount: lineTotal.toFixed(2) })}
                       </span>
                     </div>
                   </div>
@@ -1918,7 +1957,7 @@ function NirCreateModal({
               }}
             >
               <Icon name="plus" size={14} />
-              Adaugă rând
+              {t('nirm_addRow')}
             </button>
           </div>
 
@@ -1935,8 +1974,8 @@ function NirCreateModal({
                     marginBottom: 4,
                   }}
                 >
-                  <span>Subtotal (fără TVA)</span>
-                  <span>{subtotal.toFixed(2)} lei</span>
+                  <span>{t('nirm_subtotal')}</span>
+                  <span>{t('money', { amount: subtotal.toFixed(2) })}</span>
                 </div>
                 <div
                   style={{
@@ -1947,8 +1986,8 @@ function NirCreateModal({
                     marginBottom: 8,
                   }}
                 >
-                  <span>TVA</span>
-                  <span>{vatTotal.toFixed(2)} lei</span>
+                  <span>{t('nirm_vatTotal')}</span>
+                  <span>{t('money', { amount: vatTotal.toFixed(2) })}</span>
                 </div>
               </>
             )}
@@ -1964,21 +2003,21 @@ function NirCreateModal({
                 paddingTop: 8,
               }}
             >
-              <span>TOTAL</span>
-              <span>{total.toFixed(2)} lei</span>
+              <span>{t('nirm_total')}</span>
+              <span>{t('money', { amount: total.toFixed(2) })}</span>
             </div>
           </div>
 
           <div>
             <label style={lbl} htmlFor="nir-notes">
-              Note (opțional)
+              {t('nirm_notes')}
             </label>
             <input
               id="nir-notes"
               style={inp()}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="ex: livrare cu întârziere, marfă lipsă, etc."
+              placeholder={t('nirm_notesPh')}
             />
           </div>
 
@@ -2002,14 +2041,14 @@ function NirCreateModal({
               style={{ width: 16, height: 16, cursor: 'pointer' }}
             />
             <div>
-              <div style={{ fontWeight: 600 }}>Recepționează imediat</div>
+              <div style={{ fontWeight: 600 }}>{t('nirm_receiveNow')}</div>
               <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 2 }}>
-                Stocurile vor crește automat. Bifează doar dacă marfa e fizic primită acum.
+                {t('nirm_receiveNowHint')}
               </div>
             </div>
           </label>
 
-          {error && (
+          {error == null ? null : (
             <div
               style={{
                 padding: '8px 12px',
@@ -2020,7 +2059,7 @@ function NirCreateModal({
                 fontSize: '0.78rem',
               }}
             >
-              {error}
+              {stockFormErrorText(error, st, tc)}
             </div>
           )}
 
@@ -2029,18 +2068,14 @@ function NirCreateModal({
               onClick={onClose}
               style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
             >
-              Anulează
+              {tc.t('cancel')}
             </button>
             <button
               disabled={saving}
               onClick={() => void save()}
               style={btn({ background: D.gold, color: '#000', opacity: saving ? 0.6 : 1 })}
             >
-              {saving
-                ? 'Salvez...'
-                : receiveImmediately
-                  ? 'Salvează & recepționează'
-                  : 'Salvează ca draft'}
+              {saving ? t('saving') : receiveImmediately ? t('nirm_saveReceive') : t('nirm_saveDraft')}
             </button>
           </div>
         </div>
@@ -2053,6 +2088,7 @@ function NirCreateModal({
 // PROFITABILITY section
 // ═══════════════════════════════════════════════════════════════
 function ProfitabilitySection({ restaurantId }: { restaurantId: string }) {
+  const { t, tp } = useT(stocksNs)
   const [items, setItems] = useState<ProductProfitability[]>([])
   const [loading, setLoading] = useState(true)
   // Eroarea de încărcare NU cade pe lista goală („niciun produs cu rețetă")
@@ -2078,12 +2114,17 @@ function ProfitabilitySection({ restaurantId }: { restaurantId: string }) {
     load()
   }, [restaurantId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (loading) return <InlineSpinner label="Se calculează profitabilitatea..." />
-  if (loadError)
-    return <LoadErrorBox label="Nu am putut calcula profitabilitatea." onRetry={load} />
+  if (loading) return <InlineSpinner label={t('prof_loading')} />
+  if (loadError) return <LoadErrorBox label={t('prof_loadError')} onRetry={load} />
 
   const withCost = items.filter((i) => i.cost_price > 0)
   const noCost = items.filter((i) => i.cost_price === 0)
+  const noCostNames = noCost
+    .slice(0, 5)
+    .map((p) => p.name)
+    .join(', ')
+  const noCostLine =
+    noCost.length > 5 ? tp('prof_more', noCost.length - 5, { names: noCostNames }) : noCostNames
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -2104,12 +2145,11 @@ function ProfitabilitySection({ restaurantId }: { restaurantId: string }) {
         <span style={{ color: D.gold, flexShrink: 0, display: 'inline-flex', marginTop: 1 }}>
           <Icon name="info" size={15} />
         </span>
-        Pentru ca un produs să apară aici cu cost calculat, trebuie să-i adaugi rețeta (Editare
-        produs → Rețetă).
+        {t('prof_info')}
       </div>
 
       {items.length === 0 && (
-        <EmptyState icon="tag" title="Niciun produs de analizat încă" />
+        <EmptyState icon="tag" title={t('prof_empty')} />
       )}
 
       {withCost.length > 0 && (
@@ -2124,7 +2164,7 @@ function ProfitabilitySection({ restaurantId }: { restaurantId: string }) {
               marginBottom: 8,
             }}
           >
-            Cu rețetă configurată ({withCost.length})
+            {t('prof_withRecipe', { n: withCost.length })}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {withCost.map((p) => (
@@ -2145,10 +2185,10 @@ function ProfitabilitySection({ restaurantId }: { restaurantId: string }) {
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: '0.72rem', color: D.t3 }}>
-                    Cost: {p.cost_price.toFixed(2)} lei
+                    {t('prof_cost', { amount: p.cost_price.toFixed(2) })}
                   </div>
                   <div style={{ fontSize: '0.72rem', color: D.t3 }}>
-                    Vând: {p.sell_price.toFixed(2)} lei
+                    {t('prof_sell', { amount: p.sell_price.toFixed(2) })}
                   </div>
                 </div>
                 <div style={{ minWidth: 80, textAlign: 'right' }}>
@@ -2165,9 +2205,9 @@ function ProfitabilitySection({ restaurantId }: { restaurantId: string }) {
                             : '#c0392b',
                     }}
                   >
-                    {p.margin_percent.toFixed(0)}%
+                    {t('prof_marginPct', { pct: p.margin_percent.toFixed(0) })}
                   </div>
-                  <div style={{ fontSize: '0.7rem', color: D.t3 }}>marjă</div>
+                  <div style={{ fontSize: '0.7rem', color: D.t3 }}>{t('prof_margin')}</div>
                 </div>
               </div>
             ))}
@@ -2187,7 +2227,7 @@ function ProfitabilitySection({ restaurantId }: { restaurantId: string }) {
               marginBottom: 8,
             }}
           >
-            Fără rețetă ({noCost.length}) — nu se poate calcula profitul
+            {t('prof_noRecipe', { n: noCost.length })}
           </div>
           <div
             style={{
@@ -2199,11 +2239,7 @@ function ProfitabilitySection({ restaurantId }: { restaurantId: string }) {
               color: D.t2,
             }}
           >
-            {noCost
-              .slice(0, 5)
-              .map((p) => p.name)
-              .join(', ')}
-            {noCost.length > 5 && ` și încă ${noCost.length - 5} produse`}
+            {noCostLine}
           </div>
         </div>
       )}
@@ -2285,6 +2321,7 @@ const lbl: React.CSSProperties = {
 }
 
 function LoadErrorBox({ label, onRetry }: { label: string; onRetry: () => void }) {
+  const tc = useT(commonNs)
   return (
     <div
       style={{
@@ -2298,7 +2335,7 @@ function LoadErrorBox({ label, onRetry }: { label: string; onRetry: () => void }
     >
       <div style={{ marginBottom: 12 }}>{label}</div>
       <button onClick={onRetry} style={btn({ background: D.gold, color: '#000' })}>
-        Reîncearcă
+        {tc.t('retry')}
       </button>
     </div>
   )
