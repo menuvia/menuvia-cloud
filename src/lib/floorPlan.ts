@@ -61,6 +61,16 @@ export interface FloorLayout {
   savedAt: string
 }
 
+// ─── Numele IMPLICITE ale elementelor NOI (DATE) ──────────────
+// Se scriu în `restaurants.floor_layout` la salvare și le vede și OASPETELE
+// (zonele, pe harta publică a rezervării), deci rămân în română în orice limbă
+// a personalului — exact ca înainte de L6a (regula „valorile din DB nu se
+// traduc”, ca `MANUAL_ADJUST_NOTE` din L5b). Butoanele care le creează
+// („+ Etaj”, „▢ Zonă”) se traduc; numele propus nu.
+export const DEFAULT_FLOOR_NAME = 'Parter'
+export const defaultFloorName = (n: number): string => `Etaj ${n}`
+export const DEFAULT_ZONE_LABEL = 'Zonă'
+
 // ─── Constante canvas ─────────────────────────────────────────
 // Sistemul de coordonate absolut pe care sunt salvate elementele. Vizualizatorul
 // public scalează responsive raportându-se la aceste dimensiuni.

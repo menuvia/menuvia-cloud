@@ -13,7 +13,7 @@
 // ─────────────────────────────────────────────────────────────
 import QRCode from 'qrcode'
 import { patchPdfDiacritics } from './pdf'
-import { qrCardSubtitles } from './qrCopy'
+import { qrCardLines, qrCardSubtitles, qrPdfText } from './qrCopy'
 
 export type QrPdfFormat = 'grid' | 'tent' | 'poster'
 
@@ -38,7 +38,16 @@ export interface QrPdfInput {
   brandHost: string
   /** Prefixul numelui de fișier: „QR-Mese” (implicit) sau „QR-Meniu”. */
   filePrefix?: string
+  /**
+   * Limba de BAZĂ a meniului (`restaurants.language`, lotul O6a): subtitlul
+   * TIPĂRIT e pentru oaspete, deci urmează meniul, nu limba personalului
+   * (lib/qrCopy.ts). Lipsă / necunoscută = `ro` — cardul de dinainte (ro + en).
+   */
+  menuLanguage?: string | null
 }
+
+/** Hint-ul refuzului „fără carduri” (`downloadQrPdf`): ecranul îl traduce. */
+export const QR_PDF_NO_CARDS_HINT = 'qr_pdf_no_cards'
 
 type CardScale = 'sm' | 'md' | 'lg'
 
@@ -167,7 +176,9 @@ export async function drawQrPdf(
   makeQr: QrDataUrlFn,
 ): Promise<void> {
   const accent = hexToRgb(input.primaryColor) || [200, 150, 60]
-  const { ro: subtitleRo, en: subtitleEn } = qrCardSubtitles(input.canOrder)
+  // Prima linie în limba de bază a meniului, a doua în engleză (lipsește pe
+  // un meniu englezesc) — pe `ro` exact „Scanează…” + „Scan…” de dinainte.
+  const [subtitleMain, subtitleEn] = qrCardLines(qrCardSubtitles(input.canOrder), input.menuLanguage)
   const slots = qrPdfLayout(input.format, input.cards.length)
   let page = 0
   for (let i = 0; i < input.cards.length; i++) {
@@ -195,12 +206,12 @@ export async function drawQrPdf(
       input.restaurantName.length > maxRn
         ? input.restaurantName.slice(0, maxRn - 2) + '…'
         : input.restaurantName
-    doc.text(rn, x + cW / 2, y + cH * 0.1, { align: 'center' })
+    doc.text(qrPdfText(rn), x + cW / 2, y + cH * 0.1, { align: 'center' })
 
     // Masa (cu accentul restaurantului)
     doc.setFontSize(sizes.tn)
     doc.setTextColor(accent[0], accent[1], accent[2])
-    doc.text(card.label, x + cW / 2, y + cH * 0.2, { align: 'center' })
+    doc.text(qrPdfText(card.label), x + cW / 2, y + cH * 0.2, { align: 'center' })
 
     // QR-ul — generat local, fără cerere externă
     const qs = Math.min(cW, cH) * sizes.qFrac
@@ -214,14 +225,16 @@ export async function drawQrPdf(
       doc.rect(qx, qy, qs, qs, 'F')
     }
 
-    // Subtitlu bilingv
+    // Subtitlu în limba meniului (+ engleza dedesubt, dacă meniul nu e englezesc)
     doc.setFontSize(sizes.sub)
     doc.setTextColor(60, 50, 38)
     doc.setFont('helvetica', 'normal')
-    doc.text(subtitleRo, x + cW / 2, y + cH * 0.85, { align: 'center' })
-    doc.setFontSize(sizes.sub - 1)
-    doc.setTextColor(138, 126, 108)
-    doc.text(subtitleEn, x + cW / 2, y + cH * 0.9, { align: 'center' })
+    doc.text(qrPdfText(subtitleMain ?? ''), x + cW / 2, y + cH * 0.85, { align: 'center' })
+    if (subtitleEn !== undefined) {
+      doc.setFontSize(sizes.sub - 1)
+      doc.setTextColor(138, 126, 108)
+      doc.text(qrPdfText(subtitleEn), x + cW / 2, y + cH * 0.9, { align: 'center' })
+    }
 
     // Subsol de brand
     doc.setFontSize(sizes.brand)
@@ -236,7 +249,10 @@ export async function drawQrPdf(
  * apelantul afișează eroarea.
  */
 export async function downloadQrPdf(input: QrPdfInput): Promise<string> {
-  if (input.cards.length === 0) throw new Error('Niciun QR de tipărit')
+  // Mesajul rămâne românesc (în română ajunge pe ecran ca atare, prin
+  // `toUserMessage`); `hint` îl face traductibil pe ecranele personalului.
+  if (input.cards.length === 0)
+    throw Object.assign(new Error('Niciun QR de tipărit'), { hint: QR_PDF_NO_CARDS_HINT })
   const { default: jsPDF } = await import('jspdf')
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
   // Fonturile standard jsPDF nu au ă/ș/ț — fără patch, numele restaurantului
