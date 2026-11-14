@@ -212,6 +212,21 @@ function tab() {
   )
 }
 
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+// Pe CUVINTE ÎNTREGI (capcana (b) din L5a2): „Categorie” e subșir în englezescul
+// „Categories”, deci un `includes` simplu raporta un rest românesc fals. Granița
+// de cuvânt cere textul pe NODURI (`nodeText`): `textContent` lipește textele
+// elementelor vecine („…produse+ Adaugă produs…”), iar un fragment lipit de
+// litera vecinului n-ar mai fi găsit — controlul pozitiv ar cădea la zero.
+const containsWhole = (text: string, piece: string): boolean =>
+  new RegExp(`(?<!\\p{L})${escapeRe(piece)}(?!\\p{L})`, 'u').test(text)
+function nodeText(root: Node): string {
+  const parts: string[] = []
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) parts.push(n.nodeValue ?? '')
+  return parts.join('\n')
+}
+
 /** Fragmentele românești ale namespace-ului `products` rămase în text (fără
  *  cele identice în limba țintă: „Signature”, „⭐ SPECIAL”…). Un text cu
  *  locuri `{x}` se verifică pe bucățile lui fixe de cel puțin 6 caractere. */
@@ -223,7 +238,7 @@ function romanianLeftovers(text: string, target: Dict): string[] {
     for (const form of forms) {
       for (const piece of form.split(/\{\w+\}/)) {
         const p = piece.trim()
-        if (p.length >= 6 && !own.includes(p) && text.includes(p)) out.push(`${k}: ${p}`)
+        if (p.length >= 6 && !own.includes(p) && containsWhole(text, p)) out.push(`${k}: ${p}`)
       }
     }
   }
@@ -233,7 +248,7 @@ function romanianLeftovers(text: string, target: Dict): string[] {
 describe('lista de produse în limba personalului', () => {
   it('LV0: control pozitiv — lista românească are resturi față de engleză', () => {
     const { container } = inLang(null, tab())
-    const left = romanianLeftovers(container.textContent ?? '', productsEn as Dict)
+    const left = romanianLeftovers(nodeText(container), productsEn as Dict)
     expect(left.length).toBeGreaterThan(3)
     expect(left.some((l) => l.startsWith('toolbar_add:'))).toBe(true)
   })
@@ -272,7 +287,7 @@ describe('lista de produse în limba personalului', () => {
     expect(screen.getAllByRole('button', { name: 'Mark available' })).toHaveLength(1)
     expect(screen.getAllByRole('button', { name: 'Mark as special' })).toHaveLength(1)
     expect(screen.getByPlaceholderText('Search…')).toBeInTheDocument()
-    expect(romanianLeftovers(container.textContent ?? '', productsEn as Dict)).toEqual([])
+    expect(romanianLeftovers(nodeText(container), productsEn as Dict)).toEqual([])
     expect(container.textContent).not.toMatch(/Toate|Acțiuni|EPUIZAT|Adaugă/)
   })
 })
@@ -297,7 +312,7 @@ describe('fișa produsului în limba personalului', () => {
     await user.clear(within(dlg).getByRole('textbox', { name: 'Name' }))
     await user.click(within(dlg).getByRole('button', { name: 'Speichern' }))
     expect(within(dlg).getByRole('alert')).toHaveTextContent('Der Produktname ist erforderlich')
-    expect(romanianLeftovers(dlg.textContent ?? '', productsDe as Dict)).toEqual([])
+    expect(romanianLeftovers(nodeText(dlg), productsDe as Dict)).toEqual([])
   })
 
   it('LV4: refuzul `product_limit` — mesajul serverului în română, hint-ul tradus în franceză', async () => {
@@ -322,7 +337,7 @@ describe('fișa produsului în limba personalului', () => {
     expect(await within(dlg).findByText(productsFr.hint_productLimit)).toBeInTheDocument()
     expect(calls.create).toBe(2)
     expect(document.body.textContent).not.toContain('Limită produse')
-    expect(romanianLeftovers(dlg.textContent ?? '', productsFr as Dict)).toEqual([])
+    expect(romanianLeftovers(nodeText(dlg), productsFr as Dict)).toEqual([])
   })
 })
 
@@ -348,7 +363,7 @@ describe('antetul, ordinea și ștergerea în limba personalului', () => {
     await user.click(screen.getByRole('button', { name: /Importer/ }))
     expect(screen.getByRole('button', { name: 'Depuis une photo (IA)' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Depuis un fichier CSV' })).toBeInTheDocument()
-    expect(romanianLeftovers(bar.container.textContent ?? '', productsFr as Dict)).toEqual([])
+    expect(romanianLeftovers(nodeText(bar.container), productsFr as Dict)).toEqual([])
     bar.unmount()
 
     inLang(
@@ -368,7 +383,7 @@ describe('antetul, ordinea și ștergerea în limba personalului', () => {
     expect(within(dlg).getByRole('button', { name: 'Move “Ciorbă” down' })).toBeEnabled()
     expect(within(dlg).getByRole('button', { name: 'Save sort order' })).toBeDisabled()
     expect(within(dlg).getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
-    expect(romanianLeftovers(dlg.textContent ?? '', productsEn as Dict)).toEqual([])
+    expect(romanianLeftovers(nodeText(dlg), productsEn as Dict)).toEqual([])
   })
 
   it('LV6: ștergerea în engleză', async () => {
