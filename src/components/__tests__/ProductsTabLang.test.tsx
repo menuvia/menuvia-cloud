@@ -212,6 +212,12 @@ function tab() {
   )
 }
 
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+// Pe CUVINTE ÎNTREGI (capcana (b) din L5a2): „Categorie” e subșir în englezescul
+// „Categories”, deci un `includes` simplu raporta un rest românesc fals.
+const containsWhole = (text: string, piece: string): boolean =>
+  new RegExp(`(?<!\\p{L})${escapeRe(piece)}(?!\\p{L})`, 'u').test(text)
+
 /** Fragmentele românești ale namespace-ului `products` rămase în text (fără
  *  cele identice în limba țintă: „Signature”, „⭐ SPECIAL”…). Un text cu
  *  locuri `{x}` se verifică pe bucățile lui fixe de cel puțin 6 caractere. */
@@ -223,7 +229,7 @@ function romanianLeftovers(text: string, target: Dict): string[] {
     for (const form of forms) {
       for (const piece of form.split(/\{\w+\}/)) {
         const p = piece.trim()
-        if (p.length >= 6 && !own.includes(p) && text.includes(p)) out.push(`${k}: ${p}`)
+        if (p.length >= 6 && !own.includes(p) && containsWhole(text, p)) out.push(`${k}: ${p}`)
       }
     }
   }
