@@ -20,8 +20,18 @@ import { EmptyState } from './ui/EmptyState'
 import { Icon } from './ui/Icon'
 import { useToast } from './ui/useToast'
 import { confirm as confirmDialog } from './ui/confirm'
-import { RESERVATION_STATUS_LABEL as STATUS_LABEL } from '../lib/reservations'
-import { toUserMessage } from '../lib/userMessages'
+import { useT } from '../i18n/useT'
+import { fillNodes } from '../i18n/fillNodes'
+import { describeStaffError } from '../i18n/staffErrors'
+import { reservationsNs } from '../i18n/ns/reservations'
+import { commonNs } from '../i18n/ns/common'
+import {
+  formatReservationDay,
+  formatReservationTime,
+  publicReservationUrl,
+  reservationCountT,
+  reservationStatusLabelT,
+} from '../lib/reservationsLang'
 
 // Cheia de telefon pentru badge-ul de recidivist — ACEEAȘI normalizare ca
 // get_reservation_no_show_counts (mig 234) și rate-limit-ul din mig 115/129:
@@ -43,37 +53,19 @@ const STATUS_COLOR: Record<ReservationStatus, { bg: string; fg: string }> = {
   expired: { bg: D.s3, fg: D.t3 },
 }
 
-function formatDay(iso: string): string {
-  return new Date(iso).toLocaleDateString('ro-RO', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  })
-}
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('ro-RO', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
+// Data și ora: `formatReservationDay`/`formatReservationTime`
+// (lib/reservationsLang.ts) — în română EXACT formatul „ro-RO” de dinainte.
 
 // Cheia de zi pe data LOCALĂ, nu felia UTC din ISO — o rezervare la 00:30 ora
 // României are data UTC din ziua precedentă și ar ateriza sub headerul greșit
-// (headerul formatează local prin formatDay; cheia trebuie să fie consistentă).
+// (headerul formatează local prin formatReservationDay; cheia trebuie să fie consistentă).
 function localDayKey(iso: string): string {
   const d = new Date(iso)
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`
 }
 
-// Plural românesc: „1 rezervare", „2 rezervări", dar „21 de rezervări" —
-// numerele cu restul %100 în afara intervalului 2–19 (și diferite de 0) cer „de".
-function plural(n: number, one: string, many: string): string {
-  if (n === 1) return `1 ${one}`
-  const rem = n % 100
-  const needsDe = n !== 0 && !(rem >= 2 && rem <= 19)
-  return `${n} ${needsDe ? 'de ' : ''}${many}`
-}
+// Pluralul românesc („1 rezervare", „2 rezervări", „21 de rezervări") e
+// `reservationCountT` (lib/reservationsLang.ts): în română regula de dinainte.
 
 function groupByDay(reservations: Reservation[]): Map<string, Reservation[]> {
   const map = new Map<string, Reservation[]>()
@@ -91,6 +83,10 @@ interface Props {
 }
 
 export default function ReservationsTab({ restaurantId }: Props) {
+  // Sus, înaintea oricărui return: ambele namespace-uri ale filei, ca nicio
+  // subcomponentă montată mai târziu să nu suspende fila.
+  const rv = useT(reservationsNs)
+  const tc = useT(commonNs)
   const { range, setToday, setTomorrow, setWeek, setSpecificDate } = useDateRange(
     dayRange(new Date()),
   )
@@ -168,9 +164,11 @@ export default function ReservationsTab({ restaurantId }: Props) {
       // un singur tap le executa fără confirmare și fără cale de revenire.
       if (status === 'cancelled' || status === 'no_show') {
         const ok = await confirmDialog({
-          title: status === 'cancelled' ? 'Anulezi rezervarea?' : 'Marchezi ca no-show?',
-          description: 'Acțiunea nu poate fi anulată din aplicație.',
-          confirmLabel: status === 'cancelled' ? 'Anulează rezervarea' : 'Marchează no-show',
+          title: status === 'cancelled' ? rv.t('confirm_cancelTitle') : rv.t('confirm_noShowTitle'),
+          description: rv.t('confirm_desc'),
+          confirmLabel:
+            status === 'cancelled' ? rv.t('confirm_cancelLabel') : rv.t('confirm_noShowLabel'),
+          cancelLabel: tc.t('cancel'),
           destructive: true,
         })
         if (!ok) return
@@ -179,10 +177,10 @@ export default function ReservationsTab({ restaurantId }: Props) {
         await updateStatus(id, status)
         toast.success(label)
       } catch (e) {
-        toast.error(toUserMessage(e, 'Rezervarea nu a putut fi actualizată.'))
+        toast.error(describeStaffError(e, tc, { fallback: rv.t('err_update') }))
       }
     },
-    [updateStatus, toast],
+    [updateStatus, toast, rv, tc],
   )
 
   // Același handler, dar și reîncărcarea secțiunii de nerezolvate (rândul
@@ -208,7 +206,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
         }}
       >
         <div style={{ fontSize: 13, color: D.t2 }}>
-          {plural(filtered.length, 'rezervare', 'rezervări')} în interval
+          {reservationCountT(rv, 'count_inRange', filtered.length)}
         </div>
       </div>
 
@@ -216,7 +214,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
 
       {staleRows.length > 0 && (
         <section
-          aria-label="Rezervări neconfirmate sau expirate"
+          aria-label={rv.t('stale_aria')}
           style={{
             marginBottom: 16,
             border: `1px solid ${D.border}`,
@@ -244,33 +242,25 @@ export default function ReservationsTab({ restaurantId }: Props) {
               textAlign: 'left',
             }}
           >
-            <span>
-              Neconfirmate / expirate:{' '}
-              {plural(staleRows.length, 'rezervare', 'rezervări')} din trecut
+            <span>{reservationCountT(rv, 'stale_title', staleRows.length)}</span>
+            <span style={{ color: D.t3, fontWeight: 500 }}>
+              {staleOpen ? rv.t('stale_hide') : rv.t('stale_show')}
             </span>
-            <span style={{ color: D.t3, fontWeight: 500 }}>{staleOpen ? 'Ascunde' : 'Arată'}</span>
           </button>
           {staleOpen && (
             <div style={{ padding: '0 14px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ fontSize: 12, color: D.t3 }}>
-                Rezervări rămase fără răspuns (expirate automat după 2 ore) și confirmate
-                nefinalizate de peste 48 de ore — nu depind de intervalul ales mai sus.
-              </div>
+              <div style={{ fontSize: 12, color: D.t3 }}>{rv.t('stale_desc')}</div>
               {staleRows.map((r) => (
                 <ReservationCard
                   key={r.id}
                   r={r}
                   noShowCount={0}
                   showDate
-                  onConfirm={() => handleStaleStatus(r.id, 'confirmed', 'Rezervare confirmată')}
-                  onSeated={() =>
-                    handleStaleStatus(r.id, 'seated', 'Clienții au fost așezați la masă')
-                  }
-                  onCancel={() => handleStaleStatus(r.id, 'cancelled', 'Rezervare anulată')}
-                  onNoShow={() =>
-                    handleStaleStatus(r.id, 'no_show', 'Rezervare marcată ca no-show')
-                  }
-                  onComplete={() => handleStaleStatus(r.id, 'completed', 'Rezervare finalizată')}
+                  onConfirm={() => handleStaleStatus(r.id, 'confirmed', rv.t('done_confirmed'))}
+                  onSeated={() => handleStaleStatus(r.id, 'seated', rv.t('done_seated'))}
+                  onCancel={() => handleStaleStatus(r.id, 'cancelled', rv.t('done_cancelled'))}
+                  onNoShow={() => handleStaleStatus(r.id, 'no_show', rv.t('done_noShow'))}
+                  onComplete={() => handleStaleStatus(r.id, 'completed', rv.t('done_completed'))}
                 />
               ))}
             </div>
@@ -280,17 +270,17 @@ export default function ReservationsTab({ restaurantId }: Props) {
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
         <FilterChip onClick={setToday} active={activeRangeKey === 'today'}>
-          Azi
+          {rv.t('filter_today')}
         </FilterChip>
         <FilterChip onClick={setTomorrow} active={activeRangeKey === 'tomorrow'}>
-          Mâine
+          {rv.t('filter_tomorrow')}
         </FilterChip>
         <FilterChip onClick={setWeek} active={activeRangeKey === 'week'}>
-          Săptămâna asta
+          {rv.t('filter_week')}
         </FilterChip>
         <input
           type="date"
-          aria-label="Alege o zi anume"
+          aria-label={rv.t('filter_dateAria')}
           value={customDateValue}
           onChange={(e) => {
             if (e.target.value) {
@@ -331,7 +321,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
             onChange={(e) => setPendingOnly(e.target.checked)}
             style={{ margin: 0 }}
           />
-          Doar în așteptare
+          {rv.t('filter_pendingOnly')}
         </label>
         <button
           onClick={() => void refetch()}
@@ -350,7 +340,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
           }}
         >
           <Icon name="refresh" size={15} />
-          Reîmprospătează
+          {rv.t('refresh')}
         </button>
       </div>
 
@@ -372,7 +362,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
             gap: 12,
           }}
         >
-          <span>Nu am putut încărca rezervările.</span>
+          <span>{rv.t('load_error')}</span>
           <button
             onClick={() => void refetch()}
             className="pressable"
@@ -388,7 +378,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
               minHeight: 44,
             }}
           >
-            Reîncearcă
+            {tc.t('retry')}
           </button>
         </div>
       ) : loading ? (
@@ -402,16 +392,14 @@ export default function ReservationsTab({ restaurantId }: Props) {
           // mesajul generic ar trimite utilizatorul spre data greșită.
           <EmptyState
             icon="calendar"
-            title="Nicio rezervare în așteptare"
-            description={
-              'Debifează „Doar în așteptare" ca să vezi toate rezervările din interval'
-            }
+            title={rv.t('empty_pendingTitle')}
+            description={rv.t('empty_pendingDesc')}
           />
         ) : (
           <EmptyState
             icon="calendar"
-            title="Nicio rezervare în intervalul ales"
-            description="Schimbă filtrul de dată sau verifică setările"
+            title={rv.t('empty_title')}
+            description={rv.t('empty_desc')}
           />
         )
       ) : (
@@ -428,7 +416,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
                   margin: '0 0 10px',
                 }}
               >
-                {formatDay(list[0]!.starts_at)}
+                {formatReservationDay(list[0]!.starts_at, rv.lang)}
               </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {list.map((r) => (
@@ -439,11 +427,11 @@ export default function ReservationsTab({ restaurantId }: Props) {
                       const k = phoneKey(r.customer_phone)
                       return k ? (noShowCounts[k] ?? 0) : 0
                     })()}
-                    onConfirm={() => handleStatus(r.id, 'confirmed', 'Rezervare confirmată')}
-                    onSeated={() => handleStatus(r.id, 'seated', 'Clienții au fost așezați la masă')}
-                    onCancel={() => handleStatus(r.id, 'cancelled', 'Rezervare anulată')}
-                    onNoShow={() => handleStatus(r.id, 'no_show', 'Rezervare marcată ca no-show')}
-                    onComplete={() => handleStatus(r.id, 'completed', 'Rezervare finalizată')}
+                    onConfirm={() => handleStatus(r.id, 'confirmed', rv.t('done_confirmed'))}
+                    onSeated={() => handleStatus(r.id, 'seated', rv.t('done_seated'))}
+                    onCancel={() => handleStatus(r.id, 'cancelled', rv.t('done_cancelled'))}
+                    onNoShow={() => handleStatus(r.id, 'no_show', rv.t('done_noShow'))}
+                    onComplete={() => handleStatus(r.id, 'completed', rv.t('done_completed'))}
                   />
                 ))}
               </div>
@@ -499,6 +487,8 @@ function FilterChip({
 // planurile fără SMS — al doilea upsell al panoului, cu numele și prețul
 // planului scrise de mână. Scos în lotul P: upsell-ul e unul, pe Acasă.
 function GoogleLinkCard({ restaurantId }: { restaurantId: string }) {
+  // Sus, înaintea return-ului timpuriu (fără slug → nimic).
+  const rv = useT(reservationsNs)
   const [slug, setSlug] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [showSteps, setShowSteps] = useState(false)
@@ -522,7 +512,7 @@ function GoogleLinkCard({ restaurantId }: { restaurantId: string }) {
   }, [restaurantId])
 
   if (!slug) return null
-  const url = `${window.location.origin}/rezervare/${slug}`
+  const url = publicReservationUrl(window.location.origin, slug)
 
   return (
     <div
@@ -536,7 +526,7 @@ function GoogleLinkCard({ restaurantId }: { restaurantId: string }) {
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <Icon name="link" size={16} color={D.gold} />
-        <div style={{ fontSize: 14, fontWeight: 600, color: D.t1 }}>Butonul tău Google</div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: D.t1 }}>{rv.t('google_title')}</div>
         <code
           style={{
             fontSize: 12,
@@ -568,7 +558,7 @@ function GoogleLinkCard({ restaurantId }: { restaurantId: string }) {
             fontWeight: 600,
           }}
         >
-          {copied ? 'Copiat ✓' : 'Copiază'}
+          {copied ? rv.t('google_copied') : rv.t('google_copy')}
         </button>
         <button
           onClick={() => setShowSteps((s) => !s)}
@@ -583,28 +573,28 @@ function GoogleLinkCard({ restaurantId }: { restaurantId: string }) {
             fontSize: 12,
           }}
         >
-          {showSteps ? 'Ascunde pașii' : 'Cum îl pun pe Google?'}
+          {showSteps ? rv.t('google_hideSteps') : rv.t('google_showSteps')}
         </button>
       </div>
       {showSteps && (
         <ol style={{ margin: '10px 0 0', paddingLeft: 20, fontSize: 13, color: D.t2, lineHeight: 1.8 }}>
+          <li>{fillNodes(rv.t('google_step1'), { site: <b>{GOOGLE_BUSINESS_HOST}</b> })}</li>
           <li>
-            Intră pe <b>business.google.com</b> cu contul care administrează profilul localului
-            (dacă nu l-ai revendicat încă, apasă „Deții această companie?" pe fișa din Google).
+            {fillNodes(rv.t('google_step2'), {
+              edit: <b>{rv.t('google_step2Edit')}</b>,
+              section: <b>{rv.t('google_step2Section')}</b>,
+            })}
           </li>
-          <li>
-            Alege profilul → <b>Editează profilul</b> → secțiunea <b>Rezervări</b> → adaugă
-            linkul de mai sus.
-          </li>
-          <li>
-            Salvează — în câteva zile, butonul de rezervare apare pe Google Search și Maps.
-            Detalii: <code>docs/GOOGLE_REZERVARI.md</code>.
-          </li>
+          <li>{fillNodes(rv.t('google_step3'), { doc: <code>{GOOGLE_RESERVATIONS_DOC}</code> })}</li>
         </ol>
       )}
     </div>
   )
 }
+
+// Adresa și calea documentației: identice în orice limbă (nu sunt text).
+const GOOGLE_BUSINESS_HOST = 'business.google.com'
+const GOOGLE_RESERVATIONS_DOC = 'docs/GOOGLE_REZERVARI.md'
 
 interface CardProps {
   r: Reservation
@@ -628,6 +618,8 @@ function ReservationCard({
   onNoShow,
   onComplete,
 }: CardProps) {
+  // Namespace-ul filei (deja încărcat de ReservationsTab): nicio suspendare.
+  const rv = useT(reservationsNs)
   const status = STATUS_COLOR[r.status]
   return (
     <div
@@ -656,15 +648,17 @@ function ReservationCard({
             fontVariantNumeric: 'tabular-nums',
           }}
         >
-          {formatTime(r.starts_at)}
+          {formatReservationTime(r.starts_at, rv.lang)}
         </div>
-        {showDate && <div style={{ fontSize: 12, color: D.t2 }}>{formatDay(r.starts_at)}</div>}
+        {showDate && (
+          <div style={{ fontSize: 12, color: D.t2 }}>{formatReservationDay(r.starts_at, rv.lang)}</div>
+        )}
         <div style={{ fontSize: 14, color: D.t1, fontWeight: 500 }}>{r.customer_name}</div>
         {/* Badge de risc (mig 234): clientul are no-show-uri în istoric — staff-ul
             poate suna să reconfirme. Doar pe rezervările încă ne-terminale. */}
         {noShowCount > 0 && (r.status === 'pending' || r.status === 'confirmed') && (
           <span
-            title={`Acest număr de telefon are ${noShowCount} no-show în istoric`}
+            title={rv.tp('noShow_title', noShowCount)}
             style={{
               padding: '3px 8px',
               borderRadius: 100,
@@ -675,11 +669,11 @@ function ReservationCard({
               whiteSpace: 'nowrap',
             }}
           >
-            ⚠ {noShowCount} no-show
+            {rv.tp('noShow_badge', noShowCount)}
           </span>
         )}
         <div style={{ fontSize: 13, color: D.t2 }}>
-          · {plural(r.party_size, 'persoană', 'persoane')}
+          · {reservationCountT(rv, 'party', r.party_size)}
         </div>
         {r.table && (
           <div style={{ fontSize: 12, color: D.t2 }}>
@@ -690,7 +684,9 @@ function ReservationCard({
         {/* Preferința clientului din widgetul public — vizibilă cât timp nu e
             deja acoperită de zona mesei alocate, ca să nu fie așezat greșit. */}
         {r.requested_zone && r.table?.zone !== r.requested_zone && (
-          <div style={{ fontSize: 12, color: D.t2 }}>· zonă cerută: {r.requested_zone}</div>
+          <div style={{ fontSize: 12, color: D.t2 }}>
+            · {rv.t('zone_requested', { zone: r.requested_zone })}
+          </div>
         )}
         <div
           style={{
@@ -705,7 +701,7 @@ function ReservationCard({
             textTransform: 'uppercase',
           }}
         >
-          {STATUS_LABEL[r.status]}
+          {reservationStatusLabelT(rv, r.status)}
         </div>
       </div>
       <div
@@ -766,18 +762,22 @@ function ReservationCard({
             marginBottom: 10,
           }}
         >
-          "{r.special_requests}"
+          {rv.t('special', { text: r.special_requests })}
         </div>
       )}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {r.status === 'pending' && <ActionButton onClick={onConfirm}>Confirmă</ActionButton>}
-        {(r.status === 'pending' || r.status === 'confirmed') && (
-          <ActionButton onClick={onSeated}>Așază la masă</ActionButton>
+        {r.status === 'pending' && (
+          <ActionButton onClick={onConfirm}>{rv.t('act_confirm')}</ActionButton>
         )}
-        {r.status === 'seated' && <ActionButton onClick={onComplete}>Finalizează</ActionButton>}
+        {(r.status === 'pending' || r.status === 'confirmed') && (
+          <ActionButton onClick={onSeated}>{rv.t('act_seat')}</ActionButton>
+        )}
+        {r.status === 'seated' && (
+          <ActionButton onClick={onComplete}>{rv.t('act_complete')}</ActionButton>
+        )}
         {r.status === 'confirmed' && (
           <ActionButton onClick={onNoShow} danger>
-            No-show
+            {rv.t('act_noShow')}
           </ActionButton>
         )}
         {r.status !== 'cancelled' &&
@@ -785,7 +785,7 @@ function ReservationCard({
           r.status !== 'no_show' &&
           r.status !== 'expired' && (
           <ActionButton onClick={onCancel} danger>
-            Anulează
+            {rv.t('act_cancel')}
           </ActionButton>
         )}
       </div>
@@ -826,6 +826,9 @@ function ActionButton({
 
 // ── Settings section (collapsible) ───────────────────────────
 function SettingsSection({ restaurantId }: { restaurantId: string }) {
+  // Sus, înaintea return-urilor timpurii (încărcare / eroare).
+  const rv = useT(reservationsNs)
+  const tc = useT(commonNs)
   const { settings, loading, error, save, refetch } = useReservationSettings(restaurantId)
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<Partial<ReservationSettings>>({})
@@ -843,13 +846,13 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
     try {
       await save(draft)
       setDraft({})
-      toast.success('Setări salvate')
+      toast.success(rv.t('settings_saved'))
     } catch (e) {
-      toast.error(toUserMessage(e, 'Rezervarea nu a putut fi salvată.'))
+      toast.error(describeStaffError(e, tc, { fallback: rv.t('settings_saveError') }))
     } finally {
       setSaving(false)
     }
-  }, [save, draft, merged, toast])
+  }, [save, draft, merged, toast, rv, tc])
 
   if (loading) {
     return (
@@ -873,7 +876,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
           textAlign: 'center',
         }}
       >
-        <div style={{ marginBottom: 12 }}>Nu am putut încărca setările de rezervări.</div>
+        <div style={{ marginBottom: 12 }}>{rv.t('settings_loadError')}</div>
         <button
           onClick={() => void refetch()}
           className="pressable"
@@ -889,7 +892,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
             minHeight: 44,
           }}
         >
-          Reîncearcă
+          {tc.t('retry')}
         </button>
       </div>
     )
@@ -923,7 +926,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
       >
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           <Icon name="settings" size={16} />
-          Setări rezervări
+          {rv.t('settings_title')}
         </span>
         <Icon name={open ? 'chevronDown' : 'chevronRight'} size={16} color={D.t2} />
       </button>
@@ -936,7 +939,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
             gap: 14,
           }}
         >
-          <SettingField label="Ora deschidere">
+          <SettingField label={rv.t('set_open')}>
             <input
               type="time"
               value={merged.open_time?.slice(0, 5) ?? ''}
@@ -944,7 +947,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
               style={settingsInputStyle}
             />
           </SettingField>
-          <SettingField label="Ora închidere">
+          <SettingField label={rv.t('set_close')}>
             <input
               type="time"
               value={merged.close_time?.slice(0, 5) ?? ''}
@@ -952,18 +955,18 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
               style={settingsInputStyle}
             />
           </SettingField>
-          <SettingField label="Interval slot (min)">
+          <SettingField label={rv.t('set_slot')}>
             <select
               value={merged.slot_interval}
               onChange={(e) => setDraft((d) => ({ ...d, slot_interval: Number(e.target.value) }))}
               style={settingsInputStyle}
             >
-              <option value={15}>15 min</option>
-              <option value={30}>30 min</option>
-              <option value={60}>60 min</option>
+              <option value={15}>{rv.t('set_minutes', { n: 15 })}</option>
+              <option value={30}>{rv.t('set_minutes', { n: 30 })}</option>
+              <option value={60}>{rv.t('set_minutes', { n: 60 })}</option>
             </select>
           </SettingField>
-          <SettingField label="Durata rezervării (min)">
+          <SettingField label={rv.t('set_duration')}>
             <select
               value={merged.reservation_duration}
               onChange={(e) =>
@@ -977,7 +980,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
               <option value={180}>180</option>
             </select>
           </SettingField>
-          <SettingField label="Rezervare cu minim (ore înainte)">
+          <SettingField label={rv.t('set_minAdvance')}>
             <input
               type="number"
               min={0}
@@ -989,7 +992,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
               style={settingsInputStyle}
             />
           </SettingField>
-          <SettingField label="Se poate rezerva cu maxim (zile înainte)">
+          <SettingField label={rv.t('set_maxAdvance')}>
             <input
               type="number"
               min={1}
@@ -1001,7 +1004,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
               style={settingsInputStyle}
             />
           </SettingField>
-          <SettingField label="Max persoane / rezervare">
+          <SettingField label={rv.t('set_maxParty')}>
             <input
               type="number"
               min={1}
@@ -1011,7 +1014,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
               style={settingsInputStyle}
             />
           </SettingField>
-          <SettingField label="Reminder cu (ore înainte)">
+          <SettingField label={rv.t('set_reminder')}>
             <select
               value={merged.reminder_hours_before}
               onChange={(e) =>
@@ -1019,14 +1022,14 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
               }
               style={settingsInputStyle}
             >
-              <option value={0}>Fără</option>
-              <option value={6}>6h</option>
-              <option value={12}>12h</option>
-              <option value={24}>24h</option>
-              <option value={48}>48h</option>
+              <option value={0}>{rv.t('set_reminderNone')}</option>
+              <option value={6}>{rv.t('set_hours', { n: 6 })}</option>
+              <option value={12}>{rv.t('set_hours', { n: 12 })}</option>
+              <option value={24}>{rv.t('set_hours', { n: 24 })}</option>
+              <option value={48}>{rv.t('set_hours', { n: 48 })}</option>
             </select>
           </SettingField>
-          <SettingField label="Confirmare automată">
+          <SettingField label={rv.t('set_autoConfirm')}>
             <label
               style={{
                 display: 'inline-flex',
@@ -1041,7 +1044,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
                 checked={merged.auto_confirm}
                 onChange={(e) => setDraft((d) => ({ ...d, auto_confirm: e.target.checked }))}
               />
-              {merged.auto_confirm ? 'Activat' : 'Dezactivat'}
+              {merged.auto_confirm ? rv.t('set_on') : rv.t('set_off')}
             </label>
           </SettingField>
           <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end' }}>
@@ -1062,7 +1065,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
                 opacity: Object.keys(draft).length === 0 ? 0.5 : 1,
               }}
             >
-              {saving ? 'Se salvează...' : 'Salvează setări'}
+              {saving ? rv.t('saving') : rv.t('save_settings')}
             </button>
           </div>
         </div>
