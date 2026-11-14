@@ -37,6 +37,14 @@ const de: Translation<typeof ro> = {
   offline_dropped:
     'Eine Offline-Bestellung konnte nicht gesendet werden und wurde storniert ({reason}). Bitte manuell neu erfassen.',
   offline_dismissAria: 'Warnung schließen',
+  offline_reason_soldOut: 'ein Produkt ist ausverkauft',
+  offline_reason_gone: 'ein Produkt ist nicht mehr auf der Karte',
+  offline_reason_options: 'eine Option oder ein Extra ist nicht mehr verfügbar',
+  offline_reason_group: 'eine Pflichtoption fehlt',
+  offline_reason_quantity: 'unzulässige Menge',
+  offline_reason_notes: 'die Anmerkungen sind zu lang',
+  offline_reason_orderingOff: 'das Restaurant nimmt gerade keine Bestellungen an',
+  offline_reason_other: 'vom Server abgelehnt',
 
   list_truncated:
     'Es werden nur die {limit} neuesten offenen Bestellungen angezeigt — schließen Sie alte Bestellungen ab oder stornieren Sie sie, damit die Liste vollständig ist.',

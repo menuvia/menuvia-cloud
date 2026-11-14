@@ -34,6 +34,14 @@ const en: Translation<typeof ro> = {
   offline_pending: { one: '{n} order waiting', other: '{n} orders waiting' },
   offline_dropped: 'An offline order couldn’t be sent and was cancelled ({reason}). Enter it again manually.',
   offline_dismissAria: 'Dismiss the warning',
+  offline_reason_soldOut: 'a product sold out',
+  offline_reason_gone: 'a product is no longer on the menu',
+  offline_reason_options: 'an option or extra is no longer available',
+  offline_reason_group: 'a required option is missing',
+  offline_reason_quantity: 'invalid quantity',
+  offline_reason_notes: 'the notes are too long',
+  offline_reason_orderingOff: 'the restaurant isn’t taking orders right now',
+  offline_reason_other: 'rejected by the system',
 
   list_truncated:
     'Only the {limit} most recent open orders are shown — finish or cancel older orders so the list shows everything.',

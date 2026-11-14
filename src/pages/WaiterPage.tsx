@@ -66,6 +66,7 @@ import { PageHeader } from '../components/ui/PageHeader'
 import { EmptyState } from '../components/ui/EmptyState'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { sortByDue } from '../lib/pickupOrders'
+import { offlineDropReasonKey } from '../lib/offlineDrop'
 // Lotul L4b: textele ecranului vin din namespace-ul `waiter` (+ `orders` pentru
 // refuzul anulării, `common` pentru „Reîncearcă” / „Închide” și erori).
 import { useT } from '../i18n/useT'
@@ -1040,7 +1041,14 @@ export default function WaiterPage() {
         >
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <Icon name="alert" size={14} />
-            {tw.t('offline_dropped', { reason: offlineQueue.droppedReason })}
+            {tw.t('offline_dropped', {
+              // În română, textul serverului ca atare (de dinainte); în altă
+              // limbă, motivul tradus din hint (lib/offlineDrop.ts, lotul L4d).
+              reason:
+                tw.lang === 'ro'
+                  ? offlineQueue.droppedReason
+                  : tw.t(offlineDropReasonKey(offlineQueue.dropped?.hint)),
+            })}
           </span>
           <button
             onClick={offlineQueue.dismissDropped}

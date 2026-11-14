@@ -14,6 +14,9 @@ const center: CSSProperties = {
   fontFamily: 'DM Sans, system-ui, sans-serif',
 }
 const spinKeyframes = `@keyframes mvia-spin{to{transform:rotate(360deg)}}`
+// Pictograma ⚠️ a ecranelor de eroare: un caracter, nu text de tradus. Scrisă
+// ca entitate JSX, scanerul SK5 o număra drept text vizibil (lotul L4d).
+const WARNING_SIGN = '\u26a0\ufe0f'
 
 export function PageSpinner({ label }: { label?: string }) {
   // Fallback-ul de Suspense al paginilor leneșe, deci și al meniului QR: în
@@ -82,7 +85,7 @@ export function QueryError({
   const { lang, fallback } = useChrome()
   return (
     <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-      <div style={{ fontSize: 28, marginBottom: 8 }}>&#x26a0;&#xfe0f;</div>
+      <div style={{ fontSize: 28, marginBottom: 8 }}>{WARNING_SIGN}</div>
       <div style={{ color: D.t2, fontSize: 14, lineHeight: 1.6, marginBottom: 16 }}>{message}</div>
       {onRetry && (
         <button
@@ -106,6 +109,10 @@ export function QueryError({
   )
 }
 
+// Ecranul de configurare lipsă rămâne în ROMÂNĂ, deliberat (lotul L4d): îl
+// vede doar cine a pus aplicația în producție fără variabilele de mediu
+// (instrucțiuni Netlify), niciodată personalul sau oaspetele, și apare înaintea
+// oricărui provider — nicio limbă de ecran nu e încă cunoscută.
 export function ConfigError() {
   const missing: string[] = []
   if (!import.meta.env.VITE_SUPABASE_URL) missing.push('VITE_SUPABASE_URL')
@@ -201,7 +208,7 @@ export class ErrorBoundary extends Component<EBProps, EBState> {
       return (
         <div style={center} lang={lang}>
           <div style={{ textAlign: 'center', maxWidth: 480 }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>&#x26a0;&#xfe0f;</div>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>{WARNING_SIGN}</div>
             <div
               style={{ color: D.red, fontFamily: 'Georgia, serif', fontSize: 20, marginBottom: 8 }}
             >
