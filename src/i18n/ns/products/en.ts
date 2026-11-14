@@ -197,7 +197,7 @@ const en: Translation<typeof ro> = {
   unit_ml: 'ml',
   unit_l: 'l',
   unit_buc: 'pcs',
-  unit_pachet: 'pack',
+  unit_pachet: 'pk',
   recipe_quantityOf: 'Quantity of {name} ({unit})',
 
   err_extraAdd: 'We couldn’t add the extra.',

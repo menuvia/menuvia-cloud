@@ -2,6 +2,8 @@
 // stocks.ts — Stocuri & Rețete (Menuvia gestiune simplu)
 // ─────────────────────────────────────────────────────────────
 import { supabase } from './supabase'
+import type { StringKey, Translator } from '../i18n/core'
+import type stocksRo from '../i18n/ns/stocks/ro'
 
 export type IngredientUnit = 'g' | 'kg' | 'ml' | 'l' | 'buc' | 'pachet'
 
@@ -135,6 +137,11 @@ export async function deleteIngredient(id: string): Promise<void> {
     .eq('id', id)
   if (error) throw error
 }
+
+/** Nota implicită a unei ajustări manuale fără motiv: DATĂ scrisă în
+ *  `stock_movements.notes` (nu text de ecran), deci rămâne în română în orice
+ *  limbă a personalului, ca valorile din DB (lotul L5b). */
+export const MANUAL_ADJUST_NOTE = 'Ajustare manuală'
 
 export async function adjustStockManual(
   ingredientId: string,
@@ -308,4 +315,54 @@ export function unitLabel(unit: IngredientUnit): string {
     pachet: 'pachete',
   }
   return map[unit]
+}
+
+// ── Unitățile în limba personalului (lotul L5b) ───────────────
+// `formatStock`/`unitLabel` de mai sus rămân NESCHIMBATE (ieșirea românească de
+// dinainte, oracolul testelor); variantele `…T` primesc traducătorul
+// namespace-ului `stocks` și dau în română EXACT același text. Codurile din DB
+// (`IngredientUnit`) nu se schimbă — doar afișarea. Simbolurile SI (g, kg, ml,
+// l, L) sunt aceleași în toate limbile; „buc”/„pachet” se traduc.
+
+export type StocksTranslator = Pick<Translator<typeof stocksRo>, 't'>
+
+const UNIT_SYMBOL_KEYS = {
+  g: 'unit_g',
+  kg: 'unit_kg',
+  ml: 'unit_ml',
+  l: 'unit_l',
+  buc: 'unit_buc',
+  pachet: 'unit_pachet',
+} as const satisfies Record<IngredientUnit, StringKey<typeof stocksRo>>
+
+const UNIT_NAME_KEYS = {
+  g: 'unitName_g',
+  kg: 'unitName_kg',
+  ml: 'unitName_ml',
+  l: 'unitName_l',
+  buc: 'unitName_buc',
+  pachet: 'unitName_pachet',
+} as const satisfies Record<IngredientUnit, StringKey<typeof stocksRo>>
+
+function isUnit(unit: string): unit is IngredientUnit {
+  return Object.prototype.hasOwnProperty.call(UNIT_SYMBOL_KEYS, unit)
+}
+
+/** Simbolul scurt al unității (în română EXACT codul); un cod din afara enum-ului
+ *  se afișează ca atare, ca înainte. */
+export function unitSymbolT(unit: string, tr: StocksTranslator): string {
+  return isUnit(unit) ? tr.t(UNIT_SYMBOL_KEYS[unit]) : unit
+}
+
+/** Numele lung al unității (în română EXACT `unitLabel`). */
+export function unitLabelT(unit: string, tr: StocksTranslator): string {
+  return isUnit(unit) ? tr.t(UNIT_NAME_KEYS[unit]) : unit
+}
+
+/** `formatStock` în limba personalului: aceeași conversie (1500 g → 1.50 kg,
+ *  1500 ml → 1.50 L) și aceleași zecimale; în română ieșirea e identică. */
+export function formatStockT(amount: number, unit: string, tr: StocksTranslator): string {
+  if (unit === 'g' && amount >= 1000) return `${(amount / 1000).toFixed(2)} kg`
+  if (unit === 'ml' && amount >= 1000) return `${(amount / 1000).toFixed(2)} L`
+  return `${amount.toFixed(amount % 1 === 0 ? 0 : 2)} ${unitSymbolT(unit, tr)}`
 }

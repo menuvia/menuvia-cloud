@@ -208,7 +208,7 @@ const fr: Translation<typeof ro> = {
   unit_ml: 'ml',
   unit_l: 'l',
   unit_buc: 'pce',
-  unit_pachet: 'paquet',
+  unit_pachet: 'paq.',
   recipe_quantityOf: 'Quantité de {name} ({unit})',
 
   err_extraAdd: 'Impossible d’ajouter le supplément.',
