@@ -10,7 +10,6 @@
 // fondatorului, afiliați, site-ul de marketing, documentele legale) stau aici
 // la valoarea lor; nu au voie să crească nici ele.
 export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
-  'src/App.tsx': 3,
   'src/components/AddLocationCard.tsx': 12,
   'src/components/AiChatbot.tsx': 37,
   'src/components/AiSettingsTab.tsx': 34,
@@ -32,8 +31,7 @@ export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
   'src/components/LoyaltySettingsCard.tsx': 21,
   'src/components/MfaCard.tsx': 32,
   'src/components/OnlinePaymentsCard.tsx': 23,
-  'src/components/PWAPrompt.tsx': 8,
-  'src/components/PageLoader.tsx': 5,
+  'src/components/PageLoader.tsx': 3,
   'src/components/PartnerAccessList.tsx': 19,
   'src/components/ReportsTab.tsx': 68,
   'src/components/ReservationsTab.tsx': 83,
@@ -53,8 +51,6 @@ export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
   'src/components/marketing/PhoneFrame.tsx': 8,
   'src/components/menu/MenuPreview.tsx': 9,
   'src/components/sales/OneTimeLinkBox.tsx': 9,
-  'src/components/ui/Spinner.tsx': 1,
-  'src/main.tsx': 1,
   'src/pages/AfiliatIntroPage.tsx': 48,
   'src/pages/AfiliatPage.tsx': 131,
   'src/pages/CaseDeMarcatPage.tsx': 28,

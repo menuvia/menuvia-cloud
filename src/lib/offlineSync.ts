@@ -234,7 +234,14 @@ export async function syncPendingOrders(): Promise<void> {
           // trimis. Anunțăm UI-ul (WaiterPage) ca să afișeze un banner „reintroду comanda".
           window.dispatchEvent(
             new CustomEvent('offline-order-dropped', {
-              detail: { reason: error.message ?? 'eroare necunoscută', localId: item.localId },
+              // `hint`/`code` (lotul L4d): motivul se traduce la randare în
+              // limba personalului; `reason` rămâne textul afișat în română.
+              detail: {
+                reason: error.message ?? 'eroare necunoscută',
+                hint: error.hint ?? null,
+                code: error.code ?? null,
+                localId: item.localId,
+              },
             }),
           )
           continue

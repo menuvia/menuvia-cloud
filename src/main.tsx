@@ -8,6 +8,8 @@ import { scrubTokenPathsDeep } from './lib/telemetryScrub'
 // Doar valori + un `import type` din @sentry/react (șters la compilare): nu trage
 // chunk-ul Sentry în graful static al entry-ului.
 import { SENTRY_DATA_COLLECTION } from './lib/sentryPrivacy'
+// Textul ecranului de eroare la pornire (lotul L4d): tabelul cromului, fără importuri.
+import { chromeT, documentChromeLang, type ChromeLang } from './i18n/chrome'
 // Ordinea contează: tokens (variabile) → global (reset+body) → animații
 import './styles/tokens.css'
 import './styles/global.css'
@@ -126,14 +128,18 @@ window.addEventListener('consent-updated', () => {
 // Redă un fallback prietenos și, DACĂ Sentry s-a încărcat (consent), îi
 // trimite excepția — best-effort, fără să blocheze randarea.
 // ─────────────────────────────────────────────────────────────────
+// Limba (lotul L4d) e a paginii în CLIPA erorii, citită în
+// `getDerivedStateFromError`, nu în `render()` — același motiv ca la
+// ErrorBoundary din PageLoader: la commit pagina căzută se demontează și își
+// reface `<html lang>`.
 class AppErrorBoundary extends React.Component<
   { children: React.ReactNode },
-  { hasError: boolean }
+  { hasError: boolean; lang: ChromeLang }
 > {
-  state = { hasError: false }
+  state: { hasError: boolean; lang: ChromeLang } = { hasError: false, lang: 'ro' }
 
-  static getDerivedStateFromError(): { hasError: boolean } {
-    return { hasError: true }
+  static getDerivedStateFromError(): { hasError: boolean; lang: ChromeLang } {
+    return { hasError: true, lang: documentChromeLang() }
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
@@ -146,6 +152,7 @@ class AppErrorBoundary extends React.Component<
     if (this.state.hasError) {
       return (
         <div
+          lang={this.state.lang}
           style={{
             padding: 40,
             textAlign: 'center',
@@ -153,7 +160,7 @@ class AppErrorBoundary extends React.Component<
             fontFamily: 'sans-serif',
           }}
         >
-          A apărut o eroare. Reîncarcă pagina.
+          {chromeT(this.state.lang, 'boot_error')}
         </div>
       )
     }
