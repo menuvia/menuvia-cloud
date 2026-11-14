@@ -426,7 +426,10 @@ export function menuPreviewPath(slug: string, lang: string): string {
   return `/m/${encodeURIComponent(slug)}?lang=${lang}`
 }
 
-/** Plural românesc: „1 text”, „19 texte”, „20 de texte”, „101 texte”, „120 de texte”. */
+/** Plural românesc: „1 text”, „19 texte”, „20 de texte”, „101 texte”, „120 de texte”.
+ *  Din lotul L5a2 nu mai are apelanți pe ecran (AiBulkGenerate citește
+ *  `imports.bulk_textsTranslated`); rămâne oracolul testelor LX8/IY5: formele
+ *  dicționarelor trebuie să fie EXACT ale lui. */
 export function roCount(n: number, one: string, many: string): string {
   if (n === 1) return `1 ${one}`
   const r = Math.abs(n) % 100

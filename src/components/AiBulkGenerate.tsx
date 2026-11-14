@@ -12,6 +12,12 @@
 // `translations[lang].ai_fields` („de verificat” în Meniu → Traduceri). Cu
 // `optionRows` (ecranul Traduceri) se traduc și grupurile, opțiunile și
 // extra-urile; din Produse lotul rămâne cel de dinainte.
+//
+// Lotul L5a2: textele vin din namespace-ul `imports` (+ „Închide” din
+// `common`); componenta e leneșă, sub propriul `<Suspense>` (Produse,
+// Traduceri). Erorile și linia de progres se țin ca DATE (`BulkIssue`,
+// `BulkCurrent`) și se traduc la randare; motivul unui eșec trece prin
+// `describeAiError` — în română exact `toUserMessage(e, 'eroare la generare')`.
 import { useState } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { D } from '../lib/constants'
@@ -35,17 +41,22 @@ import {
 import {
   needsAiTranslation,
   remapCategoryAi,
-  roCount,
   trFieldsFor,
   type AiOptionRow,
   type AiOptionRows,
   type TrTable,
 } from '../lib/menuTranslations'
-import { toUserMessage } from '../lib/userMessages'
+import {
+  bulkCurrentText,
+  bulkIssueText,
+  type BulkCurrent,
+  type BulkIssue,
+  type BulkKind,
+} from '../lib/importMessages'
+import { useT } from '../i18n/useT'
+import { commonNs } from '../i18n/ns/common'
+import { importsNs } from '../i18n/ns/imports'
 import { Button } from './ui/Button'
-
-// Erorile AI vin deja în română (lib/ai.ts); restul trec prin toUserMessage.
-const errText = (e: unknown): string => toUserMessage(e, 'eroare la generare')
 
 // Împarte un array în grupuri de câte `n` (pentru apeluri AI de traducere în lot).
 function chunk<T>(arr: T[], n: number): T[][] {
@@ -102,6 +113,9 @@ export default function AiBulkGenerate({
   /** „Verifică traducerile" pe ecranul final: duce în Meniu → Traduceri. */
   onOpenTranslations?: () => void
 }) {
+  const tr = useT(importsNs)
+  const { t, tp } = tr
+  const tc = useT(commonNs)
   useBodyScrollLock(true)
   const isMobile = useIsMobile()
   const langs = activeTranslationLangs(menuLanguages, baseLang)
@@ -119,8 +133,8 @@ export default function AiBulkGenerate({
   const [okTrOpt, setOkTrOpt] = useState(0)
   // Textele (câmpurile) completate de AI — toate marcate „de verificat".
   const [okTexts, setOkTexts] = useState(0)
-  const [errors, setErrors] = useState<string[]>([])
-  const [current, setCurrent] = useState('')
+  const [errors, setErrors] = useState<BulkIssue[]>([])
+  const [current, setCurrent] = useState<BulkCurrent | null>(null)
   const [quotaHit, setQuotaHit] = useState(false)
 
   const catName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? null
@@ -185,8 +199,7 @@ export default function AiBulkGenerate({
     // configurare → un singur mesaj, oprire; altă eroare → mesaj pe lot și se
     // continuă. Scrierile per rând NU opresc lotul.
     async function translateKind<T extends { id: string; name: string; translations?: Translations | null }>(k: {
-      label: string
-      rowLabel: string
+      kind: BulkKind
       table: TrTable
       rows: T[]
       chunkSize: number
@@ -198,7 +211,7 @@ export default function AiBulkGenerate({
       const groups = chunk(k.rows, k.chunkSize)
       for (let g = 0; g < groups.length && !stop && !stopText; g++) {
         const group = groups[g]
-        setCurrent(`Traduc ${k.label} (${group.length})…`)
+        setCurrent({ kind: 'translating', of: k.kind, n: group.length })
         let map: Record<string, Translations>
         try {
           map = await aiTranslateBatch({
@@ -213,9 +226,9 @@ export default function AiBulkGenerate({
             stop = true
           } else if (isAiConfigError(e)) {
             stopText = true
-            setErrors((prev) => [...prev, `Traduceri oprite: ${errText(e)}`])
+            setErrors((prev) => [...prev, { kind: 'trStopped', err: e }])
             break
-          } else setErrors((prev) => [...prev, `Traducere ${k.label}: ${errText(e)}`])
+          } else setErrors((prev) => [...prev, { kind: 'trBatch', of: k.kind, err: e }])
           continue
         }
         if (k.remap) map = k.remap(map)
@@ -238,7 +251,7 @@ export default function AiBulkGenerate({
             k.onOk()
             setOkTexts((x) => x + merged.filled)
           } catch (e) {
-            setErrors((prev) => [...prev, `${r.name} (${k.rowLabel}): ${errText(e)}`])
+            setErrors((prev) => [...prev, { kind: 'trRow', of: k.kind, name: r.name, err: e }])
           }
         }
       }
@@ -248,8 +261,7 @@ export default function AiBulkGenerate({
       // Categorii (headerele meniului) — numele + subtitlul (trimis ca
       // descriere, întors înapoi pe `meta_text`).
       await translateKind({
-        label: 'categorii',
-        rowLabel: 'categorie',
+        kind: 'categories',
         table: 'categories',
         rows: categories.filter(needsTrCat),
         chunkSize: catChunkSize,
@@ -264,8 +276,7 @@ export default function AiBulkGenerate({
       })
       // Produse — nume + descriere (forma itemului NESCHIMBATĂ).
       await translateKind({
-        label: 'produse',
-        rowLabel: 'traducere',
+        kind: 'products',
         table: 'products',
         rows: products.filter(needsTr),
         chunkSize: prodChunkSize,
@@ -280,15 +291,14 @@ export default function AiBulkGenerate({
           name: r.name,
           ...(r.context ? { context: r.context } : {}),
         })
-        const kinds: [string, string, TrTable, AiOptionRow[]][] = [
-          ['grupuri de opțiuni', 'grup', 'modifier_groups', optionRows.groups],
-          ['opțiuni', 'opțiune', 'modifier_options', optionRows.options],
-          ['extra-uri', 'extra', 'product_extras', optionRows.extras],
+        const kinds: [BulkKind, TrTable, AiOptionRow[]][] = [
+          ['groups', 'modifier_groups', optionRows.groups],
+          ['options', 'modifier_options', optionRows.options],
+          ['extras', 'product_extras', optionRows.extras],
         ]
-        for (const [label, rowLabel, table, rows] of kinds) {
+        for (const [kind, table, rows] of kinds) {
           await translateKind({
-            label,
-            rowLabel,
+            kind,
             table,
             rows: rows.filter(needsTrRow),
             chunkSize: catChunkSize,
@@ -302,7 +312,7 @@ export default function AiBulkGenerate({
 
     for (let i = 0; i < targets.length && !stop; i++) {
       const p = targets[i]
-      setCurrent(p.name)
+      setCurrent({ kind: 'product', name: p.name })
 
       // Nutriție
       if (doNutrition && !stopText && p.calories == null) {
@@ -334,11 +344,8 @@ export default function AiBulkGenerate({
             stop = true
           } else if (isAiConfigError(e)) {
             stopText = true
-            setErrors((prev) => [
-              ...prev,
-              `Macronutrienți opriți: ${errText(e)} Restul produselor au fost sărite.`,
-            ])
-          } else setErrors((prev) => [...prev, `${p.name} (nutriție): ${errText(e)}`])
+            setErrors((prev) => [...prev, { kind: 'nutritionStopped', err: e }])
+          } else setErrors((prev) => [...prev, { kind: 'nutritionRow', name: p.name, err: e }])
         }
       }
 
@@ -359,11 +366,8 @@ export default function AiBulkGenerate({
             stop = true
           } else if (isAiConfigError(e)) {
             stopImages = true
-            setErrors((prev) => [
-              ...prev,
-              `Imagini oprite: ${errText(e)} Restul produselor au fost sărite.`,
-            ])
-          } else setErrors((prev) => [...prev, `${p.name} (imagine): ${errText(e)}`])
+            setErrors((prev) => [...prev, { kind: 'imagesStopped', err: e }])
+          } else setErrors((prev) => [...prev, { kind: 'imageRow', name: p.name, err: e }])
         }
       }
 
@@ -374,7 +378,7 @@ export default function AiBulkGenerate({
 
     setDone(true)
     setRunning(false)
-    setCurrent('')
+    setCurrent(null)
     onDone()
   }
 
@@ -384,28 +388,28 @@ export default function AiBulkGenerate({
     <div onClick={running ? undefined : onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', padding: isMobile ? 0 : 16 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: D.s1, border: `1px solid ${D.border}`, borderRadius: isMobile ? '18px 18px 0 0' : 18, width: '100%', maxWidth: 520, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '16px 20px', borderBottom: `1px solid ${D.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontFamily: 'Fraunces,serif', fontSize: '1.1rem', color: D.t1 }}>{title ?? '✨ Generează AI pentru meniu'}</span>
-          {!running && <button onClick={onClose} aria-label="Închide" style={{ background: 'transparent', border: 'none', color: D.t2, cursor: 'pointer', fontSize: 18 }}>✕</button>}
+          <span style={{ fontFamily: 'Fraunces,serif', fontSize: '1.1rem', color: D.t1 }}>{title ?? t('bulk_title')}</span>
+          {!running && <button onClick={onClose} aria-label={tc.t('close')} style={{ background: 'transparent', border: 'none', color: D.t2, cursor: 'pointer', fontSize: 18 }}>✕</button>}
         </div>
 
         <div style={{ padding: 20, overflowY: 'auto' }}>
           {!done && (
             <>
               <p style={{ color: D.t2, fontSize: '0.88rem', lineHeight: 1.5, marginBottom: 16 }}>
-                Completez automat ce lipsește din meniu. Tot ce generez e marcat „✨ generat de AI — verifică", ca să corectezi ușor.
+                {t('bulk_intro')}
               </p>
               {!translateOnly && (
               <>
               <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', cursor: 'pointer' }}>
                 <input type="checkbox" checked={doImages} disabled={running} onChange={(e) => setDoImages(e.target.checked)} style={{ width: 18, height: 18, accentColor: D.gold }} />
-                <span style={{ color: D.t1, fontSize: '0.9rem' }}>Imagini ({missingImg.length} fără imagine)</span>
+                <span style={{ color: D.t1, fontSize: '0.9rem' }}>{t('bulk_images', { n: missingImg.length })}</span>
               </label>
               <div style={{ fontSize: '0.72rem', color: D.t3, marginLeft: 28, marginTop: -6, marginBottom: 4 }}>
-                Merg cu furnizorul implicit (OpenAI) sau cu Gemini. Pe Claude sau pe un furnizor personalizat, imaginile se sar, cu un singur mesaj.
+                {t('bulk_imagesNote')}
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', cursor: 'pointer' }}>
                 <input type="checkbox" checked={doNutrition} disabled={running} onChange={(e) => setDoNutrition(e.target.checked)} style={{ width: 18, height: 18, accentColor: D.gold }} />
-                <span style={{ color: D.t1, fontSize: '0.9rem' }}>Macronutrienți ({missingNutri.length} fără valori)</span>
+                <span style={{ color: D.t1, fontSize: '0.9rem' }}>{t('bulk_nutrition', { n: missingNutri.length })}</span>
               </label>
               </>
               )}
@@ -414,10 +418,14 @@ export default function AiBulkGenerate({
                 <>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', cursor: 'pointer' }}>
                     <input type="checkbox" checked={doTranslate} disabled={running} onChange={(e) => setDoTranslate(e.target.checked)} style={{ width: 18, height: 18, accentColor: D.gold }} />
-                    <span style={{ color: D.t1, fontSize: '0.9rem' }}>Traduceri în {langs.length} {langs.length === 1 ? 'limbă' : 'limbi'} ({missingTr.length + missingTrCat.length + missingTrOpt.length} de tradus)</span>
+                    <span style={{ color: D.t1, fontSize: '0.9rem' }}>
+                      {tp('bulk_translateIn', langs.length, {
+                        todo: missingTr.length + missingTrCat.length + missingTrOpt.length,
+                      })}
+                    </span>
                   </label>
                   <div style={{ fontSize: '0.72rem', color: D.t3, marginLeft: 28, marginTop: -6, marginBottom: 4 }}>
-                    Traduce {optionRows ? 'numele, descrierile, opțiunile și extra-urile' : 'numele + descrierea'} în limbile alese din Setări → Aspect meniu → Limbi meniu. Completează doar ce lipsește (nu suprascrie traducerile editate manual) și marchează textele noi «de verificat».
+                    {optionRows ? t('bulk_trNoteFull') : t('bulk_trNoteNames')}
                   </div>
                 </>
               )}
@@ -427,7 +435,7 @@ export default function AiBulkGenerate({
                   <div style={{ height: 8, background: D.s3, borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
                     <div style={{ height: '100%', width: `${pct}%`, background: D.gold, transition: 'width .3s' }} />
                   </div>
-                  <div style={{ fontSize: '0.8rem', color: D.t2 }}>{progress}/{targets.length} · {current}</div>
+                  <div style={{ fontSize: '0.8rem', color: D.t2 }}>{progress}/{targets.length} · {bulkCurrentText(current, tr)}</div>
                 </div>
               )}
             </>
@@ -437,27 +445,33 @@ export default function AiBulkGenerate({
             <div>
               <div style={{ fontSize: 36, textAlign: 'center', marginBottom: 10 }}>{quotaHit ? '⚠️' : '✅'}</div>
               <p style={{ color: D.t1, fontSize: '0.95rem', fontWeight: 600, textAlign: 'center', marginBottom: 6 }}>
-                {quotaHit ? 'Cotă AI epuizată' : 'Gata!'}
+                {quotaHit ? t('bulk_quotaTitle') : t('bulk_doneTitle')}
               </p>
               <p style={{ color: D.t2, fontSize: '0.85rem', textAlign: 'center', marginBottom: 14 }}>
                 {[
-                  ...(translateOnly ? [] : [`${okNutri} seturi de valori nutriționale`, `${okImg} imagini generate`]),
+                  ...(translateOnly ? [] : [tp('bulk_sumNutrition', okNutri), tp('bulk_sumImages', okImg)]),
                   ...(hasLangs
                     ? [
-                        `${okTr} produse${okTrCat > 0 ? ` + ${okTrCat} categorii` : ''}${okTrOpt > 0 ? ` + ${okTrOpt} opțiuni și extra-uri` : ''} traduse`,
+                        t('bulk_sumTranslated', {
+                          items: [
+                            tp('bulk_sumProducts', okTr),
+                            ...(okTrCat === 0 ? [] : [tp('bulk_sumCategories', okTrCat)]),
+                            ...(okTrOpt === 0 ? [] : [tp('bulk_sumOptions', okTrOpt)]),
+                          ].join(' + '),
+                        }),
                       ]
                     : []),
                 ].join(' · ')}
-                .{quotaHit && ' Cumpără credite din Setări → Asistent AI ca să continui.'}
+                .{quotaHit ? ` ${t('bulk_buyCredits')}` : null}
               </p>
               {!translateOnly && (
                 <p style={{ color: D.amber, fontSize: '0.8rem', textAlign: 'center', marginBottom: 10 }}>
-                  ✨ Tot ce s-a generat e marcat „verifică" — corectează în fiecare produs.
+                  {t('bulk_reviewAll')}
                 </p>
               )}
               {hasLangs && doTranslate && (
                 <p style={{ color: D.amber, fontSize: '0.8rem', textAlign: 'center', marginBottom: 10 }}>
-                  ✨ {roCount(okTexts, 'text tradus', 'texte traduse')} — marcate «de verificat».
+                  {tp('bulk_textsTranslated', okTexts)}
                 </p>
               )}
               {onOpenTranslations && hasLangs && doTranslate && (
@@ -470,14 +484,14 @@ export default function AiBulkGenerate({
                       onOpenTranslations()
                     }}
                   >
-                    Verifică traducerile
+                    {t('bulk_openTranslations')}
                   </Button>
                 </div>
               )}
               {errors.length > 0 && (
                 <div style={{ background: D.s2, border: `1px solid ${D.border}`, borderRadius: 8, padding: 10, maxHeight: 160, overflowY: 'auto' }}>
                   {errors.map((er, i) => (
-                    <div key={i} style={{ fontSize: '0.75rem', color: D.t3, marginBottom: 4 }}>{er}</div>
+                    <div key={i} style={{ fontSize: '0.75rem', color: D.t3, marginBottom: 4 }}>{bulkIssueText(er, tr, tc)}</div>
                   ))}
                 </div>
               )}
@@ -494,15 +508,15 @@ export default function AiBulkGenerate({
               style={{ flex: 1, background: D.gold, color: '#000', border: 'none', borderRadius: 10, padding: '12px 0', fontSize: '0.9rem', fontWeight: 700, cursor: running ? 'default' : 'pointer', opacity: running || !hasWork || (!doImages && !doNutrition && !doTranslate) ? 0.5 : 1 }}
             >
               {running
-                ? 'Se generează…'
-                : targets.length > 0
-                  ? `Generează pentru ${targets.length} ${targets.length === 1 ? 'produs' : 'produse'}`
-                  : 'Generează traduceri'}
+                ? t('bulk_generating')
+                : targets.length === 0
+                  ? t('bulk_generateTranslations')
+                  : tp('bulk_generateFor', targets.length)}
             </button>
           )}
           {done && (
             <button onClick={onClose} className="pressable" style={{ flex: 1, background: D.gold, color: '#000', border: 'none', borderRadius: 10, padding: '12px 0', fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer' }}>
-              Gata
+              {t('done')}
             </button>
           )}
         </div>

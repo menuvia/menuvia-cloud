@@ -67,9 +67,20 @@ export function menuLangTitle(code: string, tr: TranslationsTranslator, fallback
   return name.charAt(0).toLocaleUpperCase(tr.lang) + name.slice(1)
 }
 
+// Cheile refuzurilor AI. Există, cu EXACT același text, și în namespace-ul
+// `imports` (lotul L5a2, testul IY8): `describeAiError` primește oricare
+// traducător care le are, ca importurile din onboarding să nu încarce
+// namespace-ul Traducerilor.
+export type AiErrorKey = 'err_aiQuota' | 'err_aiSession' | 'err_aiForbidden' | 'err_aiUnavailable' | 'err_aiBusy'
+/** Un traducător care știe cheile refuzurilor AI (`translations` sau `imports`). */
+export interface AiErrorTranslator {
+  lang: TranslationsTranslator['lang']
+  t: (key: AiErrorKey) => string
+}
+
 // Codurile AiError (lib/ai) — folosite și de apelurile AI din fișa produsului
 // (`describeAiError`), ca același refuz să aibă același text pe tot ecranul.
-const AI_CODE_KEYS: Readonly<Record<string, TrKey>> = {
+const AI_CODE_KEYS: Readonly<Record<string, AiErrorKey>> = {
   quota_exceeded: 'err_aiQuota',
   rate_limited: 'err_aiQuota',
   auth_missing: 'err_aiSession',
@@ -99,10 +110,10 @@ function codeOf(err: unknown): string {
 
 /** Mesajul unui refuz al ecranului Traduceri / al traducerilor din fișă.
  *  `fallback` e deja tradus. */
-function describeByCode(
+function describeByCode<K extends string>(
   err: unknown,
-  keys: Readonly<Record<string, TrKey>>,
-  tr: TranslationsTranslator,
+  keys: Readonly<Record<string, K>>,
+  tr: { lang: TranslationsTranslator['lang']; t: (key: K) => string },
   tc: CommonTranslator,
   fallback: string,
 ): string {
@@ -129,10 +140,11 @@ export function describeTranslationError(
  *  produsului. În română exact `toUserMessage(err, fallback)`; în altă limbă
  *  aceleași texte ca `describeTranslationError` pentru codurile AiError
  *  (cotă, sesiune, drepturi, configurare, furnizor, rețea), fără `not_found`
- *  — acela e al salvării traducerilor („nu mai e în meniu”). */
+ *  — acela e al salvării traducerilor („nu mai e în meniu”). `tr` poate fi
+ *  și traducătorul `imports` (importurile meniului, lotul L5a2). */
 export function describeAiError(
   err: unknown,
-  tr: TranslationsTranslator,
+  tr: AiErrorTranslator,
   tc: CommonTranslator,
   fallback: string,
 ): string {

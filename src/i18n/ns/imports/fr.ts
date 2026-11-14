@@ -1,0 +1,260 @@
+import type { Translation } from '../../core'
+import type ro from './ro'
+
+// « Vous », espaces ordinaires avant : ? ! et dans « ». „AI” e „IA”, „plan” e
+// „formule” (ca `products`), „draft” e le « brouillon » de l’import.
+const fr: Translation<typeof ro> = {
+  money: '{amount} lei',
+  done: 'Terminé',
+
+  err_aiQuota: 'L’assistant IA a reçu trop de demandes ou le quota est épuisé. Réessayez plus tard.',
+  err_aiSession: 'Votre session a expiré. Reconnectez-vous.',
+  err_aiForbidden: 'Vous n’avez pas le droit d’utiliser l’assistant IA pour ce restaurant.',
+  err_aiUnavailable: 'L’assistant IA n’est pas disponible pour ce restaurant en ce moment.',
+  err_aiBusy: 'L’assistant IA n’a pas pu répondre. Réessayez dans quelques instants.',
+
+  ai_title: '📸 Importer le menu depuis des photos',
+  ai_tooMany:
+    'Vous pouvez téléverser au maximum {max} photos à la fois. Importez les pages restantes dans un second temps — les produits s’ajoutent, ils ne remplacent rien.',
+  ai_unsupported:
+    'Un fichier a un format non pris en charge (p. ex. HEIC). Exportez-le en JPEG/PNG ou faites une capture d’écran du menu.',
+  ai_tooLarge: 'Les photos sont trop lourdes, même compressées. Essayez avec moins de pages à la fois.',
+  ai_noneFound: 'Aucun produit trouvé sur les photos. Essayez avec des photos plus nettes.',
+  ai_errProcess: 'Erreur lors du traitement des photos.',
+  ai_errFileRead: 'Impossible de lire le fichier.',
+  ai_errServerLimit: 'Rien n’a été enregistré. {message} Décochez des produits ou passez à une formule supérieure.',
+  ai_limitReached: 'Vous avez atteint la limite de produits de votre formule.',
+  ai_fallbackLead: 'Vous pouvez aussi continuer sans l’IA :',
+  ai_fallbackCsv: 'Importer depuis un CSV',
+  ai_fallbackManual: 'Ajouter les produits à la main',
+  ai_resume: {
+    one: 'Vous avez un import en cours : {n} produit extrait, pas encore enregistré. Reprenez-le ou abandonnez-le.',
+    many: 'Vous avez un import en cours : {n} de produits extraits, pas encore enregistrés. Reprenez-le ou abandonnez-le.',
+    other: 'Vous avez un import en cours : {n} produits extraits, pas encore enregistrés. Reprenez-le ou abandonnez-le.',
+  },
+  ai_resumeBtn: 'Reprendre l’import',
+  ai_discardBtn: 'Abandonner le brouillon',
+  ai_discardTitle: 'Abandonner le brouillon ?',
+  ai_discardDesc: {
+    one: 'Le produit extrait, pas encore enregistré, sera définitivement perdu.',
+    many: 'Les {n} de produits extraits, pas encore enregistrés, seront définitivement perdus.',
+    other: 'Les {n} produits extraits, pas encore enregistrés, seront définitivement perdus.',
+  },
+  ai_uploadIntro:
+    'Prenez ou téléversez jusqu’à {max} photos nettes du menu (ses pages). L’IA extrait les produits et les rubriques, puis vous vérifiez et corrigez avant d’enregistrer.',
+  ai_processing: 'Traitement…',
+  ai_pickPhotos: 'Choisir les photos',
+  ai_found: {
+    one: 'Nous avons trouvé {n} produit. Tout est correct ?',
+    many: 'Nous avons trouvé {n} de produits. Tout est correct ?',
+    other: 'Nous avons trouvé {n} produits. Tout est correct ?',
+  },
+  ai_reviewHint: 'Corrigez ce qui est faux, décochez ce que vous ne voulez pas, puis enregistrez.',
+  ai_reviewNewSections: 'Les rubriques marquées ➕ sont créées automatiquement à l’enregistrement.',
+  ai_limitFull:
+    'Vous avez atteint la limite de produits de votre formule — vous ne pouvez plus ajouter de produits. Rien n’a été enregistré. Passez à une formule supérieure ou supprimez des produits existants.',
+  ai_limitAllowed: {
+    one: 'Votre formule permet encore {n} produit, et vous en avez sélectionné {selected}.',
+    many: 'Votre formule permet encore {n} de produits, et vous en avez sélectionné {selected}.',
+    other: 'Votre formule permet encore {n} produits, et vous en avez sélectionné {selected}.',
+  },
+  ai_limitUntick: {
+    one: 'Décochez {n} produit ou passez à une formule supérieure. Rien n’a encore été enregistré.',
+    many: 'Décochez {n} de produits ou passez à une formule supérieure. Rien n’a encore été enregistré.',
+    other: 'Décochez {n} produits ou passez à une formule supérieure. Rien n’a encore été enregistré.',
+  },
+  ai_keepWithin: {
+    one: 'Garder le premier produit, les autres restent dans le brouillon',
+    many: 'Garder les {n} premiers produits, les autres restent dans le brouillon',
+    other: 'Garder les {n} premiers produits, les autres restent dans le brouillon',
+  },
+  ai_namePh: 'Nom du produit',
+  ai_descPh: 'Description (facultatif)',
+  ai_noCategory: 'Sans catégorie',
+  ai_newCategory: '➕ {name} (nouvelle)',
+  ai_doneSaved: { one: '{n} produit enregistré', many: '{n} de produits enregistrés', other: '{n} produits enregistrés' },
+  ai_doneIssues: { one: '{n} problème', many: '{n} de problèmes', other: '{n} problèmes' },
+  ai_doneSavedWithIssues: '{saved}, {issues}',
+  ai_doneAdded: { one: '{n} produit ajouté !', many: '{n} de produits ajoutés !', other: '{n} produits ajoutés !' },
+  ai_doneWhere: 'Vous les trouverez dans l’onglet Produits.',
+  ai_leftInDraft: {
+    one: '{n} produit est resté dans le brouillon, non enregistré. Rouvrez l’import et appuyez sur « Reprendre l’import ».',
+    many: '{n} de produits sont restés dans le brouillon, non enregistrés. Rouvrez l’import et appuyez sur « Reprendre l’import ».',
+    other: '{n} produits sont restés dans le brouillon, non enregistrés. Rouvrez l’import et appuyez sur « Reprendre l’import ».',
+  },
+  ai_deferred: {
+    one: 'Un produit ne rentre pas dans votre formule actuelle. Enregistrez-le depuis le brouillon après être passé à une formule supérieure.',
+    many: '{n} de produits ne rentrent pas dans votre formule actuelle. Enregistrez-les depuis le brouillon après être passé à une formule supérieure.',
+    other: '{n} produits ne rentrent pas dans votre formule actuelle. Enregistrez-les depuis le brouillon après être passé à une formule supérieure.',
+  },
+  ai_issueCategory: 'catégorie « {name} » : impossible de la créer (ses produits sont ajoutés sans catégorie)',
+  ai_issueLimit: 'la limite de produits de la formule a été atteinte — les produits restants n’ont pas été enregistrés',
+  ai_issueProduct: '{name} : impossible de l’enregistrer',
+  ai_unnamedProduct: 'produit sans nom',
+  ai_saving: 'Enregistrement…',
+  ai_saveN: { one: 'Enregistrer {n} produit', many: 'Enregistrer {n} de produits', other: 'Enregistrer {n} produits' },
+
+  bulk_title: '✨ Générer avec l’IA pour le menu',
+  bulk_intro:
+    'Je complète automatiquement ce qui manque dans le menu. Tout ce que je génère est marqué « ✨ généré par l’IA — à vérifier », pour que vous corrigiez facilement.',
+  bulk_images: 'Images ({n} sans image)',
+  bulk_imagesNote:
+    'Elles fonctionnent avec le fournisseur par défaut (OpenAI) ou avec Gemini. Avec Claude ou un fournisseur personnalisé, les images sont ignorées, avec un seul message.',
+  bulk_nutrition: 'Valeurs nutritionnelles ({n} sans valeurs)',
+  bulk_translateIn: {
+    one: 'Traductions en {n} langue ({todo} à traduire)',
+    many: 'Traductions en {n} de langues ({todo} à traduire)',
+    other: 'Traductions en {n} langues ({todo} à traduire)',
+  },
+  bulk_trNoteFull:
+    'Traduit les noms, les descriptions, les options et les suppléments dans les langues choisies dans Paramètres → Apparence du menu → Langues du menu. Ne complète que ce qui manque (n’écrase pas les traductions modifiées à la main) et marque les nouveaux textes « à vérifier ».',
+  bulk_trNoteNames:
+    'Traduit le nom + la description dans les langues choisies dans Paramètres → Apparence du menu → Langues du menu. Ne complète que ce qui manque (n’écrase pas les traductions modifiées à la main) et marque les nouveaux textes « à vérifier ».',
+  bulk_quotaTitle: 'Quota IA épuisé',
+  bulk_doneTitle: 'Terminé !',
+  bulk_sumNutrition: {
+    one: '{n} jeu de valeurs nutritionnelles',
+    many: '{n} de jeux de valeurs nutritionnelles',
+    other: '{n} jeux de valeurs nutritionnelles',
+  },
+  bulk_sumImages: { one: '{n} image générée', many: '{n} d’images générées', other: '{n} images générées' },
+  bulk_sumProducts: { one: '{n} produit', many: '{n} de produits', other: '{n} produits' },
+  bulk_sumCategories: { one: '{n} catégorie', many: '{n} de catégories', other: '{n} catégories' },
+  bulk_sumOptions: {
+    one: '{n} option ou supplément',
+    many: '{n} d’options et suppléments',
+    other: '{n} options et suppléments',
+  },
+  // « Traductions : » plutôt qu’un participe : « 0 produit » est au singulier.
+  bulk_sumTranslated: 'Traductions : {items}',
+  bulk_buyCredits: 'Achetez des crédits dans Paramètres → Assistant IA pour continuer.',
+  bulk_reviewAll: '✨ Tout ce qui a été généré est marqué « à vérifier » — corrigez-le dans chaque produit.',
+  bulk_textsTranslated: {
+    one: '✨ {n} texte traduit — marqué « à vérifier ».',
+    many: '✨ {n} de textes traduits — marqués « à vérifier ».',
+    other: '✨ {n} textes traduits — marqués « à vérifier ».',
+  },
+  bulk_openTranslations: 'Vérifier les traductions',
+  bulk_generating: 'Génération…',
+  bulk_generateFor: {
+    one: 'Générer pour {n} produit',
+    many: 'Générer pour {n} de produits',
+    other: 'Générer pour {n} produits',
+  },
+  bulk_generateTranslations: 'Générer les traductions',
+  bulk_translating: 'Traduction des {kind} ({n})…',
+  bulk_kind_categories: 'catégories',
+  bulk_kind_products: 'produits',
+  bulk_kind_groups: 'groupes d’options',
+  bulk_kind_options: 'options',
+  bulk_kind_extras: 'suppléments',
+  bulk_row_categories: 'catégorie',
+  bulk_row_products: 'traduction',
+  bulk_row_groups: 'groupe',
+  bulk_row_options: 'option',
+  bulk_row_extras: 'supplément',
+  bulk_row_nutrition: 'nutrition',
+  bulk_row_image: 'image',
+  bulk_errTrStopped: 'Traductions arrêtées : {reason}',
+  bulk_errTrBatch: 'Traduction des {kind} : {reason}',
+  bulk_errRow: '{name} ({row}) : {reason}',
+  bulk_errNutritionStopped:
+    'Génération des valeurs nutritionnelles arrêtée : {reason} Les produits restants ont été ignorés.',
+  bulk_errImagesStopped: 'Génération d’images arrêtée : {reason} Les produits restants ont été ignorés.',
+  bulk_errGeneric: 'erreur de génération.',
+  bulk_errNoImages:
+    'La génération d’images ne fonctionne qu’avec OpenAI ou Gemini. Changez de fournisseur dans Paramètres → Assistant IA.',
+
+  csv_title: '📥 Importer des produits depuis un CSV',
+  csv_subtitle: 'Pratique pour migrer rapidement depuis un autre logiciel (SmartBill, Octopus, un fichier Excel fait main).',
+  csv_formatTitle: 'Format attendu (CSV avec une ligne d’en-tête) :',
+  csv_columnsLabel: 'Colonnes :',
+  csv_columnsNote:
+    '{columns} {name}, {category} et {price} sont obligatoires. Les catégories manquantes sont créées automatiquement.',
+  csv_vatNote: 'TVA = 1-4 (1 par défaut).',
+  csv_downloadTemplate: '📄 Télécharger le modèle CSV',
+  csv_templateFile: 'modele-produits-menuvia.csv',
+  csv_uploadFile: '📁 Téléverser un fichier CSV',
+  csv_pasteLead: 'Ou collez directement le CSV :',
+  csv_detected: {
+    one: '{count} ligne détectée :',
+    many: '{count} de lignes détectées :',
+    other: '{count} lignes détectées :',
+  },
+  csv_valid: { one: '{n} valide', many: '{n} valides', other: '{n} valides' },
+  csv_invalid: { one: '{n} avec erreurs', many: '{n} avec erreurs', other: '{n} avec erreurs' },
+  csv_preview: 'Aperçu →',
+  csv_willCreate: {
+    one: '{count} produit sera créé.',
+    many: '{count} de produits seront créés.',
+    other: '{count} produits seront créés.',
+  },
+  csv_newCategories: {
+    one: '{count} nouvelle catégorie sera aussi créée :',
+    many: '{count} de nouvelles catégories seront aussi créées :',
+    other: '{count} nouvelles catégories seront aussi créées :',
+  },
+  csv_skipped: {
+    one: '⚠ {n} ligne sera ignorée (elle contient des erreurs).',
+    many: '⚠ {n} de lignes seront ignorées (elles contiennent des erreurs).',
+    other: '⚠ {n} lignes seront ignorées (elles contiennent des erreurs).',
+  },
+  csv_colStatus: 'Statut',
+  csv_colName: 'Nom',
+  csv_colCategory: 'Catégorie',
+  csv_colPrice: 'Prix',
+  csv_colVat: 'TVA',
+  csv_limitFull:
+    'Vous avez atteint la limite de produits de votre formule — l’import ne peut pas ajouter de nouveaux produits. Supprimez des produits ou passez à une formule supérieure.',
+  csv_slots: {
+    one: '{lead} — celui-ci est importé, et {rest} de côté.',
+    many: '{lead} — les {n} premiers sont importés, et {rest} de côté.',
+    other: '{lead} — les {n} premiers sont importés, et {rest} de côté.',
+  },
+  csv_slotsLead: {
+    one: 'Votre formule a encore de la place pour {count} produit',
+    many: 'Votre formule a encore de la place pour {count} de produits',
+    other: 'Votre formule a encore de la place pour {count} produits',
+  },
+  csv_slotsRest: { one: '{n} ligne reste', many: '{n} de lignes restent', other: '{n} lignes restent' },
+  csv_back: '← Retour',
+  csv_importN: {
+    one: 'Importer {n} produit →',
+    many: 'Importer {n} de produits →',
+    other: 'Importer {n} produits →',
+  },
+  csv_progress: 'Import en cours… {pct} %',
+  csv_imported: {
+    one: '{n} produit importé !',
+    many: '{n} de produits importés !',
+    other: '{n} produits importés !',
+  },
+  csv_rowMissingName: 'nom manquant',
+  csv_rowMissingCategory: 'catégorie manquante',
+  csv_rowMissingPrice: 'prix manquant',
+  csv_rowBadPrice: 'prix illisible (« {raw} »)',
+  csv_rowNegativePrice: 'prix négatif',
+  csv_rowBadVat: 'la TVA doit être entre 1 et 4',
+  csv_rowNameTooLong: 'nom trop long (>100)',
+  csv_errBaseline:
+    'Impossible de lire le menu existant, l’import n’a donc pas démarré (rien n’a été ajouté). Réessayez.',
+  csv_errVerifyProducts:
+    'Impossible de vérifier ce qui a déjà été importé, l’import n’a donc pas repris (pour ne pas créer de produits en double). Réessayez.',
+  csv_errVerifyCategories:
+    'Impossible de vérifier les catégories déjà créées, l’import n’a donc pas repris (pour ne pas créer de catégories en double). Réessayez.',
+  csv_errCategory: 'Erreur pour la catégorie « {name} » : {reason}',
+  csv_errBatch: 'Erreur dans le lot {index} : {reason}',
+  csv_errUnknown: 'Erreur inconnue lors de l’import',
+  csv_hintProductLimit: 'Vous avez atteint la limite de produits de votre formule.',
+  csv_head_name: 'nom',
+  csv_head_category: 'catégorie',
+  csv_head_price: 'prix',
+  csv_head_emoji: 'emoji',
+  csv_head_description: 'description',
+  csv_head_vat: 'tva',
+  csv_templateRows:
+    'Espresso,Cafés,8.00,☕,Café italien pur,1\nCappuccino,Cafés,14.00,☕,Avec mousse de lait,1\nLatte Macchiato,Cafés,16.00,🥛,,1\nLimonade,Boissons fraîches,14.00,🍋,À la menthe fraîche,1\nCheesecake,Desserts,16.00,🍰,Aux fruits rouges,1',
+  csv_exampleRows: 'Espresso,Cafés,8.00,☕,,1\nLatte,Cafés,14.00,🥛,Au lait,1',
+}
+
+export default fr

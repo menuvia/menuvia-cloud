@@ -1,30 +1,33 @@
 // ─────────────────────────────────────────────────────────────
 // ProductsCsvImport — modal de import produse din CSV
 //
-// Format CSV așteptat (header line obligatoriu):
-//   nume,categorie,pret,emoji,descriere,tva
-//   Espresso,Cafele,8.00,☕,,1
-//   Latte Macchiato,Cafele,14.00,🥛,Cafea cu lapte,1
-//   Pizza Margherita,Pizza,28.00,🍕,Mozzarella + roșii,1
-//
-// Coloane:
-//   • nume       (obligatoriu) — string
-//   • categorie  (obligatoriu) — string. Auto-create dacă nu există.
-//   • pret       (obligatoriu) — număr decimal cu . sau , ca separator
-//   • emoji      (opțional)    — default 🍽️
-//   • descriere  (opțional)    — text
-//   • tva        (opțional)    — 1-4 (default 1). DOAR pe planul cu bon
-//                               (`showVat`, planSurface.vat — lotul P): pe
-//                               Planurile 1–2 coloana nu se cere, nu se
-//                               arată și nu se citește (grupa rămâne 1).
-//
-// Acceptă atât , cât și ; ca delimitator (auto-detect).
+// Formatul, parserul și validarea stau în `lib/productsCsv.ts` (lotul L5a2):
+// antetele coloanelor se recunosc în oricare dintre cele patru limbi ale
+// personalului (ro/en/fr/de), șablonul descărcabil se generează cu antetele în
+// LIMBA PERSONALULUI (în română byte-identic cu cel de dinainte), iar erorile
+// de rând și ale importului se țin ca DATE (coduri, `CsvImportFailure`) și se
+// traduc la randare (`lib/importMessages.ts`). Valorile din celule (numele
+// produselor și ale categoriilor) NU se traduc niciodată.
+// Componenta e leneșă, montată din fila Produse sub propriul `<Suspense>`:
+// `useT(importsNs)` o suspendă pe ea, nu fila.
 // ─────────────────────────────────────────────────────────────
 import { useState, useMemo, useRef } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
-import { toUserMessage } from '../lib/userMessages'
+import { parseProductsCsv, type ParsedCsvRow } from '../lib/productsCsv'
+import {
+  CsvImportFailure,
+  csvExample,
+  csvPlaceholder,
+  csvRowErrorText,
+  csvTemplate,
+  describeCsvImportError,
+} from '../lib/importMessages'
+import { useT } from '../i18n/useT'
+import { fillNodes } from '../i18n/fillNodes'
+import { commonNs } from '../i18n/ns/common'
+import { importsNs } from '../i18n/ns/imports'
 
 interface Props {
   restaurantId: string
@@ -40,156 +43,6 @@ interface Props {
   // un apelant care l-ar uita n-are voie să cadă tăcut pe o variantă.
   showVat: boolean
 }
-
-interface ParsedRow {
-  nume: string
-  categorie: string
-  pret: number | null
-  emoji: string
-  descriere: string
-  tva: number
-  // Validare
-  errors: string[]
-  rowNum: number // 1-indexed pentru afișare user
-}
-
-// ── Normalizare robustă preț ─────────────────────────────────
-// Acceptă formate variate: "1.299,50" (RO mii cu ., zecimal cu ,),
-// "1,299.50" (US/EN mii cu ,, zecimal cu .), "14.00", "14,00",
-// spații, NBSP, simbol monedă ("lei", "RON", "€", "$") etc.
-// Returnează number finit >= 0 sau null (= neparsabil → raportat userului,
-// NU tratat tăcut ca 0).
-function normalizePrice(raw: string): number | null {
-  // Curăță spații (inclusiv NBSP/spații înguste) și simboluri monedă/litere
-  let s = raw
-    .replace(/[\u00A0\u202F\u2007\uFEFF\u2060]/g, ' ') // NBSP / narrow-NBSP / BOM etc -> spatiu normal
-    .trim()
-  if (s.length === 0) return null
-
-  // Elimină tot ce nu e cifră, separator (. ,) sau semn minus
-  // (scapă de "lei", "RON", "€", "$", spații dintre cifre, etc.)
-  s = s.replace(/[^\d.,-]/g, '')
-  if (s.length === 0) return null
-
-  const lastComma = s.lastIndexOf(',')
-  const lastDot = s.lastIndexOf('.')
-
-  if (lastComma !== -1 && lastDot !== -1) {
-    // Ambele separatoare prezente: cel care apare ULTIMUL e separatorul zecimal,
-    // celălalt e separator de mii și se elimină.
-    if (lastComma > lastDot) {
-      // Format RO: "1.299,50" → mii ".", zecimal ","
-      s = s.replace(/\./g, '').replace(',', '.')
-    } else {
-      // Format US/EN: "1,299.50" → mii ",", zecimal "."
-      s = s.replace(/,/g, '')
-    }
-  } else if (lastComma !== -1) {
-    // Doar virgulă prezentă.
-    const parts = s.split(',')
-    const decimals = parts[parts.length - 1] ?? ''
-    if (parts.length > 2 || decimals.length === 3) {
-      // Mai multe virgule, sau exact 3 cifre după ultima virgulă → separator de mii
-      // (ex. "1,299" sau "1,234,567"). Eliminăm toate virgulele.
-      s = s.replace(/,/g, '')
-    } else {
-      // O singură virgulă cu 1-2 (sau >3) zecimale → separator zecimal RO.
-      s = s.replace(',', '.')
-    }
-  } else if (lastDot !== -1) {
-    // Doar punct prezent.
-    const parts = s.split('.')
-    const decimals = parts[parts.length - 1] ?? ''
-    if (parts.length > 2 || decimals.length === 3) {
-      // Mai multe puncte, sau exact 3 cifre după ultimul punct → separator de mii
-      // (ex. "1.299" sau "1.234.567"). Eliminăm toate punctele.
-      s = s.replace(/\./g, '')
-    }
-    // altfel punctul e separator zecimal normal ("14.00") — lăsăm așa.
-  }
-
-  // Validare strictă: doar număr cu eventual semn și o singură parte zecimală
-  if (!/^-?\d+(\.\d+)?$/.test(s)) return null
-
-  const n = Number(s)
-  if (!Number.isFinite(n)) return null
-  return n
-}
-
-// ── CSV parser minimal (suportă quotes RFC4180) ──────────────
-function parseCsv(text: string): string[][] {
-  // Detect delimiter
-  const firstLine = text.split('\n')[0] ?? ''
-  const delim = firstLine.includes(';') && !firstLine.includes(',') ? ';' : ','
-
-  const rows: string[][] = []
-  let row: string[] = []
-  let cell = ''
-  let inQuotes = false
-  let i = 0
-  while (i < text.length) {
-    const ch = text[i]!
-    if (inQuotes) {
-      if (ch === '"' && text[i + 1] === '"') {
-        cell += '"'
-        i += 2
-        continue
-      }
-      if (ch === '"') {
-        inQuotes = false
-        i++
-        continue
-      }
-      cell += ch
-      i++
-      continue
-    }
-    if (ch === '"') {
-      inQuotes = true
-      i++
-      continue
-    }
-    if (ch === delim) {
-      row.push(cell)
-      cell = ''
-      i++
-      continue
-    }
-    if (ch === '\r') {
-      i++
-      continue
-    }
-    if (ch === '\n') {
-      row.push(cell)
-      if (row.some((c) => c.trim().length > 0)) rows.push(row)
-      row = []
-      cell = ''
-      i++
-      continue
-    }
-    cell += ch
-    i++
-  }
-  if (cell.length > 0 || row.length > 0) {
-    row.push(cell)
-    if (row.some((c) => c.trim().length > 0)) rows.push(row)
-  }
-  return rows
-}
-
-// ── Sample CSV template ──────────────────────────────────────
-const TEMPLATE = `nume,categorie,pret,emoji,descriere,tva
-Espresso,Cafele,8.00,☕,Cafea italiană pură,1
-Cappuccino,Cafele,14.00,☕,Cu spumă de lapte,1
-Latte Macchiato,Cafele,16.00,🥛,,1
-Limonadă,Băuturi reci,14.00,🍋,Cu mentă proaspătă,1
-Cheesecake,Prăjituri,16.00,🍰,Cu fructe de pădure,1
-`
-
-// Același model fără coloana TVA — Planurile 1–2 (lotul P).
-const TEMPLATE_NO_VAT = TEMPLATE.split('\n')
-  .map((line) => line.replace(/,[^,]*$/, ''))
-  .join('\n')
 
 // ── Style ────────────────────────────────────────────────────
 const card: React.CSSProperties = {
@@ -233,11 +86,15 @@ export default function ProductsCsvImport({
 }: Props) {
   // Blochează scroll-ul paginii cât modalul e deschis (altfel pagina din spate
   // rămâne scrollabilă și modalul pare deplasat / cere scroll manual — fix #74).
+  const tr = useT(importsNs)
+  const { t, tp } = tr
+  const tc = useT(commonNs)
   useBodyScrollLock(true)
   const [step, setStep] = useState<'paste' | 'preview' | 'importing'>('paste')
   const [csvText, setCsvText] = useState('')
   const [progress, setProgress] = useState(0)
-  const [error, setError] = useState<string | null>(null)
+  // Eroarea BRUTĂ a importului (de regulă `CsvImportFailure`), tradusă la randare.
+  const [error, setError] = useState<unknown>(null)
   const [importedCount, setImportedCount] = useState(0)
 
   // Resume idempotent pe RETRY după eșec parțial. Cursorul + categoriile create
@@ -263,49 +120,8 @@ export default function ProductsCsvImport({
   // încercări și părea că s-au importat mult mai puține decât în realitate.
   const totalAddedRef = useRef(0)
 
-  // Parse CSV
-  const parsed = useMemo<ParsedRow[]>(() => {
-    if (!csvText.trim()) return []
-    const rows = parseCsv(csvText)
-    if (rows.length < 2) return []
-    const headerRow = rows[0]!.map((h) => h.trim().toLowerCase())
-    const findCol = (name: string): number => headerRow.indexOf(name)
-
-    const idxNume = findCol('nume')
-    const idxCategorie = findCol('categorie')
-    const idxPret = findCol('pret') !== -1 ? findCol('pret') : findCol('preț')
-    const idxEmoji = findCol('emoji')
-    const idxDescriere = findCol('descriere')
-    // Fără cote TVA pe plan, coloana se ignoră (nici citită, nici validată).
-    const idxTva = showVat ? findCol('tva') : -1
-
-    return rows.slice(1).map((r, i): ParsedRow => {
-      const errs: string[] = []
-      const nume = (r[idxNume] ?? '').trim()
-      const categorie = (r[idxCategorie] ?? '').trim()
-      const pretRaw = (r[idxPret] ?? '').trim()
-      const pret = normalizePrice(pretRaw)
-      const emoji = (r[idxEmoji] ?? '').trim() || '🍽️'
-      const descriere = idxDescriere >= 0 ? (r[idxDescriere] ?? '').trim() : ''
-      const tvaRaw = idxTva >= 0 ? (r[idxTva] ?? '').trim() : '1'
-      const tva = tvaRaw.length > 0 ? parseInt(tvaRaw, 10) : 1
-
-      if (!nume) errs.push('lipsește numele')
-      if (!categorie) errs.push('lipsește categoria')
-      if (pretRaw.length === 0) {
-        errs.push('lipsește prețul')
-      } else if (pret == null || !Number.isFinite(pret)) {
-        // Valoare neparsabilă — raportăm explicit, NU o tratăm tăcut ca 0.
-        errs.push(`preț neparsabil ("${pretRaw}")`)
-      } else if (pret < 0) {
-        errs.push('preț negativ')
-      }
-      if (![1, 2, 3, 4].includes(tva)) errs.push('TVA trebuie 1-4')
-      if (nume.length > 100) errs.push('nume prea lung (>100)')
-
-      return { nume, categorie, pret, emoji, descriere, tva, errors: errs, rowNum: i + 2 }
-    })
-  }, [csvText, showVat])
+  // Parse CSV (lib/productsCsv): antete în oricare dintre cele patru limbi.
+  const parsed = useMemo<ParsedCsvRow[]>(() => parseProductsCsv(csvText, showVat), [csvText, showVat])
 
   const validRows = parsed.filter((r) => r.errors.length === 0)
   const invalidRows = parsed.filter((r) => r.errors.length > 0)
@@ -322,18 +138,18 @@ export default function ProductsCsvImport({
   // chiar se importă (nu creăm categorii pentru rânduri tăiate de plafon).
   const newCategories = useMemo(() => {
     const existing = new Set(existingCategories.map((c) => c.name.toLowerCase()))
-    const wanted = new Set(importRows.map((r) => r.categorie.toLowerCase()))
+    const wanted = new Set(importRows.map((r) => r.category.toLowerCase()))
     return Array.from(wanted).filter((c) => !existing.has(c))
   }, [importRows, existingCategories])
 
   function downloadTemplate() {
-    const blob = new Blob(['\uFEFF' + (showVat ? TEMPLATE : TEMPLATE_NO_VAT)], {
+    const blob = new Blob(['\uFEFF' + csvTemplate(tr, showVat)], {
       type: 'text/csv;charset=utf-8;',
     })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'template-produse-menuvia.csv'
+    a.download = t('csv_templateFile')
     a.click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
@@ -415,9 +231,7 @@ export default function ProductsCsvImport({
       if (!hasAttempted) {
         const baseline = await readNames()
         if (!baseline) {
-          throw new Error(
-            'Nu am putut citi meniul existent, deci importul nu a pornit (nu s-a adăugat nimic). Reîncearcă.',
-          )
+          throw new CsvImportFailure({ kind: 'baseline' })
         }
         baselineNamesRef.current = baseline
       }
@@ -430,9 +244,7 @@ export default function ProductsCsvImport({
         const baseline = baselineNamesRef.current
         const current = await readNames()
         if (!baseline || !current) {
-          throw new Error(
-            'Nu am putut verifica ce s-a importat deja, deci nu am reluat importul (ca să nu dublăm produse). Reîncearcă.',
-          )
+          throw new CsvImportFailure({ kind: 'verifyProducts' })
         }
         // Doar ce a apărut ÎNTRE timp = inserat de acest import.
         dbNames = new Set([...current].filter((n) => !baseline.has(n)))
@@ -456,9 +268,7 @@ export default function ProductsCsvImport({
         // Aceeași gardă: fără lista proaspătă, o categorie creată de un request
         // comis-dar-neconfirmat s-ar crea a doua oară.
         if (catsErr) {
-          throw new Error(
-            'Nu am putut verifica categoriile create deja, deci nu am reluat importul (ca să nu dublăm categorii). Reîncearcă.',
-          )
+          throw new CsvImportFailure({ kind: 'verifyCategories' })
         }
         for (const c of freshCats ?? []) {
           catMap.set((c.name as string).toLowerCase(), c.id as string)
@@ -468,7 +278,7 @@ export default function ProductsCsvImport({
       for (const [index, newCatName] of newCategories.entries()) {
         if (catMap.has(newCatName)) continue // deja creată la o încercare anterioară
         const original =
-          importRows.find((r) => r.categorie.toLowerCase() === newCatName)?.categorie || newCatName
+          importRows.find((r) => r.category.toLowerCase() === newCatName)?.category || newCatName
         const { data, error: catErr } = await supabase
           .from('categories')
           .insert({
@@ -482,7 +292,7 @@ export default function ProductsCsvImport({
           })
           .select('id')
           .single()
-        if (catErr) throw new Error(`Eroare la categoria "${original}": ${catErr.message}`)
+        if (catErr) throw new CsvImportFailure({ kind: 'category', name: original, cause: catErr })
         if (data) {
           catMap.set(newCatName, data.id as string)
           createdCatsRef.current.set(newCatName, data.id as string)
@@ -500,14 +310,14 @@ export default function ProductsCsvImport({
         const batch = importRows.slice(i, i + batchSize)
         let rows = batch.map((r, j) => ({
           restaurant_id: restaurantId,
-          category_id: catMap.get(r.categorie.toLowerCase())!,
+          category_id: catMap.get(r.category.toLowerCase())!,
           // Ordinea din fișier (MENU-10).
           display_order: baseOrder + i + j,
-          name: r.nume,
-          description: r.descriere || null,
-          price: r.pret!,
+          name: r.name,
+          description: r.description || null,
+          price: r.price!,
           emoji: r.emoji,
-          vat_group: r.tva,
+          vat_group: r.vat,
           is_active: true,
         }))
         if (dbNames) {
@@ -516,7 +326,7 @@ export default function ProductsCsvImport({
         }
         if (rows.length > 0) {
           const { error: insErr } = await supabase.from('products').insert(rows)
-          if (insErr) throw new Error(`Eroare la batch ${i}: ${insErr.message}`)
+          if (insErr) throw new CsvImportFailure({ kind: 'batch', index: i, cause: insErr })
           totalAddedRef.current += rows.length
           // Numele tocmai inserate intră în set → batch-urile următoare nu le redublează.
           if (dbNames) {
@@ -535,7 +345,7 @@ export default function ProductsCsvImport({
       // Brief delay before closing for user to see 100%
       setTimeout(() => onDone(totalAddedRef.current), 500)
     } catch (e) {
-      setError(toUserMessage(e, 'Eroare necunoscută la import'))
+      setError(e)
       setStep('preview')
     }
   }
@@ -572,7 +382,7 @@ export default function ProductsCsvImport({
               margin: 0,
             }}
           >
-            📥 Import produse din CSV
+            {t('csv_title')}
           </h2>
           <button
             onClick={onClose}
@@ -588,7 +398,7 @@ export default function ProductsCsvImport({
           </button>
         </div>
         <div style={{ fontSize: '0.82rem', color: D.t3, marginBottom: 18 }}>
-          Util pentru migrare rapidă de la alt soft (SmartBill, Octopus, Excel manual).
+          {t('csv_subtitle')}
         </div>
 
         {step === 'paste' && (
@@ -611,7 +421,7 @@ export default function ProductsCsvImport({
                 lineHeight: 1.5,
               }}
             >
-              <strong style={{ color: D.t1 }}>Format așteptat (CSV cu header):</strong>
+              <strong style={{ color: D.t1 }}>{t('csv_formatTitle')}</strong>
               <pre
                 style={{
                   margin: '8px 0 0',
@@ -624,18 +434,16 @@ export default function ProductsCsvImport({
                   fontFamily: 'monospace',
                 }}
               >
-                {showVat
-                  ? `nume,categorie,pret,emoji,descriere,tva
-Espresso,Cafele,8.00,☕,,1
-Latte,Cafele,14.00,🥛,Cu lapte,1`
-                  : `nume,categorie,pret,emoji,descriere
-Espresso,Cafele,8.00,☕,
-Latte,Cafele,14.00,🥛,Cu lapte`}
+                {csvExample(tr, showVat)}
               </pre>
               <div style={{ marginTop: 8, fontSize: '0.76rem' }}>
-                <strong style={{ color: D.t1 }}>Coloane:</strong> <em>nume</em> și{' '}
-                <em>categorie</em> și <em>pret</em> obligatorii. Categoriile inexistente se creează
-                automat.{showVat ? ' TVA = 1-4 (default 1).' : ''}
+                {fillNodes(t('csv_columnsNote'), {
+                  columns: <strong style={{ color: D.t1 }}>{t('csv_columnsLabel')}</strong>,
+                  name: <em>{t('csv_head_name')}</em>,
+                  category: <em>{t('csv_head_category')}</em>,
+                  price: <em>{t('csv_head_price')}</em>,
+                })}
+                {showVat ? ` ${t('csv_vatNote')}` : ''}
               </div>
             </div>
 
@@ -644,7 +452,7 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
                 onClick={downloadTemplate}
                 style={btn({ background: D.s2, color: D.t1, border: `1px solid ${D.border}` })}
               >
-                📄 Descarcă template CSV
+                {t('csv_downloadTemplate')}
               </button>
               <label
                 style={{
@@ -652,7 +460,7 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
                   cursor: 'pointer',
                 }}
               >
-                📁 Încarcă fișier CSV
+                {t('csv_uploadFile')}
                 <input
                   type="file"
                   accept=".csv,text/csv"
@@ -664,16 +472,12 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
 
             <div>
               <div style={{ fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}>
-                Sau lipește CSV direct:
+                {t('csv_pasteLead')}
               </div>
               <textarea
                 value={csvText}
                 onChange={(e) => setCsvText(e.target.value)}
-                placeholder={
-                  showVat
-                    ? 'nume,categorie,pret,emoji,descriere,tva...'
-                    : 'nume,categorie,pret,emoji,descriere...'
-                }
+                placeholder={csvPlaceholder(tr, showVat)}
                 style={{
                   width: '100%',
                   minHeight: 180,
@@ -691,12 +495,14 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
               />
             </div>
 
-            {parsed.length > 0 && (
+            {parsed.length === 0 ? null : (
               <div style={{ fontSize: '0.84rem', color: D.t2 }}>
-                Detectate <strong style={{ color: D.t1 }}>{parsed.length}</strong> rânduri:{' '}
-                <span style={{ color: D.green }}>{validRows.length} valide</span>
-                {invalidRows.length > 0 && (
-                  <span style={{ color: D.red }}>, {invalidRows.length} cu erori</span>
+                {fillNodes(tp('csv_detected', parsed.length), {
+                  count: <strong style={{ color: D.t1 }}>{parsed.length}</strong>,
+                })}{' '}
+                <span style={{ color: D.green }}>{tp('csv_valid', validRows.length)}</span>
+                {invalidRows.length === 0 ? null : (
+                  <span style={{ color: D.red }}>, {tp('csv_invalid', invalidRows.length)}</span>
                 )}
               </div>
             )}
@@ -706,7 +512,7 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
                 onClick={onClose}
                 style={btn({ background: D.s2, color: D.t2, border: `1px solid ${D.border}` })}
               >
-                Anulează
+                {tc.t('cancel')}
               </button>
               <button
                 onClick={() => setStep('preview')}
@@ -716,7 +522,7 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
                   color: validRows.length > 0 ? '#000' : D.t3,
                 })}
               >
-                Previzualizare →
+                {t('csv_preview')}
               </button>
             </div>
           </div>
@@ -734,18 +540,20 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
               }}
             >
               <div style={{ color: D.t1 }}>
-                <strong>{validRows.length}</strong> produse vor fi create.
-                {newCategories.length > 0 && (
+                {fillNodes(tp('csv_willCreate', validRows.length), { count: <strong>{validRows.length}</strong> })}
+                {newCategories.length === 0 ? null : (
                   <>
                     {' '}
-                    Se vor crea și <strong>{newCategories.length}</strong> categorii noi:{' '}
+                    {fillNodes(tp('csv_newCategories', newCategories.length), {
+                      count: <strong>{newCategories.length}</strong>,
+                    })}{' '}
                     {newCategories.join(', ')}
                   </>
                 )}
               </div>
-              {invalidRows.length > 0 && (
+              {invalidRows.length === 0 ? null : (
                 <div style={{ color: D.amber, marginTop: 4 }}>
-                  ⚠ {invalidRows.length} rânduri vor fi sărite (au erori).
+                  {tp('csv_skipped', invalidRows.length)}
                 </div>
               )}
             </div>
@@ -779,7 +587,7 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
                         textTransform: 'uppercase',
                       }}
                     >
-                      Status
+                      {t('csv_colStatus')}
                     </th>
                     <th
                       style={{
@@ -789,7 +597,7 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
                         textTransform: 'uppercase',
                       }}
                     >
-                      Nume
+                      {t('csv_colName')}
                     </th>
                     <th
                       style={{
@@ -799,7 +607,7 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
                         textTransform: 'uppercase',
                       }}
                     >
-                      Categorie
+                      {t('csv_colCategory')}
                     </th>
                     <th
                       style={{
@@ -809,7 +617,7 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
                         textTransform: 'uppercase',
                       }}
                     >
-                      Preț
+                      {t('csv_colPrice')}
                     </th>
                     {showVat && (
                       <th
@@ -820,7 +628,7 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
                           textTransform: 'uppercase',
                         }}
                       >
-                        TVA
+                        {t('csv_colVat')}
                       </th>
                     )}
                   </tr>
@@ -831,7 +639,7 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
                       key={r.rowNum}
                       style={{
                         borderBottom: `1px solid ${D.border}`,
-                        opacity: r.errors.length > 0 ? 0.6 : 1,
+                        opacity: r.errors.length === 0 ? 1 : 0.6,
                       }}
                     >
                       <td style={{ padding: '6px 10px', color: D.t3 }}>{r.rowNum}</td>
@@ -840,14 +648,14 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
                           <span style={{ color: D.green }}>✓</span>
                         ) : (
                           <span style={{ color: D.red, fontSize: '0.74rem' }}>
-                            ✕ {r.errors.join(', ')}
+                            ✕ {r.errors.map((e) => csvRowErrorText(e, tr)).join(', ')}
                           </span>
                         )}
                       </td>
                       <td style={{ padding: '6px 10px', color: D.t1 }}>
-                        {r.emoji} {r.nume}
+                        {r.emoji} {r.name}
                       </td>
-                      <td style={{ padding: '6px 10px', color: D.t2 }}>{r.categorie}</td>
+                      <td style={{ padding: '6px 10px', color: D.t2 }}>{r.category}</td>
                       <td
                         style={{
                           padding: '6px 10px',
@@ -856,11 +664,11 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
                           fontWeight: 500,
                         }}
                       >
-                        {r.pret != null && !isNaN(r.pret) ? `${r.pret.toFixed(2)} lei` : '—'}
+                        {r.price != null && !isNaN(r.price) ? t('money', { amount: r.price.toFixed(2) }) : '—'}
                       </td>
                       {showVat && (
                         <td style={{ padding: '6px 10px', textAlign: 'center', color: D.t3 }}>
-                          {r.tva}
+                          {r.vat}
                         </td>
                       )}
                     </tr>
@@ -869,7 +677,7 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
               </table>
             </div>
 
-            {error && (
+            {error == null ? null : (
               <div
                 style={{
                   marginTop: 10,
@@ -880,13 +688,13 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
                   fontSize: '0.84rem',
                 }}
               >
-                {error}
+                {describeCsvImportError(error, tr, tc)}
               </div>
             )}
 
             {/* Plafonul planului — anunțat ÎNAINTE de import, nu ca eroare brută
                 la mijloc. Zero locuri → mesaj clar; parțial → câte intră/rămân. */}
-            {truncatedCount > 0 && (
+            {truncatedCount === 0 ? null : (
               <div
                 style={{
                   marginTop: 10,
@@ -898,19 +706,14 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
                   lineHeight: 1.5,
                 }}
               >
-                {importRows.length === 0 ? (
-                  <>
-                    Ai atins limita de produse a planului tău — importul nu poate adăuga
-                    produse noi. Șterge produse sau treci la un plan mai mare.
-                  </>
-                ) : (
-                  <>
-                    Planul tău mai are loc pentru <strong>{importRows.length}</strong>{' '}
-                    {importRows.length === 1 ? 'produs' : 'produse'} — se importă primele{' '}
-                    {importRows.length}, iar {truncatedCount}{' '}
-                    {truncatedCount === 1 ? 'rând rămâne' : 'rânduri rămân'} pe dinafară.
-                  </>
-                )}
+                {importRows.length === 0
+                  ? t('csv_limitFull')
+                  : fillNodes(tp('csv_slots', importRows.length), {
+                      lead: fillNodes(tp('csv_slotsLead', importRows.length), {
+                        count: <strong>{importRows.length}</strong>,
+                      }),
+                      rest: tp('csv_slotsRest', truncatedCount),
+                    })}
               </div>
             )}
 
@@ -921,14 +724,14 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
                 onClick={() => setStep('paste')}
                 style={btn({ background: D.s2, color: D.t2, border: `1px solid ${D.border}` })}
               >
-                ← Înapoi
+                {t('csv_back')}
               </button>
               <button
                 onClick={() => void doImport()}
                 disabled={importRows.length === 0}
                 style={btn({ background: D.gold, color: '#000' })}
               >
-                Importă {importRows.length} produse →
+                {tp('csv_importN', importRows.length)}
               </button>
             </div>
           </div>
@@ -945,9 +748,7 @@ Latte,Cafele,14.00,🥛,Cu lapte`}
                 fontFamily: 'Fraunces,serif',
               }}
             >
-              {progress < 100
-                ? `Import în progres... ${progress}%`
-                : `${importedCount} produse importate!`}
+              {progress < 100 ? t('csv_progress', { pct: progress }) : tp('csv_imported', importedCount)}
             </div>
             <div style={{ background: D.s3, height: 8, borderRadius: 4, overflow: 'hidden' }}>
               <div

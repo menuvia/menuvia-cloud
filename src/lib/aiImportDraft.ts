@@ -203,18 +203,36 @@ export function isProductLimitError(err: unknown): boolean {
   return /limit[ăa] produse|product_limit/i.test(text)
 }
 
+/** Starea plafonului pentru selecția curentă, ca DATE (lotul L5a2): ecranul
+ *  o traduce la randare (`productLimitText`, lib/importMessages). */
+export type ProductLimitState =
+  | { kind: 'full' }
+  | { kind: 'over'; remaining: number; selected: number; excess: number }
+
 /**
- * Mesajul unic când selecția depășește locurile rămase pe plan, sau null.
- * `remaining` necunoscut (undefined) → null: decide serverul.
+ * Selecția depășește locurile rămase pe plan? `null` = încape, sau `remaining`
+ * necunoscut (undefined): decide serverul.
+ */
+export function productLimitState(selected: number, remaining: number | undefined): ProductLimitState | null {
+  if (remaining === undefined || selected <= remaining) return null
+  if (remaining <= 0) return { kind: 'full' }
+  return { kind: 'over', remaining, selected, excess: selected - remaining }
+}
+
+/**
+ * Mesajul unic când selecția depășește locurile rămase pe plan, sau null — în
+ * ROMÂNĂ. Ecranul nu-l mai randează (citește `productLimitState` și
+ * namespace-ul `imports`); rămâne oracolul românesc al testului IY4.
  */
 export function describeProductLimit(selected: number, remaining: number | undefined): string | null {
-  if (remaining === undefined || selected <= remaining) return null
-  if (remaining <= 0) {
+  const st = productLimitState(selected, remaining)
+  if (!st) return null
+  if (st.kind === 'full') {
     return 'Ai atins limita de produse a planului — nu mai poți adăuga produse noi. Nimic nu a fost salvat. Treci la un plan superior sau șterge produse existente.'
   }
-  const excess = selected - remaining
+  const { excess, remaining: left } = st
   return (
-    `Planul tău mai permite ${remaining} ${remaining === 1 ? 'produs' : 'produse'}, iar tu ai selectat ${selected}. ` +
+    `Planul tău mai permite ${left} ${left === 1 ? 'produs' : 'produse'}, iar tu ai selectat ${selected}. ` +
     `Debifează ${excess} ${excess === 1 ? 'produs' : 'produse'} sau treci la un plan superior. Nimic nu a fost salvat încă.`
   )
 }
