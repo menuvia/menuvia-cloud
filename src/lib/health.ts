@@ -58,11 +58,16 @@ export async function recomputeHealthScore(restaurantId: string): Promise<Health
   })
 
   if (error) {
+    // `hint` păstrat pe eroare (lotul L7): mesajul rămâne cel de dinainte, dar
+    // ecranul poate recunoaște refuzul de cooldown (mig 178, hint `cooldown`)
+    // și în celelalte limbi, fără textul românesc. DOAR hint-ul, nu `code`:
+    // `toUserMessage` clasifică după `code`, deci româna ar putea să se schimbe.
+    const meta = { hint: error.hint }
     // Surface cooldown message cleanly
     if (error.message.includes('cooldown') || error.message.includes('recent')) {
-      throw new Error(error.message)
+      throw Object.assign(new Error(error.message), meta)
     }
-    throw new Error(`Recalculare eșuată: ${error.message}`)
+    throw Object.assign(new Error(`Recalculare eșuată: ${error.message}`), meta)
   }
 
   const fresh = await fetchHealthScore(restaurantId)

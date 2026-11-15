@@ -21,7 +21,12 @@ import {
   Pie,
   Cell,
 } from 'recharts'
-import { toUserMessage } from '../lib/userMessages'
+import { useT } from '../i18n/useT'
+import { useUiLang } from '../i18n/UiLangContext'
+import { staffLocale } from '../i18n/format'
+import { describeStaffError } from '../i18n/staffErrors'
+import { analyticsNs } from '../i18n/ns/analytics'
+import { commonNs } from '../i18n/ns/common'
 
 interface Props {
   restaurantId: string
@@ -211,6 +216,12 @@ const ANALYTICS_TTL_MS = 60_000
 const analyticsCache = new Map<string, { ts: number; data: AnalyticsSnapshot }>()
 
 export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null }: Props) {
+  // Limba personalului (lotul L7): `analytics` + `common`, cerute SUS și
+  // necondiționat — o singură suspendare la prima randare într-o limbă nouă.
+  const ta = useT(analyticsNs)
+  const tc = useT(commonNs)
+  // Formatele urmează limba UTILIZATORULUI, nu `ta.lang` (clichetul LF din L6b).
+  const { lang: uiLang } = useUiLang()
   const isMobile = useIsMobile()
   const [daily, setDaily] = useState<Record<string, unknown>[]>([])
   const [products, setProducts] = useState<Record<string, unknown>[]>([])
@@ -223,7 +234,9 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
   >({})
   const [hourly, setHourly] = useState<Record<string, unknown>[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // Eroarea de încărcare ținută ca DATĂ (cauza), tradusă la randare: o
+  // schimbare de limbă cu eroarea pe ecran o retraduce.
+  const [error, setError] = useState<{ cause: unknown } | null>(null)
   const [days, setDays] = useState(30)
   // 'business' a fost eliminat din taxonomie (mig 062 → free/starter/growth/pro/enterprise).
   // Enterprise include tot Pro, deci ambele au acces.
@@ -310,7 +323,7 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
         },
       })
     } catch (e: unknown) {
-      setError(toUserMessage(e, 'Eroare la încărcarea statisticilor'))
+      setError({ cause: e })
     }
     setLoading(false)
   }, [restaurantId, days, hasAccess])
@@ -335,10 +348,7 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12, color: D.gold }}>
             <Icon name="chart" size={32} />
           </div>
-          <div>
-            Statisticile de încasări se bazează pe datele fiscale și sunt disponibile doar pentru
-            restaurantele din România.
-          </div>
+          <div>{ta.t('country_unavailable')}</div>
         </div>
       </div>
     )
@@ -364,21 +374,25 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
   // decât venitul total și operatorul vedea bani „dispăruți".
   const otherRev = daily.reduce((s, d) => s + Number(d.other_revenue || 0), 0)
 
+  // Ziua de pe axă în limba personalului (`staffLocale`: în română EXACT
+  // „ro-RO”, ca înainte); fusul rămâne cel de azi (al browserului — G2).
+  // Cheile seriilor (`day`/`orders`) sunt interne recharts, nu text.
+  const dayLocale = staffLocale(uiLang)
   const chartData = daily.map((d) => ({
-    zi: new Date(d.day as string).toLocaleDateString('ro-RO', { day: '2-digit', month: '2-digit' }),
-    comenzi: Number(d.total_orders || 0),
+    day: new Date(d.day as string).toLocaleDateString(dayLocale, { day: '2-digit', month: '2-digit' }),
+    orders: Number(d.total_orders || 0),
     revenue: Number(d.revenue || 0),
   }))
   const payPie = [
-    { name: 'Cash', value: cashRev, color: D.green },
-    { name: 'Card', value: cardRev, color: '#7EB8F7' },
-    { name: 'Tichete de masă', value: voucherRev, color: D.goldL },
-    { name: 'Card online', value: onlineRev, color: '#B08CF2' },
-    { name: 'Alte metode', value: otherRev, color: D.t2 },
+    { name: ta.t('method_cash'), value: cashRev, color: D.green },
+    { name: ta.t('method_card'), value: cardRev, color: '#7EB8F7' },
+    { name: ta.t('method_voucher'), value: voucherRev, color: D.goldL },
+    { name: ta.t('method_online'), value: onlineRev, color: '#B08CF2' },
+    { name: ta.t('method_other'), value: otherRev, color: D.t2 },
   ].filter((x) => x.value > 0)
   const srcPie = [
-    { name: 'QR', value: qrOrders, color: D.gold },
-    { name: 'Ospătar', value: totalOrders - qrOrders, color: D.t2 },
+    { name: ta.t('src_qr'), value: qrOrders, color: D.gold },
+    { name: ta.t('src_waiter'), value: totalOrders - qrOrders, color: D.t2 },
   ].filter((x) => x.value > 0)
 
   if (loading)
@@ -400,7 +414,11 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
   if (error)
     return (
       <div>
-        <QueryError message={error} onRetry={loadData} />
+        <QueryError
+          message={describeStaffError(error.cause, tc, { fallback: ta.t('err_load') })}
+          onRetry={loadData}
+          retryLabel={tc.t('retry')}
+        />
       </div>
     )
 
@@ -417,7 +435,7 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
         }}
       >
         <div>
-          <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>Ultimele {days} zile</p>
+          <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>{ta.tp('period_last', days)}</p>
         </div>
         <div style={{ display: 'flex', gap: 5 }}>
           {[7, 14, 30].map((d) => (
@@ -435,7 +453,7 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
                 color: days === d ? D.goldL : D.t2,
               }}
             >
-              {d} zile
+              {ta.tp('range_days', d)}
             </button>
           ))}
         </div>
@@ -444,8 +462,8 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
       {daily.length === 0 ? (
         <EmptyState
           icon="chart"
-          title="Nicio comandă în perioada selectată"
-          description="Schimbă intervalul de zile sau așteaptă primele comenzi."
+          title={ta.t('empty_title')}
+          description={ta.t('empty_desc')}
         />
       ) : (
         <>
@@ -457,10 +475,10 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
               marginBottom: 20,
             }}
           >
-            <Stat label="Comenzi" value={totalOrders} />
-            <Stat label="Venit" value={`${totalRevenue.toFixed(0)} lei`} color={D.gold} />
-            <Stat label="Bon mediu" value={avgTicket !== '—' ? `${avgTicket} lei` : '—'} />
-            <Stat label="Rata QR" value={`${qrRate}%`} />
+            <Stat label={ta.t('stat_orders')} value={totalOrders} />
+            <Stat label={ta.t('stat_revenue')} value={`${totalRevenue.toFixed(0)} lei`} color={D.gold} />
+            <Stat label={ta.t('stat_avgTicket')} value={avgTicket !== '—' ? `${avgTicket} lei` : '—'} />
+            <Stat label={ta.t('stat_qrRate')} value={`${qrRate}%`} />
           </div>
 
           {/* Revenue chart */}
@@ -473,7 +491,7 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
               marginTop: 4,
             }}
           >
-            Venit pe zi
+            {ta.t('chart_revenue')}
           </div>
           <div
             style={{
@@ -488,7 +506,7 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
               <LineChart data={chartData} margin={{ left: -20, right: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={D_RAW.border} vertical={false} />
                 <XAxis
-                  dataKey="zi"
+                  dataKey="day"
                   tick={{ fill: D_RAW.t3, fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
@@ -496,7 +514,7 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
                 <YAxis tick={{ fill: D_RAW.t3, fontSize: 11 }} axisLine={false} tickLine={false} />
                 <Tooltip
                   contentStyle={tt}
-                  formatter={(v: unknown) => [`${Number(v ?? 0).toFixed(2)} lei`, 'Venit']}
+                  formatter={(v: unknown) => [`${Number(v ?? 0).toFixed(2)} lei`, ta.t('series_revenue')]}
                 />
                 <Line
                   type="monotone"
@@ -511,7 +529,7 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
 
           {/* Orders chart */}
           <div style={{ fontSize: '0.875rem', fontWeight: 600, color: D.t1, marginBottom: 10 }}>
-            Comenzi pe zi
+            {ta.t('chart_orders')}
           </div>
           <div
             style={{
@@ -526,7 +544,7 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
               <BarChart data={chartData} margin={{ left: -20, right: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={D_RAW.border} vertical={false} />
                 <XAxis
-                  dataKey="zi"
+                  dataKey="day"
                   tick={{ fill: D_RAW.t3, fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
@@ -539,9 +557,9 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
                 />
                 <Tooltip
                   contentStyle={tt}
-                  formatter={(v: unknown) => [String(v ?? ''), 'Comenzi']}
+                  formatter={(v: unknown) => [String(v ?? ''), ta.t('series_orders')]}
                 />
-                <Bar dataKey="comenzi" fill={D_RAW.goldL} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="orders" fill={D_RAW.goldL} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -566,7 +584,7 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
                   }}
                 >
                   <div style={{ fontSize: '0.8rem', color: D.t2, marginBottom: 8 }}>
-                    Sursă comenzi
+                    {ta.t('pie_source')}
                   </div>
                   <ResponsiveContainer width="100%" height={160}>
                     <PieChart>
@@ -602,7 +620,7 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
                   }}
                 >
                   <div style={{ fontSize: '0.8rem', color: D.t2, marginBottom: 8 }}>
-                    Metodă plată
+                    {ta.t('pie_method')}
                   </div>
                   <ResponsiveContainer width="100%" height={160}>
                     <PieChart>
@@ -638,8 +656,8 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
           {hourly.length > 0 && (
             <>
               <div style={{ fontSize: '0.875rem', fontWeight: 600, color: D.t1, marginBottom: 10 }}>
-                Ore de vârf{' '}
-                <span style={{ fontWeight: 400, color: D.t3 }}>· ultimele 30 de zile</span>
+                {ta.t('hourly_title')}{' '}
+                <span style={{ fontWeight: 400, color: D.t3 }}>{ta.t('hourly_sub')}</span>
               </div>
               <div
                 style={{
@@ -653,14 +671,14 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
                 <ResponsiveContainer width="100%" height={160}>
                   <BarChart
                     data={hourly.map((h) => ({
-                      ora: `${h.hour}:00`,
-                      comenzi: Number(h.order_count || 0),
+                      hour: `${h.hour}:00`,
+                      orders: Number(h.order_count || 0),
                     }))}
                     margin={{ left: -20, right: 8 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke={D_RAW.border} vertical={false} />
                     <XAxis
-                      dataKey="ora"
+                      dataKey="hour"
                       tick={{ fill: D_RAW.t3, fontSize: 10 }}
                       axisLine={false}
                       tickLine={false}
@@ -673,9 +691,9 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
                     />
                     <Tooltip
                       contentStyle={tt}
-                      formatter={(v: unknown) => [String(v ?? ''), 'Comenzi']}
+                      formatter={(v: unknown) => [String(v ?? ''), ta.t('series_orders')]}
                     />
-                    <Bar dataKey="comenzi" fill={D_RAW.amber} radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="orders" fill={D_RAW.amber} radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -686,7 +704,7 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
           {products.length > 0 && (
             <>
               <div style={{ fontSize: '0.875rem', fontWeight: 600, color: D.t1, marginBottom: 10 }}>
-                Top produse <span style={{ fontWeight: 400, color: D.t3 }}>· total istoric</span>
+                {ta.t('top_title')} <span style={{ fontWeight: 400, color: D.t3 }}>{ta.t('sub_allTime')}</span>
               </div>
               <div
                 style={{
@@ -700,7 +718,7 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
                 <DataTable
                   isMobile={isMobile}
                   gridCols="1fr 70px 70px 80px"
-                  headers={['Produs', 'Cant.', 'Comenzi', 'Venit']}
+                  headers={[ta.t('col_product'), ta.t('col_qty'), ta.t('col_orders'), ta.t('col_revenue')]}
                   rows={products.map((p) => ({
                     name: p.product_name as string,
                     cells: [
@@ -718,8 +736,8 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
           {waiters.length > 0 && (
             <>
               <div style={{ fontSize: '0.875rem', fontWeight: 600, color: D.t1, marginBottom: 10 }}>
-                Performanță ospătar{' '}
-                <span style={{ fontWeight: 400, color: D.t3 }}>· total istoric</span>
+                {ta.t('waiters_title')}{' '}
+                <span style={{ fontWeight: 400, color: D.t3 }}>{ta.t('sub_allTime')}</span>
               </div>
               <div
                 style={{
@@ -733,11 +751,11 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
                 <DataTable
                   isMobile={isMobile}
                   gridCols="1fr 80px 70px 100px"
-                  headers={['Ospătar', 'Introduse', 'Servite', 'Venit']}
+                  headers={[ta.t('col_waiter'), ta.t('col_entered'), ta.t('col_served'), ta.t('col_revenue')]}
                   rows={waiters.map((w) => {
                     const p = staffNames[w.user_id as string] ?? null
                     return {
-                      name: p?.full_name || p?.email || 'Anonim',
+                      name: p?.full_name || p?.email || ta.t('anonymous'),
                       cells: [
                         { text: String(w.orders_entered as number) },
                         { text: String(w.orders_served as number) },

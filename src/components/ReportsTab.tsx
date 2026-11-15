@@ -2,6 +2,11 @@
 // ReportsTab — Rapoarte periodice (zilnic / săptămânal / lunar / custom)
 // Înlocuiește DailyReportTab. Queries orders + order_items direct.
 // Extended (migration 033): vânzări per ospătar, oră, categorie + CSV.
+// Limba personalului (lotul L7): textele din namespace-ul `reports` (+ `common`
+// pentru rezerva erorilor și „Reîncearcă”), cerute SUS, înaintea oricărui
+// `return`. Eticheta perioadei, ziua de pe grafic și exporturile CSV/PDF sunt
+// compuse de lib/reportsExport.ts (în română byte-identice cu cele de
+// dinainte). Eroarea de încărcare e ținută ca DATĂ și tradusă la randare.
 // ─────────────────────────────────────────────────────────────
 import { useState, useCallback, useEffect, useRef } from 'react'
 import {
@@ -27,16 +32,36 @@ import {
   fetchWaiterSales,
   fetchHourlySales,
   fetchCategorySales,
-  toCsv,
   downloadCsv,
   type WaiterSalesRow,
   type HourlySalesRow,
   type CategorySalesRow,
 } from '../lib/reports'
-import { toUserMessage } from '../lib/userMessages'
+import {
+  buildReportCsv,
+  chartDayLabel,
+  periodLabelT,
+  reportPdfFilename,
+  reportPdfText,
+} from '../lib/reportsExport'
+import { useT } from '../i18n/useT'
+import { useUiLang } from '../i18n/UiLangContext'
+import { staffLocale } from '../i18n/format'
+import { describeStaffError } from '../i18n/staffErrors'
+import { reportsNs } from '../i18n/ns/reports'
+import { commonNs } from '../i18n/ns/common'
 
 // OPT-R2: formatter de zi (RO, Europe/Bucharest) — constant, o singură construcție (nu per comandă în buclă).
+// E doar CHEIA internă a zilei (gruparea); eticheta afișată pe grafic se
+// formatează la randare în limba personalului (`chartDayLabel`).
 const DAY_FMT = new Intl.DateTimeFormat('ro-RO', { day: '2-digit', month: '2-digit', timeZone: 'Europe/Bucharest' })
+
+// Pagina unei interogări PostgREST (`fetchAllPages` din `load`).
+interface PageResult<T> {
+  data: T[] | null
+  error: { message: string } | null
+}
+type PageFetch<T> = (lo: number, hi: number) => PromiseLike<PageResult<T>>
 
 interface Props {
   restaurantId: string
@@ -68,19 +93,6 @@ function periodRange(
   if (p === 'week') return { from: toRomaniaYMD(addDays(today, -6)), to: todayYMD }
   if (p === 'month') return { from: toRomaniaYMD(addDays(today, -29)), to: todayYMD }
   return custom
-}
-
-function periodLabel(p: Period, from: string, to: string) {
-  if (p === 'today') return 'Azi'
-  if (p === 'week') return 'Ultimele 7 zile'
-  if (p === 'month') return 'Ultimele 30 zile'
-  if (from === to)
-    return new Date(from).toLocaleDateString('ro-RO', {
-      day: '2-digit',
-      month: 'long',
-      year: 'numeric',
-    })
-  return `${new Date(from).toLocaleDateString('ro-RO', { day: '2-digit', month: 'short' })} – ${new Date(to).toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', year: 'numeric' })}`
 }
 
 // ─── Shared UI ────────────────────────────────────────────────
@@ -186,6 +198,13 @@ function ReportMetric({
 
 // ─── Main component ───────────────────────────────────────────
 export default function ReportsTab({ restaurantId, fiscalReports = true }: Props) {
+  // Necondiționat, SUS: o limbă nouă suspendă o singură dată, la prima randare.
+  const tr = useT(reportsNs)
+  const tc = useT(commonNs)
+  // Datele (perioada, ziua de pe grafic, exporturile) în formatul limbii
+  // UTILIZATORULUI, nu limba dicționarului servit (clichetul LF din L6b).
+  const { lang: uiLang } = useUiLang()
+  const locale = staffLocale(uiLang)
   const [period, setPeriod] = useState<Period>('today')
   // Ziua curentă în fusul României (toISO/UTC dădea „ieri" între 00:00–03:00 ora RO).
   const [custom, setCustom] = useState({
@@ -193,9 +212,10 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
     to: toRomaniaYMD(new Date()),
   })
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // Eroarea ca DATĂ (tradusă la randare): o schimbare de limbă o retraduce.
+  const [error, setError] = useState<{ err: unknown } | null>(null)
   const [exporting, setExporting] = useState(false)
-  const [exportError, setExportError] = useState<string | null>(null)
+  const [exportError, setExportError] = useState(false)
   const isMobile = useIsMobile()
   // Tabelul „Top produse": coloanele de sume doar pe planul cu bon (lotul P).
   const topProductCols = fiscalReports ? '28px 1fr 60px 90px 90px' : '28px 1fr 60px'
@@ -213,7 +233,11 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
     waiterOrders: 0,
     avgTicket: 0,
   })
-  const [chartData, setChartData] = useState<{ zi: string; comenzi: number; revenue: number }[]>([])
+  // `at` = primul moment văzut în ziua respectivă: eticheta se formatează la
+  // randare, în limba personalului (în română identică cu cheia `zi`).
+  const [chartData, setChartData] = useState<
+    { zi: string; at: string; comenzi: number; revenue: number }[]
+  >([])
   const [topProducts, setTopProducts] = useState<
     { name: string; qty: number; revenue: number; emoji: string }[]
   >([])
@@ -234,9 +258,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
     // pagină incompletă. Factory (nu builder reținut) — builderul supabase e
     // one-shot; fiecare pagină cere un lanț nou cu .range() propriu.
     const PG_PAGE = 1000
-    async function fetchAllPages<T>(
-      page: (lo: number, hi: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
-    ): Promise<T[]> {
+    async function fetchAllPages<T>(page: PageFetch<T>): Promise<T[]> {
       const all: T[] = []
       for (let lo = 0; ; lo += PG_PAGE) {
         const { data, error } = await page(lo, lo + PG_PAGE - 1)
@@ -421,16 +443,16 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       // (re)construia un Intl.DateTimeFormat per comandă în buclă (scump la mii
       // de comenzi). Output identic vizual și ca cheie de Map.
       const dayKey = (iso: string) => DAY_FMT.format(new Date(iso))
-      const dayMap = new Map<string, { comenzi: number; revenue: number }>()
+      const dayMap = new Map<string, { at: string; comenzi: number; revenue: number }>()
       for (const o of allOrders) {
         const key = dayKey(o.created_at as string)
-        const prev = dayMap.get(key) ?? { comenzi: 0, revenue: 0 }
+        const prev = dayMap.get(key) ?? { at: o.created_at as string, comenzi: 0, revenue: 0 }
         prev.comenzi += 1
         dayMap.set(key, prev)
       }
       for (const o of paidOrders) {
         const key = dayKey(o.paid_at as string)
-        const prev = dayMap.get(key) ?? { comenzi: 0, revenue: 0 }
+        const prev = dayMap.get(key) ?? { at: o.paid_at as string, comenzi: 0, revenue: 0 }
         prev.revenue += Number(o.paid_amount ?? o.total ?? 0)
         dayMap.set(key, prev)
       }
@@ -542,7 +564,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       }
     } catch (e: unknown) {
       if (seq !== loadSeqRef.current) return
-      setError(toUserMessage(e, 'Eroare la încărcarea raportului'))
+      setError({ err: e })
     }
     setLoading(false)
   }, [restaurantId, period, custom.from, custom.to, fiscalReports]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -555,110 +577,34 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
 
   // ─── Export CSV ──────────────────────────────────────────────
   function exportCsv() {
-    const label = periodLabel(period, range.from, range.to)
-    const safe = label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()
-    const sections: string[] = []
-
-    sections.push(`Raport Menuvia — ${label}`)
-    sections.push('')
-
-    sections.push('# Sumar')
-    sections.push(
-      toCsv([
-        {
-          Comenzi: totalOrders,
-          'Venituri (lei)': revenue.toFixed(2),
-          'Bon mediu (lei)': avgTicket.toFixed(2),
-          'Cash (lei)': cashRev.toFixed(2),
-          'Card (lei)': cardRev.toFixed(2),
-          'Tichete de masă (lei)': voucherRev.toFixed(2),
-          'Card online (lei)': onlineRev.toFixed(2),
-          'Alte metode (lei)': otherRev.toFixed(2),
-          'Comenzi QR': qrOrders,
-          'Comenzi ospătar': waiterOrders,
-        },
-      ]),
-    )
-    sections.push('')
-
-    if (topProducts.length > 0) {
-      sections.push('# Top produse')
-      sections.push(
-        toCsv(
-          topProducts.map((p, i) => ({
-            '#': i + 1,
-            Produs: p.name,
-            Cantitate: p.qty,
-            'Venituri (lei)': p.revenue.toFixed(2),
-            'Preț mediu (lei)': (p.revenue / p.qty).toFixed(2),
-          })),
-        ),
-      )
-      sections.push('')
-    }
-
-    if (waiterSales.length > 0) {
-      sections.push('# Vânzări pe ospătar')
-      sections.push(
-        toCsv(
-          waiterSales.map((w) => ({
-            Ospătar: w.waiter_name,
-            Comenzi: w.order_count,
-            'Venituri (lei)': w.total_revenue.toFixed(2),
-            'Bon mediu (lei)': w.avg_ticket.toFixed(2),
-            'Reduceri aplicate (lei)': w.discount_total.toFixed(2),
-          })),
-        ),
-      )
-      sections.push('')
-    }
-
-    if (categorySales.length > 0) {
-      sections.push('# Vânzări pe categorie')
-      sections.push(
-        toCsv(
-          categorySales.map((c) => ({
-            Categorie: c.category_name,
-            'Bucăți vândute': c.item_count,
-            'Venituri (lei)': c.total_revenue.toFixed(2),
-            '% din total': c.percent_total.toFixed(1) + '%',
-          })),
-        ),
-      )
-      sections.push('')
-    }
-
-    if (hourlySales.some((h) => h.order_count > 0)) {
-      sections.push('# Vânzări pe oră')
-      sections.push(
-        toCsv(
-          hourlySales.map((h) => ({
-            Ora: `${String(h.hour).padStart(2, '0')}:00`,
-            Comenzi: h.order_count,
-            'Venituri (lei)': h.total_revenue.toFixed(2),
-          })),
-        ),
-      )
-    }
-
-    downloadCsv(`raport-menuvia-${safe}.csv`, sections.join('\n'))
+    const label = periodLabelT(tr, locale, period, range.from, range.to)
+    const { filename, content } = buildReportCsv(tr, label, {
+      metrics,
+      topProducts,
+      waiterSales,
+      categorySales,
+      hourlySales,
+    })
+    downloadCsv(filename, content)
   }
 
   // ─── Export PDF ──────────────────────────────────────────────
   async function exportPdf() {
     setExporting(true)
-    setExportError(null)
+    setExportError(false)
     try {
       const { default: jsPDF } = await import('jspdf')
       const doc = new jsPDF({ unit: 'mm', format: 'a4' })
       // Fonturile standard jsPDF nu au ă/ș/ț — fără patch, etichetele și numele
       // de produse ieșeau cu caractere rupte în raportul exportat.
       patchPdfDiacritics(doc)
-      const label = periodLabel(period, range.from, range.to)
+      const label = periodLabelT(tr, locale, period, range.from, range.to)
+      const m = metrics
+      const txt = reportPdfText(tr, m)
 
       doc.setFontSize(18)
       doc.setFont('helvetica', 'bold')
-      doc.text('Raport Menuvia', 20, 25)
+      doc.text(txt.title, 20, 25)
       doc.setFontSize(11)
       doc.setFont('helvetica', 'normal')
       doc.text(label, 20, 33)
@@ -670,32 +616,23 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       // Metrics
       doc.setFontSize(12)
       doc.setFont('helvetica', 'bold')
-      doc.text('Sumar', 20, y)
+      doc.text(txt.summary, 20, y)
       y += 9
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(10)
-      const m = metrics
-      doc.text(`Total comenzi: ${m.totalOrders}`, 24, y)
+      doc.text(txt.totalOrders, 24, y)
       y += 6
-      doc.text(
-        `Venituri: ${m.revenue.toFixed(2)} lei  |  Bon mediu: ${m.avgTicket.toFixed(2)} lei`,
-        24,
-        y,
-      )
+      doc.text(txt.revenueLine, 24, y)
       y += 6
-      doc.text(
-        `Cash: ${m.cashRev.toFixed(2)} lei  |  Card: ${m.cardRev.toFixed(2)} lei  |  Tichete: ${m.voucherRev.toFixed(2)} lei  |  Online: ${m.onlineRev.toFixed(2)} lei  |  Alte: ${m.otherRev.toFixed(2)} lei`,
-        24,
-        y,
-      )
+      doc.text(txt.methodsLine, 24, y)
       y += 6
-      doc.text(`QR: ${m.qrOrders} comenzi  |  Ospătar manual: ${m.waiterOrders} comenzi`, 24, y)
+      doc.text(txt.sourcesLine, 24, y)
       y += 14
 
       if (topProducts.length > 0) {
         doc.setFontSize(12)
         doc.setFont('helvetica', 'bold')
-        doc.text('Top Produse', 20, y)
+        doc.text(txt.topTitle, 20, y)
         y += 9
         doc.setFontSize(10)
         doc.setFont('helvetica', 'normal')
@@ -704,9 +641,9 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
         doc.rect(20, y - 4, 170, 8, 'F')
         doc.setFont('helvetica', 'bold')
         doc.text('#', 22, y)
-        doc.text('Produs', 30, y)
-        doc.text('Buc.', 130, y)
-        doc.text('Venituri', 155, y)
+        doc.text(txt.colProduct, 30, y)
+        doc.text(txt.colQty, 130, y)
+        doc.text(txt.colRevenue, 155, y)
         y += 7
         doc.setFont('helvetica', 'normal')
         topProducts.forEach((p, i) => {
@@ -730,15 +667,11 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
 
       doc.setFontSize(8)
       doc.setTextColor(150, 150, 150)
-      doc.text(
-        'Document operațional intern. Nu înlocuiește raportul Z fiscal al casei de marcat.',
-        20,
-        y + 10,
-      )
-      doc.save(`Raport-Menuvia-${range.from}${range.from !== range.to ? '-' + range.to : ''}.pdf`)
+      doc.text(txt.disclaimer, 20, y + 10)
+      doc.save(reportPdfFilename(tr, range.from, range.to))
     } catch (e) {
       console.error('PDF export failed', e)
-      setExportError('Nu s-a putut genera PDF-ul. Reîncearcă.')
+      setExportError(true)
     }
     setExporting(false)
   }
@@ -761,7 +694,11 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
   if (error)
     return (
       <div>
-        <QueryError message={error} onRetry={load} />
+        <QueryError
+          message={describeStaffError(error.err, tc, { fallback: tr.t('err_load') })}
+          onRetry={load}
+          retryLabel={tc.t('retry')}
+        />
       </div>
     )
 
@@ -780,7 +717,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       >
         <div>
           <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>
-            {periodLabel(period, range.from, range.to)}
+            {periodLabelT(tr, locale, period, range.from, range.to)}
           </p>
         </div>
         {/* Export-urile conțin sume (revenue, cash/card, vânzări per ospătar) —
@@ -808,12 +745,12 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
             }}
           >
             <Icon name="download" size={16} />
-            Export CSV
+            {tr.t('export_csv')}
           </button>
           <button
             onClick={() => void exportPdf()}
             disabled={exporting || loading || totalOrders === 0}
-            title={'PDF: sumar și top produse. Pentru toate secțiunile folosește Export CSV.'}
+            title={tr.t('export_pdfTitle')}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -833,11 +770,11 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
             }}
           >
             {exporting ? (
-              'Se generează...'
+              tr.t('export_generating')
             ) : (
               <>
                 <Icon name="receipt" size={16} color="#000" />
-                Export PDF
+                {tr.t('export_pdf')}
               </>
             )}
           </button>
@@ -845,7 +782,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
         {/* Eșecul exportului PDF era doar în consolă — acum vizibil pentru user. */}
         {exportError && (
           <div role="alert" style={{ color: D.red, fontSize: '0.8rem', marginTop: 8 }}>
-            {exportError}
+            {tr.t('err_pdf')}
           </div>
         )}
       </div>
@@ -868,19 +805,19 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
             onClick={() => setPeriod(p)}
           >
             {p === 'today'
-              ? 'Azi'
+              ? tr.t('btn_today')
               : p === 'week'
-                ? '7 zile'
+                ? tr.t('btn_week')
                 : p === 'month'
-                  ? '30 zile'
-                  : 'Alt interval'}
+                  ? tr.t('btn_month')
+                  : tr.t('btn_custom')}
           </button>
         ))}
         {period === 'custom' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 4 }}>
             <input
               type="date"
-              aria-label="De la data"
+              aria-label={tr.t('date_from')}
               value={custom.from}
               max={custom.to}
               onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))}
@@ -898,7 +835,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
             <span style={{ color: D.t3, fontSize: 12 }}>→</span>
             <input
               type="date"
-              aria-label="Până la data"
+              aria-label={tr.t('date_to')}
               value={custom.to}
               min={custom.from}
               max={toRomaniaYMD(new Date())}
@@ -934,8 +871,8 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       ) : totalOrders === 0 ? (
         <EmptyState
           icon="chart"
-          title="Nicio comandă în această perioadă."
-          description="Schimbă perioada selectată pentru a vedea datele de vânzări."
+          title={tr.t('empty_title')}
+          description={tr.t('empty_desc')}
         />
       ) : (
         <>
@@ -943,7 +880,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
               alertă (lotul P): planul nu are sume, deci nu are ce „avertiza". */}
           {!fiscalReports && (
             <div style={{ color: D.t3, fontSize: '0.75rem', marginBottom: 12 }}>
-              Evidența comenzilor: cantități și produse, fără sume.
+              {tr.t('ops_note')}
             </div>
           )}
 
@@ -956,30 +893,34 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
               marginBottom: 14,
             }}
           >
-            <StatCard label="Comenzi" value={String(totalOrders)} />
+            <StatCard label={tr.t('stat_orders')} value={String(totalOrders)} />
             {fiscalReports && (
               <>
-                <StatCard label="Venituri" value={`${revenue.toFixed(0)} lei`} color={D.gold} />
                 <StatCard
-                  label="Bon mediu"
+                  label={tr.t('stat_revenue')}
+                  value={`${revenue.toFixed(0)} lei`}
+                  color={D.gold}
+                />
+                <StatCard
+                  label={tr.t('stat_avgTicket')}
                   value={`${avgTicket.toFixed(2)} lei`}
                   color={D.goldL}
                 />
                 <StatCard
-                  label="Cash"
+                  label={tr.t('stat_cash')}
                   value={`${cashRev.toFixed(0)} lei`}
                   color={D.green}
                   sub={revenue > 0 ? `${Math.round((cashRev / revenue) * 100)}%` : undefined}
                 />
                 <StatCard
-                  label="Card"
+                  label={tr.t('stat_card')}
                   value={`${cardRev.toFixed(0)} lei`}
                   color="#7EB8F7"
                   sub={revenue > 0 ? `${Math.round((cardRev / revenue) * 100)}%` : undefined}
                 />
                 {voucherRev > 0 && (
                   <StatCard
-                    label="Tichete de masă"
+                    label={tr.t('stat_voucher')}
                     value={`${voucherRev.toFixed(0)} lei`}
                     color={D.goldL}
                     sub={revenue > 0 ? `${Math.round((voucherRev / revenue) * 100)}%` : undefined}
@@ -987,7 +928,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                 )}
                 {onlineRev > 0 && (
                   <StatCard
-                    label="Card online"
+                    label={tr.t('stat_online')}
                     value={`${onlineRev.toFixed(0)} lei`}
                     color="#B08CF2"
                     sub={revenue > 0 ? `${Math.round((onlineRev / revenue) * 100)}%` : undefined}
@@ -995,7 +936,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                 )}
                 {otherRev > 0 && (
                   <StatCard
-                    label="Alte metode"
+                    label={tr.t('stat_other')}
                     value={`${otherRev.toFixed(0)} lei`}
                     color={D.t2}
                     sub={revenue > 0 ? `${Math.round((otherRev / revenue) * 100)}%` : undefined}
@@ -1035,7 +976,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                 }}
               >
                 <Icon name="qr" size={14} color={D.t3} />
-                Comenzi QR
+                {tr.t('src_qr')}
               </div>
               <div
                 style={{
@@ -1048,7 +989,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                 {qrOrders}
               </div>
               <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 4 }}>
-                {qrPct}% din total
+                {tr.t('pct_ofTotal', { pct: qrPct })}
               </div>
               {/* Mini bar */}
               <div
@@ -1091,7 +1032,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                 }}
               >
                 <Icon name="users" size={14} color={D.t3} />
-                Comenzi ospătar
+                {tr.t('src_waiter')}
               </div>
               <div
                 style={{
@@ -1104,7 +1045,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                 {waiterOrders}
               </div>
               <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 4 }}>
-                {waiterPct}% din total
+                {tr.t('pct_ofTotal', { pct: waiterPct })}
               </div>
               <div
                 style={{
@@ -1139,10 +1080,12 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
               }}
             >
               <div style={{ fontSize: '0.82rem', fontWeight: 600, color: D.t1, marginBottom: 14 }}>
-                Venituri zilnice
+                {tr.t('chart_dailyTitle')}
               </div>
               <ResponsiveContainer width="100%" height={160}>
-                <BarChart data={chartData} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
+                <BarChart
+                  data={chartData.map((d) => ({ ...d, zi: chartDayLabel(locale, d.at) }))}
+                  margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={D_RAW.border} vertical={false} />
                   <XAxis
                     dataKey="zi"
@@ -1163,7 +1106,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                       fontSize: '0.8rem',
                       color: D.t1,
                     }}
-                    formatter={(v) => [`${Number(v ?? 0).toFixed(0)} lei`, 'Venituri']}
+                    formatter={(v) => [`${Number(v ?? 0).toFixed(0)} lei`, tr.t('chart_revenue')]}
                   />
                   <Bar dataKey="revenue" fill={D_RAW.gold} radius={[3, 3, 0, 0]} />
                 </BarChart>
@@ -1186,9 +1129,9 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                 }}
               >
                 <Icon name="star" size={16} color={D.gold} />
-                Top {topProducts.length} produse
+                {tr.tp('top_title', topProducts.length)}
                 <span style={{ fontSize: '0.72rem', color: D.t2, fontWeight: 400, marginLeft: 2 }}>
-                  după cantitate comandată
+                  {tr.t('top_sub')}
                 </span>
               </div>
               <div
@@ -1233,18 +1176,18 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                       <div
                         style={{ display: 'flex', gap: 20, flexWrap: 'wrap', paddingLeft: 28 }}
                       >
-                        <ReportMetric label="Buc." value={String(p.qty)} />
+                        <ReportMetric label={tr.t('col_qty')} value={String(p.qty)} />
                         {/* Sumele doar pe planul cu bon (lotul P): pe Planul 2
                             coloanele nu se arată deloc, nici ca „—". */}
                         {fiscalReports && (
                           <>
                             <ReportMetric
-                              label="Venituri"
-                              value={`${p.revenue.toFixed(0)} lei`}
+                              label={tr.t('col_revenue')}
                               accent
+                              value={`${p.revenue.toFixed(0)} lei`}
                             />
                             <ReportMetric
-                              label="Preț mediu"
+                              label={tr.t('col_avgPrice')}
                               value={`${(p.revenue / p.qty).toFixed(2)} lei`}
                             />
                           </>
@@ -1266,8 +1209,14 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                       }}
                     >
                       {(fiscalReports
-                        ? ['#', 'Produs', 'Buc.', 'Venituri', 'Preț mediu']
-                        : ['#', 'Produs', 'Buc.']
+                        ? [
+                            '#',
+                            tr.t('col_product'),
+                            tr.t('col_qty'),
+                            tr.t('col_revenue'),
+                            tr.t('col_avgPrice'),
+                          ]
+                        : ['#', tr.t('col_product'), tr.t('col_qty')]
                       ).map((h) => (
                     <div
                       key={h}
@@ -1354,10 +1303,10 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                   }}
                 >
                   <Icon name="clock" size={16} color={D.gold} />
-                  Vânzări pe oră
+                  {tr.t('hourly_title')}
                 </div>
                 <div style={{ fontSize: '0.74rem', color: D.t2, marginTop: 2 }}>
-                  Când vinde localul. Identifică peak hours.
+                  {tr.t('hourly_desc')}
                 </div>
               </div>
               <div style={{ padding: '14px 18px', height: 220 }}>
@@ -1365,8 +1314,8 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                   <BarChart
                     data={hourlySales.map((h) => ({
                       hour: `${String(h.hour).padStart(2, '0')}h`,
-                      Comenzi: h.order_count,
-                      Venituri: Number(h.total_revenue),
+                      orders: h.order_count,
+                      revenue: Number(h.total_revenue),
                     }))}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke={D_RAW.border} vertical={false} />
@@ -1380,11 +1329,13 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                         fontSize: 12,
                       }}
                       formatter={(v, n) => [
-                        n === 'Venituri' ? `${Number(v ?? 0).toFixed(2)} lei` : String(v ?? ''),
+                        n === tr.t('chart_revenue') ? `${Number(v ?? 0).toFixed(2)} lei` : String(v ?? ''),
                         n,
                       ]}
                     />
-                    <Bar dataKey="Comenzi" radius={[3, 3, 0, 0]}>
+                    {/* Cheile datelor sunt interne (`orders`/`revenue`); numele
+                        seriei din tooltip vine din `name`, în limba personalului. */}
+                    <Bar dataKey="orders" name={tr.t('chart_orders')} radius={[3, 3, 0, 0]}>
                       {hourlySales.map((h, i) => {
                         const max = Math.max(...hourlySales.map((x) => x.order_count))
                         const intensity = max > 0 ? h.order_count / max : 0
@@ -1430,10 +1381,10 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                   }}
                 >
                   <Icon name="users" size={16} color={D.gold} />
-                  Vânzări pe ospătar
+                  {tr.t('waiter_title')}
                 </div>
                 <div style={{ fontSize: '0.74rem', color: D.t2, marginTop: 2 }}>
-                  Atribuire prin servit → plătit → creat.
+                  {tr.t('waiter_desc')}
                 </div>
               </div>
               {isMobile ? (
@@ -1465,18 +1416,18 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                         {w.waiter_name}
                       </div>
                       <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-                        <ReportMetric label="Comenzi" value={String(w.order_count)} />
+                        <ReportMetric label={tr.t('col_orders')} value={String(w.order_count)} />
                         <ReportMetric
-                          label="Venituri"
-                          value={`${Number(w.total_revenue).toFixed(0)} lei`}
+                          label={tr.t('col_revenue')}
                           accent
+                          value={`${Number(w.total_revenue).toFixed(0)} lei`}
                         />
                         <ReportMetric
-                          label="Bon mediu"
+                          label={tr.t('col_avgTicket')}
                           value={`${Number(w.avg_ticket).toFixed(2)} lei`}
                         />
                         <ReportMetric
-                          label="Reduceri"
+                          label={tr.t('col_discounts')}
                           value={
                             w.discount_total > 0
                               ? `${Number(w.discount_total).toFixed(2)} lei`
@@ -1501,7 +1452,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                           textTransform: 'uppercase',
                         }}
                       >
-                        Ospătar
+                        {tr.t('col_waiter')}
                       </th>
                       <th
                         style={{
@@ -1512,7 +1463,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                           textTransform: 'uppercase',
                         }}
                       >
-                        Comenzi
+                        {tr.t('col_orders')}
                       </th>
                       <th
                         style={{
@@ -1523,7 +1474,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                           textTransform: 'uppercase',
                         }}
                       >
-                        Venituri
+                        {tr.t('col_revenue')}
                       </th>
                       <th
                         style={{
@@ -1534,7 +1485,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                           textTransform: 'uppercase',
                         }}
                       >
-                        Bon mediu
+                        {tr.t('col_avgTicket')}
                       </th>
                       <th
                         style={{
@@ -1545,7 +1496,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                           textTransform: 'uppercase',
                         }}
                       >
-                        Reduceri
+                        {tr.t('col_discounts')}
                       </th>
                     </tr>
                   </thead>
@@ -1588,10 +1539,10 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                             fontWeight: 600,
                           }}
                         >
-                          {Number(w.total_revenue).toFixed(0)} lei
+                          {`${Number(w.total_revenue).toFixed(0)} lei`}
                         </td>
                         <td style={{ padding: '10px 12px', textAlign: 'right', color: D.t2 }}>
-                          {Number(w.avg_ticket).toFixed(2)} lei
+                          {`${Number(w.avg_ticket).toFixed(2)} lei`}
                         </td>
                         <td
                           style={{
@@ -1637,10 +1588,10 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                   }}
                 >
                   <Icon name="utensils" size={16} color={D.gold} />
-                  Vânzări pe categorie
+                  {tr.t('cat_title')}
                 </div>
                 <div style={{ fontSize: '0.74rem', color: D.t2, marginTop: 2 }}>
-                  Ce mănâncă mai mult clienții. Reducerile NU se împart proporțional.
+                  {tr.t('cat_desc')}
                 </div>
               </div>
               <div>
@@ -1672,12 +1623,12 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                         <span style={{ fontSize: '1.1rem' }}>{c.category_emoji || '🍽️'}</span>
                         <span style={{ fontWeight: 500 }}>{c.category_name}</span>
                         <span style={{ color: D.t3, fontSize: '0.78rem' }}>
-                          · {c.item_count} buc.
+                          {tr.t('cat_items', { n: c.item_count })}
                         </span>
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <div style={{ color: D.gold, fontWeight: 600, fontSize: '0.92rem' }}>
-                          {Number(c.total_revenue).toFixed(0)} lei
+                          {`${Number(c.total_revenue).toFixed(0)} lei`}
                         </div>
                         <div style={{ color: D.t3, fontSize: '0.74rem' }}>
                           {Number(c.percent_total).toFixed(1)}%
@@ -1715,7 +1666,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                 lineHeight: 1.6,
               }}
             >
-              Document operațional intern. Nu înlocuiește raportul Z fiscal al casei de marcat.
+              {tr.t('disclaimer')}
             </div>
           )}
         </>
