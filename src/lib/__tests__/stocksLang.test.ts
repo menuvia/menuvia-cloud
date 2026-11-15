@@ -43,7 +43,11 @@
 //        CI-ul rulează în UTC, unde bug-ul n-ar fi vizibil) ziua rămâne aceeași;
 //        rezerva `created_at` e un MOMENT și urmează fusul local. În română
 //        formatul e „ro-RO” de dinainte. Mutația care pică: `localTimeZone`
-//        folosit și pe ramura datei calendaristice.
+//        folosit și pe ramura datei calendaristice. Ștergerea lui
+//        `timeZone: 'UTC'` NU poate fi prinsă pe comportament într-un CI în UTC
+//        (fusul procesului nu se schimbă la runtime într-un worker vitest — D11),
+//        deci KS15 are și un clichet STRUCTURAL pe corpul funcției: ramura
+//        `invoiceDate` cere `timeZone: 'UTC'` (recenzie CodeRabbit pe #371).
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect, vi } from 'vitest'
@@ -293,5 +297,12 @@ describe('data unui NIR', () => {
     // Momentul de rezervă urmează fusul local: 01:30Z pe 1 noiembrie e încă 31 octombrie în LA.
     expect(nirDateLabel(null, '2026-11-01T01:30:00Z', 'ro-RO', LA)).toBe('31.10.2026')
     expect(nirDateLabel(null, '2026-11-01T01:30:00Z', 'ro-RO', 'Europe/Bucharest')).toBe('01.11.2026')
+    // Clichet STRUCTURAL: ramura datei calendaristice formatează în UTC. Pe
+    // comportament, ștergerea opțiunii ar trece nevăzută într-un CI în UTC (D11).
+    const src = readFileSync(resolve(process.cwd(), 'src/lib/stockMessages.ts'), 'utf8')
+    const start = src.indexOf('export function nirDateLabel')
+    expect(start).toBeGreaterThan(-1)
+    const body = src.slice(start, src.indexOf('\n}\n', start))
+    expect(body).toMatch(/if \(invoiceDate\) return new Date\(invoiceDate\)\.toLocaleDateString\(locale, \{ timeZone: 'UTC' \}\)/)
   })
 })
