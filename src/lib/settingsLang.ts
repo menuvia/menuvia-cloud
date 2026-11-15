@@ -126,7 +126,7 @@ const regionNames = new Map<string, Intl.DisplayNames | null>()
 
 function displayNamesFor(lang: StaffLang): Intl.DisplayNames | null {
   if (regionNames.has(lang)) return regionNames.get(lang) ?? null
-  let dn: Intl.DisplayNames | null = null
+  let dn: Intl.DisplayNames | null
   try {
     dn = new Intl.DisplayNames([lang], { type: 'region' })
   } catch {
