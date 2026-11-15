@@ -21,6 +21,7 @@ import { Icon } from './ui/Icon'
 import { useToast } from './ui/useToast'
 import { confirm as confirmDialog } from './ui/confirm'
 import { useT } from '../i18n/useT'
+import { useUiLang } from '../i18n/UiLangContext'
 import { fillNodes } from '../i18n/fillNodes'
 import { describeStaffError } from '../i18n/staffErrors'
 import { reservationsNs } from '../i18n/ns/reservations'
@@ -55,6 +56,9 @@ const STATUS_COLOR: Record<ReservationStatus, { bg: string; fg: string }> = {
 
 // Data și ora: `formatReservationDay`/`formatReservationTime`
 // (lib/reservationsLang.ts) — în română EXACT formatul „ro-RO” de dinainte.
+// Formatele urmează limba UTILIZATORULUI (`useUiLang`), nu `rv.lang`: aceea e
+// limba dicționarului servit, care cade pe română la o încărcare eșuată
+// (recenzie CodeRabbit pe #373) — aceeași regulă ca `fmt` din `useT`.
 
 // Cheia de zi pe data LOCALĂ, nu felia UTC din ISO — o rezervare la 00:30 ora
 // României are data UTC din ziua precedentă și ar ateriza sub headerul greșit
@@ -87,6 +91,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
   // subcomponentă montată mai târziu să nu suspende fila.
   const rv = useT(reservationsNs)
   const tc = useT(commonNs)
+  const { lang: uiLang } = useUiLang()
   const { range, setToday, setTomorrow, setWeek, setSpecificDate } = useDateRange(
     dayRange(new Date()),
   )
@@ -416,7 +421,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
                   margin: '0 0 10px',
                 }}
               >
-                {formatReservationDay(list[0]!.starts_at, rv.lang)}
+                {formatReservationDay(list[0]!.starts_at, uiLang)}
               </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {list.map((r) => (
@@ -620,6 +625,7 @@ function ReservationCard({
 }: CardProps) {
   // Namespace-ul filei (deja încărcat de ReservationsTab): nicio suspendare.
   const rv = useT(reservationsNs)
+  const { lang: uiLang } = useUiLang()
   const status = STATUS_COLOR[r.status]
   return (
     <div
@@ -648,10 +654,10 @@ function ReservationCard({
             fontVariantNumeric: 'tabular-nums',
           }}
         >
-          {formatReservationTime(r.starts_at, rv.lang)}
+          {formatReservationTime(r.starts_at, uiLang)}
         </div>
         {showDate && (
-          <div style={{ fontSize: 12, color: D.t2 }}>{formatReservationDay(r.starts_at, rv.lang)}</div>
+          <div style={{ fontSize: 12, color: D.t2 }}>{formatReservationDay(r.starts_at, uiLang)}</div>
         )}
         <div style={{ fontSize: 14, color: D.t1, fontWeight: 500 }}>{r.customer_name}</div>
         {/* Badge de risc (mig 234): clientul are no-show-uri în istoric — staff-ul
