@@ -716,6 +716,8 @@ begin
      or position('fn_sms_normalize_ro_phone' in v_src) = 0
      or position('on conflict (dedup_key) do nothing' in v_src) = 0
      or position('where r.id = p_restaurant_id for share;' in v_src) = 0
+     -- lacătul ÎNAINTEA calculului lunii (după el, cursa rămâne deschisă)
+     or position('for share;' in v_src) > position('v_month := public._restaurant_month(' in v_src)
      or position($q$status <> 'cancelled'$q$ in v_src) = 0
      or v_src ~* '\mraise\M' then
     raise exception 'mig 324: enqueue_sms a pierdut un invariant 228 (gate-uri / dedup / zero raise) sau lacătul pe fus';
