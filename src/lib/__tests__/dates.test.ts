@@ -5,7 +5,7 @@
 // DST 2026: ora de vară începe duminică 29 martie la 01:00Z și se termină
 // duminică 25 octombrie la 01:00Z (ultimele duminici din lună).
 //
-// Lotul G2b — variantele GENERICE (fusul ca parametru), DZ1–DZ10:
+// Lotul G2b — variantele GENERICE (fusul ca parametru), DZ1–DZ11:
 //   DZ1  `toZonedYMD`/`isoToZonedYMD` pe București = `toRomaniaYMD`/
 //        `isoToRomaniaYMD` pe instantele D1–D7 (controlul RO).
 //   DZ2  `zonedDayRange(ymd, 'Europe/Bucharest')` = `romaniaDayRange(ymd)` pe
@@ -19,7 +19,13 @@
 //        zi, `to + 1 ms` = `from`-ul zilei următoare, durata ∈ {23, 24, 25} h.
 //        Pe proprietate, nu pe instant literal: independent de versiunea
 //        tzdata/ICU. Mutația care pică: `zonedWallToInstant(y, m, d, 0, 0)`
-//        într-un pas (Havana: `from` = 7 mar 23:00 local).
+//        într-un pas (Havana: `from` = 7 mar 23:00 local). Include miezul
+//        nopții DUBLU la est de UTC (Asia/Amman 29 oct 2021, Atlantic/Azores):
+//        un singur eșantion de ofset dădea a DOUA apariție (recenzia #377).
+//   DZ4b brute force 14 fusuri × 2021–2027: fiecare zi începe la primul minut.
+//   DZ4c anti-vacuitate pe date ISTORICE: Amman 29 oct 2021 = 25 h, 21:00Z.
+//        Mutația care pică (DZ4/DZ4b/DZ4c): eșantionul unic de ofset, forma
+//        dinainte de recenzie.
 //   DZ5  `addDaysYmd` peste lună, an și 29 februarie; șir invalid → neschimbat.
 //   DZ6  fus invalid / gol → rezultatul pe București, fără excepție.
 //   DZ7  `reportTimeZone`: RO + Londra → București; țară lipsă / restaurant
@@ -33,6 +39,7 @@
 //        vitest): `formatYmd` formatează cu `timeZone: 'UTC'` din `Date.UTC(`,
 //        fără `new Date(ymd`; `zonedDayStartMs` NU e un singur apel
 //        `zonedWallToInstant`.
+//   DZ11 `lastDaysStartYmd`: „ultimele N zile” = N date, inclusiv azi.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
@@ -41,6 +48,7 @@ import {
   formatYmd,
   isoToRomaniaYMD,
   isoToZonedYMD,
+  lastDaysStartYmd,
   reportTimeZone,
   restaurantTimeZone,
   romaniaDayBoundaryISO,
@@ -219,6 +227,10 @@ describe('ziua într-un fus arbitrar', () => {
     ['Pacific/Auckland', '2026-09-27'],
     ['America/Havana', '2026-03-08'],
     ['America/Havana', '2026-11-01'],
+    // Miezul nopții DUBLU la EST de UTC (recenzia CodeRabbit pe #377): un singur
+    // eșantion de ofset la miezul nopții UTC vede doar ofsetul de DUPĂ tranziție.
+    ['Asia/Amman', '2021-10-29'],
+    ['Atlantic/Azores', '2026-10-25'],
     ['America/Santiago', '2026-04-05'],
     ['Asia/Beirut', '2026-03-29'],
     [BUC, '2026-03-29'],
@@ -234,6 +246,33 @@ describe('ziua într-un fus arbitrar', () => {
     expect(isoToZonedYMD(to, tz)).toBe(day)
     expect(toMs + 1).toBe(Date.parse(zonedDayRange(addDaysYmd(day, 1), tz).from))
     expect([23, 24, 25].map((h) => h * 3_600_000)).toContain(toMs - fromMs + 1)
+  })
+
+  it('DZ4b brute force: fiecare zi 2021–2027 începe la PRIMUL ei minut, pe 14 fusuri', () => {
+    const zones = [
+      'America/Havana', 'Atlantic/Azores', 'Asia/Amman', 'America/Santiago', 'Asia/Beirut',
+      'Africa/Cairo', 'Asia/Tehran', BUC, 'Europe/London', 'America/New_York', 'Pacific/Auckland',
+      'Asia/Kolkata', 'Australia/Lord_Howe', 'Pacific/Chatham',
+    ]
+    const bad: string[] = []
+    for (const tz of zones) {
+      for (let d = '2021-01-01'; d <= '2027-12-31'; d = addDaysYmd(d, 1)) {
+        const s = zonedDayStartMs(d, tz)
+        if (toZonedYMD(new Date(s), tz) !== d || toZonedYMD(new Date(s - 60_000), tz) !== addDaysYmd(d, -1)) {
+          bad.push(`${tz} ${d} ${new Date(s).toISOString()}`)
+        }
+      }
+    }
+    expect(bad).toEqual([])
+  })
+
+  it('DZ4c anti-vacuitate: Amman 29 oct 2021 are miezul nopții DUBLU (ziua de 25 h)', () => {
+    // Date ISTORICE (nu se mai schimbă între versiunile tzdata/ICU): 00:00 +03 →
+    // 01:00 +03 → înapoi la 00:00 +02. Fără ziua dublă, DZ4b n-ar mai exersa
+    // ramura; varianta cu un singur eșantion dădea a DOUA apariție (22:00Z, 24 h).
+    const { from, to } = zonedDayRange('2021-10-29', 'Asia/Amman')
+    expect(from).toBe('2021-10-28T21:00:00.000Z')
+    expect(Date.parse(to) - Date.parse(from) + 1).toBe(25 * 3_600_000)
   })
 
   it('DZ5 addDaysYmd pe șir: lună, an, 29 februarie, invalid', () => {
@@ -300,6 +339,22 @@ describe('formatYmd', () => {
     expect(fmt).not.toMatch(/toLocale(String|DateString|TimeString)/)
     const start = body('zonedDayStartMs')
     expect(start).not.toMatch(/zonedWallToInstant\(/)
-    expect(start).toMatch(/candidates/)
+    // ofseturi de o parte și de alta a tranziției + minutul dinainte în ziua precedentă
+    expect(start).toMatch(/guess - DAY_MS/)
+    expect(start).toMatch(/guess \+ DAY_MS/)
+    expect(start).toMatch(/c - 60_000/)
+  })
+})
+
+describe('lastDaysStartYmd', () => {
+  it('DZ11 „ultimele N zile” = N date calendaristice, inclusiv azi', () => {
+    // Recenzia CodeRabbit pe #377: `addDaysYmd(azi, -days)` cu `gte` inclusiv
+    // număra N+1 zile (AnalyticsTab). Mutația care pică: `-days` în loc de `1 - days`.
+    expect(lastDaysStartYmd('2026-11-15', 7)).toBe('2026-11-09')
+    expect(lastDaysStartYmd('2026-11-15', 30)).toBe('2026-10-17')
+    expect(lastDaysStartYmd('2026-11-15', 90)).toBe('2026-08-18')
+    expect(lastDaysStartYmd('2026-11-15', 1)).toBe('2026-11-15')
+    expect(lastDaysStartYmd('2026-11-15', 0)).toBe('2026-11-15')
+    expect(lastDaysStartYmd('2026-03-01', 2)).toBe('2026-02-28')
   })
 })

@@ -7,7 +7,7 @@ import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { analyticsAccess } from '../lib/features'
-import { addDaysYmd, formatYmd, toRomaniaYMD } from '../lib/dates'
+import { formatYmd, lastDaysStartYmd, toRomaniaYMD } from '../lib/dates'
 import {
   LineChart,
   Line,
@@ -269,7 +269,8 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
       // a comenzii, mig 267), ca șir YYYY-MM-DD comparat cu o coloană `date` —
       // înainte era ziua UTC a unui instant al browserului, deci între 00:00 și
       // 02:00/03:00 ora României fereastra pornea cu o zi mai devreme.
-      const since = addDaysYmd(toRomaniaYMD(new Date()), -days)
+      // „Ultimele N zile” = N date, inclusiv azi (`gte` e inclusiv).
+      const since = lastDaysStartYmd(toRomaniaYMD(new Date()), days)
       const [d, p, w, h, m] = await Promise.all([
         supabase
           .from('v_daily_orders')

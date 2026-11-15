@@ -25,6 +25,10 @@
 //       FE3, RV14) dau prop-ul direct, deci nu văd un prop scos sau inversat aici.
 //       Mutația care pică: `timeZone={reportTz}` scos de pe ReportsTab, sau
 //       `localTz` dat Stocurilor.
+//   ZT6 după o schimbare reușită de ȚARĂ, DashboardPage revalidează features
+//       (recenzia CodeRabbit pe #377): țara decide gate-urile pe bani ȘI ziua de
+//       raportare, deci un cache vechi ar fi pus Rapoartele pe noul fus cu
+//       defalcarea pe ziua românească. Mutația care pică: apelul scos.
 // Mutațiile care pică: calendarul dispozitivului readus în ReservationsTab, API-ul
 // zilei românești readus în HomeTab, fusul scris de mână readus în ReportsTab
 // (ZT2); tiparul constructorului local slăbit până prinde `Date.UTC(` (ZT4).
@@ -199,5 +203,11 @@ describe('clichet: ziua se judecă pe fusul restaurantului', () => {
         expect(zones, name).toEqual([`timeZone={${tz}}`])
       }
     }
+  })
+
+  it('ZT6 schimbarea țării revalidează features (fusul și gate-urile pe bani se mișcă împreună)', () => {
+    const dash = readFileSync(join(SRC, 'pages', 'DashboardPage.tsx'), 'utf8')
+    expect(dash).toMatch(/featuresReloadRef\.current = features\.reload/)
+    expect(dash).toMatch(/!res\.error && 'country' in fields\) void featuresReloadRef\.current\?\.\(\)/)
   })
 })

@@ -501,6 +501,9 @@ export default function DashboardPage({
   // regionale salvate de om sunt autoritatea, deci o intenție de copiere
   // rămasă de la crearea locației nu mai are voie să le suprascrie la
   // următoarea încărcare — se șterge pe orice salvare reușită care le atinge.
+  // `useFeatures` e declarat mai jos (are nevoie de restaurantul activ), deci
+  // salvarea ajunge la `reload` printr-un ref.
+  const featuresReloadRef = useRef<(() => Promise<void>) | null>(null)
   const updateFromSettings = useCallback(
     async (id: string, fields: Parameters<typeof updateRestaurant>[1]) => {
       const res = await updateRestaurant(id, fields)
@@ -509,6 +512,12 @@ export default function DashboardPage({
         ('country' in fields || 'currency' in fields || 'timezone' in fields || 'language' in fields)
       )
         clearPendingRegional(id)
+      // Țara decide gate-urile pe bani (`feature_requires_ro`, mig 296) ȘI ziua
+      // de raportare (`reportTimeZone`): după o schimbare reușită, features-urile
+      // din cache s-ar fi contrazis cu noul fus (Rapoartele ar fi cerut banii pe
+      // ziua noului fus, cu defalcarea pe ziua românească) până la reîncărcare —
+      // recenzia CodeRabbit pe #377. Revalidare forțată, doar la schimbarea țării.
+      if (!res.error && 'country' in fields) void featuresReloadRef.current?.()
       return res
     },
     [updateRestaurant],
@@ -784,6 +793,7 @@ export default function DashboardPage({
     })
   }
   const features = useFeatures(restaurant?.id ?? null)
+  featuresReloadRef.current = features.reload
   const modulesState = useRestaurantModules(restaurant?.id ?? null)
 
   // Țara aleasă la onboarding (.com) al cărei UPDATE a picat: o reîncercăm O

@@ -94,9 +94,9 @@
 --   FZ8  `zoned_day_start` (fereastra zilei din `get_locations_summary`) dă
 --        PRIMUL minut al zilei, verificat pe PROPRIETATE (tzdata diferă între
 --        PG16 local și postgres:17 din CI — o valoare fixă pe Havana pica într-un
---        mediu): pe 16 fusuri × 2025–2027 instantul cade în ziua cerută și
+--        mediu): pe 16 fusuri × 2021–2027 instantul cade în ziua cerută și
 --        minutul dinainte în ziua precedentă, iar setul conține cel puțin o zi cu
---        miezul nopții DUBLU (Atlantic/Azores, regula UE — anti-vacuitate); pe București
+--        miezul nopții DUBLU (Atlantic/Azores, regula UE; Asia/Amman 2021, istoric — anti-vacuitate); pe București
 --        IDENTIC cu forma 314; EXECUTE doar `authenticated`, INVOKER. FZ6 cere
 --        în corp fereastra prin helper (ambele capete).
 --        [PICĂ: helperul pe forma 314 `p_day::timestamp at time zone p_tz`
@@ -512,8 +512,8 @@ begin
   -- pe forma 314) n-ar mai pica nicăieri.
   select count(*), string_agg(format('%s %s', z.tz, g.day::date), ', ')
     into v_n, v_bad
-    from unnest(array['America/Havana', 'Atlantic/Azores']) z(tz)
-   cross join generate_series('2025-01-01'::date, '2027-12-31'::date, interval '1 day') g(day)
+    from unnest(array['America/Havana', 'Atlantic/Azores', 'Asia/Amman']) z(tz)
+   cross join generate_series('2021-01-01'::date, '2027-12-31'::date, interval '1 day') g(day)
    -- independent de helper: zilele în care forma 314 NU e primul minut (minutul
    -- dinaintea ei e încă în aceeași zi) — exact unde helperul trebuie să difere
    where (((g.day::date::timestamp at time zone z.tz) - interval '1 minute') at time zone z.tz)::date = g.day::date;
@@ -530,7 +530,7 @@ begin
                       'Asia/Amman', 'Asia/Damascus', 'Africa/Cairo', 'Europe/Bucharest',
                       'Europe/London', 'America/New_York', 'Pacific/Auckland', 'Asia/Kolkata',
                       'Australia/Lord_Howe', 'Pacific/Chatham', 'America/St_Johns']) z(tz)
-   cross join generate_series('2025-01-01'::date, '2027-12-31'::date, interval '1 day') g(day)
+   cross join generate_series('2021-01-01'::date, '2027-12-31'::date, interval '1 day') g(day)
    where (public.zoned_day_start(g.day::date, z.tz) at time zone z.tz)::date is distinct from g.day::date
       or ((public.zoned_day_start(g.day::date, z.tz) - interval '1 minute') at time zone z.tz)::date
          is distinct from (g.day::date - 1);
@@ -555,7 +555,7 @@ begin
   if (select prosecdef from pg_proc where oid = 'public.zoned_day_start(date, text)'::regprocedure) then
     raise exception 'FZ8 FAIL: zoned_day_start e SECURITY DEFINER (nu are de ce)'; end if;
   -- (Viu sub authenticated: FZ0 — fără EXECUTE apelul lui A aruncă 42501.)
-  raise notice 'FZ8 PASS: zoned_day_start dă primul minut al zilei pe 16 fusuri × 2025–2027 (inclusiv miezul nopții dublu), identic cu 314 pe București';
+  raise notice 'FZ8 PASS: zoned_day_start dă primul minut al zilei pe 16 fusuri × 2021–2027 (inclusiv miezul nopții dublu), identic cu 314 pe București';
 end $$;
 
 rollback;

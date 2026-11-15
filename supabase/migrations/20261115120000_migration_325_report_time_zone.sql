@@ -424,8 +424,8 @@ begin
     raise exception 'mig 325: PUBLIC poate executa get_locations_summary';
   end if;
 
-  -- (e2) zoned_day_start: INVOKER, STABLE, pg_temp, doar authenticated; prima
-  -- apariție a miezului nopții pe Havana 1 nov 2026, identic cu forma veche în
+  -- (e2) zoned_day_start: INVOKER, STABLE, pg_temp, doar authenticated; primul
+  -- minut al zilei pe tranzițiile la miezul nopții, identic cu forma veche în
   -- rest (control pe București)
   select prosecdef, provolatile, proconfig into v_def, v_vol, v_cfg
     from pg_proc where oid = 'public.zoned_day_start(date, text)'::regprocedure;
@@ -440,9 +440,21 @@ begin
       raise exception 'mig 325: % poate executa zoned_day_start', v_role;
     end if;
   end loop;
-  if public.zoned_day_start('2026-11-01', 'America/Havana') is distinct from '2026-11-01 04:00:00+00'::timestamptz then
-    raise exception 'mig 325: zoned_day_start(Havana, 1 nov 2026) = % (aștepta 04:00Z, prima apariție a miezului nopții)',
-      public.zoned_day_start('2026-11-01', 'America/Havana');
+  -- Pe PROPRIETATE, nu pe un instant fix (recenzia CodeRabbit pe #377): tzdata
+  -- diferă între medii — imaginea postgres:17 din CI nu are tranziția Havanei
+  -- din 1 nov 2026 pe care o are PG16 local, deci o valoare fixă ar fi putut
+  -- opri migrația pe un server cu alt tzdata. Pe zilele cu miezul nopții DUBLU
+  -- (Atlantic/Azores, regula UE; Asia/Amman 29 oct 2021, istoric) instantul cade
+  -- în ziua cerută, iar minutul dinaintea lui în ziua precedentă.
+  if exists (
+    select 1
+      from (values ('Atlantic/Azores', date '2026-10-25'), ('Asia/Amman', date '2021-10-29'),
+                   ('America/Havana', date '2026-11-01'), ('America/Havana', date '2026-03-08')) v(tz, day)
+     where (public.zoned_day_start(v.day, v.tz) at time zone v.tz)::date is distinct from v.day
+        or ((public.zoned_day_start(v.day, v.tz) - interval '1 minute') at time zone v.tz)::date
+           is distinct from (v.day - 1)
+  ) then
+    raise exception 'mig 325: zoned_day_start nu dă primul minut al zilei pe o tranziție la miezul nopții';
   end if;
   if exists (select 1 from generate_series('2025-01-01'::date, '2027-12-31'::date, interval '1 day') g(day)
               where public.zoned_day_start(g.day::date, 'Europe/Bucharest')

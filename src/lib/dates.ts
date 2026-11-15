@@ -267,27 +267,53 @@ export function addDaysYmd(ymd: string, n: number): string {
   return `${t.getUTCFullYear()}-${pad2(t.getUTCMonth() + 1)}-${pad2(t.getUTCDate())}`
 }
 
+/** Prima zi a ultimelor `days` zile calendaristice care se termină AZI, inclusiv
+ *  azi: „ultimele 7 zile” la 15 nov = 9–15 nov (7 date), nu 8–15 (recenzia
+ *  CodeRabbit pe #377 — `addDaysYmd(azi, -days)` cu un filtru `gte` inclusiv
+ *  număra o zi în plus). `days` < 1 → doar azi. */
+export function lastDaysStartYmd(todayYmd: string, days: number): string {
+  return addDaysYmd(todayYmd, 1 - Math.max(1, Math.floor(days)))
+}
+
+const DAY_MS = 86_400_000
+
 /**
- * Instantul (ms) al începutului zilei `ymd` în fusul dat. NU e
- * `zonedWallToInstant(y, m, d, 0, 0)` într-un pas: pe un fus cu tranziția LA
- * miezul nopții (America/Havana 8 mar 2026, Asia/Beirut, America/Santiago) ora
- * 00:00 nu există sau apare de două ori, iar varianta într-un pas punea
- * începutul zilei în ziua PRECEDENTĂ (Havana: 04:00Z = 23:00 pe 7 martie, în loc
- * de 05:00Z). Se iau cei doi candidați de ofset și se alege cel MAI MIC care cade
- * în ziua cerută.
+ * Instantul (ms) al începutului zilei `ymd` în fusul dat — PRIMUL instant al
+ * zilei, oglinda `zoned_day_start` (mig 325). NU e `zonedWallToInstant(y, m, d,
+ * 0, 0)` într-un pas: pe un fus cu tranziția LA miezul nopții ora 00:00 nu există
+ * (America/Havana 8 mar 2026: ziua începe la 01:00) sau apare de DOUĂ ori
+ * (Atlantic/Azores în ultima duminică din octombrie, Asia/Amman 29 oct 2021),
+ * iar varianta într-un pas punea începutul zilei în ziua PRECEDENTĂ sau pe a
+ * DOUA apariție. Candidații sunt `miezul nopții UTC − ofset` pentru ofseturile
+ * citite de o parte și de alta a tranziției (o zi înainte și după, plus
+ * reevaluarea la fiecare candidat — un singur eșantion la miezul nopții UTC
+ * vede, la est de UTC, doar ofsetul de DUPĂ tranziție, recenzia CodeRabbit pe
+ * #377); câștigă cel mai MIC candidat care cade în ziua cerută ȘI al cărui minut
+ * dinainte cade în ziua precedentă (un început real de zi, nu a doua apariție a
+ * lui 00:00).
  */
 export function zonedDayStartMs(ymd: string, timeZone: string): number {
   const tz = safeTimeZone(timeZone)
   const p = parseYmd(ymd)
   if (!p) return Number.NaN
   const guess = Date.UTC(p[0], p[1] - 1, p[2])
-  const o1 = zoneOffsetMs(guess, tz)
-  const o2 = zoneOffsetMs(guess - o1, tz)
-  const candidates = [guess - o2, guess - o1].sort((a, b) => a - b)
-  for (const c of candidates) {
-    if (toZonedYMD(new Date(c), tz) === ymd) return c
+  const offsets = new Set<number>()
+  for (const probe of [guess - DAY_MS, guess, guess + DAY_MS]) offsets.add(zoneOffsetMs(probe, tz))
+  for (const o of Array.from(offsets)) offsets.add(zoneOffsetMs(guess - o, tz))
+  const prev = addDaysYmd(ymd, -1)
+  let best = Number.NaN
+  let firstInDay = Number.NaN
+  for (const o of offsets) {
+    const c = guess - o
+    if (toZonedYMD(new Date(c), tz) !== ymd) continue
+    if (Number.isNaN(firstInDay) || c < firstInDay) firstInDay = c
+    if (toZonedYMD(new Date(c - 60_000), tz) !== prev) continue
+    if (Number.isNaN(best) || c < best) best = c
   }
-  return guess - o2
+  if (!Number.isNaN(best)) return best
+  // Tranziție care sare PESTE miezul nopții (ex. 23:30 → 00:30): niciun candidat
+  // nu e începutul exact — cel mai mic instant din zi, ca înainte.
+  return Number.isNaN(firstInDay) ? guess - zoneOffsetMs(guess, tz) : firstInDay
 }
 
 /**
