@@ -34,6 +34,13 @@
 //   RV6  stările goale și salvarea refuzată a setărilor, în franceză (rezerva
 //        tradusă, fără mesajul serverului); în română EXACT `toUserMessage(err,
 //        'Rezervarea nu a putut fi salvată.')`.
+//   RV12 o încărcare EȘUATĂ a englezei (chunk indisponibil): textele cad pe
+//        română, dar ziua și ora rămân în formatul limbii ALESE („en-GB”) —
+//        formatele urmează limba utilizatorului, ca `fmt` din `useT`
+//        (recenzie CodeRabbit pe #373). Controlul pozitiv: textul românesc
+//        („3 rezervări în interval”) dovedește că s-a căzut pe română. Mutația
+//        care pică: `formatReservationDay(..., rv.lang)` readus (ar ieși
+//        „ro-RO”).
 import { Suspense, type ReactNode } from 'react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
@@ -486,5 +493,27 @@ describe('fila Rezervări în limba personalului', () => {
     await user.click(screen.getByRole('button', { name: 'Salvează setări' }))
     await waitFor(() => expect(h.toast.error).toHaveLength(2))
     expect(h.toast.error[1]).toBe(toUserMessage(h.saveError, 'Rezervarea nu a putut fi salvată.'))
+  })
+
+  // Ultimul în fișier: înlocuiește temporar încărcătorul englez și golește
+  // cache-ul; în `finally` îl reface și reîncarcă engleza.
+  it('RV12: engleza eșuată — textele în română, ziua și ora în formatul limbii alese', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const original = reservationsNs.loaders.en
+    reservationsNs.loaders.en = () => Promise.reject(new Error('chunk'))
+    reservationsNs.cache.delete('en')
+    try {
+      inLang('en', tab())
+      expect(await screen.findByText('3 rezervări în interval')).toBeInTheDocument()
+      expect(screen.getByText(new Date(ISO).toLocaleDateString('en-GB', DAY_OPTS))).toBeInTheDocument()
+      expect(screen.getAllByText(new Date(ISO).toLocaleTimeString('en-GB', TIME_OPTS))).toHaveLength(3)
+      expect(screen.queryByText(new Date(ISO).toLocaleDateString('ro-RO', DAY_OPTS))).not.toBeInTheDocument()
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      reservationsNs.loaders.en = original
+      reservationsNs.cache.delete('en')
+      await preloadNamespace(reservationsNs, 'en')
+      warn.mockRestore()
+    }
   })
 })
