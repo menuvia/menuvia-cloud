@@ -4,6 +4,12 @@ import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { startPollingWhileVisible } from '../hooks/usePollWhileVisible'
 import Icon from './ui/Icon'
+import { useT } from '../i18n/useT'
+import { fillNodes } from '../i18n/fillNodes'
+import type { StringKey } from '../i18n/core'
+import { floorplanNs } from '../i18n/ns/floorplan'
+import { commonNs } from '../i18n/ns/common'
+import type floorplanRo from '../i18n/ns/floorplan/ro'
 // Tipurile + constantele canvas trăiesc acum în lib/floorPlan.ts (partajate cu
 // vizualizatorul public FloorPlanViewer). Re-exportăm FloorLayout ca importurile
 // existente (`import type { FloorLayout } from '../components/FloorPlanEditor'`)
@@ -19,7 +25,7 @@ import type {
   Floor,
   FloorLayout,
 } from '../lib/floorPlan'
-import { CANVAS_W, CANVAS_H } from '../lib/floorPlan'
+import { CANVAS_W, CANVAS_H, DEFAULT_FLOOR_NAME, DEFAULT_ZONE_LABEL, defaultFloorName } from '../lib/floorPlan'
 // Re-export local (binding-ul importat mai sus) — nu introduce dublă declarație.
 export type { FloorLayout }
 
@@ -29,40 +35,55 @@ type ToolType = 'select' | 'addTable' | 'addWall' | 'addZone' | 'addDeco'
 // ─── Constants ────────────────────────────────────────────────
 const GRID = 20
 
-const TABLE_SHAPES: Record<TableShape, { label: string; icon: string; w: number; h: number }> = {
-  round: { label: 'Rotundă', icon: '●', w: 80, h: 80 },
-  square: { label: 'Pătrată', icon: '■', w: 80, h: 80 },
-  rect: { label: 'Dreptunghi', icon: '▬', w: 120, h: 70 },
-  bar: { label: 'Bar', icon: '━', w: 200, h: 50 },
+// Etichetele sunt CHEI din namespace-ul `floorplan` (lotul L6a): textul se
+// alege la randare, în limba personalului.
+type FpKey = StringKey<typeof floorplanRo>
+
+const TABLE_SHAPES: Record<TableShape, { label: FpKey; icon: string; w: number; h: number }> = {
+  round: { label: 'shape_round', icon: '●', w: 80, h: 80 },
+  square: { label: 'shape_square', icon: '■', w: 80, h: 80 },
+  rect: { label: 'shape_rect', icon: '▬', w: 120, h: 70 },
+  bar: { label: 'shape_bar', icon: '━', w: 200, h: 50 },
 }
 
-const STATUS_META: Record<TableStatus, { bg: string; label: string; glow: string }> = {
-  free: { bg: D.green, label: 'Liberă', glow: '0 0 12px rgba(76,175,110,.35)' },
-  occupied: { bg: D.amber, label: 'Ocupată', glow: '0 0 12px rgba(232,160,32,.35)' },
-  calling: { bg: D.red, label: 'Cheamă', glow: '0 0 14px rgba(224,85,85,.4)' },
-  reserved: { bg: '#9B72CF', label: 'Rezervată', glow: '0 0 12px rgba(155,114,207,.35)' },
+const STATUS_META: Record<TableStatus, { bg: string; label: FpKey; glow: string }> = {
+  free: { bg: D.green, label: 'status_free', glow: '0 0 12px rgba(76,175,110,.35)' },
+  occupied: { bg: D.amber, label: 'status_occupied', glow: '0 0 12px rgba(232,160,32,.35)' },
+  calling: { bg: D.red, label: 'status_calling', glow: '0 0 14px rgba(224,85,85,.4)' },
+  reserved: { bg: '#9B72CF', label: 'status_reserved', glow: '0 0 12px rgba(155,114,207,.35)' },
 }
 
-const WALL_META: Record<WallType, { label: string; color: string; h: number }> = {
-  wall: { label: 'Perete', color: '#64748b', h: 8 },
-  window: { label: 'Fereastră', color: '#7EB8F7', h: 5 },
-  door: { label: 'Ușă', color: '#9B72CF', h: 10 },
+const WALL_META: Record<WallType, { label: FpKey; color: string; h: number }> = {
+  wall: { label: 'wall_wall', color: '#64748b', h: 8 },
+  window: { label: 'wall_window', color: '#7EB8F7', h: 5 },
+  door: { label: 'wall_door', color: '#9B72CF', h: 10 },
 }
 
-const DECO_META: Record<DecoType, { label: string; emoji: string; size: number }> = {
-  plant: { label: 'Plantă', emoji: '🌿', size: 38 },
-  bar_counter: { label: 'Tejghea', emoji: '🍸', size: 46 },
-  wc: { label: 'WC', emoji: '🚻', size: 42 },
-  stairs: { label: 'Scări', emoji: '🪜', size: 42 },
-  kitchen_door: { label: 'Bucătărie', emoji: '👨‍🍳', size: 46 },
-  entrance: { label: 'Intrare', emoji: '🚪', size: 42 },
+const DECO_META: Record<DecoType, { label: FpKey; emoji: string; size: number }> = {
+  plant: { label: 'deco_plant', emoji: '🌿', size: 38 },
+  bar_counter: { label: 'deco_bar_counter', emoji: '🍸', size: 46 },
+  wc: { label: 'deco_wc', emoji: '🚻', size: 42 },
+  stairs: { label: 'deco_stairs', emoji: '🪜', size: 42 },
+  kitchen_door: { label: 'deco_kitchen_door', emoji: '👨‍🍳', size: 46 },
+  entrance: { label: 'deco_entrance', emoji: '🚪', size: 42 },
+}
+
+// Salvarea respinsă se ține ca CLASĂ (date), nu ca text: bannerul se traduce
+// la randare, deci o schimbare de limbă îl retraduce.
+type SaveErrorKind = 'plan' | 'tooLarge' | 'generic'
+const SAVE_ERROR_KEY: Record<SaveErrorKind, FpKey> = {
+  plan: 'err_plan',
+  tooLarge: 'err_tooLarge',
+  generic: 'err_generic',
 }
 
 const uid = () => Math.random().toString(36).slice(2, 9)
 const snap = (v: number) => Math.round(v / GRID) * GRID
-const emptyFloor = (): Floor => ({
+// Numele unui etaj NOU devine dată la salvare (`DEFAULT_FLOOR_NAME`, în română
+// în orice limbă a personalului — lib/floorPlan.ts).
+const emptyFloor = (name: string): Floor => ({
   id: uid(),
-  name: 'Parter',
+  name,
   tables: [],
   walls: [],
   decos: [],
@@ -170,7 +191,12 @@ export default function FloorPlanEditor({
   initialLayout,
   onSaved,
 }: FloorPlanEditorProps) {
-  const [floors, setFloors] = useState<Floor[]>(initialLayout?.floors ?? [emptyFloor()])
+  // Sus, înaintea oricărui return: ambele namespace-uri ale editorului.
+  const ft = useT(floorplanNs)
+  const tc = useT(commonNs)
+  const [floors, setFloors] = useState<Floor[]>(
+    () => initialLayout?.floors ?? [emptyFloor(DEFAULT_FLOOR_NAME)],
+  )
   const [fi, setFi] = useState(0)
   const [tool, setTool] = useState<ToolType>('select')
   const [shape, setShape] = useState<TableShape>('round')
@@ -210,7 +236,7 @@ export default function FloorPlanEditor({
   const [savedOk, setSavedOk] = useState(false)
   // Eroarea de salvare afișată inline în header (fostul window.alert) — se
   // șterge la următorul save reușit sau la reîncercare.
-  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<SaveErrorKind | null>(null)
   const [hist, setHist] = useState<string[]>([])
   // Ajutorul „Cum funcționează" e pliat implicit pe mobil (deschis pe desktop).
   const [helpOpen, setHelpOpen] = useState(false)
@@ -221,7 +247,7 @@ export default function FloorPlanEditor({
   // la selecție (altfel selectezi o masă și panoul e în afara ecranului).
   const propsRef = useRef<HTMLDivElement>(null)
 
-  const floor = floors[fi] ?? emptyFloor()
+  const floor = floors[fi] ?? emptyFloor(DEFAULT_FLOOR_NAME)
 
   const upd = useCallback(
     (fn: (f: Floor) => Floor) => {
@@ -397,7 +423,7 @@ export default function FloorPlanEditor({
               y: Math.min(z.y1, z.y2),
               w,
               h,
-              label: 'Zonă',
+              label: DEFAULT_ZONE_LABEL,
             },
           ],
         }))
@@ -478,13 +504,13 @@ export default function FloorPlanEditor({
       // Nu expunem mesajul brut de la RPC/Postgres în UI (poate divulga tabele/politici);
       // detaliile rămân doar în console.error de mai sus.
       const rawMessage = error.message ?? ''
-      const hint = /feature|fiscal|plan/i.test(rawMessage)
-        ? 'Harta sălii e disponibilă pe planul Fiscalizare.'
+      const kind: SaveErrorKind = /feature|fiscal|plan/i.test(rawMessage)
+        ? 'plan'
         : /too large|prea mare/i.test(rawMessage)
-          ? 'Layout prea mare. Simplifică harta și reîncearcă.'
-          : 'A apărut o eroare la salvare. Reîncearcă.'
+          ? 'tooLarge'
+          : 'generic'
       // Banner inline în header (fostul window.alert) — același limbaj vizual ca „✓ Salvat".
-      setSaveError(hint)
+      setSaveError(kind)
       return
     }
     // Doar pe succes: o salvare respinsă NU are voie să schimbe harta din listă.
@@ -573,9 +599,17 @@ export default function FloorPlanEditor({
     }
   }, [live, restaurantId, realTables, floor.tables])
   const selDeco = sel?.type === 'deco' ? floor.decos.find((d) => d.id === sel.id) : null
+  // Un tip de decor necunoscut (hartă salvată de altă versiune) nu are etichetă.
+  const selDecoMeta: (typeof DECO_META)[DecoType] | undefined = selDeco
+    ? DECO_META[selDeco.type]
+    : undefined
 
   const totalTables = floor.tables.length
   const totalSeats = floor.tables.reduce((s, t) => s + (t.seats || 0), 0)
+  // Contoarele din subsol în modul Live (calculate aici, nu în JSX).
+  const liveFree = floor.tables.filter((t) => (liveStatus[t.id] ?? 'free') === 'free').length
+  const liveOccupied = floor.tables.filter((t) => liveStatus[t.id] === 'occupied').length
+  const liveReserved = floor.tables.filter((t) => liveStatus[t.id] === 'reserved').length
 
   // Sub 900px editorul se stivuiește vertical: bandă de unelte orizontală
   // scrollabilă sus, canvas panabil la mijloc, proprietăți/ajutor jos. Cele
@@ -629,7 +663,7 @@ export default function FloorPlanEditor({
             cifrele sălii. minWidth:0 le lasă să se strângă în loc să împingă butoanele. */}
         <div style={{ minWidth: 0, flex: '1 1 auto' }}>
           <p style={{ color: D.t3, fontSize: '0.72rem', marginTop: 2 }}>
-            {totalTables} mese · {totalSeats} locuri
+            {ft.tp('stats_tables', totalTables)} · {ft.tp('stats_seats', totalSeats)}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
@@ -637,8 +671,8 @@ export default function FloorPlanEditor({
             onClick={() => setLive(!live)}
             // Buton-comutator: aria-pressed anunță starea; eticheta spune modul curent.
             aria-pressed={live}
-            aria-label={live ? 'Mod vizualizare live activ — comută pe editare' : 'Mod editare activ — comută pe vizualizare live'}
-            title={live ? 'Comută pe Editare' : 'Comută pe Vizualizare live'}
+            aria-label={live ? ft.t('mode_liveAria') : ft.t('mode_editAria')}
+            title={live ? ft.t('mode_liveTitle') : ft.t('mode_editTitle')}
             style={btn({
               background: live ? D.gold : D.s3,
               color: live ? '#000' : D.t2,
@@ -649,12 +683,12 @@ export default function FloorPlanEditor({
             <span style={{ fontSize: 7, color: live ? D.green : D.t3 }} aria-hidden="true">
               ●
             </span>
-            {live ? 'Live' : 'Editare'}
+            {live ? ft.t('mode_live') : ft.t('mode_edit')}
           </button>
           <button
             onClick={undo}
             disabled={!hist.length}
-            aria-label="Anulează ultima acțiune"
+            aria-label={ft.t('undo_aria')}
             style={btn({
               background: D.s3,
               color: D.t2,
@@ -662,7 +696,7 @@ export default function FloorPlanEditor({
               opacity: hist.length ? 1 : 0.45,
               cursor: hist.length ? 'pointer' : 'not-allowed',
             })}
-            title="Anulează (Ctrl+Z)"
+            title={ft.t('undo_title')}
             {...focusRing}
           >
             <Icon name="history" size={16} />
@@ -674,11 +708,11 @@ export default function FloorPlanEditor({
             style={btn({ background: D.gold, color: '#000', opacity: saving ? 0.7 : 1, minWidth: 104 })}
             {...focusRing}
           >
-            {savedOk ? '✓ Salvat' : saving ? 'Se salvează...' : 'Salvează'}
+            {savedOk ? ft.t('saved') : saving ? ft.t('saving') : tc.t('save')}
           </button>
         </div>
         {/* Banner de eroare la salvare — inline, în același limbaj vizual ca „✓ Salvat". */}
-        {saveError && (
+        {saveError === null ? null : (
           <div
             role="alert"
             style={{
@@ -696,7 +730,7 @@ export default function FloorPlanEditor({
             }}
           >
             <span aria-hidden="true">⚠</span>
-            <span>{saveError}</span>
+            <span>{ft.t(SAVE_ERROR_KEY[saveError])}</span>
           </div>
         )}
       </div>
@@ -741,19 +775,19 @@ export default function FloorPlanEditor({
             }
           >
             <div style={toolSection}>
-              <div style={sectionLabel}>Instrumente</div>
+              <div style={sectionLabel}>{ft.t('section_tools')}</div>
               <button
                 style={navBtn(tool === 'select', isMobile)}
                 onClick={() => setTool('select')}
                 aria-pressed={tool === 'select'}
                 {...focusRing}
               >
-                ↖ Selectează
+                {ft.t('tool_select')}
               </button>
             </div>
 
             <div style={toolSection}>
-              <div style={sectionLabel}>Mese</div>
+              <div style={sectionLabel}>{ft.t('section_tables')}</div>
               {(
                 Object.entries(TABLE_SHAPES) as [TableShape, (typeof TABLE_SHAPES)[TableShape]][]
               ).map(([k, v]) => (
@@ -768,17 +802,17 @@ export default function FloorPlanEditor({
                   {...focusRing}
                 >
                   <span style={{ fontSize: 13, width: 16, textAlign: 'center' }}>{v.icon}</span>
-                  {v.label}
+                  {ft.t(v.label)}
                 </button>
               ))}
               <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 7 }}>
-                <span style={{ fontSize: '0.7rem', color: D.t3 }}>Locuri:</span>
+                <span style={{ fontSize: '0.7rem', color: D.t3 }}>{ft.t('seats_label')}</span>
                 {[2, 4, 6, 8].map((n) => (
                   <button
                     key={n}
                     onClick={() => setSeats(n)}
                     aria-pressed={seats === n}
-                    aria-label={`${n} locuri`}
+                    aria-label={ft.tp('seats_aria', n)}
                     style={btn({
                       // Țintă touch ≥44px pe mobil; desktop rămâne compact la 26px.
                       height: isMobile ? 44 : 26,
@@ -798,7 +832,7 @@ export default function FloorPlanEditor({
             </div>
 
             <div style={toolSection}>
-              <div style={sectionLabel}>Structură</div>
+              <div style={sectionLabel}>{ft.t('section_structure')}</div>
               {(Object.entries(WALL_META) as [WallType, (typeof WALL_META)[WallType]][]).map(
                 ([k, v]) => (
                   <button
@@ -820,7 +854,7 @@ export default function FloorPlanEditor({
                         flexShrink: 0,
                       }}
                     />
-                    {v.label}
+                    {ft.t(v.label)}
                   </button>
                 ),
               )}
@@ -830,12 +864,12 @@ export default function FloorPlanEditor({
                 aria-pressed={tool === 'addZone'}
                 {...focusRing}
               >
-                ▢ Zonă
+                {ft.t('tool_zone')}
               </button>
             </div>
 
             <div style={toolSection}>
-              <div style={sectionLabel}>Decoruri</div>
+              <div style={sectionLabel}>{ft.t('section_decos')}</div>
               {(Object.entries(DECO_META) as [DecoType, (typeof DECO_META)[DecoType]][]).map(
                 ([k, v]) => (
                   <button
@@ -848,14 +882,14 @@ export default function FloorPlanEditor({
                     aria-pressed={tool === 'addDeco' && decoT === k}
                     {...focusRing}
                   >
-                    <span style={{ fontSize: 13 }}>{v.emoji}</span> {v.label}
+                    <span style={{ fontSize: 13 }}>{v.emoji}</span> {ft.t(v.label)}
                   </button>
                 ),
               )}
             </div>
 
             <div style={toolSection}>
-              <div style={sectionLabel}>Etaje</div>
+              <div style={sectionLabel}>{ft.t('section_floors')}</div>
               {floors.map((f, i) => (
                 <button
                   key={f.id}
@@ -877,12 +911,12 @@ export default function FloorPlanEditor({
                   marginTop: 5,
                 })}
                 onClick={() => {
-                  setFloors((prev) => [...prev, { ...emptyFloor(), name: `Etaj ${prev.length}` }])
+                  setFloors((prev) => [...prev, emptyFloor(defaultFloorName(prev.length))])
                   setFi(floors.length)
                 }}
                 {...focusRing}
               >
-                + Etaj
+                {ft.t('floor_add')}
               </button>
             </div>
 
@@ -905,7 +939,7 @@ export default function FloorPlanEditor({
                 onChange={() => setShowGrid(!showGrid)}
                 style={{ accentColor: D.gold, width: 18, height: 18 }}
               />
-              Grilă
+              {ft.t('grid')}
             </label>
           </div>
           {isMobile && (
@@ -1199,7 +1233,7 @@ export default function FloorPlanEditor({
                       transform: `rotate(-${t.rotation || 0}deg)`,
                     }}
                   >
-                    {t.seats} loc.
+                    {ft.tp('table_seats', t.seats)}
                   </span>
                   {live && (
                     <span
@@ -1218,7 +1252,7 @@ export default function FloorPlanEditor({
                         transform: `rotate(-${t.rotation || 0}deg)`,
                       }}
                     >
-                      {st.label}
+                      {ft.t(st.label)}
                     </span>
                   )}
                 </div>
@@ -1245,12 +1279,10 @@ export default function FloorPlanEditor({
                   <Icon name="table" size={44} />
                 </span>
                 <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>
-                  {isMobile
-                    ? 'Selectează un instrument și atinge planul'
-                    : 'Selectează un instrument și dă click pe plan'}
+                  {isMobile ? ft.t('empty_mobile') : ft.t('empty_desktop')}
                 </span>
                 <span style={{ fontSize: '0.78rem', opacity: 0.5 }}>
-                  Pereți · Mese · Zone · Decoruri
+                  {ft.t('empty_hint')}
                 </span>
               </div>
             )}
@@ -1289,26 +1321,26 @@ export default function FloorPlanEditor({
                   marginBottom: 14,
                 }}
               >
-                Masă #{selTable.label}
+                {ft.t('prop_tableTitle', { label: selTable.label })}
               </div>
               <div style={{ marginBottom: 10 }}>
-                <div style={propLabel}>Etichetă</div>
+                <div style={propLabel}>{ft.t('prop_label')}</div>
                 <input
                   style={inp}
-                  aria-label="Etichetă masă"
+                  aria-label={ft.t('prop_labelAria')}
                   value={selTable.label}
                   onChange={(e) => updTbl('label', e.target.value)}
                   {...focusRing}
                 />
               </div>
               <div style={{ marginBottom: 10 }}>
-                <div style={propLabel}>Locuri</div>
+                <div style={propLabel}>{ft.t('prop_seats')}</div>
                 <input
                   style={inp}
                   type="number"
                   min={1}
                   max={20}
-                  aria-label="Număr de locuri"
+                  aria-label={ft.t('prop_seatsAria')}
                   value={selTable.seats}
                   onChange={(e) => {
                     // Câmp golit în timpul tastării: +'' = NaN → „NaN loc."; păstrăm valoarea.
@@ -1319,10 +1351,10 @@ export default function FloorPlanEditor({
                 />
               </div>
               <div style={{ marginBottom: 10 }}>
-                <div style={propLabel}>Formă</div>
+                <div style={propLabel}>{ft.t('prop_shape')}</div>
                 <select
                   style={{ ...inp, cursor: 'pointer' }}
-                  aria-label="Formă masă"
+                  aria-label={ft.t('prop_shapeAria')}
                   value={selTable.shape}
                   onChange={(e) => updTbl('shape', e.target.value as TableShape)}
                   {...focusRing}
@@ -1334,49 +1366,49 @@ export default function FloorPlanEditor({
                     ][]
                   ).map(([k, v]) => (
                     <option key={k} value={k}>
-                      {v.label}
+                      {ft.t(v.label)}
                     </option>
                   ))}
                 </select>
               </div>
               <div style={{ marginBottom: 10 }}>
-                <div style={propLabel}>Dimensiuni</div>
+                <div style={propLabel}>{ft.t('prop_size')}</div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <input
                     style={{ ...inp, width: '50%' }}
                     type="number"
-                    aria-label="Lățime masă (px)"
+                    aria-label={ft.t('prop_widthAria')}
                     value={selTable.w}
                     onChange={(e) => {
                       // w=0 (câmp golit) făcea masa invizibilă pe canvas.
                       const n = parseInt(e.target.value, 10)
                       updTbl('w', Number.isFinite(n) ? Math.max(20, n) : selTable.w)
                     }}
-                    placeholder="L"
+                    placeholder={ft.t('prop_widthPh')}
                     {...focusRing}
                   />
                   <input
                     style={{ ...inp, width: '50%' }}
                     type="number"
-                    aria-label="Înălțime masă (px)"
+                    aria-label={ft.t('prop_heightAria')}
                     value={selTable.h}
                     onChange={(e) => {
                       const n = parseInt(e.target.value, 10)
                       updTbl('h', Number.isFinite(n) ? Math.max(20, n) : selTable.h)
                     }}
-                    placeholder="Î"
+                    placeholder={ft.t('prop_heightPh')}
                     {...focusRing}
                   />
                 </div>
               </div>
               <div style={{ marginBottom: 12 }}>
-                <div style={propLabel}>Rotație: {selTable.rotation || 0}°</div>
+                <div style={propLabel}>{ft.t('prop_rotation', { deg: selTable.rotation || 0 })}</div>
                 <input
                   type="range"
                   min={0}
                   max={359}
                   step={15}
-                  aria-label="Rotație masă"
+                  aria-label={ft.t('prop_rotationAria')}
                   value={selTable.rotation || 0}
                   onChange={(e) => updTbl('rotation', +e.target.value)}
                   style={{ width: '100%', accentColor: D.gold }}
@@ -1387,11 +1419,11 @@ export default function FloorPlanEditor({
                   (comenzi/rezervări) și interconectare. Auto-link după nume
                   dacă nu e setat explicit. */}
               <div style={{ marginBottom: 12 }}>
-                <div style={propLabel}>Masă reală (POS)</div>
+                <div style={propLabel}>{ft.t('prop_pos')}</div>
                 <select
                   value={selTable.tableId ?? ''}
                   onChange={(e) => updTbl('tableId', e.target.value || undefined)}
-                  aria-label="Masă reală din POS legată de această masă"
+                  aria-label={ft.t('prop_posAria')}
                   style={{
                     width: '100%',
                     height: isMobile ? 44 : 32,
@@ -1408,8 +1440,8 @@ export default function FloorPlanEditor({
                     {realTables.some(
                       (rt) => rt.name.trim().toLowerCase() === selTable.label.trim().toLowerCase(),
                     )
-                      ? `Auto (după nume: ${selTable.label})`
-                      : '— nelegată —'}
+                      ? ft.t('prop_posAuto', { label: selTable.label })
+                      : ft.t('prop_posNone')}
                   </option>
                   {realTables.map((rt) => (
                     <option key={rt.id} value={rt.id}>
@@ -1418,7 +1450,7 @@ export default function FloorPlanEditor({
                   ))}
                 </select>
                 <div style={{ fontSize: '0.66rem', color: D.t3, marginTop: 4 }}>
-                  Leagă masa de POS ca să vezi în Live comenzile și rezervările ei.
+                  {ft.t('prop_posHint')}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
@@ -1427,11 +1459,11 @@ export default function FloorPlanEditor({
                   style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}`, flex: 1 })}
                   {...focusRing}
                 >
-                  <Icon name="refresh" size={14} /> Rotește
+                  <Icon name="refresh" size={14} /> {ft.t('prop_rotate')}
                 </button>
                 <button
                   onClick={delSel}
-                  aria-label="Șterge masa"
+                  aria-label={ft.t('prop_deleteTableAria')}
                   style={btn({
                     background: D.redA,
                     color: D.red,
@@ -1440,7 +1472,7 @@ export default function FloorPlanEditor({
                   })}
                   {...focusRing}
                 >
-                  <Icon name="trash" size={14} /> Șterge
+                  <Icon name="trash" size={14} /> {tc.t('delete')}
                 </button>
               </div>
             </>
@@ -1456,10 +1488,10 @@ export default function FloorPlanEditor({
                   marginBottom: 10,
                 }}
               >
-                Decor
+                {ft.t('prop_deco')}
               </div>
               <p style={{ fontSize: '0.82rem', color: D.t2 }}>
-                {DECO_META[selDeco.type]?.emoji} {DECO_META[selDeco.type]?.label}
+                {selDecoMeta?.emoji} {selDecoMeta ? ft.t(selDecoMeta.label) : null}
               </p>
               <button
                 onClick={delSel}
@@ -1469,7 +1501,7 @@ export default function FloorPlanEditor({
                 }}
                 {...focusRing}
               >
-                <Icon name="trash" size={14} /> Șterge
+                <Icon name="trash" size={14} /> {tc.t('delete')}
               </button>
             </>
           )}
@@ -1484,14 +1516,14 @@ export default function FloorPlanEditor({
                   marginBottom: 10,
                 }}
               >
-                Perete
+                {ft.t('prop_wall')}
               </div>
               <button
                 onClick={delSel}
                 style={btn({ background: D.redA, color: D.red, border: 'none', marginTop: 6 })}
                 {...focusRing}
               >
-                <Icon name="trash" size={14} /> Șterge
+                <Icon name="trash" size={14} /> {tc.t('delete')}
               </button>
             </>
           )}
@@ -1506,14 +1538,14 @@ export default function FloorPlanEditor({
                   marginBottom: 10,
                 }}
               >
-                Zonă
+                {ft.t('prop_zone')}
               </div>
               {/* Redenumire zonă — oglindește pattern-ul „Label" de la masă. */}
               <div style={{ marginBottom: 10 }}>
-                <div style={propLabel}>Nume zonă</div>
+                <div style={propLabel}>{ft.t('prop_zoneName')}</div>
                 <input
                   style={inp}
-                  aria-label="Nume zonă"
+                  aria-label={ft.t('prop_zoneName')}
                   value={selZone.label}
                   onChange={(e) => updZone('label', e.target.value)}
                   {...focusRing}
@@ -1524,7 +1556,7 @@ export default function FloorPlanEditor({
                 style={btn({ background: D.redA, color: D.red, border: 'none', marginTop: 6 })}
                 {...focusRing}
               >
-                <Icon name="trash" size={14} /> Șterge
+                <Icon name="trash" size={14} /> {tc.t('delete')}
               </button>
             </>
           )}
@@ -1553,7 +1585,7 @@ export default function FloorPlanEditor({
                   gap: 6,
                 }}
               >
-                Cum funcționează
+                {ft.t('help_title')}
                 {isMobile && <span aria-hidden="true">{helpOpen ? '▾' : '▸'}</span>}
               </button>
               {(!isMobile || helpOpen) && (
@@ -1562,47 +1594,53 @@ export default function FloorPlanEditor({
                 // Pe mobil scurtăturile de tastatură nu se aplică — arătăm gesturi touch.
                 <>
                   <p>
-                    <span style={{ color: D.t1, fontWeight: 500 }}>Atinge</span> — plasează / selectează
+                    <span style={{ color: D.t1, fontWeight: 500 }}>{ft.t('help_tap')}</span> {ft.t('help_tapDesc')}
                   </p>
                   <p>
-                    <span style={{ color: D.t1, fontWeight: 500 }}>Trage</span> — mută masa
+                    <span style={{ color: D.t1, fontWeight: 500 }}>{ft.t('help_drag')}</span> {ft.t('help_dragDesc')}
                   </p>
                   <p>
-                    <span style={{ color: D.t1, fontWeight: 500 }}>Rotește / Șterge</span> — din panoul de proprietăți
+                    <span style={{ color: D.t1, fontWeight: 500 }}>{ft.t('help_panel')}</span> {ft.t('help_panelDesc')}
                   </p>
                 </>
               ) : (
                 <>
                   <p>
-                    <span style={{ color: D.t1, fontWeight: 500 }}>Click</span> — plasează element
+                    <span style={{ color: D.t1, fontWeight: 500 }}>{ft.t('help_click')}</span> {ft.t('help_clickDesc')}
                   </p>
                   <p>
-                    <span style={{ color: D.t1, fontWeight: 500 }}>Drag</span> — mută masa
-                  </p>
-                  <p>
-                    <span style={{ color: D.gold, fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                      R
-                    </span>{' '}
-                    — rotește
+                    <span style={{ color: D.t1, fontWeight: 500 }}>{ft.t('help_dragDesktop')}</span> {ft.t('help_dragDesc')}
                   </p>
                   <p>
                     <span style={{ color: D.gold, fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                      Del
+                      {ft.t('help_keyRotate')}
                     </span>{' '}
-                    — șterge
+                    {ft.t('help_keyRotateDesc')}
                   </p>
                   <p>
                     <span style={{ color: D.gold, fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                      Ctrl+Z
+                      {ft.t('help_keyDelete')}
                     </span>{' '}
-                    — undo
+                    {ft.t('help_keyDeleteDesc')}
+                  </p>
+                  <p>
+                    <span style={{ color: D.gold, fontFamily: 'monospace', fontSize: '0.7rem' }}>
+                      {ft.t('help_keyUndo')}
+                    </span>{' '}
+                    {ft.t('help_keyUndoDesc')}
                   </p>
                 </>
               )}
               <div style={{ borderTop: `1px solid ${D.border}`, marginTop: 10, paddingTop: 10 }}>
-                <p>Pereți: {isMobile ? 'atinge și trage' : 'click & drag'}</p>
+                <p>
+                  {ft.t('help_walls', {
+                    how: isMobile ? ft.t('help_wallsMobile') : ft.t('help_wallsDesktop'),
+                  })}
+                </p>
                 <p style={{ marginTop: 4 }}>
-                  Mod <span style={{ color: D.gold }}>Live</span> arată status mese în timp real
+                  {fillNodes(ft.t('help_live'), {
+                    live: <span style={{ color: D.gold }}>{ft.t('mode_live')}</span>,
+                  })}
                 </p>
               </div>
                 </>
@@ -1625,26 +1663,28 @@ export default function FloorPlanEditor({
           flexShrink: 0,
         }}
       >
-        {[
-          ['Mese', totalTables],
-          ['Locuri', totalSeats],
-          ['Pereți', floor.walls.length],
-        ].map(([label, val]) => (
-          <span key={label as string}>
-            {label}:{' '}
+        {(
+          [
+            ['footer_tables', totalTables],
+            ['footer_seats', totalSeats],
+            ['footer_walls', floor.walls.length],
+          ] as const
+        ).map(([labelKey, val]) => (
+          <span key={labelKey}>
+            {ft.t(labelKey)}{' '}
             <span style={{ fontFamily: 'monospace', fontWeight: 600, color: D.t1 }}>{val}</span>
           </span>
         ))}
         {live && (
           <>
             <span style={{ color: D.green }}>
-              ● {floor.tables.filter((t) => (liveStatus[t.id] ?? 'free') === 'free').length} libere
+              ● {ft.tp('live_free', liveFree)}
             </span>
             <span style={{ color: D.amber }}>
-              ● {floor.tables.filter((t) => liveStatus[t.id] === 'occupied').length} ocupate
+              ● {ft.tp('live_occupied', liveOccupied)}
             </span>
             <span style={{ color: '#9B72CF' }}>
-              ● {floor.tables.filter((t) => liveStatus[t.id] === 'reserved').length} rezervate
+              ● {ft.tp('live_reserved', liveReserved)}
             </span>
           </>
         )}

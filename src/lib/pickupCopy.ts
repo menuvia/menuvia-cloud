@@ -51,6 +51,8 @@
 import { hasFeature, type RestaurantFeatures } from './features'
 import { PLAN_LABELS } from './constants'
 import { PICKUP_MIN_PLAN, type PickupToggleState } from './pickupAvailability'
+import type { Translator } from '../i18n/core'
+import type tablesRo from '../i18n/ns/tables/ro'
 
 /** Numele COMERCIAL al planului care deblochează ridicarea (din `PLAN_LABELS`). */
 export function pickupPlanName(): string {
@@ -207,4 +209,37 @@ export function pickupOnlyToggleDescription(feature: boolean | null): string {
     'Pentru food truck / tejghea: ascunde Harta sălii și Rezervările din panou. ' +
     'QR-ul general din Mese & QR devine QR-ul tău principal.'
   )
+}
+
+// ── Variantele în limba personalului (lotul L6a), pentru fila Mese ───────
+// `pickupCopyT(tr)` leagă traducătorul namespace-ului `tables` și întoarce
+// ACELEAȘI două funcții, cu aceeași semnătură, deci TablesManager le cheamă
+// exact ca înainte (`texts.generalMenuQrText(pickupFeature, menuFlipbook)` —
+// clichetele PK5/PK7 rămân pe sursă). Doar TIPUL namespace-ului e importat
+// aici: pickupCopy e în graful static al DashboardPage, iar dicționarele intră
+// doar în chunk-ul leneș al filei (SK4). În română ieșirea e EXACT cea a
+// funcțiilor de mai sus (TQ8 compară pe toate stările); acelea rămân oracolul
+// și sursa SettingsTab-ului (lotul L6b). Numele planului rămâne cel COMERCIAL
+// din `PLAN_LABELS` (nume propriu, ca în panou).
+export interface TablesPickupCopy {
+  generalMenuQrText: (feature: boolean | null, flipbook: boolean) => string
+  pickupOnlyEmptyStateText: (feature: boolean | null, flipbook: boolean) => string
+}
+
+export function pickupCopyT(tr: Translator<typeof tablesRo>): TablesPickupCopy {
+  return {
+    generalMenuQrText: (feature, flipbook) => {
+      const tail = tr.t('gm_tail')
+      if (feature === true && flipbook) return tr.t('gm_flipbook', { why: tr.t('pk_flipbookNoOrders'), tail })
+      return feature === true ? tr.t('gm_withPickup', { tail }) : tr.t('gm_plain', { tail })
+    },
+    pickupOnlyEmptyStateText: (feature, flipbook) => {
+      if (feature === false) return tr.t('po_suspended', { plan: pickupPlanName() })
+      const tail = tr.t('po_tail')
+      const head = tr.t('po_head')
+      if (feature === true && flipbook) return tr.t('po_flipbook', { head, why: tr.t('pk_flipbookNoOrders'), tail })
+      if (feature === true) return tr.t('po_withPickup', { head, tail })
+      return tr.t('po_plain', { head, tail })
+    },
+  }
 }

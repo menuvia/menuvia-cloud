@@ -18,12 +18,18 @@ import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import type { Restaurant } from '../hooks/useData'
 import { publicBaseUrl, siteHost } from '../lib/domain'
-import { downloadQrPdf, type QrPdfFormat } from '../lib/qrPdf'
+import { downloadQrPdf, QR_PDF_NO_CARDS_HINT, type QrPdfFormat } from '../lib/qrPdf'
 import { tablesMissingActiveToken } from '../lib/qrTokens'
-import { generalMenuQrText, pickupFeatureState, pickupOnlyEmptyStateText } from '../lib/pickupCopy'
+import { bulkTableName, bulkTableNumber, bulkTableSlug, slugifyTable } from '../lib/tableSlug'
+import { pickupCopyT, pickupFeatureState } from '../lib/pickupCopy'
 import { pickupOnlyMode } from '../lib/pickupAvailability'
 import { resolveEffectiveMenuLayout } from '../lib/themes'
-import { toUserMessage, zeroRowsAsDenied } from '../lib/userMessages'
+import { zeroRowsAsDenied } from '../lib/userMessages'
+import { useT } from '../i18n/useT'
+import { describeStaffError } from '../i18n/staffErrors'
+import { fillNodes } from '../i18n/fillNodes'
+import { tablesNs } from '../i18n/ns/tables'
+import { commonNs } from '../i18n/ns/common'
 
 interface QrTokenRow {
   id: string
@@ -62,15 +68,7 @@ const inp: React.CSSProperties = {
   fontFamily: D.fontBody,
   boxSizing: 'border-box',
 }
-function slugify(s: string) {
-  return (
-    s
-      .toLowerCase()
-      .replace(/\s+/g, '-')
-      .replace(/[^a-z0-9-]/g, '')
-      .replace(/^-|-$/g, '') || 'masa'
-  )
-}
+// Slug-ul mesei (DATĂ, `masa`/`masa-N` în orice limbă): lib/tableSlug.ts.
 
 // ── QR helpers — all local, no external API ─────────────────
 // Baza: pe .ro EXACT ca înainte (`VITE_APP_URL || origin`); pe un host .com tot
@@ -93,6 +91,8 @@ async function generateQRDataURL(token: string, size: number): Promise<string> {
 
 // ── QRImage component — generates QR locally on mount ────────
 function QRImage({ token, size = 80, label }: { token: string; size?: number; label?: string }) {
+  // Sus, înaintea return-ului timpuriu de mai jos (lotul L6a).
+  const tm = useT(tablesNs)
   const [src, setSrc] = useState('')
   // UX: eșecul de generare se distinge vizual de starea de încărcare (alertă vs pătrat gol).
   const [failed, setFailed] = useState(false)
@@ -109,8 +109,8 @@ function QRImage({ token, size = 80, label }: { token: string; size?: number; la
     return (
       <div
         role={failed ? 'img' : undefined}
-        aria-label={failed ? 'Codul QR nu a putut fi generat' : undefined}
-        title={failed ? 'Codul QR nu a putut fi generat' : undefined}
+        aria-label={failed ? tm.t('qr_genFailed') : undefined}
+        title={failed ? tm.t('qr_genFailed') : undefined}
         style={{
           width: size,
           height: size,
@@ -129,7 +129,7 @@ function QRImage({ token, size = 80, label }: { token: string; size?: number; la
       src={src}
       width={size}
       height={size}
-      alt={label ? `Cod QR pentru ${label}` : 'Cod QR'}
+      alt={label ? tm.t('qr_alt', { label }) : tm.t('qr_altPlain')}
       style={{ display: 'block', borderRadius: 4 }}
     />
   )
@@ -139,6 +139,8 @@ function QRImage({ token, size = 80, label }: { token: string; size?: number; la
 // TablesManager avea a TREIA implementare proprie, cu alt aspect și altă durată.
 
 // ── TableModal ────────────────────────────────────────────────
+type ModalError = 'modal_err_nameRequired' | 'modal_err_duplicate' | 'modal_err_save'
+
 function TableModal({
   table,
   restaurantId,
@@ -155,8 +157,12 @@ function TableModal({
   const [seats, setSeats] = useState(table?.seats?.toString() || '')
   const [zone, setZone] = useState(table?.zone || '')
   const [existingZones, setExistingZones] = useState<string[]>([])
+  const tm = useT(tablesNs)
+  const tc = useT(commonNs)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // Eroarea ca DATĂ (cheia), tradusă la randare: o schimbare de limbă cu
+  // eroarea pe ecran o retraduce (lotul L6a, TQ5).
+  const [error, setError] = useState<ModalError | null>(null)
   const auto = !table
 
   // UX: blochează scroll-ul paginii din fundal cât timp modalul e deschis.
@@ -193,12 +199,12 @@ function TableModal({
 
   const save = async () => {
     if (!name.trim()) {
-      setError('Numele este obligatoriu.')
+      setError('modal_err_nameRequired')
       return
     }
     setSaving(true)
     setError(null)
-    const s = slug || slugify(name)
+    const s = slug || slugifyTable(name)
     const z = zone.trim().length > 0 ? zone.trim() : null
     const payload = { name: name.trim(), slug: s, seats: seats ? parseInt(seats) : null, zone: z }
     const { error: e } = table
@@ -208,11 +214,7 @@ function TableModal({
       // Copy: nu afișăm mesajul PostgREST brut (engleză) patronului — mapăm codurile
       // cunoscute pe română; detaliul tehnic rămâne în consolă pentru diagnoză.
       console.error('[TablesManager] save:', e)
-      setError(
-        e.code === '23505'
-          ? 'Există deja o masă cu acest identificator. Alege alt nume sau slug.'
-          : 'Nu s-a putut salva masa. Verifică datele și încearcă din nou.',
-      )
+      setError(e.code === '23505' ? 'modal_err_duplicate' : 'modal_err_save')
       setSaving(false)
       return
     }
@@ -241,7 +243,7 @@ function TableModal({
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label={table ? 'Editează masă' : 'Adaugă masă'}
+        aria-label={table ? tm.t('editTable') : tm.t('addTable')}
         style={{
           background: D.s2,
           border: `1px solid ${D.border}`,
@@ -264,11 +266,11 @@ function TableModal({
             marginBottom: 20,
           }}
         >
-          {table ? 'Editează masă' : 'Adaugă masă'}
+          {table ? tm.t('editTable') : tm.t('addTable')}
         </div>
         <div style={{ marginBottom: 14 }}>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}>
-            Nume masă *
+            {tm.t('modal_name')}
           </label>
           <input
             // A11y: focus automat pe primul câmp la deschiderea modalului.
@@ -276,9 +278,9 @@ function TableModal({
             value={name}
             onChange={(e) => {
               setName(e.target.value)
-              if (auto) setSlug(slugify(e.target.value))
+              if (auto) setSlug(slugifyTable(e.target.value))
             }}
-            placeholder="Masa 1, Terasa A..."
+            placeholder={tm.t('modal_namePlaceholder')}
             style={inp}
             onFocus={(e) => (e.target.style.borderColor = D.gold)}
             onBlur={(e) => (e.target.style.borderColor = D.border)}
@@ -286,23 +288,23 @@ function TableModal({
         </div>
         <div style={{ marginBottom: 14 }}>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}>
-            Slug URL
+            {tm.t('modal_slug')}
           </label>
           <input
             value={slug}
-            onChange={(e) => setSlug(slugify(e.target.value))}
-            placeholder="masa-1"
+            onChange={(e) => setSlug(slugifyTable(e.target.value))}
+            placeholder={tm.t('modal_slugPlaceholder')}
             style={inp}
             onFocus={(e) => (e.target.style.borderColor = D.gold)}
             onBlur={(e) => (e.target.style.borderColor = D.border)}
           />
           <div style={{ fontSize: '0.7rem', color: D.t2, marginTop: 4 }}>
-            Identificator intern al mesei — nu afectează QR-urile deja printate
+            {tm.t('modal_slugHint')}
           </div>
         </div>
         <div style={{ marginBottom: 14 }}>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}>
-            Locuri (opțional)
+            {tm.t('modal_seats')}
           </label>
           <input
             type="number"
@@ -318,18 +320,18 @@ function TableModal({
         </div>
         <div style={{ marginBottom: 20 }}>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}>
-            Zonă (opțional)
+            {tm.t('modal_zone')}
           </label>
           <input
             list="table-zones"
             value={zone}
             onChange={(e) => setZone(e.target.value)}
-            placeholder="Terasa, Interior, Bar..."
+            placeholder={tm.t('modal_zonePlaceholder')}
             style={inp}
             onFocus={(e) => (e.target.style.borderColor = D.gold)}
             onBlur={(e) => (e.target.style.borderColor = D.border)}
           />
-          {existingZones.length > 0 && (
+          {existingZones.length === 0 ? null : (
             <datalist id="table-zones">
               {existingZones.map((z) => (
                 <option key={z} value={z} />
@@ -337,10 +339,10 @@ function TableModal({
             </datalist>
           )}
           <div style={{ fontSize: '0.7rem', color: D.t2, marginTop: 4 }}>
-            Clienții pot alege zona (ex. Terasă vs Interior) când fac o rezervare online
+            {tm.t('modal_zoneHint')}
           </div>
         </div>
-        {error && (
+        {error === null ? null : (
           <div
             style={{
               background: D.redA,
@@ -352,15 +354,15 @@ function TableModal({
               marginBottom: 14,
             }}
           >
-            {error}
+            {tm.t(error)}
           </div>
         )}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={onClose}>
-            Anulează
+            {tc.t('cancel')}
           </Button>
           <Button variant="primary" onClick={save} loading={saving}>
-            {saving ? 'Se salvează...' : 'Salvează'}
+            {saving ? tm.t('saving') : tc.t('save')}
           </Button>
         </div>
       </div>
@@ -388,6 +390,10 @@ function GeneralMenuQrCard({
   // comenzi pentru ridicare, pe niciun plan (lib/themes).
   menuFlipbook: boolean
 }) {
+  const tm = useT(tablesNs)
+  // Textele despre ridicare, în limba personalului (în română EXACT
+  // `generalMenuQrText` din lib/pickupCopy).
+  const pickupTexts = pickupCopyT(tm)
   const [qr, setQr] = useState<string | null>(null)
   const menuUrl = `${appPublicBase()}/m/${restaurant.slug}`
 
@@ -423,20 +429,22 @@ function GeneralMenuQrCard({
         flexWrap: 'wrap',
       }}
     >
-      {qr && (
+      {qr === null ? null : (
         <img
           src={qr}
-          alt="QR meniu general"
+          alt={tm.t('general_title')}
           width={72}
           height={72}
           style={{ borderRadius: 8, flexShrink: 0 }}
         />
       )}
       <div style={{ flex: 1, minWidth: 180 }}>
-        <div style={{ color: D.t1, fontWeight: 600, fontSize: '0.9rem' }}>QR meniu general</div>
+        <div style={{ color: D.t1, fontWeight: 600, fontSize: '0.9rem' }}>{tm.t('general_title')}</div>
         <div style={{ color: D.t2, fontSize: '0.74rem', marginTop: 2, lineHeight: 1.5 }}>
-          Duce la <span style={{ color: D.gold }}>/m/{restaurant.slug}</span> —{' '}
-          {generalMenuQrText(pickupFeature, menuFlipbook)}
+          {fillNodes(tm.t('general_leadsTo'), {
+            path: <span style={{ color: D.gold }}>/m/{restaurant.slug}</span>,
+            text: pickupTexts.generalMenuQrText(pickupFeature, menuFlipbook),
+          })}
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -452,19 +460,19 @@ function GeneralMenuQrCard({
           disabled={!qr}
           icon={<Icon name="download" size={15} />}
         >
-          PNG
+          {tm.t('general_png')}
         </Button>
         <Button
           variant="secondary"
           onClick={() => {
             navigator.clipboard
               .writeText(menuUrl)
-              .then(() => toast('Link copiat'))
-              .catch(() => toast('Nu am putut copia linkul', 'error'))
+              .then(() => toast(tm.t('linkCopied')))
+              .catch(() => toast(tm.t('general_copyFailed'), 'error'))
           }}
           icon={<Icon name="link" size={15} />}
         >
-          Copiază link
+          {tm.t('copyLink')}
         </Button>
       </div>
     </div>
@@ -483,6 +491,11 @@ export default function TablesManager({
   // de partener pe `qr_tokens` permite INSERT-ul din `ensureTokens`.
   canRotateQr: boolean
 }) {
+  // Traducătorii sus, înaintea oricărui return (lotul L6a). `tm`, nu `t`: `t`
+  // e deja masa curentă în bucle și în handler-e.
+  const tm = useT(tablesNs)
+  const tc = useT(commonNs)
+  const pickupTexts = pickupCopyT(tm)
   const { toasts, toast } = useToast()
   const [tables, setTables] = useState<TableRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -503,11 +516,13 @@ export default function TablesManager({
   // Căutare + filtru pe zonă pentru lista de mese (utile la zeci de mese).
   const [search, setSearch] = useState('')
   const [zoneFilter, setZoneFilter] = useState('')
-  const [loadError, setLoadError] = useState<string | null>(null)
+  // Eroarea de încărcare ca DATĂ (eroarea brută), tradusă la randare.
+  const [loadError, setLoadError] = useState<{ err: unknown } | null>(null)
   // Generare rapidă: „Câte mese ai?" → creăm Masa 1..N dintr-un foc.
   const [bulkCount, setBulkCount] = useState('')
   const [bulkBusy, setBulkBusy] = useState(false)
-  const [limitMsg, setLimitMsg] = useState<string | null>(null)
+  // Plafonul planului atins: limita (DATĂ), mesajul se compune la randare.
+  const [limitMsg, setLimitMsg] = useState<number | null>(null)
 
   // Limita de mese: numărul REAL din DB (get_restaurant_features, aliniat cu
   // plans.ts prin mig 089); fallback pe config-ul comercial dacă fetch-ul
@@ -558,7 +573,7 @@ export default function TablesManager({
         })),
       )
     } catch (e: unknown) {
-      setLoadError(toUserMessage(e, 'Nu s-au putut încărca mesele'))
+      setLoadError({ err: e })
     }
     setLoading(false)
   }, [restaurant.id])
@@ -592,10 +607,7 @@ export default function TablesManager({
         existing as { data: Array<{ table_id: string }> | null; error: unknown },
       )
       if (missing === null) {
-        toast(
-          'Nu am putut verifica QR-urile existente. Cele tipărite rămân valabile — reîncearcă.',
-          'error',
-        )
+        toast(tm.t('toast_verifyFailed'), 'error')
         await load()
         return false
       }
@@ -608,7 +620,7 @@ export default function TablesManager({
       await load()
       return true
     } catch {
-      toast('Eroare la generarea QR-urilor', 'error')
+      toast(tm.t('toast_tokensFailed'), 'error')
       return false
     }
   }
@@ -619,9 +631,9 @@ export default function TablesManager({
       // OPT-R2: fără load() redundant înainte — ensureTokens re-interoghează
       // el însuși id-urile proaspete (inclusiv masa tocmai adăugată) și se
       // termină cu un load() complet. Un singur ciclu de reload, nu două.
-      if (await ensureTokens()) toast(modal === 'add' ? 'Masă adăugată' : 'Masă actualizată')
+      if (await ensureTokens()) toast(modal === 'add' ? tm.t('toast_added') : tm.t('toast_updated'))
     } catch {
-      toast('Eroare la salvare', 'error')
+      toast(tm.t('toast_saveFailed'), 'error')
     }
   }
 
@@ -634,13 +646,13 @@ export default function TablesManager({
         await supabase.from('tables').delete().eq('id', delId).select('id'),
       )
       if (denied) {
-        toast(toUserMessage(denied, 'Eroare la ștergere'), 'error')
+        toast(describeStaffError(denied, tc, { fallback: tm.t('toast_deleteFailed') }), 'error')
       } else {
-        toast('Masă ștearsă')
+        toast(tm.t('toast_deleted'))
         await load()
       }
     } catch (e) {
-      toast(toUserMessage(e, 'Eroare la ștergere'), 'error')
+      toast(describeStaffError(e, tc, { fallback: tm.t('toast_deleteFailed') }), 'error')
     }
     setDelId(null)
   }
@@ -652,10 +664,10 @@ export default function TablesManager({
         .update({ is_active: !t.is_active })
         .eq('id', t.id)
       if (error) throw error
-      toast(t.is_active ? 'Masă dezactivată' : 'Masă activată')
+      toast(t.is_active ? tm.t('toast_deactivated') : tm.t('toast_activated'))
       await load()
     } catch {
-      toast('Eroare la actualizare', 'error')
+      toast(tm.t('toast_updateFailed'), 'error')
     }
   }
 
@@ -666,9 +678,9 @@ export default function TablesManager({
       // fereastra în care masa rămânea fără token activ (mig 166).
       const { error } = await supabase.rpc('rotate_qr_token', { p_table_id: t.id })
       if (error) throw error
-      toast('QR nou generat')
+      toast(tm.t('toast_rotated'))
     } catch {
-      toast('Eroare la generarea QR-ului', 'error')
+      toast(tm.t('toast_rotateFailed'), 'error')
     }
     await load()
     setRotating(null)
@@ -678,7 +690,7 @@ export default function TablesManager({
   // fără token activ primesc unul (ensureTokens), deci QR-urile tipărite rămân.
   const generateMissingQr = async (t: TableRow) => {
     setRotating(t.id)
-    if (await ensureTokens()) toast('QR nou generat')
+    if (await ensureTokens()) toast(tm.t('toast_rotated'))
     setRotating(null)
   }
 
@@ -688,17 +700,15 @@ export default function TablesManager({
     const n = parseInt(bulkCount, 10)
     setLimitMsg(null)
     if (!n || n < 1) {
-      toast('Introdu numărul de mese (ex. 80)', 'error')
+      toast(tm.t('bulk_countRequired'), 'error')
       return
     }
     if (n <= tables.length) {
-      toast(`Ai deja ${tables.length} mese configurate`)
+      toast(tm.tp('bulk_alreadyHave', tables.length))
       return
     }
-    if (maxTables != null && n > maxTables) {
-      setLimitMsg(
-        `Planul tău permite până la ${maxTables} mese / QR-uri. Pentru mai multe, poți face upgrade.`,
-      )
+    if (maxTables != null && maxTables < n) {
+      setLimitMsg(maxTables)
       return
     }
     setBulkBusy(true)
@@ -708,17 +718,17 @@ export default function TablesManager({
       // (n - tables.length) mese, sărind peste numerele deja folosite.
       const usedNums = new Set(
         tables
-          .map((t) => {
-            const m = /^masa-(\d+)$/.exec(t.slug || '')
-            return m ? parseInt(m[1], 10) : null
-          })
+          .map((t) => bulkTableNumber(t.slug))
           .filter((x): x is number => x != null),
       )
       const rows: { restaurant_id: string; name: string; slug: string }[] = []
       let idx = 1
       while (tables.length + rows.length < n) {
         if (!usedNums.has(idx)) {
-          rows.push({ restaurant_id: restaurant.id, name: `Masa ${idx}`, slug: `masa-${idx}` })
+          // Numele și slug-ul mesei NOI sunt DATE: `Masa N` / `masa-N` în orice
+          // limbă a personalului (numele apare pe cardul QR tipărit și în
+          // meniul oaspetelui; după slug se găsesc numerele libere).
+          rows.push({ restaurant_id: restaurant.id, name: bulkTableName(idx), slug: bulkTableSlug(idx) })
         }
         idx++
       }
@@ -728,7 +738,7 @@ export default function TablesManager({
       // id-urile proaspete (insert-ul nu le întoarce) și termină cu load().
       const tokensOk = await ensureTokens()
       setBulkCount('')
-      if (tokensOk) toast(`${rows.length} mese create, fiecare cu QR-ul ei`)
+      if (tokensOk) toast(tm.tp('bulk_created', rows.length))
     } catch (e) {
       // Copy: mesaj în română pentru patron; detaliul tehnic doar în consolă.
       console.error('[TablesManager] bulkGenerate:', e)
@@ -736,12 +746,7 @@ export default function TablesManager({
         typeof e === 'object' && e !== null && 'code' in e
           ? (e as { code?: string }).code
           : undefined
-      toast(
-        code === '23505'
-          ? 'Unele mese există deja — reîmprospătează lista și încearcă din nou.'
-          : 'Nu s-au putut genera mesele. Încearcă din nou.',
-        'error',
-      )
+      toast(code === '23505' ? tm.t('bulk_duplicate') : tm.t('bulk_failed'), 'error')
     }
     setBulkBusy(false)
   }
@@ -755,9 +760,9 @@ export default function TablesManager({
       a.href = dataUrl
       a.download = `QR-${t.name.replace(/[^a-zA-Z0-9ăâîșțĂÂÎȘȚ ]/g, '')}.png`
       a.click()
-      toast(`QR descărcat pentru ${t.name}`)
+      toast(tm.t('toast_pngDownloaded', { name: t.name }))
     } catch {
-      toast('Eroare la descărcare', 'error')
+      toast(tm.t('toast_downloadFailed'), 'error')
     }
   }
 
@@ -765,8 +770,8 @@ export default function TablesManager({
     if (!t.active_token) return
     navigator.clipboard
       .writeText(qrUrl(t.active_token.token))
-      .then(() => toast('Link copiat'))
-      .catch(() => toast('Nu s-a putut copia linkul', 'error'))
+      .then(() => toast(tm.t('linkCopied')))
+      .catch(() => toast(tm.t('toast_copyFailed'), 'error'))
   }
 
   // PDF: jsPDF se încarcă la cerere (560KB), doar la export. Desenul stă în
@@ -775,7 +780,7 @@ export default function TablesManager({
   const downloadPdf = async (format: PdfFormat = 'grid') => {
     const active = tables.filter((t) => t.is_active && t.active_token)
     if (!active.length) {
-      toast('Nicio masă activă cu QR', 'error')
+      toast(tm.t('pdf_noActive'), 'error')
       return
     }
     setDownloading(format)
@@ -789,10 +794,21 @@ export default function TablesManager({
         // Digital QR-ul deschide doar meniul (lib/qrCopy.ts). Necunoscut = fail-closed.
         canOrder: restaurantFeatures.features ? restaurantFeatures.has('order_qr') : false,
         brandHost: siteHost(),
+        // Textul TIPĂRIT e pentru oaspete: limba de BAZĂ a meniului, nu a
+        // personalului (lib/qrCopy.ts). Pe un meniu românesc, cardul de dinainte.
+        menuLanguage: restaurant.language,
       })
-      toast('PDF descărcat')
+      toast(tm.t('pdf_done'))
     } catch (e) {
-      toast(toUserMessage(e, 'PDF-ul nu a putut fi generat. Reîncearcă.'), 'error')
+      // În română EXACT `toUserMessage` de dinainte (și „Niciun QR de tipărit”
+      // ca atare); în altă limbă refuzul fără carduri are textul lui.
+      toast(
+        describeStaffError(e, tc, {
+          fallback: tm.t('pdf_failed'),
+          hints: tc.lang === 'ro' ? undefined : { [QR_PDF_NO_CARDS_HINT]: tm.t('pdf_noCards') },
+        }),
+        'error',
+      )
     }
     setDownloading(null)
   }
@@ -808,11 +824,11 @@ export default function TablesManager({
     return () => document.removeEventListener('mousedown', onDoc)
   }, [pdfMenuOpen])
 
-  // Opțiunile de export PDF (etichete comerciale în RO).
+  // Opțiunile de export PDF (etichetele în limba personalului).
   const pdfFormats: { id: PdfFormat; label: string; hint: string }[] = [
-    { id: 'grid', label: 'Grilă — 6 / pagină', hint: 'Pentru lipit pe mese' },
-    { id: 'tent', label: 'Carduri pliabile', hint: '4 / pagină, tip cort' },
-    { id: 'poster', label: 'Poster A4', hint: '1 QR mare / pagină' },
+    { id: 'grid', label: tm.t('pdf_grid'), hint: tm.t('pdf_gridHint') },
+    { id: 'tent', label: tm.t('pdf_tent'), hint: tm.t('pdf_tentHint') },
+    { id: 'poster', label: tm.t('pdf_poster'), hint: tm.t('pdf_posterHint') },
   ]
 
   // Zone unice pentru filtru + lista filtrată după căutare/zonă.
@@ -830,7 +846,10 @@ export default function TablesManager({
 
   // Grupare pe zonă: activă doar când lista e mare ȘI nu e deja restrânsă la o
   // singură zonă prin filtru (altfel antetele ar fi redundante). Sub prag = listă plată.
-  const NO_ZONE = 'Fără zonă'
+  // Cheia grupului „fără zonă” e NUL-ul (Postgres nu acceptă \u0000 într-un
+  // `text`, deci nicio zonă reală nu-l poate purta); antetul afișează eticheta
+  // tradusă (`noZone`), nu cheia.
+  const NO_ZONE = '\u0000'
   const groupByZone = tables.length > 12 && zoneFilter === ''
   // Grupuri derivate din visibleTables (nu din zoneOptions) ca să reflecte căutarea
   // curentă: zone reale sortate `ro`, plus „Fără zonă" mereu la final, fără grupuri goale.
@@ -870,11 +889,11 @@ export default function TablesManager({
       >
         <div>
           <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>
-            {tables.filter((t) => t.is_active).length} active · {tables.length} total
+            {tm.t('summary', { active: tables.filter((t) => t.is_active).length, total: tables.length })}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {tables.length > 0 && (
+          {tables.length === 0 ? null : (
             <div
               ref={pdfMenuRef}
               // A11y: Escape închide meniul de export și readuce focusul pe trigger.
@@ -893,16 +912,16 @@ export default function TablesManager({
                 disabled={downloading !== null}
                 aria-haspopup="menu"
                 aria-expanded={pdfMenuOpen}
-                title="Descarcă QR-urile în format PDF pentru print"
+                title={tm.t('pdf_title')}
                 icon={<Icon name="download" size={16} />}
               >
-                {downloading !== null ? 'Se descarcă...' : 'Descarcă QR-uri'}
+                {downloading === null ? tm.t('pdf_button') : tm.t('pdf_downloading')}
                 <Icon name="chevronDown" size={14} />
               </Button>
               {pdfMenuOpen && (
                 <div
                   role="menu"
-                  aria-label="Formate de descărcare QR"
+                  aria-label={tm.t('pdf_menuAria')}
                   style={{
                     position: 'absolute',
                     top: 'calc(100% + 6px)',
@@ -954,7 +973,7 @@ export default function TablesManager({
                         <span
                           style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500 }}
                         >
-                          {downloading === f.id ? 'Se descarcă...' : f.label}
+                          {downloading === f.id ? tm.t('pdf_downloading') : f.label}
                         </span>
                         <span style={{ display: 'block', fontSize: '0.7rem', color: D.t2 }}>
                           {f.hint}
@@ -971,7 +990,7 @@ export default function TablesManager({
             onClick={() => setModal('add')}
             icon={<Icon name="plus" size={16} />}
           >
-            Adaugă masă
+            {tm.t('addTable')}
           </Button>
         </div>
       </div>
@@ -1000,7 +1019,7 @@ export default function TablesManager({
             lineHeight: 1.55,
           }}
         >
-          {pickupOnlyEmptyStateText(pickupFeature, menuFlipbook)}
+          {pickupTexts.pickupOnlyEmptyStateText(pickupFeature, menuFlipbook)}
         </div>
       )}
 
@@ -1014,11 +1033,7 @@ export default function TablesManager({
         return (
           <div
             // Copy: mesaj orientat pe consecință pentru patron; detaliul tehnic stă în tooltip.
-            title={
-              isPreview
-                ? 'Detaliu tehnic: VITE_APP_URL nu e setat — se folosește URL-ul de preview.'
-                : 'Detaliu tehnic: domeniul curent diferă de VITE_APP_URL.'
-            }
+            title={isPreview ? tm.t('domain_previewTitle') : tm.t('domain_mismatchTitle')}
             style={{
               background: D.amberA,
               border: `1px solid ${D.amberBorder}`,
@@ -1032,9 +1047,7 @@ export default function TablesManager({
           >
             <Icon name="alert" size={18} color={D.amber} />
             <div style={{ fontSize: '0.78rem', color: D.amber, lineHeight: 1.5 }}>
-              {isPreview
-                ? 'Atenție: QR-urile generate acum vor conține o adresă temporară de test, nu adresa finală a meniului. Nu le printa încă — contactează suportul dacă ai nevoie de ajutor.'
-                : 'Ești pe o altă adresă decât cea configurată pentru meniu. QR-urile generate vor folosi adresa configurată, nu pe cea curentă.'}
+              {isPreview ? tm.t('domain_preview') : tm.t('domain_mismatch')}
             </div>
           </div>
         )
@@ -1060,14 +1073,10 @@ export default function TablesManager({
               marginBottom: 4,
             }}
           >
-            {tables.length === 0
-              ? 'Nu ai mese configurate încă'
-              : 'Generează QR-urile pentru mese'}
+            {tables.length === 0 ? tm.t('bulk_titleEmpty') : tm.t('bulk_title')}
           </div>
           <p style={{ color: D.t2, fontSize: '0.8rem', marginBottom: 14, lineHeight: 1.5 }}>
-            {tables.length === 0
-              ? 'Adaugă numărul de mese, iar Menuvia îți generează automat QR-urile.'
-              : 'Spune-ne câte mese ai, iar Menuvia creează automat QR-urile pentru fiecare masă.'}
+            {tables.length === 0 ? tm.t('bulk_descEmpty') : tm.t('bulk_desc')}
           </p>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             <input
@@ -1079,8 +1088,8 @@ export default function TablesManager({
                 setLimitMsg(null)
               }}
               onKeyDown={(e) => e.key === 'Enter' && void bulkGenerate()}
-              placeholder="Câte mese? ex. 80"
-              aria-label="Numărul de mese"
+              placeholder={tm.t('bulk_placeholder')}
+              aria-label={tm.t('bulk_aria')}
               style={{
                 background: D.s3,
                 border: `1px solid ${D.border}`,
@@ -1093,14 +1102,10 @@ export default function TablesManager({
               }}
             />
             <Button variant="primary" onClick={() => void bulkGenerate()} loading={bulkBusy}>
-              {bulkBusy
-                ? 'Se generează...'
-                : tables.length === 0
-                  ? 'Generează mese și QR-uri'
-                  : 'Generează QR-uri'}
+              {bulkBusy ? tm.t('bulk_busy') : tables.length === 0 ? tm.t('bulk_btnEmpty') : tm.t('bulk_btn')}
             </Button>
           </div>
-          {limitMsg && (
+          {limitMsg === null ? null : (
             <div
               style={{
                 marginTop: 10,
@@ -1112,11 +1117,11 @@ export default function TablesManager({
                 fontSize: '0.78rem',
               }}
             >
-              {limitMsg}
+              {tm.t('bulk_limit', { max: limitMsg })}
             </div>
           )}
           <p style={{ color: D.t2, fontSize: '0.72rem', marginTop: 10 }}>
-            Poți edita, dezactiva sau regenera orice QR mai târziu.
+            {tm.t('bulk_footer')}
           </p>
         </div>
       )}
@@ -1128,11 +1133,11 @@ export default function TablesManager({
       ) : loadError ? (
         <EmptyState
           icon="alert"
-          title="Nu s-au putut încărca mesele"
-          description={loadError}
+          title={tm.t('load_error')}
+          description={describeStaffError(loadError.err, tc, { fallback: tm.t('load_error') })}
           action={
             <Button variant="secondary" onClick={load} icon={<Icon name="refresh" size={16} />}>
-              Reîncearcă
+              {tc.t('retry')}
             </Button>
           }
         />
@@ -1166,21 +1171,21 @@ export default function TablesManager({
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Caută după nume..."
-                  aria-label="Caută masă după nume"
+                  placeholder={tm.t('search_placeholder')}
+                  aria-label={tm.t('search_aria')}
                   style={{ ...inp, paddingLeft: 38 }}
                   onFocus={(e) => (e.target.style.borderColor = D.gold)}
                   onBlur={(e) => (e.target.style.borderColor = D.border)}
                 />
               </div>
-              {zoneOptions.length > 0 && (
+              {zoneOptions.length === 0 ? null : (
                 <select
                   value={zoneFilter}
                   onChange={(e) => setZoneFilter(e.target.value)}
-                  aria-label="Filtrează după zonă"
+                  aria-label={tm.t('zone_filterAria')}
                   style={{ ...inp, width: 'auto', minWidth: 150, cursor: 'pointer' }}
                 >
-                  <option value="">Toate zonele</option>
+                  <option value="">{tm.t('zone_all')}</option>
                   {zoneOptions.map((z) => (
                     <option key={z} value={z}>
                       {z}
@@ -1192,7 +1197,7 @@ export default function TablesManager({
           )}
           {visibleTables.length === 0 ? (
             <p style={{ color: D.t2, fontSize: '0.85rem', padding: '12px 2px' }}>
-              Nicio masă nu corespunde filtrelor.
+              {tm.t('noMatches')}
             </p>
           ) : null}
           {groups.map((g) => (
@@ -1212,7 +1217,7 @@ export default function TablesManager({
                     padding: '6px 2px 0',
                   }}
                 >
-                  {g.zone} · {g.items.length}
+                  {g.zone === NO_ZONE ? tm.t('noZone') : g.zone} · {g.items.length}
                 </div>
               )}
               {g.items.map((t) => (
@@ -1252,7 +1257,7 @@ export default function TablesManager({
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontSize: '0.9rem', fontWeight: 600, color: D.t1 }}>{t.name}</span>
                   {t.seats && (
-                    <span style={{ fontSize: '0.72rem', color: D.t3 }}>{t.seats} locuri</span>
+                    <span style={{ fontSize: '0.72rem', color: D.t3 }}>{tm.tp('seats', t.seats)}</span>
                   )}
                   {t.zone && (
                     <span
@@ -1278,7 +1283,7 @@ export default function TablesManager({
                         borderRadius: 4,
                       }}
                     >
-                      Inactiv
+                      {tm.t('inactive')}
                     </span>
                   )}
                 </div>
@@ -1295,15 +1300,15 @@ export default function TablesManager({
                   {!t.active_token ? (
                     <>
                       <Icon name="alert" size={13} color={D.t2} />
-                      Fără QR — apasă „Generează QR"
+                      {tm.t('status_noQr')}
                     </>
                   ) : t.is_active ? (
                     <>
                       <Icon name="check" size={13} color={D.green} />
-                      QR activ
+                      {tm.t('status_active')}
                     </>
                   ) : (
-                    'QR dezactivat'
+                    tm.t('status_disabled')
                   )}
                 </div>
               </div>
@@ -1321,8 +1326,8 @@ export default function TablesManager({
                     variant="secondary"
                     size="sm"
                     onClick={() => void downloadPng(t)}
-                    title="Descarcă QR (PNG)"
-                    aria-label="Descarcă QR (PNG)"
+                    title={tm.t('action_png')}
+                    aria-label={tm.t('action_png')}
                     style={ICON_BTN}
                   >
                     <Icon name="download" size={16} />
@@ -1333,8 +1338,8 @@ export default function TablesManager({
                     variant="secondary"
                     size="sm"
                     onClick={() => copyLink(t)}
-                    title="Copiază link"
-                    aria-label="Copiază link"
+                    title={tm.t('copyLink')}
+                    aria-label={tm.t('copyLink')}
                     style={ICON_BTN}
                   >
                     <Icon name="link" size={16} />
@@ -1352,20 +1357,20 @@ export default function TablesManager({
                     else setRotateTarget(t)
                   }}
                   disabled={rotating === t.id}
-                  title={t.active_token ? 'Regenerează QR' : 'Generează QR'}
-                  aria-label={t.active_token ? 'Regenerează QR' : 'Generează QR'}
+                  title={t.active_token ? tm.t('action_regenerate') : tm.t('action_generate')}
+                  aria-label={t.active_token ? tm.t('action_regenerate') : tm.t('action_generate')}
                   // UX: fără QR, butonul are text vizibil „Generează QR" (mesajul de
                   // status trimite la el); cu QR rămâne icon-only ca celelalte acțiuni.
                   style={t.active_token ? ICON_BTN : undefined}
                   icon={<Icon name="refresh" size={16} />}
                 >
-                  {!t.active_token && 'Generează QR'}
+                  {t.active_token ? null : tm.t('action_generate')}
                 </Button>
                 )}
                 <button
                   onClick={() => toggleActive(t)}
-                  title={t.is_active ? 'Dezactivează' : 'Activează'}
-                  aria-label={t.is_active ? 'Dezactivează masă' : 'Activează masă'}
+                  title={t.is_active ? tm.t('action_deactivate') : tm.t('action_activate')}
+                  aria-label={t.is_active ? tm.t('action_deactivateAria') : tm.t('action_activateAria')}
                   style={{
                     width: 44,
                     height: 44,
@@ -1388,16 +1393,16 @@ export default function TablesManager({
                   variant="secondary"
                   size="sm"
                   onClick={() => setModal(t)}
-                  title="Editează masă"
-                  aria-label="Editează masă"
+                  title={tm.t('editTable')}
+                  aria-label={tm.t('editTable')}
                   style={ICON_BTN}
                 >
                   <Icon name="edit" size={16} />
                 </Button>
                 <button
                   onClick={() => setDelId(t.id)}
-                  title="Șterge masă"
-                  aria-label="Șterge masă"
+                  title={tm.t('action_delete')}
+                  aria-label={tm.t('action_delete')}
                   style={{
                     width: 44,
                     height: 44,
@@ -1452,7 +1457,7 @@ export default function TablesManager({
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label={`Regenerează QR pentru ${rotateTarget.name}`}
+            aria-label={tm.t('rotate_aria', { name: rotateTarget.name })}
             style={{
               background: D.s2,
               border: `1px solid ${D.border}`,
@@ -1471,14 +1476,14 @@ export default function TablesManager({
                 marginBottom: 12,
               }}
             >
-              Regenerează QR — {rotateTarget.name}
+              {tm.t('rotate_title', { name: rotateTarget.name })}
             </div>
             <p style={{ color: D.t2, marginBottom: 22, fontSize: '0.875rem', lineHeight: 1.55 }}>
-              QR-ul vechi nu va mai funcționa. Vrei să generezi unul nou pentru această masă?
+              {tm.t('rotate_desc')}
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <Button variant="secondary" autoFocus onClick={() => setRotateTarget(null)}>
-                Anulează
+                {tc.t('cancel')}
               </Button>
               <Button
                 variant="primary"
@@ -1488,7 +1493,7 @@ export default function TablesManager({
                   void rotateToken(t)
                 }}
               >
-                Regenerează
+                {tm.t('rotate_confirm')}
               </Button>
             </div>
           </div>
@@ -1515,7 +1520,7 @@ export default function TablesManager({
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label="Șterge masă"
+            aria-label={tm.t('action_delete')}
             style={{
               background: D.s2,
               border: `1px solid ${D.border}`,
@@ -1534,17 +1539,17 @@ export default function TablesManager({
                 marginBottom: 12,
               }}
             >
-              Șterge masă
+              {tm.t('action_delete')}
             </div>
             <p style={{ color: D.t2, marginBottom: 22, fontSize: '0.875rem' }}>
-              Toate codurile QR asociate vor fi șterse. Comenzile existente nu sunt afectate.
+              {tm.t('delete_desc')}
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <Button variant="secondary" autoFocus onClick={() => setDelId(null)}>
-                Anulează
+                {tc.t('cancel')}
               </Button>
               <Button variant="danger" onClick={handleDelete}>
-                Șterge
+                {tc.t('delete')}
               </Button>
             </div>
           </div>
