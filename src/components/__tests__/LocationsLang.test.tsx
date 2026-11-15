@@ -32,7 +32,7 @@
 //        sicher…” + „Neu laden” / „Schließen”, fără „Standort anlegen”.
 //        Mutația care pică: `{MSG_CREATE_UNCERTAIN}` readus.
 import { Suspense, type ReactNode } from 'react'
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { LocationSummary } from '../../lib/locations'
@@ -69,6 +69,20 @@ import commonDe from '../../i18n/ns/common/de'
 import { UiLangScope } from '../../i18n/UiLangContext'
 import type { StaffLang } from '../../i18n/langs'
 
+// Ceasul înghețat DOAR pe `Date` (recenzie CodeRabbit pe #374): „Ultima
+// comandă” compară momentul fixturii cu „acum” în fusul României, deci o rulare
+// care trece de miezul nopții între încărcarea modulului și randare ar fi dat
+// „yesterday”. `setTimeout`/`setInterval` rămân reale, ca `findBy*` să aștepte
+// normal. 08:32Z = 10:32 în România.
+const NOW = new Date('2026-11-15T08:32:00Z')
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(NOW)
+})
+afterAll(() => {
+  vi.useRealTimers()
+})
+
 beforeAll(async () => {
   const langs: StaffLang[] = ['en', 'fr', 'de']
   await Promise.all(
@@ -87,7 +101,7 @@ const A: LocationSummary = {
   ordersToday: 12,
   openOrders: 3,
   revenueToday: 845.5,
-  lastOrderAt: new Date().toISOString(),
+  lastOrderAt: NOW.toISOString(),
 }
 const B: LocationSummary = {
   id: 'r2',
@@ -204,7 +218,7 @@ describe('Toate locațiile în limba personalului', () => {
     expect(screen.getByText('Takings today')).toBeInTheDocument()
     expect(screen.getByText('Currently selected')).toBeInTheDocument()
     expect(screen.getByText('No orders yet')).toBeInTheDocument()
-    expect(screen.getByText(/^today, \d{2}:\d{2}$/)).toBeInTheDocument()
+    expect(screen.getByText('today, 10:32')).toBeInTheDocument()
     // Banii rămân ca azi (lei), indiferent de limba personalului.
     expect(screen.getByText('845.50 lei')).toBeInTheDocument()
     expect(romanianLeftovers(visible(container), 'en')).toEqual([])
