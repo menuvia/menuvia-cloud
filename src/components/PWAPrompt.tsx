@@ -11,9 +11,16 @@
 // pe care politica fără skipWaiting voia să-l evite). E2E-ul pre-setează
 // ambele chei în `prepPage` (e2e/helpers.ts) — un test care dura >30 s
 // devenea roșu din cauza cardului, nu a ce verifica.
+//
+// Textele (lotul L4d) stau în `chrome.ts` și urmează limba PAGINII
+// (`<html lang>`): cardurile apar pe panou, la Ospătar și în Bucătărie — adică
+// pe tabletele comune —, unde `StaffDocumentLang` pune limba personalului. În
+// română sunt EXACT cele de dinainte (E2E-ul și PA1–PA5 le caută).
 // =============================================================
 import { useEffect, useState } from 'react'
 import { D } from '../lib/constants'
+import { chromeT } from '../i18n/chrome'
+import { useChrome } from '../i18n/useChromeLang'
 import { usePWAInstall, useSWUpdate } from '../lib/pwa'
 import { pwaPromptAllowedNow } from '../lib/pwaGate'
 
@@ -34,6 +41,7 @@ export default function PWAPrompt() {
   const { updateAvailable, applyUpdate } = useSWUpdate()
   const [show, setShow] = useState(false)
   const [updateSnoozed, setUpdateSnoozed] = useState<boolean>(readUpdateSnoozed)
+  const { lang, fallback } = useChrome()
 
   // Show install prompt after 30s of session (not annoying immediately)
   useEffect(() => {
@@ -63,11 +71,13 @@ export default function PWAPrompt() {
   if (updateAvailable && !updateSnoozed) {
     return (
       <PromptCard
-        title="Actualizare disponibilă"
-        message="O versiune nouă a aplicației e gata. Poți actualiza acum sau la următoarea deschidere."
-        actionLabel="Actualizează"
+        lang={fallback}
+        title={chromeT(lang, 'pwa_update_title')}
+        message={chromeT(lang, 'pwa_update_body')}
+        actionLabel={chromeT(lang, 'pwa_update_action')}
         onAction={applyUpdate}
-        dismissLabel="Mai târziu"
+        dismissLabel={chromeT(lang, 'pwa_update_later')}
+        closeLabel={chromeT(lang, 'pwa_close')}
         onDismiss={() => {
           try {
             sessionStorage.setItem(PWA_UPDATE_SNOOZE_KEY, '1')
@@ -84,9 +94,11 @@ export default function PWAPrompt() {
 
   return (
     <PromptCard
-      title="Instalează Menuvia"
-      message="Folosește aplicația direct de pe ecranul principal."
-      actionLabel="Instalează"
+      lang={fallback}
+      title={chromeT(lang, 'pwa_install_title')}
+      message={chromeT(lang, 'pwa_install_body')}
+      actionLabel={chromeT(lang, 'pwa_install_action')}
+      closeLabel={chromeT(lang, 'pwa_close')}
       onAction={async () => {
         await install()
       }}
@@ -95,7 +107,9 @@ export default function PWAPrompt() {
   )
 }
 
-/** Cardul fix de jos; `dismissLabel` înlocuiește „×" cu un text (ex. „Mai târziu"). */
+/** Cardul fix de jos; `dismissLabel` înlocuiește „×" cu un text (ex. „Mai târziu").
+ *  `closeLabel` = numele accesibil al lui „×”; `lang` = limba de declarat când
+ *  tabelul cromului a căzut pe altă limbă decât a paginii (chromeFallbackLang). */
 function PromptCard({
   title,
   message,
@@ -103,6 +117,8 @@ function PromptCard({
   onAction,
   onDismiss,
   dismissLabel,
+  closeLabel,
+  lang,
 }: {
   title: string
   message: string
@@ -110,10 +126,13 @@ function PromptCard({
   onAction: () => void
   onDismiss?: () => void
   dismissLabel?: string
+  closeLabel: string
+  lang?: string
 }) {
   return (
     <div
       role="dialog"
+      lang={lang}
       aria-labelledby="pwa-prompt-title"
       style={{
         position: 'fixed',
@@ -183,7 +202,7 @@ function PromptCard({
               fontFamily: 'DM Sans, sans-serif',
               whiteSpace: 'nowrap',
             }}
-            aria-label={dismissLabel ?? 'Închide'}
+            aria-label={dismissLabel ?? closeLabel}
           >
             {dismissLabel ?? '×'}
           </button>

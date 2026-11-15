@@ -15,6 +15,7 @@
 // alt cont) — înainte era doar un console.warn; acum pagina o spune.
 import { useCallback, useEffect, useState } from 'react'
 import { getPendingOrders, syncPendingOrders } from '../lib/offlineSync'
+import { readOfflineDrop, type OfflineDrop } from '../lib/offlineDrop'
 
 /** Cât de des se reîncearcă trimiterea cât există comenzi salvate pe telefon. */
 export const OFFLINE_RETRY_MS = 30_000
@@ -23,8 +24,13 @@ export interface OfflineOrderQueue {
   isOffline: boolean
   /** Comenzi salvate pe telefon, încă netrimise. */
   pendingCount: number
-  /** O comandă respinsă DEFINITIV de server la trimitere — trebuie reintrodusă. */
+  /** O comandă respinsă DEFINITIV de server la trimitere — trebuie reintrodusă.
+   *  Textul serverului ca atare (sau „eroare necunoscută”): motivul afișat în
+   *  română, neschimbat. */
   droppedReason: string | null
+  /** Aceeași respingere ca DATE (mesaj + hint + cod), pentru celelalte limbi:
+   *  pagina o traduce la randare (lib/offlineDrop.ts, lotul L4d). */
+  dropped: OfflineDrop | null
   dismissDropped: () => void
   /** Sesiunea a expirat: comenzile din coadă așteaptă o reconectare. */
   authRequired: boolean
@@ -44,7 +50,7 @@ function trySync(): void {
 export function useOfflineOrderQueue(): OfflineOrderQueue {
   const [isOffline, setIsOffline] = useState(() => !isOnline())
   const [pendingCount, setPendingCount] = useState(0)
-  const [droppedReason, setDroppedReason] = useState<string | null>(null)
+  const [dropped, setDropped] = useState<OfflineDrop | null>(null)
   const [authRequired, setAuthRequired] = useState(false)
 
   useEffect(() => {
@@ -66,8 +72,7 @@ export function useOfflineOrderQueue(): OfflineOrderQueue {
       setAuthRequired(true)
     }
     function handleDropped(e: Event): void {
-      const detail = (e as CustomEvent<{ reason?: string } | undefined>).detail
-      setDroppedReason(detail?.reason ?? 'eroare necunoscută')
+      setDropped(readOfflineDrop((e as CustomEvent<unknown>).detail))
     }
     function handleVisibility(): void {
       if (!document.hidden) trySync()
@@ -114,7 +119,14 @@ export function useOfflineOrderQueue(): OfflineOrderQueue {
     return () => clearInterval(id)
   }, [pendingCount])
 
-  const dismissDropped = useCallback(() => setDroppedReason(null), [])
+  const dismissDropped = useCallback(() => setDropped(null), [])
 
-  return { isOffline, pendingCount, droppedReason, dismissDropped, authRequired }
+  return {
+    isOffline,
+    pendingCount,
+    droppedReason: dropped?.reason ?? null,
+    dropped,
+    dismissDropped,
+    authRequired,
+  }
 }

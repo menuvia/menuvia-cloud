@@ -176,8 +176,8 @@ interface AuthPageProps {
   onSuccess: (email: string) => void
 }
 
-// Limba vine din `FunnelLangProvider` (citită o dată, la montare; `?lang=`
-// devine preferința dispozitivului). Româna e sincronă; o altă limbă își
+// Limba vine din `FunnelLangProvider` (pe rută: limba RUTEI, care urmează
+// `?lang=` la navigare; `?lang=` devine preferința dispozitivului). Româna e sincronă; o altă limbă își
 // încarcă dicționarul la prima randare — `AuthScreen` suspendă, iar
 // `<Suspense>`-ul rutei arată spinner-ul: niciun cadru în română pentru un
 // vizitator englez.

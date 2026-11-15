@@ -43,6 +43,14 @@ const fr: Translation<typeof ro> = {
   offline_dropped:
     'Une commande hors ligne n’a pas pu être envoyée et a été annulée ({reason}). Saisissez-la de nouveau manuellement.',
   offline_dismissAria: 'Fermer l’avertissement',
+  offline_reason_soldOut: 'un produit est épuisé',
+  offline_reason_gone: 'un produit n’est plus à la carte',
+  offline_reason_options: 'une option ou un supplément n’est plus disponible',
+  offline_reason_group: 'il manque une option obligatoire',
+  offline_reason_quantity: 'quantité non autorisée',
+  offline_reason_notes: 'les remarques sont trop longues',
+  offline_reason_orderingOff: 'le restaurant ne prend pas de commandes en ce moment',
+  offline_reason_other: 'refusée par le système',
 
   list_truncated:
     'Seules les {limit} commandes ouvertes les plus récentes sont affichées — finalisez ou annulez les anciennes commandes pour que la liste soit complète.',

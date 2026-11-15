@@ -1,10 +1,10 @@
-import React, { useEffect, useState, useRef, Suspense, lazy } from 'react'
+import { useEffect, useState, useRef, Suspense, lazy, type ReactNode } from 'react'
 // React Query a fost scos (mig 094 P2): instalat dar 0 useQuery/useMutation
 // în codebase. Greutate de bundle + semnal arhitectural fals.
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { RestaurantProvider, useRestaurantCtx } from './contexts/RestaurantContext'
 // Limba personalului (L0b): modul mic, fără dicționare — sigur în intrare.
-import { UiLangProvider } from './i18n/UiLangContext'
+import { FunnelDocumentLang, StaffDocumentLang, UiLangProvider } from './i18n/UiLangContext'
 import { browserChromeLang, chromeT } from './i18n/chrome'
 import { useDocumentLang } from './hooks/useDocumentLang'
 import { supabase, SUPABASE_CONFIGURED } from './lib/supabase'
@@ -12,7 +12,8 @@ import { ROUTE_CHANGE_EVENT } from './lib/routeEvents'
 import { CheckoutError, describeCheckoutFailure, readCheckoutUrl } from './lib/checkout'
 import { getStoredReferral, getVisitorId, resolvePendingReferral } from './lib/affiliate'
 import { useRestaurants } from './hooks/useData'
-import { PageSpinner, ConfigError, ErrorBoundary, QueryError } from './components/PageLoader'
+import { PageSpinner, ConfigError, ErrorBoundary } from './components/PageLoader'
+import { RoleGateScreen } from './components/RoleGateScreen'
 import CookieBanner from './components/CookieBanner'
 import { ToastProvider } from './components/ui/Toast'
 import { ConfirmRoot } from './components/ui/ConfirmDialog'
@@ -290,7 +291,7 @@ function ProtectedRoute({
   // activeRole poate fi și „partner" (mig 286) — nu e în niciuna din listele de
   // roluri ale rutelor protejate, deci partenerul nu intră pe Bucătărie/Ospătar.
   roles: UiRole[]
-  children: React.ReactNode
+  children: ReactNode
   navigate: (p: string) => void
 }) {
   const { user, loading: authLoading } = useAuth()
@@ -313,35 +314,16 @@ function ProtectedRoute({
   const allowed = activeRole != null && roles.includes(activeRole)
   if (!allowed)
     return (
-      <div
-        style={{
-          minHeight: '100vh',
-          background: D.bg,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 24,
-        }}
-      >
-        {ctxError ? (
-          // Blip de rețea / eroare Supabase la încărcarea membership-urilor:
-          // rolul e null NU pentru că n-are drept, ci pentru că fetch-ul a picat.
-          // Arătăm „reîncearcă" (reload), nu mesajul alarmant de „fără acces".
-          <QueryError
-            message="Nu am putut încărca permisiunile. Verifică conexiunea și reîncearcă."
-            onRetry={() => window.location.reload()}
-          />
-        ) : (
-          // Ieșirea duce pe ecranul ROLULUI (bucătarul de pe /waiter → /kitchen),
-          // nu înapoi pe /dashboard, unde personalul n-are ce face
-          // (lib/roleRouting.ts).
-          <QueryError
-            message="Nu ai acces la această pagină. Contactează managerul restaurantului."
-            retryLabel="Mergi la ecranul tău"
-            onRetry={() => navigate(noAccessDestination(activeRole))}
-          />
-        )}
-      </div>
+      // Blip de rețea / eroare Supabase la încărcarea membership-urilor: rolul
+      // e null NU pentru că n-are drept, ci pentru că fetch-ul a picat — ecranul
+      // arată „reîncearcă" (reload), nu mesajul alarmant de „fără acces". Altfel
+      // ieșirea duce pe ecranul ROLULUI (bucătarul de pe /waiter → /kitchen),
+      // nu înapoi pe /dashboard, unde personalul n-are ce face
+      // (lib/roleRouting.ts). Textele: `RoleGateScreen`, în limba personalului.
+      <RoleGateScreen
+        loadFailed={Boolean(ctxError)}
+        onRetry={() => navigate(noAccessDestination(activeRole))}
+      />
     )
   return <>{children}</>
 }
@@ -555,7 +537,19 @@ function AppRouter() {
         'founder',
       ].includes(state.view))
   )
-    return <PageSpinner />
+    // Pe rutele funnel-ului (/auth, /reset-password, /invite) spinner-ul de
+    // dinaintea paginii e deja în limba funnel-ului (lotul L4d): pe un
+    // /auth?lang=en direct ar fi fost singurul ecran românesc. Același tip pe
+    // aceeași poziție ca ramura rutei de mai jos, deci React păstrează instanța
+    // (fără o a doua rezolvare). Celelalte rute de aici rămân pe „ro” din
+    // index.html.
+    return ['auth', 'reset-password', 'invite'].includes(state.view) ? (
+      <FunnelDocumentLang>
+        <PageSpinner />
+      </FunnelDocumentLang>
+    ) : (
+      <PageSpinner />
+    )
 
   // ── Public routes (no auth needed) ─────────────────────────
   if (state.view === 'qr' && state.token)
@@ -574,11 +568,15 @@ function AppRouter() {
         <PublicMenuPage slug={state.slug} onBack={() => navigate(user ? '/dashboard' : '/')} />
       </Suspense>
     )
+  // Funnel (lotul L4d): `FunnelDocumentLang` pune limba pe `<html lang>` încă de
+  // la spinner-ul rutei, cât se descarcă chunk-ul paginii.
   if (state.view === 'invite' && state.token)
     return (
-      <Suspense fallback={<PageSpinner />}>
-        <InviteAcceptPage token={state.token} navigate={navigate} />
-      </Suspense>
+      <FunnelDocumentLang>
+        <Suspense fallback={<PageSpinner />}>
+          <InviteAcceptPage token={state.token} navigate={navigate} />
+        </Suspense>
+      </FunnelDocumentLang>
     )
   if (state.view === 'sales-head-invite' || state.view === 'sales-agent-invite')
     return (
@@ -596,9 +594,11 @@ function AppRouter() {
     )
   if (state.view === 'reset-password')
     return (
-      <Suspense fallback={<PageSpinner />}>
-        <ResetPasswordPage navigate={navigate} />
-      </Suspense>
+      <FunnelDocumentLang>
+        <Suspense fallback={<PageSpinner />}>
+          <ResetPasswordPage navigate={navigate} />
+        </Suspense>
+      </FunnelDocumentLang>
     )
   if (state.view === 'demo')
     return (
@@ -765,21 +765,29 @@ function AppRouter() {
   }
 
   // ── Role-protected routes ──────────────────────────────────
+  // `StaffDocumentLang` (lotul L4d): `<html lang>` + titlul tab-ului = limba
+  // personalului, deci cromul comun (Confirm, Toast, spinner, cardurile PWA)
+  // o urmează. Doar pe rutele personalului — niciodată deasupra paginilor
+  // oaspetelui, care își pun singure limba meniului.
   if (state.view === 'kitchen')
     return (
-      <ProtectedRoute roles={['owner', 'manager', 'kitchen']} navigate={navigate}>
-        <Suspense fallback={<PageSpinner />}>
-          <KitchenPage />
-        </Suspense>
-      </ProtectedRoute>
+      <StaffDocumentLang>
+        <ProtectedRoute roles={['owner', 'manager', 'kitchen']} navigate={navigate}>
+          <Suspense fallback={<PageSpinner />}>
+            <KitchenPage />
+          </Suspense>
+        </ProtectedRoute>
+      </StaffDocumentLang>
     )
   if (state.view === 'waiter')
     return (
-      <ProtectedRoute roles={['owner', 'manager', 'waiter']} navigate={navigate}>
-        <Suspense fallback={<PageSpinner />}>
-          <WaiterPage />
-        </Suspense>
-      </ProtectedRoute>
+      <StaffDocumentLang>
+        <ProtectedRoute roles={['owner', 'manager', 'waiter']} navigate={navigate}>
+          <Suspense fallback={<PageSpinner />}>
+            <WaiterPage />
+          </Suspense>
+        </ProtectedRoute>
+      </StaffDocumentLang>
     )
 
   // ── Landing (unauthenticated) ──────────────────────────────
@@ -823,67 +831,76 @@ function AppRouter() {
     // randa view-ul protejat și ar DEMONTA AuthPage înainte de pasul TOTP
     // (contul cu MFA ar sări peste cod). Post-login, efectul de auto-redirect
     // duce oricum userul la destinația corectă pe roluri.
+    // Ambele ramuri sub `FunnelDocumentLang` (lotul L4d): spinner-ul
+    // redirectului și fallback-ul chunk-ului AuthPage sunt deja în limba
+    // funnel-ului, nu în română până se montează pagina.
     if (state.view !== 'auth') {
       replace(authPathWithNext(window.location.pathname, window.location.search))
-      return <PageSpinner />
+      return (
+        <FunnelDocumentLang>
+          <PageSpinner />
+        </FunnelDocumentLang>
+      )
     }
     return (
-      <Suspense fallback={<PageSpinner />}>
-        <AuthPage
-          onSuccess={(email) => {
-            // Ieșirea din /auth se face MEREU cu replace, o singură dată
-            // (exitAuth → lib/postLoginRedirect.ts): intrarea /auth nu rămâne în
-            // istoric, indiferent dacă efectul de auto-redirect sau acest closure
-            // ajunge primul (E2E „back button does not redirect to /auth").
-            // `?next=` explicit (de la o rută protejată) bate orice intenție.
-            const nextDest = nextFromSearch(window.location.search)
-            if (nextDest) {
-              exitAuth(nextDest)
-              return
-            }
-            // Dacă userul a venit din pricing cu un plan ales și are deja un
-            // restaurant, îl ducem înapoi la pricing — onCheckout va detecta că
-            // e logat și va sări la Stripe. Fără restaurant, întâi onboarding-ul.
-            // Fără intent, mergem pe ecranul rolului.
-            const intentDest = planIntentDestination(email, window.location.search)
-            let afiliatIntent: string | null = null
-            try {
-              afiliatIntent = sessionStorage.getItem('menuvia.afiliat_intent')
-            } catch {
-              /* ignore (private mode) */
-            }
-            if (intentDest) {
-              // Întâi restaurantul, apoi planul — același calcul ca efectul.
+      <FunnelDocumentLang>
+        <Suspense fallback={<PageSpinner />}>
+          <AuthPage
+            onSuccess={(email) => {
+              // Ieșirea din /auth se face MEREU cu replace, o singură dată
+              // (exitAuth → lib/postLoginRedirect.ts): intrarea /auth nu rămâne în
+              // istoric, indiferent dacă efectul de auto-redirect sau acest closure
+              // ajunge primul (E2E „back button does not redirect to /auth").
+              // `?next=` explicit (de la o rută protejată) bate orice intenție.
+              const nextDest = nextFromSearch(window.location.search)
+              if (nextDest) {
+                exitAuth(nextDest)
+                return
+              }
+              // Dacă userul a venit din pricing cu un plan ales și are deja un
+              // restaurant, îl ducem înapoi la pricing — onCheckout va detecta că
+              // e logat și va sări la Stripe. Fără restaurant, întâi onboarding-ul.
+              // Fără intent, mergem pe ecranul rolului.
+              const intentDest = planIntentDestination(email, window.location.search)
+              let afiliatIntent: string | null = null
+              try {
+                afiliatIntent = sessionStorage.getItem('menuvia.afiliat_intent')
+              } catch {
+                /* ignore (private mode) */
+              }
+              if (intentDest) {
+                // Întâi restaurantul, apoi planul — același calcul ca efectul.
+                void (async () => {
+                  const { data } = await supabase.auth.getSession()
+                  const uid = data.session?.user.id
+                  exitAuth(uid ? await loadPlanIntentDestination(uid) : '/dashboard')
+                })()
+                return
+              }
+              // Venit de pe pagina programului de parteneriat → înapoi la /afiliat
+              // (altfel ateriza pe dashboard și pierdea complet firul înscrierii).
+              if (afiliatIntent === '1') {
+                try {
+                  sessionStorage.removeItem('menuvia.afiliat_intent')
+                } catch {
+                  /* ignore */
+                }
+                exitAuth('/afiliat')
+                return
+              }
+              // Fiecare rol pe ecranul lui — ACELAȘI calcul ca efectul de
+              // auto-redirect (lib/postLogin.ts). Dacă efectul a mutat deja omul
+              // (pathname ≠ /auth), exitAuth nu mai face nimic.
               void (async () => {
                 const { data } = await supabase.auth.getSession()
                 const uid = data.session?.user.id
-                exitAuth(uid ? await loadPlanIntentDestination(uid) : '/dashboard')
+                const dest = uid ? await loadPostLoginDestination(uid) : '/dashboard'
+                exitAuth(dest)
               })()
-              return
-            }
-            // Venit de pe pagina programului de parteneriat → înapoi la /afiliat
-            // (altfel ateriza pe dashboard și pierdea complet firul înscrierii).
-            if (afiliatIntent === '1') {
-              try {
-                sessionStorage.removeItem('menuvia.afiliat_intent')
-              } catch {
-                /* ignore */
-              }
-              exitAuth('/afiliat')
-              return
-            }
-            // Fiecare rol pe ecranul lui — ACELAȘI calcul ca efectul de
-            // auto-redirect (lib/postLogin.ts). Dacă efectul a mutat deja omul
-            // (pathname ≠ /auth), exitAuth nu mai face nimic.
-            void (async () => {
-              const { data } = await supabase.auth.getSession()
-              const uid = data.session?.user.id
-              const dest = uid ? await loadPostLoginDestination(uid) : '/dashboard'
-              exitAuth(dest)
-            })()
-          }}
-        />
-      </Suspense>
+            }}
+          />
+        </Suspense>
+      </FunnelDocumentLang>
     )
   }
 
@@ -912,51 +929,69 @@ function AppRouter() {
   // salvare le-ar fi refuzată de server. Decide rolul restaurantului ACTIV
   // (cu membership-uri mixte, cel ales); owner/manager/partner rămân aici.
   // replace(), nu navigate(): Back nu are voie să reîntoarcă pe /dashboard.
+  // Spinner-ul de context rămâne pe `<html lang>` moștenit (lotul L4d): RR4
+  // (roleRouting.test.ts) îngheață literalul de mai jos ca dovadă că rolul se
+  // citește DUPĂ încărcare. Redirectul pe ecranul rolului e în limba
+  // personalului, ca panoul.
   if (ctxLoading) return <PageSpinner />
   const staffHome = staffHomeForRole(activeRole)
   if (staffHome) {
     replace(staffHome)
-    return <PageSpinner />
+    return (
+      <StaffDocumentLang>
+        <PageSpinner />
+      </StaffDocumentLang>
+    )
   }
 
+  // Onboarding-ul e funnel: limba lui pe `<html lang>` încă de la fallback-ul
+  // chunk-ului (`FunnelDocumentLang`), NU sub `StaffDocumentLang`.
   if (restaurants.length === 0 && !rLoading)
     return (
+      <FunnelDocumentLang>
+        <Suspense fallback={<PageSpinner />}>
+          <OnboardingPage
+            pendingPlan={readPlanIntent(user.email ?? null)}
+            onComplete={() => {
+              refetch()
+              // Întâi restaurantul, apoi planul: cu o intenție de plan păstrată
+              // (aleasă pe landing/pricing înainte de cont), /pricing pornește
+              // ACUM plata — restaurantul există. Fără intenție, dashboard-ul.
+              navigate(planIntentDestination(user.email ?? null) ?? '/dashboard')
+            }}
+          />
+        </Suspense>
+      </FunnelDocumentLang>
+    )
+
+  // Panoul (lotul L4d): limba personalului pe `<html lang>` — vezi rutele de rol
+  // de mai sus. Onboarding-ul de deasupra NU e sub `StaffDocumentLang`: are
+  // limba funnel-ului (`FunnelDocumentLang`), iar un strămoș cu altă limbă i-ar
+  // suprascrie-o (efectele părintelui rulează după ale copilului).
+  return (
+    <StaffDocumentLang>
       <Suspense fallback={<PageSpinner />}>
-        <OnboardingPage
-          pendingPlan={readPlanIntent(user.email ?? null)}
-          onComplete={() => {
-            refetch()
-            // Întâi restaurantul, apoi planul: cu o intenție de plan păstrată
-            // (aleasă pe landing/pricing înainte de cont), /pricing pornește
-            // ACUM plata — restaurantul există. Fără intenție, dashboard-ul.
-            navigate(planIntentDestination(user.email ?? null) ?? '/dashboard')
+        <DashboardPage
+          restaurants={restaurants}
+          restaurantsLoading={rLoading}
+          updateRestaurant={update}
+          refetchRestaurants={refetch}
+          patchRestaurantLocal={patchLocal}
+          // Tab-ul panoului stă în URL (`/dashboard?tab=…`, lotul R2): push la
+          // fiecare schimbare de tab, replace pentru corecții (tab nepermis).
+          navigate={navigate}
+          replaceUrl={replace}
+          onViewMenu={(slug) => navigate(`/m/${slug}`)}
+          onViewWaiter={() => navigate('/waiter')}
+          onViewKitchen={() => navigate('/kitchen')}
+          onPricing={() => navigate('/pricing')}
+          onSignOut={async () => {
+            await signOut()
+            navigate('/')
           }}
         />
       </Suspense>
-    )
-
-  return (
-    <Suspense fallback={<PageSpinner />}>
-      <DashboardPage
-        restaurants={restaurants}
-        restaurantsLoading={rLoading}
-        updateRestaurant={update}
-        refetchRestaurants={refetch}
-        patchRestaurantLocal={patchLocal}
-        // Tab-ul panoului stă în URL (`/dashboard?tab=…`, lotul R2): push la
-        // fiecare schimbare de tab, replace pentru corecții (tab nepermis).
-        navigate={navigate}
-        replaceUrl={replace}
-        onViewMenu={(slug) => navigate(`/m/${slug}`)}
-        onViewWaiter={() => navigate('/waiter')}
-        onViewKitchen={() => navigate('/kitchen')}
-        onPricing={() => navigate('/pricing')}
-        onSignOut={async () => {
-          await signOut()
-          navigate('/')
-        }}
-      />
-    </Suspense>
+    </StaffDocumentLang>
   )
 }
 

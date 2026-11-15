@@ -144,8 +144,10 @@ export default function TermsAcceptanceGate() {
   // Limba: `FunnelLangProvider`, ca pe /auth (poarta apare chiar după
   // înscriere sau confirmarea emailului). `Suspense` propriu: încărcarea
   // dicționarului nu are voie să suspende poarta de deasupra, care ține starea.
+  // `scope="overlay"` (lotul L4d): poarta stă PESTE orice rută, deci nu atinge
+  // `<html lang>` al paginii de dedesubt — limba ei stă pe propriul dialog.
   return (
-    <FunnelLangProvider>
+    <FunnelLangProvider scope="overlay">
       <Suspense fallback={null}>
         <TermsGateDialog
           checked={checked}
@@ -192,6 +194,7 @@ function TermsGateDialog({
     <div
       role="dialog"
       aria-modal="true"
+      lang={lang}
       aria-labelledby="terms-gate-title"
       style={{
         position: 'fixed',

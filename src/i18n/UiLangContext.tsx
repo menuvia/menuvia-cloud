@@ -1,13 +1,15 @@
 // src/i18n/UiLangContext.tsx — limba personalului pentru tot arborele (L0b).
 // Stă în INTRAREA aplicației (App.tsx), deci importă doar module mici, fără
-// dicționare: `langs`, `resolveLang`, `lib/domain` (deja în intrare).
+// dicționare: `langs`, `resolveLang`, `lib/domain` (deja în intrare) și
+// `hooks/useScreenDocument` (doar `chrome.ts` + `useDocumentLang`, lotul L4d).
 // Fără provider (teste, componente randate izolat) limba e 'ro' — testele cu
 // text românesc rămân neschimbate.
-import { createContext, useContext, useEffect, useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { browserSite, defaultUiLang } from '../lib/domain'
 import { ENABLED_STAFF_LANGS, FUNNEL_LANGS, UI_LANG_STORAGE_KEY, isStaffLang, type StaffLang } from './langs'
 import { resolveFunnelLang, resolveUiLang } from './resolveLang'
+import { useScreenDocument } from '../hooks/useScreenDocument'
 
 interface UiLangValue {
   lang: StaffLang
@@ -94,27 +96,109 @@ function persistUrlLang(): void {
   }
 }
 
-/**
- * Limba ecranelor de DINAINTEA panoului (autentificare, confirmarea emailului,
- * resetarea parolei, Termenii — lotul L2): `resolveFunnelLang`, citită o dată
- * la montare (ca formularul să nu-și schimbe limba sub degetele omului) și
- * recalculată doar când apare limba contului.
- */
-export function FunnelLangProvider({ children }: { children: ReactNode }) {
+/** Limba funnel-ului pentru `?lang=` primit, recalculată doar când se schimbă
+ *  acesta sau limba contului — sursa comună a lui `FunnelLangProvider` și
+ *  `FunnelDocumentLang`. Limba păstrată în `localStorage` NU e o dependență,
+ *  deliberat: din ACELAȘI tab o scriu doar `persistUrlLang` (din același
+ *  `?lang=`, care oricum o bate) și `useSetUiLanguage` (odată cu profilul, deci
+ *  memo-ul se recalculează prin `profileLang`); o scriere din ALT tab nu
+ *  răstoarnă limba ecranului deschis (controlul LD9). */
+function useResolvedFunnelLang(urlLang: string | null): StaffLang {
   const { profile } = useAuth()
   const profileLang = profile?.ui_language ?? null
-  const lang = useMemo(
+  return useMemo(
     () =>
       resolveFunnelLang({
-        urlLang: readUrlLang(),
+        urlLang,
         profileLang,
         storedLang: readStoredLang(),
         siteLang: defaultUiLang(browserSite()),
       }),
-    [profileLang],
+    [urlLang, profileLang],
   )
+}
+
+/** Limba pusă de `FunnelDocumentLang`; `null` = nicio rută de funnel deasupra. */
+const FunnelRouteLangContext = createContext<StaffLang | null>(null)
+
+/**
+ * Limba ecranelor de DINAINTEA panoului (autentificare, confirmarea emailului,
+ * resetarea parolei, Termenii — lotul L2): `resolveFunnelLang`. Sub
+ * `FunnelDocumentLang` (rutele din App.tsx) pagina preia limba RUTEI, care
+ * urmează `?lang=` la navigare; fără rută (poarta overlay, teste) `?lang=` se
+ * citește o dată, la montare (ca formularul să nu-și schimbe limba sub
+ * degetele omului), iar limba se recalculează doar când apare limba contului.
+ *
+ * `scope="page"` (implicit — AuthPage, OnboardingPage, ResetPasswordPage,
+ * InviteAcceptPage) pune limba și pe `<html lang>` + titlul tab-ului (lotul
+ * L4d), ca tot cromul comun să urmeze ecranul: funnel-ul e VIU în engleză, iar
+ * până la L4d confirmarea implicită spunea „Anulează” pe un ecran englezesc.
+ * `scope="overlay"` (poarta de Termeni, montată PESTE orice rută, inclusiv
+ * peste meniul oaspetelui) nu atinge documentul: limba paginii de dedesubt nu
+ * e a ei — poarta își declară limba pe propriul dialog.
+ *
+ * Fără `<Suspense>` propriu, deliberat: o limbă ne-română suspendă la prima
+ * randare tot sub-arborele paginii, dar în App.tsx fiecare pagină a
+ * funnel-ului stă sub `FunnelDocumentLang` + `<Suspense>`-ul rutei, deci
+ * documentul și spinner-ul sunt deja în limba ecranului (IY12 îngheață
+ * `<FunnelLangProvider>` direct peste `<OnboardingFlow`).
+ */
+export function FunnelLangProvider({
+  children,
+  scope = 'page',
+}: {
+  children: ReactNode
+  scope?: 'page' | 'overlay'
+}) {
+  // `?lang=` citit O DATĂ, la montare: poarta (overlay) rămâne montată peste
+  // orice navigare și nu-și schimbă limba sub degetele omului.
+  const [mountUrlLang] = useState(readUrlLang)
+  const own = useResolvedFunnelLang(mountUrlLang)
+  // Sub `FunnelDocumentLang` (rutele din App.tsx) limba și documentul sunt ale
+  // RUTEI: un singur scriitor pe `<html lang>`. Două scrieri suprapuse cu
+  // aceeași valoare s-ar restaura greșit după o schimbare de limbă (cleanup-ul
+  // la actualizare rulează copil-întâi, cel la demontare părinte-întâi).
+  const routeLang = useContext(FunnelRouteLangContext)
+  const lang = routeLang ?? own
   useEffect(persistUrlLang, [])
+  useScreenDocument(scope === 'page' && routeLang === null ? lang : null)
   return <UiLangScope lang={lang}>{children}</UiLangScope>
+}
+
+/**
+ * Rutele FUNNEL-ului în App.tsx (autentificarea, onboarding-ul, parola nouă,
+ * invitația): `<html lang>` + titlul tab-ului urmează limba funnel-ului încă
+ * de la spinner-ul RUTEI (fallback-ul `<Suspense>` cât se descarcă chunk-ul
+ * paginii, redirectul spre /auth, așteptarea sesiunii) — `FunnelLangProvider`
+ * din pagină se montează abia după chunk, deci până atunci cromul ar fi rămas
+ * în română pe un /auth?lang=en. Pagina de dedesubt preia limba RUTEI (aceeași
+ * rezolvare) și nu mai scrie ea documentul.
+ *
+ * `?lang=` se citește la FIECARE randare (recenzie CodeRabbit pe #372): App.tsx
+ * întoarce `<FunnelDocumentLang>` pe aceeași poziție pentru toate rutele
+ * funnel-ului, deci React păstrează instanța la /reset-password → /auth (inclusiv
+ * pe Back/Forward). Cu memo-ul doar pe limba contului, un /auth?lang=ro atins
+ * dintr-un ecran englezesc rămânea în engleză — formularul și documentul.
+ * Spinner → pagină pe același URL nu schimbă `?lang=`, deci instanța și limba
+ * rămân stabile.
+ */
+export function FunnelDocumentLang({ children }: { children: ReactNode }) {
+  const lang = useResolvedFunnelLang(readUrlLang())
+  useScreenDocument(lang)
+  return <FunnelRouteLangContext.Provider value={lang}>{children}</FunnelRouteLangContext.Provider>
+}
+
+/**
+ * Rutele PERSONALULUI (panoul, ospătarul, bucătăria — App.tsx): `<html lang>`
+ * și titlul tab-ului urmează limba personalului (lotul L4d), deci și cromul
+ * comun. Azi `ENABLED_STAFF_LANGS = ['ro']`, deci limba e mereu „ro”, ca
+ * `index.html`: nimic vizibil. NU se montează deasupra paginilor oaspetelui
+ * (vezi `useScreenDocument`): acolo limba e a meniului.
+ */
+export function StaffDocumentLang({ children }: { children: ReactNode }) {
+  const { lang } = useContext(UiLangContext)
+  useScreenDocument(lang)
+  return <>{children}</>
 }
 
 // Hook-ul stă lângă provider (ca useAuth): un singur context, o singură sursă.

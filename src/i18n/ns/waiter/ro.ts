@@ -64,6 +64,17 @@ const ro = {
   offline_dropped:
     'O comandă offline nu a putut fi trimisă și a fost anulată ({reason}). Reintrodu-o manual.',
   offline_dismissAria: 'Închide avertismentul',
+  // Motivul comenzii offline respinse, în paranteza din `offline_dropped`, în
+  // CELELALTE limbi (lotul L4d, lib/offlineDrop.ts): în română rămâne textul
+  // serverului ca atare, ca înainte.
+  offline_reason_soldOut: 'un produs s-a epuizat',
+  offline_reason_gone: 'un produs nu mai e în meniu',
+  offline_reason_options: 'o opțiune sau un extra nu mai e disponibil',
+  offline_reason_group: 'lipsește o opțiune obligatorie',
+  offline_reason_quantity: 'cantitate nepermisă',
+  offline_reason_notes: 'observațiile sunt prea lungi',
+  offline_reason_orderingOff: 'restaurantul nu primește comenzi acum',
+  offline_reason_other: 'respinsă de server',
 
   // ── Bannere de listă ──
   list_truncated:
