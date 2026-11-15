@@ -322,6 +322,7 @@
     "migration_321_translate_options",
     "migration_322_floor_layout_rpc_only",
     "migration_323_profile_ui_language",
-    "migration_324_restaurant_time_zone"
+    "migration_324_restaurant_time_zone",
+    "migration_325_report_time_zone"
   ]
 }

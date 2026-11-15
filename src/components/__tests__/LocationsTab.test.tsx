@@ -40,6 +40,7 @@ const A: LocationSummary = {
   openOrders: 3,
   revenueToday: 845.5,
   lastOrderAt: new Date().toISOString(),
+  dayTimeZone: 'Europe/Bucharest',
 }
 const B: LocationSummary = {
   id: 'r2',
@@ -49,6 +50,7 @@ const B: LocationSummary = {
   openOrders: 1,
   revenueToday: null,
   lastOrderAt: null,
+  dayTimeZone: 'Europe/Bucharest',
 }
 
 beforeEach(() => {

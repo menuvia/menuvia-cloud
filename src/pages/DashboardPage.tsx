@@ -11,6 +11,7 @@ import {
   storePendingRegional,
 } from '../lib/pendingCountry'
 import { regionalPatchFrom } from '../lib/countries'
+import { reportTimeZone, restaurantTimeZone } from '../lib/dates'
 import { getPlan as getCommercialPlan } from '../lib/plans'
 import { useRestaurantModules } from '../hooks/useRestaurantModules'
 import { useAuth } from '../contexts/AuthContext'
@@ -796,6 +797,14 @@ export default function DashboardPage({
   const restaurantCurrency = restaurant?.currency ?? null
   const restaurantTimezone = restaurant?.timezone ?? null
   const restaurantLanguage = restaurant?.language ?? null
+  // Lotul G2b: cele DOUĂ fusuri ale panoului, calculate O dată per restaurant
+  // (lib/dates.ts; tab-urile nu-și derivă singure fusul). Ziua de RAPORTARE
+  // (Acasă, Rapoarte, Stocuri/NIR): România → București, ca banii; altfel fusul
+  // localului. Fusul OPERAȚIONAL (Rezervări, harta): fusul localului oricare ar
+  // fi țara, ca serverul (mig 298). AnalyticsTab și VatReportTab sunt fiscale
+  // (ziua românească), deci nu primesc fus.
+  const reportTz = reportTimeZone(restaurant)
+  const localTz = restaurantTimeZone(restaurant)
   const isRealOwner =
     activeRole === 'owner' && !inFounderView && restaurant != null && restaurant.owner_id === user?.id
   useEffect(() => {
@@ -1698,6 +1707,7 @@ export default function DashboardPage({
                         'noopener',
                       )
                     }
+                    timeZone={reportTz}
                   />
                 </Suspense>
               )}
@@ -1800,7 +1810,7 @@ export default function DashboardPage({
               )}
               {tab === 'raport' && (
                 <Suspense fallback={<InlineSpinner label={t('loading_report')} />}>
-                  <ReportsTab restaurantId={restaurant.id} fiscalReports={fiscalSurface} />
+                  <ReportsTab restaurantId={restaurant.id} fiscalReports={fiscalSurface} timeZone={reportTz} />
                 </Suspense>
               )}
               {tab === 'arhitectura' && (
@@ -1816,6 +1826,7 @@ export default function DashboardPage({
                         floor_layout: layout as unknown as Record<string, unknown>,
                       })
                     }
+                    timeZone={localTz}
                   />
                 </Suspense>
               )}
@@ -1839,7 +1850,7 @@ export default function DashboardPage({
                   rămâne goală, nu promite alt plan. */}
               {tab === 'gestiune' && surface?.stocks === true && (
                 <Suspense fallback={<InlineSpinner label={t('loading_stock')} />}>
-                  <StocksTab restaurantId={restaurant.id} showVat={surface.vat} />
+                  <StocksTab restaurantId={restaurant.id} showVat={surface.vat} timeZone={reportTz} />
                 </Suspense>
               )}
               {tab === 'tva' && features.has('reports_vat') && (
@@ -1865,7 +1876,7 @@ export default function DashboardPage({
               {tab === 'reservations' &&
                 (reservationsModuleOn ? (
                   <Suspense fallback={<InlineSpinner label={t('loading_reservations')} />}>
-                    <ReservationsTab restaurantId={restaurant.id} />
+                    <ReservationsTab restaurantId={restaurant.id} timeZone={localTz} />
                   </Suspense>
                 ) : (
                   <EmptyState

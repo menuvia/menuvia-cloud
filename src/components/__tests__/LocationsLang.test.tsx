@@ -28,6 +28,11 @@
 //        fără textul românesc al serverului; în română rămâne
 //        `MSG_LOCATION_LIMIT`. Mutația care pică: `describeCreateLocationError`
 //        (doar română) readus în componentă.
+//   LN7  lotul G2b: „Ultima comandă” pe fusul zilei de la server — două carduri
+//        pe New York (acum 08:32Z = 03:32 acolo): 03:00Z = „ieri, 22:00”,
+//        07:00Z = „azi, 02:00”; cardul pe București rămâne „azi, 10:32”.
+//        Mutația care pică: `loc.dayTimeZone` scos din apelul din LocationsTab
+//        sau fusul ignorat în `formatLastOrderT` („azi, 05:00” / „azi, 09:00”).
 //   LN6  eșecul AMBIGUU + lista necitibilă în germană: „Wir wissen nicht
 //        sicher…” + „Neu laden” / „Schließen”, fără „Standort anlegen”.
 //        Mutația care pică: `{MSG_CREATE_UNCERTAIN}` readus.
@@ -102,6 +107,7 @@ const A: LocationSummary = {
   openOrders: 3,
   revenueToday: 845.5,
   lastOrderAt: NOW.toISOString(),
+  dayTimeZone: 'Europe/Bucharest',
 }
 const B: LocationSummary = {
   id: 'r2',
@@ -111,6 +117,7 @@ const B: LocationSummary = {
   openOrders: 1,
   revenueToday: null,
   lastOrderAt: null,
+  dayTimeZone: 'Europe/Bucharest',
 }
 
 beforeEach(() => {
@@ -253,6 +260,35 @@ describe('Toate locațiile în limba personalului', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText('We couldn’t load the locations. Try again.')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Erneut versuchen' })).toBeInTheDocument()
+  })
+
+  it('LN7: „Ultima comandă” în fusul zilei de la server (loc.dayTimeZone, lotul G2b)', async () => {
+    // Acum = 08:32Z pe 15 nov = 03:32 la New York. 03:00Z = 22:00 pe 14 la New
+    // York („ieri”), 07:00Z = 02:00 pe 15 („azi”); pe București ar fi fost
+    // „azi, 05:00” și „azi, 09:00” — exact ce ar afișa fila dacă argumentul
+    // `loc.dayTimeZone` ar cădea sau `formatLastOrderT` ar ignora fusul.
+    const NY1: LocationSummary = {
+      ...B,
+      id: 'r3',
+      name: 'Diner Midtown',
+      lastOrderAt: '2026-11-15T03:00:00Z',
+      dayTimeZone: 'America/New_York',
+    }
+    const NY2: LocationSummary = {
+      ...B,
+      id: 'r4',
+      name: 'Diner Brooklyn',
+      lastOrderAt: '2026-11-15T07:00:00Z',
+      dayTimeZone: 'America/New_York',
+    }
+    m.fetch.mockResolvedValue([A, NY1, NY2])
+    inLang(null, tab())
+    expect(await screen.findByText('ieri, 22:00')).toBeInTheDocument()
+    expect(screen.getByText('azi, 02:00')).toBeInTheDocument()
+    // Control: cardul pe București rămâne pe ora României (08:32Z = 10:32).
+    expect(screen.getByText('azi, 10:32')).toBeInTheDocument()
+    expect(screen.queryByText('azi, 05:00')).not.toBeInTheDocument()
+    expect(screen.queryByText('azi, 09:00')).not.toBeInTheDocument()
   })
 })
 

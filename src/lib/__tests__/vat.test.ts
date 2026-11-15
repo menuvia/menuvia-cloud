@@ -4,6 +4,7 @@ import {
   getVatLabel,
   getVatRate,
   aggregateVatReport,
+  vatPresetRange,
   type VatRate,
   type VatReportRow,
 } from '../vat'
@@ -176,5 +177,30 @@ describe('aggregateVatReport()', () => {
     expect(s.totalGross).toBe(0)
     expect(s.totalVat).toBe(0)
     expect(s.totalNet).toBe(0)
+  })
+})
+
+// Lotul G2b — presetările raportului TVA din ziua de AZI dată ca ȘIR (ziua
+// românească), fără calendarul browserului: înainte „1 a lunii” era miezul
+// nopții LOCAL, deci la est de România presetarea începea cu ultima zi a lunii
+// precedente.
+//   VR5  luna asta: 1 nov 2026 → [01.11, 01.11]; 15 nov → [01.11, 15.11].
+//   VR6  luna trecută: 31 mar 2026 → [01.02, 28.02]; 15 mar 2028 (an bisect)
+//        → [01.02, 29.02]; ianuarie → decembrie anul trecut.
+//   VR7  anul ăsta: [01.01, azi]; șir invalid → același șir pe ambele capete.
+// Mutația care pică: „luna trecută” cu ziua 0 a lunii PRECEDENTE (ar da 31.01).
+describe('vatPresetRange', () => {
+  it('VR5 luna asta', () => {
+    expect(vatPresetRange('this_month', '2026-11-01')).toEqual({ from: '2026-11-01', to: '2026-11-01' })
+    expect(vatPresetRange('this_month', '2026-11-15')).toEqual({ from: '2026-11-01', to: '2026-11-15' })
+  })
+  it('VR6 luna trecută, inclusiv februarie bisect și trecerea anului', () => {
+    expect(vatPresetRange('last_month', '2026-03-31')).toEqual({ from: '2026-02-01', to: '2026-02-28' })
+    expect(vatPresetRange('last_month', '2028-03-15')).toEqual({ from: '2028-02-01', to: '2028-02-29' })
+    expect(vatPresetRange('last_month', '2027-01-10')).toEqual({ from: '2026-12-01', to: '2026-12-31' })
+  })
+  it('VR7 anul ăsta; șir invalid', () => {
+    expect(vatPresetRange('this_year', '2026-11-15')).toEqual({ from: '2026-01-01', to: '2026-11-15' })
+    expect(vatPresetRange('this_month', 'azi')).toEqual({ from: 'azi', to: 'azi' })
   })
 })

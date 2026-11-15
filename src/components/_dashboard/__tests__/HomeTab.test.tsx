@@ -153,6 +153,7 @@ vi.mock('../../../hooks/useCodviaOrdersOpen', () => ({
 }))
 
 import HomeTab from '../HomeTab'
+import { supabase } from '../../../lib/supabase'
 import { surfaceFor } from '../../../lib/__tests__/planSurfaceFixtures'
 import { planUpsellTarget, type PlanSurface } from '../../../lib/planSurface'
 
@@ -201,6 +202,10 @@ function returnToPage(): void {
 // Granițele „de azi" cu care au plecat citirile „Comenzi azi", în ordine.
 function createdAtBounds(): unknown[] {
   return gteCalls.filter((c) => c.table === 'orders' && c.col === 'created_at').map((c) => c.value)
+}
+// Granițele bacșișului de azi (`paid_at`), în ordine.
+function paidAtBounds(): unknown[] {
+  return gteCalls.filter((c) => c.table === 'orders' && c.col === 'paid_at').map((c) => c.value)
 }
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -562,6 +567,17 @@ describe('HomeTab — cifrele zilei (lotul D)', () => {
 //        „Comenzi azi: 7" lângă pasul încă de făcut. Echipa rămâne nefăcută, ca
 //        să rămână cardul (la 6/6 dispare). Control pozitiv: întâi „0" și pasul
 //        nebifat (4/6). Mutația care pică: pasul lăsat pe `done: everOrdered`.
+//   HO7  lotul G2b: cu `timeZone` = America/New_York, „azi” e ziua LOCALULUI —
+//        la 4 nov 03:30Z (22:30 pe 3 la New York) granița e 3 nov 05:00Z, iar
+//        după miezul nopții de acolo (4 nov 05:10Z) trece pe 4 nov 05:00Z.
+//        Mutația care pică: `timeZone` ignorat (ar da 3 nov 22:00Z, ziua
+//        Bucureștiului). HO3 rămâne controlul RO, prin implicit.
+//   HO8  ecranul MIXT are UN singur „azi”: pe Planul 3 (admin) cu fusul New
+//        York (combinație imposibilă în producție — banii sunt doar pe un local
+//        românesc, deci pe București —, aleasă DELIBERAT: pe București testul
+//        ar trece și cu bug-ul), încasările cer `p_from = p_to = '2026-11-04'`
+//        și granițele `created_at`/`paid_at` sunt AMBELE 4 nov 05:00Z. Mutația
+//        care pică: banii lăsați pe ziua României (`'2026-11-05'`).
 describe('HomeTab — «Comenzi azi» se reîmprospătează', () => {
   afterEach(() => {
     vi.useRealTimers()
@@ -597,6 +613,31 @@ describe('HomeTab — «Comenzi azi» se reîmprospătează', () => {
     await waitFor(() =>
       expect(createdAtBounds().slice(-1)[0]).toBe('2026-11-04T22:00:00.000Z'),
     )
+  })
+
+  it('HO7 fusul zilei de raportare: granița e miezul nopții LOCALULUI', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-04T03:30:00Z')) // 22:30 pe 3 nov la New York
+    renderHome({ ...plan('growth'), isOwner: false, timeZone: 'America/New_York' })
+    await waitFor(() => expect(createdAtBounds()[0]).toBe('2026-11-03T05:00:00.000Z'))
+    vi.setSystemTime(new Date('2026-11-04T05:10:00Z')) // 00:10 pe 4 nov la New York
+    returnToPage()
+    await waitFor(() =>
+      expect(createdAtBounds().slice(-1)[0]).toBe('2026-11-04T05:00:00.000Z'),
+    )
+  })
+
+  it('HO8 ecranul mixt: comenzile, încasările și bacșișul pe aceeași zi', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-05T03:30:00Z')) // 22:30 pe 4 nov la New York
+    vi.mocked(supabase.rpc).mockClear()
+    const rpcCalls = (): unknown[][] => vi.mocked(supabase.rpc).mock.calls as unknown[][]
+    renderHome({ ...plan('pro'), timeZone: 'America/New_York' })
+    await waitFor(() => expect(rpcCalls().length).toBeGreaterThan(0))
+    const call = rpcCalls().find((c) => c[0] === 'get_daily_payments_by_method')
+    expect(call?.[1]).toEqual({ p_restaurant_id: 'r1', p_from: '2026-11-04', p_to: '2026-11-04' })
+    await waitFor(() => expect(paidAtBounds()[0]).toBe('2026-11-04T05:00:00.000Z'))
+    expect(createdAtBounds()[0]).toBe('2026-11-04T05:00:00.000Z')
   })
 
   it('HO4 citirea eșuată arată „—" și se poate reîncerca', async () => {

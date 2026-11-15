@@ -11,19 +11,35 @@
 //        eroare apare. Mutația care pică: `onSaved` mutat înaintea ramurii
 //        `if (error)`. FE1 e controlul pozitiv al lui FE2 (același harness,
 //        callback-ul chiar se declanșează pe succes).
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+//   FE3  lotul G2b: în modul Live rezervările de AZI se cer în fusul dat prin
+//        prop-ul `timeZone`. Acum = 15 nov 03:30Z = 14 nov 22:30 la New York →
+//        `starts_at` în [14 nov 05:00Z, 15 nov 04:59:59.999Z]; control fără prop
+//        (București, 15 nov) → [14 nov 22:00Z, 15 nov 21:59:59.999Z]. Mutația
+//        care pică: prop-ul ignorat în calculul zilei sau scos din DashboardPage
+//        (ZT5).
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { FloorLayout } from '../../lib/floorPlan'
 
-const m = vi.hoisted(() => ({ rpc: vi.fn() }))
+const m = vi.hoisted(() => ({
+  rpc: vi.fn(),
+  // Filtrele de interval pe fiecare tabelă: [tabelă, metodă, coloană, valoare].
+  filters: [] as [string, string, string, unknown][],
+}))
 
 vi.mock('../../lib/supabase', () => {
   // Interogările de mese / status live: lanț „thenable” care se rezolvă gol.
-  function chain() {
+  function chain(table: string) {
     const b: Record<string, unknown> = {}
-    for (const k of ['select', 'eq', 'neq', 'not', 'in', 'gte', 'lte', 'order']) {
+    for (const k of ['select', 'eq', 'neq', 'not', 'in', 'order']) {
       b[k] = () => b
+    }
+    for (const k of ['gte', 'lte']) {
+      b[k] = (col: string, val: unknown) => {
+        m.filters.push([table, k, col, val])
+        return b
+      }
     }
     b.then = (
       onFulfilled: (v: { data: unknown[]; error: null }) => unknown,
@@ -31,7 +47,7 @@ vi.mock('../../lib/supabase', () => {
     ) => Promise.resolve({ data: [], error: null }).then(onFulfilled, onRejected)
     return b
   }
-  return { supabase: { from: () => chain(), rpc: m.rpc } }
+  return { supabase: { from: (t: string) => chain(t), rpc: m.rpc } }
 })
 vi.mock('../../hooks/useIsMobile', () => ({ useIsMobile: () => false }))
 
@@ -67,6 +83,10 @@ const LAYOUT: FloorLayout = {
 
 beforeEach(() => {
   m.rpc.mockReset()
+  m.filters.length = 0
+})
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('FloorPlanEditor — onSaved după save_floor_layout', () => {
@@ -104,5 +124,31 @@ describe('FloorPlanEditor — onSaved după save_floor_layout', () => {
     expect(m.rpc).toHaveBeenCalledTimes(1)
     expect(onSaved).not.toHaveBeenCalled()
     errSpy.mockRestore()
+  })
+
+  it('FE3: rezervările de azi din modul Live urmează prop-ul timeZone', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-15T03:30:00Z'))
+    const resv = () => m.filters.filter(([t, , c]) => t === 'reservations' && c === 'starts_at')
+    const ny = render(
+      <FloorPlanEditor
+        restaurantId="r1"
+        initialLayout={LAYOUT}
+        onSaved={vi.fn()}
+        timeZone="America/New_York"
+      />,
+    )
+    await userEvent.setup().click(screen.getByRole('button', { name: /comută pe vizualizare live/ }))
+    await waitFor(() => expect(resv().length).toBeGreaterThanOrEqual(2))
+    expect(resv()).toContainEqual(['reservations', 'gte', 'starts_at', '2026-11-14T05:00:00.000Z'])
+    expect(resv()).toContainEqual(['reservations', 'lte', 'starts_at', '2026-11-15T04:59:59.999Z'])
+    ny.unmount()
+
+    m.filters.length = 0
+    render(<FloorPlanEditor restaurantId="r1" initialLayout={LAYOUT} onSaved={vi.fn()} />)
+    await userEvent.setup().click(screen.getByRole('button', { name: /comută pe vizualizare live/ }))
+    await waitFor(() => expect(resv().length).toBeGreaterThanOrEqual(2))
+    expect(resv()).toContainEqual(['reservations', 'gte', 'starts_at', '2026-11-14T22:00:00.000Z'])
+    expect(resv()).toContainEqual(['reservations', 'lte', 'starts_at', '2026-11-15T21:59:59.999Z'])
   })
 })

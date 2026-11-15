@@ -26,7 +26,7 @@ import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { useIsMobile } from '../hooks/useIsMobile'
-import { romaniaDayBoundaryISO, toRomaniaYMD } from '../lib/dates'
+import { DEFAULT_RESTAURANT_TZ, isoToZonedYMD, toZonedYMD, zonedDayRange } from '../lib/dates'
 import { patchPdfDiacritics } from '../lib/pdf'
 import {
   fetchWaiterSales,
@@ -41,6 +41,7 @@ import {
   buildReportCsv,
   chartDayLabel,
   periodLabelT,
+  reportPeriodRange,
   reportPdfFilename,
   reportPdfText,
 } from '../lib/reportsExport'
@@ -50,11 +51,6 @@ import { staffLocale } from '../i18n/format'
 import { describeStaffError } from '../i18n/staffErrors'
 import { reportsNs } from '../i18n/ns/reports'
 import { commonNs } from '../i18n/ns/common'
-
-// OPT-R2: formatter de zi (RO, Europe/Bucharest) — constant, o singură construcție (nu per comandă în buclă).
-// E doar CHEIA internă a zilei (gruparea); eticheta afișată pe grafic se
-// formatează la randare în limba personalului (`chartDayLabel`).
-const DAY_FMT = new Intl.DateTimeFormat('ro-RO', { day: '2-digit', month: '2-digit', timeZone: 'Europe/Bucharest' })
 
 // Pagina unei interogări PostgREST (`fetchAllPages` din `load`).
 interface PageResult<T> {
@@ -70,30 +66,19 @@ interface Props {
   // mix, top produse), FĂRĂ revenue/cash/card/bon mediu și fără exporturi
   // care arată sume — plata reală + bonul se fac pe casa existentă.
   fiscalReports?: boolean
+  // Fusul ZILEI DE RAPORTARE (`reportTimeZone`, lotul G2b), calculat o dată în
+  // DashboardPage: pe un local românesc București — banii, `v_daily_payments_
+  // by_method` și `report_by_hour` sunt pe ziua românească —, altfel fusul
+  // localului (pe Planurile 1/2, fără bani). O singură definiție a zilei pentru
+  // toată fila: perioada, granițele interogărilor, gruparea și graficul.
+  timeZone?: string
 }
 
 type Period = 'today' | 'week' | 'month' | 'custom'
 
-// ─── Date helpers ─────────────────────────────────────────────
-function addDays(d: Date, n: number) {
-  const r = new Date(d)
-  r.setDate(r.getDate() + n)
-  return r
-}
-
-// Granițele de zi DST-aware au fost extrase în lib/dates (sursă unică) — HomeTab
-// reimplementase greșit „azi" cu +03:00 hardcodat exact din lipsa helperului comun.
-function periodRange(
-  p: Period,
-  custom: { from: string; to: string },
-): { from: string; to: string } {
-  const today = new Date()
-  const todayYMD = toRomaniaYMD(today)
-  if (p === 'today') return { from: todayYMD, to: todayYMD }
-  if (p === 'week') return { from: toRomaniaYMD(addDays(today, -6)), to: todayYMD }
-  if (p === 'month') return { from: toRomaniaYMD(addDays(today, -29)), to: todayYMD }
-  return custom
-}
+// Perioada (azi / 7 / 30 de zile / interval) e `reportPeriodRange`
+// (lib/reportsExport.ts), iar granițele de zi `zonedDayRange` (lib/dates) —
+// surse unice, DST-aware, independente de fusul browserului.
 
 // ─── Shared UI ────────────────────────────────────────────────
 function StatCard({
@@ -197,7 +182,7 @@ function ReportMetric({
 }
 
 // ─── Main component ───────────────────────────────────────────
-export default function ReportsTab({ restaurantId, fiscalReports = true }: Props) {
+export default function ReportsTab({ restaurantId, fiscalReports = true, timeZone = DEFAULT_RESTAURANT_TZ }: Props) {
   // Necondiționat, SUS: o limbă nouă suspendă o singură dată, la prima randare.
   const tr = useT(reportsNs)
   const tc = useT(commonNs)
@@ -206,10 +191,11 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
   const { lang: uiLang } = useUiLang()
   const locale = staffLocale(uiLang)
   const [period, setPeriod] = useState<Period>('today')
-  // Ziua curentă în fusul României (toISO/UTC dădea „ieri" între 00:00–03:00 ora RO).
-  const [custom, setCustom] = useState({
-    from: toRomaniaYMD(new Date()),
-    to: toRomaniaYMD(new Date()),
+  // Ziua curentă în fusul zilei de raportare (toISO/UTC dădea „ieri" între
+  // 00:00–03:00 ora României).
+  const [custom, setCustom] = useState(() => {
+    const today = toZonedYMD(new Date(), timeZone)
+    return { from: today, to: today }
   })
   const [loading, setLoading] = useState(true)
   // Eroarea ca DATĂ (tradusă la randare): o schimbare de limbă o retraduce.
@@ -234,7 +220,8 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
     avgTicket: 0,
   })
   // `at` = primul moment văzut în ziua respectivă: eticheta se formatează la
-  // randare, în limba personalului (în română identică cu cheia `zi`).
+  // randare, în limba personalului și în fusul zilei de raportare (`zi` e doar
+  // cheia internă YYYY-MM-DD, înlocuită la randare).
   const [chartData, setChartData] = useState<
     { zi: string; at: string; comenzi: number; revenue: number }[]
   >([])
@@ -269,14 +256,14 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       }
     }
     const seq = ++loadSeqRef.current
-    const range = periodRange(period, custom)
+    const range = reportPeriodRange(period, custom, timeZone)
     setLoading(true)
     setError(null)
     try {
-      // Granițe de zi în fusul României, DST-aware (EET +02:00 iarna / EEST +03:00 vara).
-      // Hardcodarea lui +03:00 muta granița cu o oră iarna și pierdea/dubla comenzi pe margini.
-      const startISO = romaniaDayBoundaryISO(range.from, false)
-      const endISO = romaniaDayBoundaryISO(range.to, true)
+      // Granițe de zi în fusul zilei de raportare, DST-aware. Hardcodarea lui
+      // +03:00 muta granița cu o oră iarna și pierdea/dubla comenzi pe margini.
+      const startISO = zonedDayRange(range.from, timeZone).from
+      const endISO = zonedDayRange(range.to, timeZone).to
 
       // ── Single source of truth: orders table (not v_daily_orders) ──
       // Includes ALL non-cancelled orders, not just paid ones.
@@ -329,7 +316,8 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       // și TOȚI banii aterizau în „Alte metode". Măsurat pe producție înainte
       // de fix: 41 lei card + 47 lei cash raportați ca 88 lei „alte".
       // `day` din view e deja ziua ÎNCASĂRII în fusul României, deci se
-      // filtrează direct cu `range.from`/`range.to` (YYYY-MM-DD).
+      // filtrează direct cu `range.from`/`range.to` (YYYY-MM-DD): pe un local cu
+      // bani (fiscal ⇒ România) ziua de raportare e chiar ziua românească.
       // IIFE `async`, nu lanț `.then` pe builder: builder-ul supabase-js e doar
       // `PromiseLike`, iar un lanț adnotat `Promise<...>` pică TS2322 DOAR pe
       // Netlify (capcana E5b din CLAUDE.md).
@@ -438,11 +426,12 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
 
       // ── Build daily chart data (client-side aggregation) ──
       // Comenzile (count) se grupează după created_at; venitul după paid_at
-      // (consecvent cu metricile de mai sus). Cheia zilei = în fusul României.
-      // OPT-R2: formatter ridicat la nivel de modul (DAY_FMT) — înainte se
-      // (re)construia un Intl.DateTimeFormat per comandă în buclă (scump la mii
-      // de comenzi). Output identic vizual și ca cheie de Map.
-      const dayKey = (iso: string) => DAY_FMT.format(new Date(iso))
+      // (consecvent cu metricile de mai sus). Cheia zilei = ziua (YYYY-MM-DD) în
+      // fusul zilei de raportare — doar cheie internă de Map (ordinea de
+      // inserție dă ordinea barelor); eticheta se formatează la randare
+      // (`chartDayLabel`, același fus). Formatter-ul e cache-uit în lib/dates
+      // (OPT-R2: nu un Intl.DateTimeFormat nou per comandă).
+      const dayKey = (iso: string) => isoToZonedYMD(iso, timeZone) ?? iso
       const dayMap = new Map<string, { at: string; comenzi: number; revenue: number }>()
       for (const o of allOrders) {
         const key = dayKey(o.created_at as string)
@@ -567,9 +556,9 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       setError({ err: e })
     }
     setLoading(false)
-  }, [restaurantId, period, custom.from, custom.to, fiscalReports]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [restaurantId, period, custom.from, custom.to, fiscalReports, timeZone]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const range = periodRange(period, custom)
+  const range = reportPeriodRange(period, custom, timeZone)
 
   useEffect(() => {
     void load()
@@ -838,7 +827,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
               aria-label={tr.t('date_to')}
               value={custom.to}
               min={custom.from}
-              max={toRomaniaYMD(new Date())}
+              max={toZonedYMD(new Date(), timeZone)}
               onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))}
               style={{
                 background: D.s3,
@@ -1084,7 +1073,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
               </div>
               <ResponsiveContainer width="100%" height={160}>
                 <BarChart
-                  data={chartData.map((d) => ({ ...d, zi: chartDayLabel(locale, d.at) }))}
+                  data={chartData.map((d) => ({ ...d, zi: chartDayLabel(locale, d.at, timeZone) }))}
                   margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={D_RAW.border} vertical={false} />
                   <XAxis

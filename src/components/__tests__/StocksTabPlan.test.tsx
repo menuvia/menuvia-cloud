@@ -9,7 +9,13 @@
 //        se cer. Mutația care pică: oricare dintre gate-urile `showVat` scos.
 //   SK2  control pozitiv pe Planul 3: badge-ul, câmpul de cotă, coloana TVA și
 //        defalcarea apar, iar cotele se cer.
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+//   SK3  lotul G2b: data implicită a NIR-ului = ziua de AZI în fusul dat prin
+//        prop-ul `timeZone`. Acum = 15 nov 03:30Z = 14 nov 22:30 la New York →
+//        „2026-11-14”; control fără prop (București) → „2026-11-15”. Mutația
+//        care pică: prop-ul ignorat (`toZonedYMD(new Date(),
+//        DEFAULT_RESTAURANT_TZ)`), nepasat la PurchasesSection/fișa NIR, sau
+//        scos din DashboardPage (ZT5).
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Ingredient } from '../../lib/stocks'
@@ -76,10 +82,13 @@ import StocksTab from '../StocksTab'
 beforeEach(() => {
   vat.calls = 0
 })
+afterEach(() => {
+  vi.useRealTimers()
+})
 
-async function walk(showVat: boolean) {
+async function walk(showVat: boolean, timeZone?: string) {
   const user = userEvent.setup()
-  render(<StocksTab restaurantId="r1" showVat={showVat} />)
+  render(<StocksTab restaurantId="r1" showVat={showVat} timeZone={timeZone} />)
   // Ingrediente: cardul + fișa.
   expect(await screen.findByText('Făină')).toBeInTheDocument()
   const cardText = document.body.textContent ?? ''
@@ -113,5 +122,22 @@ describe('StocksTab — TVA doar pe planul cu bon', () => {
     expect(nirText).toMatch(/Subtotal \(fără TVA\)/)
     expect(nirText).toMatch(/Total linie \(cu TVA\)/)
     expect(vat.calls).toBeGreaterThanOrEqual(1)
+  })
+
+  it('SK3: data implicită a NIR-ului urmează prop-ul timeZone', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-15T03:30:00Z'))
+    const first = await walk(false, 'America/New_York')
+    expect(first.nirText).toMatch(/Total linie/)
+    expect(screen.getByDisplayValue('2026-11-14')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('2026-11-15')).not.toBeInTheDocument()
+  })
+
+  it('SK3b: control — fără prop, data implicită e ziua Bucureștiului', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-15T03:30:00Z'))
+    await walk(false)
+    expect(screen.getByDisplayValue('2026-11-15')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('2026-11-14')).not.toBeInTheDocument()
   })
 })

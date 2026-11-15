@@ -13,7 +13,7 @@
 import { supabase } from './supabase'
 import { toUserMessage } from './userMessages'
 import { isNetworkError } from './networkError'
-import { formatTimeInZone, isoToRomaniaYMD, toRomaniaYMD } from './dates'
+import { DEFAULT_RESTAURANT_TZ, addDaysYmd, formatTimeInZone, isoToZonedYMD, safeTimeZone, toZonedYMD } from './dates'
 // Doar TIPURI din i18n (lotul L6b): lib/locations e în graful static al
 // DashboardPage, deci dicționarele nu au voie să intre pe aici — traducătorul
 // vine ca parametru, din componenta leneșă care l-a cerut cu `useT`.
@@ -32,7 +32,7 @@ export interface LocationSummary {
   id: string
   name: string
   slug: string
-  /** Comenzile NEanulate create azi (ziua României). */
+  /** Comenzile NEanulate create azi (ziua de raportare a localului, `dayTimeZone`). */
   ordersToday: number
   /** Comenzile în new/confirmed/preparing/ready/served, indiferent de zi. */
   openOrders: number
@@ -43,6 +43,14 @@ export interface LocationSummary {
   revenueToday: number | null
   /** Ultima comandă neanulată, ISO; `null` = nicio comandă încă. */
   lastOrderAt: string | null
+  /**
+   * Fusul în care SERVERUL a judecat „azi” pentru acest local (mig 325,
+   * `day_time_zone` = `report_time_zone`: România → București, altfel fusul
+   * localului). „Ultima comandă” se afișează pe ACEST fus, nu pe
+   * `restaurant.timezone` — pe un local românesc cu fus Londra ar contrazice
+   * „Comenzi azi”. Bază fără mig 325 → București, exact ce a numărat serverul.
+   */
+  dayTimeZone: string
 }
 
 /** Rolurile cu care un local intră în „Toate locațiile" (ca în mig 314). */
@@ -94,6 +102,11 @@ function parseRow(raw: unknown): LocationSummary | null {
   const revenueToday = toMoney(r.revenue_today)
   const last = r.last_order_at
   const lastOrderAt = last === null ? null : typeof last === 'string' ? last : undefined
+  // Cheie lipsă (bază fără mig 325) sau ne-șir → fusul pe care l-a folosit
+  // serverul vechi (București); rândul NU se respinge, altfel clientul deployat
+  // înaintea migrației ar arunca „formă neașteptată” pe tot ecranul.
+  const dayTimeZone =
+    typeof r.day_time_zone === 'string' ? safeTimeZone(r.day_time_zone) : DEFAULT_RESTAURANT_TZ
   if (
     id === null ||
     name === null ||
@@ -105,7 +118,7 @@ function parseRow(raw: unknown): LocationSummary | null {
   ) {
     return null
   }
-  return { id, name, slug, ordersToday, openOrders, revenueToday, lastOrderAt }
+  return { id, name, slug, ordersToday, openOrders, revenueToday, lastOrderAt, dayTimeZone }
 }
 
 /** Funcția lipsește din baza de date (frontend deployat înaintea mig 314). */
@@ -142,25 +155,23 @@ export async function fetchLocationsSummary(): Promise<LocationSummary[] | null>
   return rows
 }
 
-function previousYmd(ymd: string): string {
-  const [y, m, d] = ymd.split('-').map(Number)
-  const prev = new Date(Date.UTC(y, m - 1, d - 1))
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${prev.getUTCFullYear()}-${pad(prev.getUTCMonth() + 1)}-${pad(prev.getUTCDate())}`
-}
-
 /**
- * „Ultima comandă", în ziua și ora ROMÂNIEI (nu prefixul UTC al șirului):
- * „azi, 14:32" / „ieri, 23:10" / „31.10.2026, 12:05"; `null` → „Nicio comandă încă".
+ * „Ultima comandă", în ziua și ora LOCALULUI (`timeZone` = `dayTimeZone` de la
+ * server; implicit București), nu prefixul UTC al șirului: „azi, 14:32" /
+ * „ieri, 23:10" / „31.10.2026, 12:05"; `null` → „Nicio comandă încă".
  */
-export function formatLastOrder(iso: string | null, now: Date = new Date()): string {
+export function formatLastOrder(
+  iso: string | null,
+  now: Date = new Date(),
+  timeZone: string = DEFAULT_RESTAURANT_TZ,
+): string {
   if (!iso) return 'Nicio comandă încă'
-  const ymd = isoToRomaniaYMD(iso)
+  const ymd = isoToZonedYMD(iso, timeZone)
   if (!ymd) return '—'
-  const time = formatTimeInZone(iso)
-  const today = toRomaniaYMD(now)
+  const time = formatTimeInZone(iso, timeZone)
+  const today = toZonedYMD(now, timeZone)
   if (ymd === today) return `azi, ${time}`
-  if (ymd === previousYmd(today)) return `ieri, ${time}`
+  if (ymd === addDaysYmd(today, -1)) return `ieri, ${time}`
   const [y, m, d] = ymd.split('-')
   return `${d}.${m}.${y}, ${time}`
 }
@@ -168,8 +179,8 @@ export function formatLastOrder(iso: string | null, now: Date = new Date()): str
 /**
  * `formatLastOrder` în limba personalului (lotul L6b). În română ieșirea e
  * BYTE-identică cu `formatLastOrder` (LN8 din settingsCardsLang.test.ts);
- * ora rămâne HH:mm în fusul României în toate limbile (fusul restaurantului e
- * G2, în afara lotului), iar data e formatul scurt al limbii personalului.
+ * ora rămâne HH:mm în toate limbile, în fusul zilei de la server (`timeZone`,
+ * lotul G2b; implicit București), iar data e formatul scurt al limbii personalului.
  * `lang` = limba UTILIZATORULUI (`useUiLang().lang`), NU `tr.lang`: aceea e
  * limba dicționarului servit, care cade pe română la o încărcare eșuată —
  * textul rămâne al dicționarului, formatul datei urmează omul (ca `fmt`).
@@ -179,14 +190,15 @@ export function formatLastOrderT(
   lang: StaffLang,
   iso: string | null,
   now: Date = new Date(),
+  timeZone: string = DEFAULT_RESTAURANT_TZ,
 ): string {
   if (!iso) return tr.t('last_none')
-  const ymd = isoToRomaniaYMD(iso)
+  const ymd = isoToZonedYMD(iso, timeZone)
   if (!ymd) return '—'
-  const time = formatTimeInZone(iso)
-  const today = toRomaniaYMD(now)
+  const time = formatTimeInZone(iso, timeZone)
+  const today = toZonedYMD(now, timeZone)
   if (ymd === today) return tr.t('last_today', { time })
-  if (ymd === previousYmd(today)) return tr.t('last_yesterday', { time })
+  if (ymd === addDaysYmd(today, -1)) return tr.t('last_yesterday', { time })
   const [y, m, d] = ymd.split('-')
   const date =
     lang === 'ro'

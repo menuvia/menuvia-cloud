@@ -25,7 +25,7 @@ import { PageHeader } from '../ui/PageHeader'
 import { Icon, type IconName } from '../ui/Icon'
 import { PlanUpsellCard } from './PlanUpsellCard'
 import { AgentCard } from './AgentCard'
-import { romaniaDayBoundaryISO, toRomaniaYMD } from '../../lib/dates'
+import { DEFAULT_RESTAURANT_TZ, toZonedYMD, zonedDayRange } from '../../lib/dates'
 import { useInView, revealStyle } from '../../lib/motion'
 import { LIVE_ORDERS_TAB, type HomeNavTarget } from '../../lib/dashboardNav'
 import { useT } from '../../i18n/useT'
@@ -98,6 +98,11 @@ interface Props {
   // pre-completat — suporturile vin cu QR-ul REAL al meniului deja tipărit.
   // Acțiunea apare DOAR cât magazinul primește comenzi (useCodviaOrdersOpen).
   onOrderQrStands: () => void
+  // Fusul ZILEI DE RAPORTARE (`reportTimeZone`, lotul G2b), calculat o dată în
+  // DashboardPage: pe un local românesc București (banii sunt pe ziua
+  // românească), altfel fusul localului. Aceeași zi alimentează „Comenzi azi",
+  // încasările și bacșișul — un singur „azi" pe ecran. Implicit București.
+  timeZone?: string
 }
 
 // Aceeași rază și același padding ca primitiva <Card> (token-uri, lotul V) —
@@ -293,6 +298,7 @@ export default function HomeTab({
   onViewMenu,
   onPricing,
   onOrderQrStands,
+  timeZone = DEFAULT_RESTAURANT_TZ,
 }: Props) {
   // Textele: lotul L3a (namespace `home`; „Reîncearcă” din `common`).
   const { t } = useT(homeNs)
@@ -463,8 +469,9 @@ export default function HomeTab({
           return next
         })
     }
-    const todayYmd = toRomaniaYMD(new Date())
-    const todayStart = romaniaDayBoundaryISO(todayYmd, false)
+    // Ziua de raportare a localului (G2b), aceeași pentru TOATE cifrele zilei.
+    const todayYmd = toZonedYMD(new Date(), timeZone)
+    const todayStart = zonedDayRange(todayYmd, timeZone).from
     const jobs: PromiseLike<void>[] = []
     if (hasOrdering) {
       // Aceeași graniță de „azi" ca ReportsTab (lib/dates, DST-aware), recalculată
@@ -553,7 +560,7 @@ export default function HomeTab({
     return () => {
       alive = false
     }
-  }, [restaurantId, refreshMetrics, hasOrdering, showOccupancy, showMoney, reloadKey])
+  }, [restaurantId, refreshMetrics, hasOrdering, showOccupancy, showMoney, reloadKey, timeZone])
 
   // Scorul — separat (RPC), doar pentru admini pe planurile cu comenzi.
   useEffect(() => {

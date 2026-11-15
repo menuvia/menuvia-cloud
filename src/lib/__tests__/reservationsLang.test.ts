@@ -20,7 +20,13 @@
 //        `toLocaleTimeString('ro-RO', …)` de dinainte; în engleză/franceză/
 //        germană formatul european al limbii (en-GB/fr-FR/de-DE). Mutația care
 //        pică: `'ro-RO'` lăsat fix în helper (engleza ar ieși „joi, 12
-//        noiembrie”).
+//        noiembrie”). Lotul G2b: oracolul are `timeZone: 'Europe/Bucharest'` —
+//        fusul implicit al helperului; în CI (UTC) 18:30Z ar ieși „18:30” pe
+//        fusul dispozitivului, deci testul pică dacă implicitul nu e București.
+//   RV13 fusul localului ca al treilea argument (lotul G2b): 13 nov 03:30Z pe
+//        America/New_York = „22:30”, ziua „joi, 12 noiembrie” — șiruri LITERALE
+//        (un oracol cu același fus ar trece și cu fusul ignorat). Mutația care
+//        pică: `timeZone` ignorat (ar da „05:30” / „vineri, 13 noiembrie”).
 //   RV11 linkul public rămâne ruta /rezervare/:slug (nu se traduce).
 import { describe, expect, it } from 'vitest'
 import { makeTranslator } from '../../i18n/core'
@@ -115,8 +121,9 @@ describe('statusurile, data și linkul', () => {
 
   it('RV10: data și ora — româna de dinainte, celelalte în formatul limbii', () => {
     const iso = '2026-11-12T18:30:00.000Z'
-    const opts = { weekday: 'long', day: 'numeric', month: 'long' } as const
-    const time = { hour: '2-digit', minute: '2-digit' } as const
+    const tz = 'Europe/Bucharest'
+    const opts = { weekday: 'long', day: 'numeric', month: 'long', timeZone: tz } as const
+    const time = { hour: '2-digit', minute: '2-digit', timeZone: tz } as const
     expect(formatReservationDay(iso, 'ro')).toBe(new Date(iso).toLocaleDateString('ro-RO', opts))
     expect(formatReservationTime(iso, 'ro')).toBe(new Date(iso).toLocaleTimeString('ro-RO', time))
     const locales = { en: 'en-GB', fr: 'fr-FR', de: 'de-DE' } as const
@@ -125,6 +132,18 @@ describe('statusurile, data și linkul', () => {
       expect(formatReservationTime(iso, lang)).toBe(new Date(iso).toLocaleTimeString(loc, time))
     }
     expect(formatReservationDay(iso, 'en')).not.toBe(formatReservationDay(iso, 'ro'))
+    expect(formatReservationTime(iso, 'ro')).toBe('20:30')
+  })
+
+  it('RV13: ora și ziua în fusul localului (lotul G2b)', () => {
+    const iso = '2026-11-13T03:30:00.000Z'
+    expect(formatReservationTime(iso, 'ro', 'America/New_York')).toBe('22:30')
+    expect(formatReservationDay(iso, 'ro', 'America/New_York')).toBe('joi, 12 noiembrie')
+    // Control: același moment pe București e deja vineri, 05:30.
+    expect(formatReservationTime(iso, 'ro')).toBe('05:30')
+    expect(formatReservationDay(iso, 'ro')).toBe('vineri, 13 noiembrie')
+    // Fus invalid → București, fără RangeError într-o randare.
+    expect(formatReservationTime(iso, 'ro', 'Mars/Olympus')).toBe('05:30')
   })
 
   it('RV11: linkul public rămâne ruta /rezervare/:slug', () => {

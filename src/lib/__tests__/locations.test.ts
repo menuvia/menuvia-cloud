@@ -27,6 +27,10 @@
 //   LC8  `isAmbiguousCreateFailure`: rețea / eroare fără cod / formă ciudată →
 //        ambiguu; refuz cu cod Postgres → clar. Mutația care pică: orice eroare
 //        tratată drept clară (reîncercare oarbă după un răspuns pierdut).
+//   LC10 lotul G2b: `day_time_zone` (mig 325) ajunge în `dayTimeZone`, validat
+//        (fus necunoscut / ne-șir → București; cheie lipsă → București, LC3),
+//        iar „Ultima comandă” pe New York la 03:30Z = „azi, 23:00” / „ieri,
+//        23:30”. Mutația care pică: fusul ignorat (ar da „azi, 06:00”).
 //   LC9  `findCreatedLocation` citește restaurantele DEȚINUTE cu numele exact,
 //        sare id-urile cunoscute și rândurile create înaintea trimiterii
 //        (peste toleranța de ceas), întoarce rândul nou; pe eroare ARUNCĂ (nu
@@ -125,6 +129,8 @@ describe('fetchLocationsSummary', () => {
         openOrders: 2,
         revenueToday: 50,
         lastOrderAt: '2026-11-03T10:00:00+00:00',
+        // Bază fără mig 325 (cheie lipsă): fusul pe care l-a numărat serverul vechi.
+        dayTimeZone: 'Europe/Bucharest',
       },
       expect.objectContaining({ id: 'r2', revenueToday: null, lastOrderAt: null }),
       expect.objectContaining({ id: 'r3', ordersToday: 4, revenueToday: 12.5 }),
@@ -157,6 +163,28 @@ describe('formatLastOrder', () => {
     expect(formatLastOrder('2026-09-01T09:05:00Z', now)).toBe('01.09.2026, 12:05')
     expect(formatLastOrder(null, now)).toBe('Nicio comandă încă')
     expect(formatLastOrder('nu-e-data', now)).toBe('—')
+  })
+
+  it('LC10: ziua și ora pe fusul zilei de la server (mig 325, lotul G2b)', async () => {
+    // `day_time_zone` vine pe rând; „Ultima comandă” se judecă în EL.
+    m.rpc.mockResolvedValue({
+      data: [
+        { ...ROW, day_time_zone: 'America/New_York' },
+        { ...ROW, id: 'r2', day_time_zone: 'Not/Zone' },
+        { ...ROW, id: 'r3', day_time_zone: 7 },
+      ],
+      error: null,
+    })
+    const rows = await fetchLocationsSummary()
+    expect(rows?.map((r) => r.dayTimeZone)).toEqual(['America/New_York', 'Europe/Bucharest', 'Europe/Bucharest'])
+
+    // 03:30Z pe 5 sept = 23:30 pe 4 sept la New York: „azi” acolo e 4 sept.
+    const now = new Date('2026-09-05T03:30:00Z')
+    expect(formatLastOrder('2026-09-05T03:00:00Z', now, 'America/New_York')).toBe('azi, 23:00')
+    expect(formatLastOrder('2026-09-04T03:30:00Z', now, 'America/New_York')).toBe('ieri, 23:30')
+    // Control: fără fus (implicitul București) același moment e „azi, 06:00” —
+    // fusul ignorat ar da exact asta pe New York.
+    expect(formatLastOrder('2026-09-05T03:00:00Z', now)).toBe('azi, 06:00')
   })
 })
 

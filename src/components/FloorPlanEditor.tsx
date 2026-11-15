@@ -3,6 +3,7 @@ import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { startPollingWhileVisible } from '../hooks/usePollWhileVisible'
+import { DEFAULT_RESTAURANT_TZ, toZonedYMD, zonedDayRange } from '../lib/dates'
 import Icon from './ui/Icon'
 import { useT } from '../i18n/useT'
 import { fillNodes } from '../i18n/fillNodes'
@@ -184,12 +185,16 @@ interface FloorPlanEditorProps {
   // el, o schimbare de tab remonta editorul cu harta VECHE din listă, iar o
   // nouă salvare de acolo suprascria harta mai nouă (mig 322).
   onSaved: (layout: FloorLayout) => void
+  // Fusul OPERAȚIONAL al localului (`restaurantTimeZone`, lotul G2b): „azi”
+  // din modul Live (rezervările zilei) se judecă în el. Implicit București.
+  timeZone?: string
 }
 
 export default function FloorPlanEditor({
   restaurantId,
   initialLayout,
   onSaved,
+  timeZone = DEFAULT_RESTAURANT_TZ,
 }: FloorPlanEditorProps) {
   // Sus, înaintea oricărui return: ambele namespace-uri ale editorului.
   const ft = useT(floorplanNs)
@@ -554,10 +559,10 @@ export default function FloorPlanEditor({
       t.tableId ?? nameToId.get(t.label.trim().toLowerCase()) ?? null
 
     async function compute(): Promise<void> {
-      const sod = new Date()
-      sod.setHours(0, 0, 0, 0)
-      const eod = new Date(sod)
-      eod.setDate(eod.getDate() + 1)
+      // Ziua de AZI a localului (nu a dispozitivului), recalculată la fiecare
+      // tick: [00:00, 23:59:59.999] — fără miezul nopții următor, pe care
+      // vechiul `.lte(sfârșit)` îl includea.
+      const day = zonedDayRange(toZonedYMD(new Date(), timeZone), timeZone)
       const [ordersRes, resvRes] = await Promise.all([
         supabase
           .from('orders')
@@ -571,8 +576,8 @@ export default function FloorPlanEditor({
           .eq('restaurant_id', restaurantId)
           .in('status', ['confirmed', 'seated'])
           .not('table_id', 'is', null)
-          .gte('starts_at', sod.toISOString())
-          .lte('starts_at', eod.toISOString()),
+          .gte('starts_at', day.from)
+          .lte('starts_at', day.to),
       ])
       if (cancelled) return
       const occupied = new Set(
@@ -597,7 +602,7 @@ export default function FloorPlanEditor({
       cancelled = true
       stopPolling()
     }
-  }, [live, restaurantId, realTables, floor.tables])
+  }, [live, restaurantId, realTables, floor.tables, timeZone])
   const selDeco = sel?.type === 'deco' ? floor.decos.find((d) => d.id === sel.id) : null
   // Un tip de decor necunoscut (hartă salvată de altă versiune) nu are etichetă.
   const selDecoMeta: (typeof DECO_META)[DecoType] | undefined = selDeco

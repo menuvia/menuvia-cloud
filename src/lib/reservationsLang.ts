@@ -8,6 +8,7 @@ import { staffLocale } from '../i18n/format'
 import type { StaffLang } from '../i18n/langs'
 import type reservationsRo from '../i18n/ns/reservations/ro'
 import type { ReservationStatus } from '../hooks/useReservations'
+import { DEFAULT_RESTAURANT_TZ, safeTimeZone } from './dates'
 
 type ResvT = Translator<typeof reservationsRo>
 
@@ -52,21 +53,32 @@ export function reservationCountT(tr: ResvT, key: PluralKey<typeof reservationsR
 }
 
 /** Antetul zilei („joi, 12 noiembrie” în română) — formatul de dinainte, în
- *  limba personalului; fusul rămâne al dispozitivului, ca înainte (G2). */
-export function formatReservationDay(iso: string, lang: StaffLang): string {
+ *  limba personalului, în fusul OPERAȚIONAL al localului (lotul G2b; înainte,
+ *  al dispozitivului). Fus invalid → implicitul platformei, nu RangeError. */
+export function formatReservationDay(
+  iso: string,
+  lang: StaffLang,
+  timeZone: string = DEFAULT_RESTAURANT_TZ,
+): string {
   return new Date(iso).toLocaleDateString(staffLocale(lang), {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
+    timeZone: safeTimeZone(timeZone),
   })
 }
 
-/** Ora rezervării (HH:mm), în formatul limbii personalului; fusul
- *  dispozitivului, ca înainte. */
-export function formatReservationTime(iso: string, lang: StaffLang): string {
+/** Ora rezervării (HH:mm), în formatul limbii personalului și în fusul
+ *  localului — ora la care vine clientul ACOLO, nu ora telefonului. */
+export function formatReservationTime(
+  iso: string,
+  lang: StaffLang,
+  timeZone: string = DEFAULT_RESTAURANT_TZ,
+): string {
   return new Date(iso).toLocaleTimeString(staffLocale(lang), {
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: safeTimeZone(timeZone),
   })
 }
 

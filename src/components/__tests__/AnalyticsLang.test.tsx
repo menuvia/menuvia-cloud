@@ -104,7 +104,9 @@ const DATA: Record<string, { data: unknown[]; error: null }> = {
   v_daily_orders: {
     data: [
       {
-        day: '2026-11-03T12:00:00Z',
+        // `v_daily_orders.day` e o coloană `date`: PostgREST o întoarce ca
+        // „YYYY-MM-DD”, iar axa o formatează ca DATĂ (`formatYmd`, lotul G2b).
+        day: '2026-11-03',
         total_orders: 4,
         revenue: 200,
         qr_orders: 1,

@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { pickAllowed } from '../lib/sanitize'
 import { playSound } from '../lib/utils'
 import { buildStaleReservationsFilter } from '../lib/reservations'
+import { reservationDayRange, reservationPresets } from '../lib/reservationRanges'
 
 export type ReservationStatus =
   | 'pending'
@@ -368,33 +369,27 @@ export function useReservationSettings(restaurantId: string | null) {
   return { settings, loading, error, save, refetch: fetchSettings }
 }
 
-export function dayRange(date: Date): DateRange {
-  const start = new Date(date)
-  start.setHours(0, 0, 0, 0)
-  const end = new Date(date)
-  end.setHours(23, 59, 59, 999)
-  return { from: start.toISOString(), to: end.toISOString() }
-}
-
-export function weekRange(from: Date): DateRange {
-  const start = new Date(from)
-  start.setHours(0, 0, 0, 0)
-  const end = new Date(from)
-  end.setDate(end.getDate() + 7)
-  end.setHours(23, 59, 59, 999)
-  return { from: start.toISOString(), to: end.toISOString() }
-}
-
-export function useDateRange(initial: DateRange) {
-  const [range, setRange] = useState<DateRange>(initial)
-  const setToday = useCallback(() => setRange(dayRange(new Date())), [])
-  const setTomorrow = useCallback(() => {
-    const d = new Date()
-    d.setDate(d.getDate() + 1)
-    setRange(dayRange(d))
-  }, [])
-  const setWeek = useCallback(() => setRange(weekRange(new Date())), [])
-  const setSpecificDate = useCallback((date: Date) => setRange(dayRange(date)), [])
+// Intervalele filei (Azi / Mâine / Săptămâna / o zi aleasă) în fusul
+// OPERAȚIONAL al localului (`restaurantTimeZone`, lotul G2b) — logica pură e în
+// lib/reservationRanges.ts. Lucrează pe zile YYYY-MM-DD, nu pe calendarul
+// dispozitivului: „mâine” e ziua calendaristică următoare, nu „acum + 24 h”.
+export function useDateRange(timeZone: string) {
+  const [range, setRange] = useState<DateRange>(() => reservationPresets(timeZone).today)
+  const setToday = useCallback(() => setRange(reservationPresets(timeZone).today), [timeZone])
+  const setTomorrow = useCallback(() => setRange(reservationPresets(timeZone).tomorrow), [timeZone])
+  const setWeek = useCallback(() => setRange(reservationPresets(timeZone).week), [timeZone])
+  const setSpecificDate = useCallback(
+    (ymd: string) => setRange(reservationDayRange(ymd, timeZone)),
+    [timeZone],
+  )
+  // Alt fus (alt restaurant în același tab montat) → intervalul revine pe „azi”
+  // în noul fus; la montare starea inițială e deja corectă.
+  const mountedTz = useRef(timeZone)
+  useEffect(() => {
+    if (mountedTz.current === timeZone) return
+    mountedTz.current = timeZone
+    setRange(reservationPresets(timeZone).today)
+  }, [timeZone])
   return useMemo(
     () => ({ range, setToday, setTomorrow, setWeek, setSpecificDate, setRange }),
     [range, setToday, setTomorrow, setWeek, setSpecificDate],

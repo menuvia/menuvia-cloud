@@ -1,0 +1,203 @@
+// Clichet de CLASĂ (lotul G2b): „azi” și „ziua” unui ecran de personal se
+// judecă într-unul dintre cele DOUĂ fusuri ale restaurantului — ziua de
+// RAPORTARE (`reportTimeZone`) sau fusul OPERAȚIONAL (`restaurantTimeZone`),
+// ambele din src/lib/dates.ts — nu în fusul Bucureștiului scris de mână și nu în
+// calendarul DISPOZITIVULUI. Tiparele care ocolesc regula apar DOAR în fișierele
+// din registru, fiecare cu MOTIV: (b) suprafață fiscală / doar-România (ziua
+// românească a încasării), (c) platformă, date de referință, anul de copyright,
+// sau „G2c” (lotul următor: paginile de personal prin RestaurantContext și
+// fluxul oaspetelui). Registrul doar SCADE: o intrare care nu mai e găsită pică
+// (ZT3), deci G2c își șterge intrările.
+// ATENȚIE: potrivește și COMENTARIILE (ca utcDayPrefix.test.ts) — nu scrie
+// tiparele literal în explicațiile din fișierele ne-înregistrate.
+//   ZT1 anti-vacuitate: scanarea vede sursa (> 100 de fișiere) și găsește
+//       locurile înregistrate (P5 nu mai are niciun loc viu — clasa e închisă;
+//       controlul lui pozitiv e în ZT4).
+//   ZT2 niciun loc în afara registrului.
+//   ZT3 fiecare intrare din registru e încă găsită.
+//   ZT4 control POZITIV/NEGATIV al fiecărui tipar pe surse sintetice — formele
+//       interzise sunt prinse, cele legitime (`getUTC*`, `Date.UTC(`, `new
+//       Date(iso)`, `formatYmd(`) nu.
+//   ZT5 cablajul din DashboardPage, STRUCTURAL: cele două fusuri se calculează
+//       din `reportTimeZone(restaurant)` / `restaurantTimeZone(restaurant)`, iar
+//       Acasă, Rapoarte și Stocuri primesc `timeZone={reportTz}`, Rezervări și
+//       harta `timeZone={localTz}`. Testele DOM ale filelor (HO7/HO8, RP3, SK3,
+//       FE3, RV14) dau prop-ul direct, deci nu văd un prop scos sau inversat aici.
+//       Mutația care pică: `timeZone={reportTz}` scos de pe ReportsTab, sau
+//       `localTz` dat Stocurilor.
+// Mutațiile care pică: calendarul dispozitivului readus în ReservationsTab, API-ul
+// zilei românești readus în HomeTab, fusul scris de mână readus în ReportsTab
+// (ZT2); tiparul constructorului local slăbit până prinde `Date.UTC(` (ZT4).
+import { readFileSync, readdirSync } from 'node:fs'
+import { join, relative, resolve, sep } from 'node:path'
+import { describe, expect, it } from 'vitest'
+
+// Din process.cwd(), NU din import.meta.url (capcana din qr-scan.test.ts, #269).
+const ROOT = process.cwd()
+const SRC = resolve(ROOT, 'src')
+
+const PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
+  // P1 — API-ul zilei ROMÂNEȘTI (corect doar pe suprafețele fiscale).
+  {
+    name: 'P1 ziua românească',
+    re: /\b(?:toRomaniaYMD|isoToRomaniaYMD|romaniaDayBoundaryISO|romaniaDayRange|useRomaniaTodayRange)\(/,
+  },
+  // P2 — fusul Bucureștiului scris de mână, între ghilimele.
+  { name: 'P2 fus fix', re: /['"]Europe\/Bucharest['"]/ },
+  // P3 — calendarul DISPOZITIVULUI (nu prinde variantele UTC).
+  {
+    name: 'P3 calendarul dispozitivului',
+    re: /\.(?:getFullYear|getMonth|getDate|getDay|getHours|getMinutes)\(\)|\.set(?:Hours|Date|Month|FullYear)\(/,
+  },
+  // P4 — constructorul pe ora LOCALĂ a dispozitivului (an, lună, …).
+  { name: 'P4 constructor local', re: /new Date\(\s*(?:[A-Za-z_$][\w$.]*(?:\(\))?!?|\d+)\s*,/ },
+  // P5 — o coloană `date` (fără oră) formatată ca instant, pe fusul gazdei.
+  { name: 'P5 dată ca instant', re: /new Date\([^)]*\.(?:day|report_date)\b[^)]*\)\.toLocale/ },
+]
+
+const ALLOWED: ReadonlyArray<{ hit: string; reason: string }> = [
+  { hit: 'src/lib/dates.ts P1 ziua românească', reason: 'definițiile variantelor românești' },
+  { hit: 'src/lib/dates.ts P2 fus fix', reason: 'formatter-ele românești + DEFAULT_RESTAURANT_TZ (sursa unică a implicitului)' },
+  { hit: 'src/lib/receiptStats.ts P1 ziua românească', reason: '(b) bonurile fiscale de azi (BridgeTab), ziua românească' },
+  { hit: 'src/components/VatReportTab.tsx P1 ziua românească', reason: '(b) raportul TVA, pe ziua românească a încasării (mig 272)' },
+  { hit: 'src/components/AnalyticsTab.tsx P1 ziua românească', reason: '(b) v_daily_orders e pe ziua românească (mig 267), fila e doar fiscală' },
+  { hit: 'src/lib/countries.ts P2 fus fix', reason: 'date de referință: România → fusul ei; implicitul regional' },
+  { hit: 'src/components/SettingsTab.tsx P2 fus fix', reason: 'lotul G1: implicitul afișat al câmpului de fus' },
+  { hit: 'src/lib/payoutFlow.ts P2 fus fix', reason: '(c) plățile afiliaților, platformă' },
+  { hit: 'src/pages/FounderPage.tsx P2 fus fix', reason: '(c) ecranul fondatorului, platformă' },
+  { hit: 'src/pages/FounderPage.tsx P3 calendarul dispozitivului', reason: '(c) ecranul fondatorului, platformă' },
+  { hit: 'src/pages/FounderPage.tsx P4 constructor local', reason: '(c) ecranul fondatorului, platformă' },
+  { hit: 'src/components/LegalFooter.tsx P3 calendarul dispozitivului', reason: 'anul de copyright, cosmetic' },
+  { hit: 'src/components/marketing/MarketingFooter.tsx P3 calendarul dispozitivului', reason: 'anul de copyright, cosmetic' },
+  { hit: 'src/pages/LandingPageEn.tsx P3 calendarul dispozitivului', reason: 'anul de copyright, cosmetic' },
+  { hit: 'src/hooks/useRomaniaTodayRange.ts P1 ziua românească', reason: 'G2c — „azi” al ospătarului, generalizat odată cu fusul din RestaurantContext' },
+  { hit: 'src/pages/WaiterPage.tsx P1 ziua românească', reason: 'G2c — fusul prin RestaurantContext' },
+  { hit: 'src/components/ReservationSheet.tsx P2 fus fix', reason: 'G2c — oaspetele: safeTimeZone + zonedWallToInstant' },
+  { hit: 'src/components/ReservationSheet.tsx P3 calendarul dispozitivului', reason: 'G2c — oaspetele: zilele pe fusul localului' },
+  { hit: 'src/components/ReservationSheet.tsx P4 constructor local', reason: 'G2c — oaspetele: zilele pe fusul localului' },
+  { hit: 'src/lib/qr.ts P2 fus fix', reason: 'G2c — computeIsOpen / todayHoursLabel: safeTimeZone + hourCycle h23' },
+]
+
+function sourceFiles(dir: string): string[] {
+  const out: string[] = []
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name)
+    if (e.isDirectory()) {
+      // Dicționarele nu conțin cod de dată; testele au tipare intenționate.
+      if (e.name !== '__tests__' && !(e.name === 'ns' && dir.endsWith(`${sep}i18n`))) out.push(...sourceFiles(p))
+    } else if (/\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) {
+      out.push(p)
+    }
+  }
+  return out
+}
+
+/** Numele tiparelor prinse pe o sursă (o dată per tipar). */
+export function matchedPatterns(src: string): string[] {
+  const lines = src.split('\n')
+  return PATTERNS.filter((p) => lines.some((l) => p.re.test(l))).map((p) => p.name)
+}
+
+interface Hit {
+  key: string
+  where: string
+}
+function scan(files: string[]): Hit[] {
+  const hits: Hit[] = []
+  for (const file of files) {
+    const rel = relative(ROOT, file).split(sep).join('/')
+    readFileSync(file, 'utf8')
+      .split('\n')
+      .forEach((line, i) => {
+        for (const p of PATTERNS) if (p.re.test(line)) hits.push({ key: `${rel} ${p.name}`, where: `${rel}:${i + 1}` })
+      })
+  }
+  return hits
+}
+
+describe('clichet: ziua se judecă pe fusul restaurantului', () => {
+  const files = sourceFiles(SRC)
+  const hits = scan(files)
+
+  it('ZT1 anti-vacuitate: scanarea vede sursa și locurile înregistrate', () => {
+    expect(files.length).toBeGreaterThan(100)
+    expect(hits.length).toBeGreaterThan(ALLOWED.length)
+    for (const p of PATTERNS.slice(0, 4)) expect(hits.some((h) => h.key.endsWith(` ${p.name}`)), p.name).toBe(true)
+  })
+
+  it('ZT2 niciun loc în afara registrului', () => {
+    const allowed = new Set(ALLOWED.map((a) => a.hit))
+    expect(hits.filter((h) => !allowed.has(h.key)).map((h) => `${h.where} — ${h.key}`)).toEqual([])
+  })
+
+  it('ZT3 fiecare intrare din registru e încă găsită (registrul doar scade)', () => {
+    const found = new Set(hits.map((h) => h.key))
+    expect(ALLOWED.filter((a) => !found.has(a.hit)).map((a) => a.hit)).toEqual([])
+    expect(new Set(ALLOWED.map((a) => a.hit)).size).toBe(ALLOWED.length)
+    for (const a of ALLOWED) expect(a.reason.trim().length, a.hit).toBeGreaterThan(10)
+  })
+
+  it('ZT4 control pozitiv și negativ al tiparelor', () => {
+    const bad: ReadonlyArray<[string, string]> = [
+      ['const d = toRomaniaYMD(new Date())', 'P1 ziua românească'],
+      ['const r = romaniaDayRange(ymd)', 'P1 ziua românească'],
+      ["const tz = 'Europe/Bucharest'", 'P2 fus fix'],
+      ['x.toLocaleString("ro-RO", { timeZone: "Europe/Bucharest" })', 'P2 fus fix'],
+      ['start.setHours(0, 0, 0, 0)', 'P3 calendarul dispozitivului'],
+      ['return d.getFullYear() + "-" + d.getMonth()', 'P3 calendarul dispozitivului'],
+      ['end.setDate(end.getDate() + 7)', 'P3 calendarul dispozitivului'],
+      ['const f = new Date(y, m - 1, 1)', 'P4 constructor local'],
+      ['setSpecificDate(new Date(y!, mo! - 1, d!))', 'P4 constructor local'],
+      ['new Date(t.getFullYear(), 0, 1)', 'P4 constructor local'],
+      ['new Date(2026, 0, 1)', 'P4 constructor local'],
+      ["new Date(r.report_date).toLocaleDateString('ro-RO', {})", 'P5 dată ca instant'],
+      ['day: new Date(d.day as string).toLocaleDateString(loc, opts)', 'P5 dată ca instant'],
+    ]
+    for (const [src, name] of bad) expect(matchedPatterns(src), src).toContain(name)
+    const good = [
+      'const d = toZonedYMD(new Date(), timeZone)',
+      'const tz = DEFAULT_RESTAURANT_TZ // București',
+      'return `${t.getUTCFullYear()}-${t.getUTCMonth() + 1}-${t.getUTCDate()}`',
+      't.setUTCDate(1)',
+      'const t = new Date(Date.UTC(y, m - 1, d + n))',
+      'const at = new Date(iso)',
+      'const now = new Date()',
+      'new Date(now.getTime() + 86400000)',
+      'new Date(fromMs - 1).toISOString()',
+      "formatYmd(r.report_date, 'ro-RO', { day: '2-digit' })",
+      'new Date(r.created_at).toLocaleTimeString(locale)',
+    ]
+    for (const src of good) expect(matchedPatterns(src), src).toEqual([])
+  })
+
+  it('ZT5 DashboardPage dă fiecărei file fusul ei', () => {
+    const dash = readFileSync(join(SRC, 'pages', 'DashboardPage.tsx'), 'utf8')
+    expect(dash).toMatch(/const reportTz = reportTimeZone\(restaurant\)/)
+    expect(dash).toMatch(/const localTz = restaurantTimeZone\(restaurant\)/)
+    // Atributele unei file = textul de la `<Nume` până la primul `/>`.
+    const props = (name: string): string[] => {
+      const out: string[] = []
+      const re = new RegExp(`<${name}\\b`, 'g')
+      for (let m = re.exec(dash); m; m = re.exec(dash)) {
+        const end = dash.indexOf('/>', m.index)
+        out.push(dash.slice(m.index, end < 0 ? undefined : end))
+      }
+      return out
+    }
+    const expected: ReadonlyArray<[string, string]> = [
+      ['HomeTab', 'reportTz'],
+      ['ReportsTab', 'reportTz'],
+      ['StocksTab', 'reportTz'],
+      ['ReservationsTab', 'localTz'],
+      ['FloorPlanEditor', 'localTz'],
+    ]
+    for (const [name, tz] of expected) {
+      const uses = props(name)
+      expect(uses.length, name).toBeGreaterThanOrEqual(1)
+      for (const u of uses) {
+        const zones = u.match(/timeZone=\{(\w+)\}/g) ?? []
+        expect(zones, name).toEqual([`timeZone={${tz}}`])
+      }
+    }
+  })
+})
