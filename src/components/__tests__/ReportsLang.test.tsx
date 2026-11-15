@@ -290,7 +290,12 @@ describe('Vânzări în limba personalului', () => {
   })
 
   it('YA4: refuzul serverului — în română mesajul de azi, în engleză/germană fără el', async () => {
-    const ERR = { message: 'Raportul a fost refuzat de politica restaurantului', code: 'P0001' }
+    // Cu diacritice: fără ele `isRomanianText` clasează textul după cuvinte („a”
+    // = engleză) și `toUserMessage` cade pe rezervă — ramura „mesajul serverului”
+    // n-ar fi exersată, iar `queryByText(ERR.message)` din engleză ar fi vacuu
+    // (capcana LN3 din L6b).
+    const ERR = { message: 'Raportul vânzărilor a fost refuzat de politica restaurantului', code: 'P0001' }
+    expect(toUserMessage(ERR, 'Eroare la încărcarea raportului')).toBe(ERR.message)
     m.errors.orders = ERR
     const ro = inLang(null, tab())
     expect(await screen.findByText(toUserMessage(ERR, 'Eroare la încărcarea raportului'))).toBeInTheDocument()
