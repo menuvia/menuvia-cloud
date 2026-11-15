@@ -97,10 +97,12 @@ function persistUrlLang(): void {
 }
 
 /** Limba funnel-ului pentru `?lang=` primit, recalculată doar când se schimbă
- *  acesta sau apare limba contului — sursa comună a lui `FunnelLangProvider`
- *  și `FunnelDocumentLang`. Limba păstrată în `localStorage` NU e o dependență:
- *  o scrie doar `persistUrlLang`, din același `?lang=`, deci o rezolvare
- *  proaspătă pe același URL dă același rezultat. */
+ *  acesta sau limba contului — sursa comună a lui `FunnelLangProvider` și
+ *  `FunnelDocumentLang`. Limba păstrată în `localStorage` NU e o dependență,
+ *  deliberat: din ACELAȘI tab o scriu doar `persistUrlLang` (din același
+ *  `?lang=`, care oricum o bate) și `useSetUiLanguage` (odată cu profilul, deci
+ *  memo-ul se recalculează prin `profileLang`); o scriere din ALT tab nu
+ *  răstoarnă limba ecranului deschis (controlul LD9). */
 function useResolvedFunnelLang(urlLang: string | null): StaffLang {
   const { profile } = useAuth()
   const profileLang = profile?.ui_language ?? null
@@ -121,9 +123,11 @@ const FunnelRouteLangContext = createContext<StaffLang | null>(null)
 
 /**
  * Limba ecranelor de DINAINTEA panoului (autentificare, confirmarea emailului,
- * resetarea parolei, Termenii — lotul L2): `resolveFunnelLang`, citită o dată
- * la montare (ca formularul să nu-și schimbe limba sub degetele omului) și
- * recalculată doar când apare limba contului.
+ * resetarea parolei, Termenii — lotul L2): `resolveFunnelLang`. Sub
+ * `FunnelDocumentLang` (rutele din App.tsx) pagina preia limba RUTEI, care
+ * urmează `?lang=` la navigare; fără rută (poarta overlay, teste) `?lang=` se
+ * citește o dată, la montare (ca formularul să nu-și schimbe limba sub
+ * degetele omului), iar limba se recalculează doar când apare limba contului.
  *
  * `scope="page"` (implicit — AuthPage, OnboardingPage, ResetPasswordPage,
  * InviteAcceptPage) pune limba și pe `<html lang>` + titlul tab-ului (lotul
