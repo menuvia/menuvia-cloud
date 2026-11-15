@@ -9,7 +9,18 @@ import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { MENU_LANGS, activeTranslationLangs, mergeTranslations } from '../lib/i18nMenu'
-import { toUserMessage, zeroRowsAsDenied } from '../lib/userMessages'
+import { zeroRowsAsDenied } from '../lib/userMessages'
+import { useT } from '../i18n/useT'
+import { categoriesNs } from '../i18n/ns/categories'
+import { commonNs } from '../i18n/ns/common'
+import { translationsNs } from '../i18n/ns/translations'
+import { describeStaffError } from '../i18n/staffErrors'
+import { menuLangName } from '../lib/translationMessages'
+
+// Un refuz ținut ca DATĂ (eroarea brută + cheia rezervei): textul se compune
+// la RANDARE, în limba curentă (lotul L5b) — o schimbare de limbă cu eroarea
+// pe ecran o retraduce.
+type SaveFailure = { err: unknown }
 
 function CategoryModal({
   category,
@@ -22,10 +33,13 @@ function CategoryModal({
   menuLanguages: readonly string[]
   // Limba originalului (lotul O6a): nu i se cere traducere.
   baseLang: string
-  // Întoarce mesajul de eroare (afișat în modal) sau null la succes.
-  onSave: (f: Partial<Category>) => Promise<string | null>
+  // Întoarce refuzul (afișat în modal) sau null la succes.
+  onSave: (f: Partial<Category>) => Promise<SaveFailure | null>
   onClose: () => void
 }) {
+  const { t } = useT(categoriesNs)
+  const tc = useT(commonNs)
+  const trTr = useT(translationsNs)
   const [form, setForm] = useState<Partial<Category>>(category || { name: '', emoji: '🍽️' })
   // Traduceri MANUALE ale numelui, doar pentru limbile ACTIVE din setări.
   // Limbile neactive deja scrise în `translations` (de mână sau de AI) nu se
@@ -40,7 +54,7 @@ function CategoryModal({
     return init
   })
   const [saving, setSaving] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<SaveFailure | null>(null)
   const nameMissing = !(form.name ?? '').trim()
 
   const submit = async () => {
@@ -65,28 +79,28 @@ function CategoryModal({
 
   return (
     <Modal
-      title={category ? 'Editează categorie' : 'Adaugă categorie'}
+      title={category ? t('modal_titleEdit') : t('modal_titleAdd')}
       onClose={onClose}
       width={400}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
         <div>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
-            Nume *
+            {t('field_name')}
           </label>
           <Inp
-            label="Nume categorie"
+            label={t('field_nameAria')}
             value={form.name || ''}
             onChange={(v) => setForm((f) => ({ ...f, name: v }))}
-            placeholder="Feluri principale"
+            placeholder={t('field_namePh')}
           />
         </div>
         <div>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
-            Emoji
+            {t('field_emoji')}
           </label>
           <Inp
-            label="Emoji"
+            label={t('field_emoji')}
             value={form.emoji || ''}
             onChange={(v) => setForm((f) => ({ ...f, emoji: v }))}
             placeholder="🍽️"
@@ -94,13 +108,13 @@ function CategoryModal({
         </div>
         <div>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
-            Text italic sub titlu (opțional)
+            {t('field_meta')}
           </label>
           <textarea
-            aria-label="Text italic sub titlu"
+            aria-label={t('field_metaAria')}
             value={form.meta_text || ''}
             onChange={(e) => setForm((f) => ({ ...f, meta_text: e.target.value }))}
-            placeholder="ex: Servit până la ora 13:00"
+            placeholder={t('field_metaPh')}
             rows={2}
             style={{
               width: '100%',
@@ -117,10 +131,10 @@ function CategoryModal({
             }}
           />
           <div style={{ fontSize: '0.7rem', color: D.t2, marginTop: 4 }}>
-            Afișat pe meniul public sub numele categoriei.
+            {t('field_metaHint')}
           </div>
         </div>
-        {langs.length > 0 && (
+        {langs.length === 0 ? null : (
           <div
             style={{
               borderTop: `1px solid ${D.border}`,
@@ -132,16 +146,15 @@ function CategoryModal({
           >
             <div>
               <div style={{ fontSize: '0.85rem', fontWeight: 600, color: D.t2 }}>
-                Traduceri <span style={{ fontWeight: 400, color: D.t3 }}>(opțional)</span>
+                {t('tr_title')} <span style={{ fontWeight: 400, color: D.t3 }}>{t('tr_optional')}</span>
               </div>
               <div style={{ fontSize: '0.72rem', color: D.t3, lineHeight: 1.5, marginTop: 4 }}>
-                Numele categoriei în limbile active ale meniului. Câmpurile lăsate goale afișează
-                automat numele în {MENU_LANGS.find((l) => l.code === baseLang)?.label ?? baseLang}.
+                {t('tr_desc', { lang: menuLangName(baseLang, trTr, baseLang) })}
               </div>
             </div>
             {langs.map((code) => {
               const meta = MENU_LANGS.find((l) => l.code === code)
-              const label = meta?.label ?? code.toUpperCase()
+              const label = menuLangName(code, trTr)
               return (
                 <label key={code} style={{ display: 'block' }}>
                   <span
@@ -152,20 +165,20 @@ function CategoryModal({
                       marginBottom: 5,
                     }}
                   >
-                    {meta?.flag} Nume ({label})
+                    {t('tr_label', { flag: meta?.flag ?? '', lang: label })}
                   </span>
                   <Inp
-                    label={`Nume (${label})`}
+                    label={t('tr_aria', { lang: label })}
                     value={names[code] ?? ''}
                     onChange={(v) => setNames((n) => ({ ...n, [code]: v }))}
-                    placeholder={form.name || 'Nume categorie'}
+                    placeholder={form.name || t('field_nameAria')}
                   />
                 </label>
               )
             })}
           </div>
         )}
-        {saveError && (
+        {saveError == null ? null : (
           <div
             role="alert"
             style={{
@@ -178,7 +191,15 @@ function CategoryModal({
               lineHeight: 1.45,
             }}
           >
-            Nu s-a putut salva categoria: {saveError}
+            {/* În română rezerva e „Categoria nu a putut fi salvată.”, ca înainte; în
+                altă limbă un text românesc al serverului cade pe `err_generic` din
+                `common` — „The category couldn’t be saved: The category couldn’t
+                be saved.” ar repeta prefixul. */}
+            {t('saveError', {
+              error: describeStaffError(saveError.err, tc, {
+                fallback: tc.lang === 'ro' ? t('err_save') : undefined,
+              }),
+            })}
           </div>
         )}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
@@ -186,7 +207,7 @@ function CategoryModal({
             onClick={onClose}
             style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
           >
-            Anulează
+            {tc.t('cancel')}
           </button>
           <button
             onClick={() => void submit()}
@@ -197,7 +218,7 @@ function CategoryModal({
               opacity: nameMissing || saving ? 0.5 : 1,
             })}
           >
-            {saving ? 'Se salvează…' : 'Salvează'}
+            {saving ? t('saving') : tc.t('save')}
           </button>
         </div>
       </div>
@@ -215,6 +236,12 @@ export default function CategoriesTab({
   // `restaurants.language` — limba originalului (lotul O6a).
   baseLang?: string
 }) {
+  // Sus, înaintea oricărui return: modalul de categorie folosește aceleași
+  // namespace-uri (inclusiv `translations`, pentru numele limbilor meniului),
+  // deci prima deschidere într-o limbă nouă nu suspendă fila (L4b/L4c).
+  const { t, tp } = useT(categoriesNs)
+  const tc = useT(commonNs)
+  useT(translationsNs)
   const {
     categories,
     loading,
@@ -229,7 +256,8 @@ export default function CategoriesTab({
   // per categorie → descărca TOATE produsele cu select('*') (jsonb greu).
   // Fetch dedicat count-only pe 2 coloane; zero mutații (nu folosea API-ul lor).
   const [prodCounts, setProdCounts] = useState<{ id: string; category_id: string | null }[]>([])
-  const [prodError, setProdError] = useState<string | null>(null)
+  // Eroarea citirii, ca DATĂ (textul se compune la randare).
+  const [prodError, setProdError] = useState<{ err: unknown } | null>(null)
   const refetchProds = useCallback(async () => {
     if (!restaurantId) {
       setProdCounts([])
@@ -240,7 +268,7 @@ export default function CategoriesTab({
       .from('products')
       .select('id, category_id')
       .eq('restaurant_id', restaurantId)
-    if (pe) setProdError(toUserMessage(pe))
+    if (pe) setProdError({ err: pe })
     else setProdCounts((data ?? []) as { id: string; category_id: string | null }[])
   }, [restaurantId])
   useEffect(() => {
@@ -267,7 +295,7 @@ export default function CategoriesTab({
     setReordering(true)
     try {
       const res = await reorder(next)
-      if (res?.error) toast(toUserMessage(res.error, 'Ordinea nu a putut fi salvată.'), 'error')
+      if (res?.error) toast(describeStaffError(res.error, tc, { fallback: t('err_order') }), 'error')
     } finally {
       setReordering(false)
     }
@@ -283,7 +311,8 @@ export default function CategoriesTab({
   if (error || prodError)
     return (
       <QueryError
-        message={error || prodError || 'Eroare necunoscută'}
+        message={error || (prodError ? describeStaffError(prodError.err, tc) : '') || t('unknownError')}
+        retryLabel={tc.t('retry')}
         onRetry={() => {
           refetchCats()
           void refetchProds()
@@ -293,17 +322,17 @@ export default function CategoriesTab({
 
   // Eroarea Supabase vine în `{error}` (supabase-js NU aruncă) — o întoarcem
   // modalului, care o afișează și rămâne deschis. Toast de succes DOAR pe succes.
-  const handleSave = async (form: Partial<Category>): Promise<string | null> => {
+  const handleSave = async (form: Partial<Category>): Promise<SaveFailure | null> => {
     if (!modal) return null
     try {
       const { error: e } =
         modal === 'add' ? await create(form) : await update((modal as Category).id, form)
-      if (e) return toUserMessage(e, 'Categoria nu a putut fi salvată.')
+      if (e) return { err: e }
     } catch (err) {
       // Respingere de transport (rețea căzută) — nu trebuie să rămână nevăzută.
-      return toUserMessage(err, 'Categoria nu a putut fi salvată.')
+      return { err }
     }
-    toast(modal === 'add' ? 'Categorie adăugată' : 'Actualizat')
+    toast(modal === 'add' ? t('toast_added') : t('toast_updated'))
     setModal(null)
     return null
   }
@@ -323,7 +352,7 @@ export default function CategoriesTab({
           .eq('restaurant_id', restaurantId)
           .eq('category_id', delId)
         if (inCat.error) {
-          toast(toUserMessage(inCat.error, 'Produsele nu au putut fi mutate.'), 'error')
+          toast(describeStaffError(inCat.error, tc, { fallback: t('err_move') }), 'error')
           return
         }
         if ((inCat.data ?? []).length > 0) {
@@ -335,7 +364,7 @@ export default function CategoriesTab({
             .select('id')
           const denied = zeroRowsAsDenied(res)
           if (denied) {
-            toast(toUserMessage(denied, 'Produsele nu au putut fi mutate.'), 'error')
+            toast(describeStaffError(denied, tc, { fallback: t('err_move') }), 'error')
             void refetchProds()
             return
           }
@@ -344,12 +373,12 @@ export default function CategoriesTab({
       const { error: e } = await remove(delId)
       // Mesajul hardcodat afirma o cauză FALSĂ (FK-ul e ON DELETE SET NULL —
       // produsele nu blochează ștergerea); afișăm cauza reală.
-      if (e) toast(toUserMessage(e, 'Nu s-a putut șterge categoria.'), 'error')
-      else toast('Ștearsă')
+      if (e) toast(describeStaffError(e, tc, { fallback: t('err_delete') }), 'error')
+      else toast(t('toast_deleted'))
       setDelId(null)
       void refetchProds()
     } catch (err) {
-      toast(toUserMessage(err, 'Nu s-a putut șterge categoria.'), 'error')
+      toast(describeStaffError(err, tc, { fallback: t('err_delete') }), 'error')
     } finally {
       setDeleting(false)
     }
@@ -370,7 +399,7 @@ export default function CategoriesTab({
       >
         <div>
           <p style={{ color: D.t3, fontSize: '0.78rem', marginTop: 3 }}>
-            {categories.length} categorii
+            {tp('count', categories.length)}
           </p>
         </div>
         <button
@@ -385,7 +414,7 @@ export default function CategoriesTab({
           })}
         >
           <Icon name="plus" size={16} />
-          Adaugă categorie
+          {t('add')}
         </button>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -394,15 +423,15 @@ export default function CategoriesTab({
         ) : categories.length === 0 ? (
           <EmptyState
             icon="menu"
-            title="Nicio categorie"
-            description="Adaugă prima categorie ca să-ți organizezi meniul."
+            title={t('empty_title')}
+            description={t('empty_desc')}
             action={
               <button
                 onClick={() => setModal('add')}
                 style={btn({ background: D.gold, color: '#000', gap: 7 })}
               >
                 <Icon name="plus" size={16} />
-                Adaugă categorie
+                {t('add')}
               </button>
             }
           />
@@ -440,12 +469,12 @@ export default function CategoriesTab({
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: '0.9rem', fontWeight: 500, color: D.t1 }}>{cat.name}</div>
                   <div style={{ fontSize: '0.75rem', color: D.t2, marginTop: 2 }}>
-                    {count} produs{count !== 1 ? 'e' : ''}
+                    {tp('productsCount', count)}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button
-                    aria-label="Mută mai sus"
+                    aria-label={t('moveUp')}
                     disabled={reordering}
                     onClick={() => {
                       const idx = categories.indexOf(cat)
@@ -471,7 +500,7 @@ export default function CategoriesTab({
                     ↑
                   </button>
                   <button
-                    aria-label="Mută mai jos"
+                    aria-label={t('moveDown')}
                     disabled={reordering}
                     onClick={() => {
                       const idx = categories.indexOf(cat)
@@ -497,7 +526,7 @@ export default function CategoriesTab({
                     ↓
                   </button>
                   <button
-                    aria-label="Editează categorie"
+                    aria-label={t('editAria')}
                     onClick={() => setModal(cat)}
                     style={{
                       minWidth: 44,
@@ -515,7 +544,7 @@ export default function CategoriesTab({
                     <Icon name="edit" size={16} />
                   </button>
                   <button
-                    aria-label="Șterge categorie"
+                    aria-label={t('deleteAria')}
                     onClick={() => openDelete(cat.id)}
                     style={{
                       minWidth: 44,
@@ -548,22 +577,20 @@ export default function CategoriesTab({
         />
       )}
       {delId && (
-        <Modal title="Șterge categorie" onClose={() => setDelId(null)} width={380}>
+        <Modal title={t('del_title')} onClose={() => setDelId(null)} width={380}>
           {countRefreshing ? (
-            <p style={{ color: D.t2, marginBottom: 22 }}>Verific produsele categoriei…</p>
+            <p style={{ color: D.t2, marginBottom: 22 }}>{t('del_checking')}</p>
           ) : delCount === 0 ? (
-            <p style={{ color: D.t2, marginBottom: 22 }}>Categoria nu are produse.</p>
+            <p style={{ color: D.t2, marginBottom: 22 }}>{t('del_empty')}</p>
           ) : (
             <div style={{ marginBottom: 22 }}>
               <label
                 htmlFor="cat-delete-move"
                 style={{ display: 'block', color: D.t2, fontSize: '0.85rem', marginBottom: 8 }}
               >
-                {delCount === 1
-                  ? 'Mută produsul acestei categorii în:'
-                  : `Mută cele ${delCount} produse ale acestei categorii în:`}
+                {tp('del_move', delCount)}
               </label>
-              <Sel id="cat-delete-move" label="Mută produsele în" value={moveTo} onChange={setMoveTo}>
+              <Sel id="cat-delete-move" label={t('del_moveAria')} value={moveTo} onChange={setMoveTo}>
                 {categories
                   .filter((c) => c.id !== delId)
                   .map((c) => (
@@ -571,11 +598,11 @@ export default function CategoriesTab({
                       {c.emoji} {c.name}
                     </option>
                   ))}
-                <option value="">Nicio categorie (nu vor apărea în meniu)</option>
+                <option value="">{t('del_none')}</option>
               </Sel>
               {moveTo === '' && (
                 <p role="note" style={{ color: D.amber, fontSize: '0.75rem', marginTop: 6 }}>
-                  Fără categorie, produsele nu apar în meniul clienților până nu le alegi una.
+                  {t('del_noneNote')}
                 </p>
               )}
             </div>
@@ -585,7 +612,7 @@ export default function CategoriesTab({
               onClick={() => setDelId(null)}
               style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
             >
-              Anulează
+              {tc.t('cancel')}
             </button>
             <button
               onClick={handleDelete}
@@ -597,7 +624,7 @@ export default function CategoriesTab({
                 opacity: deleting || countRefreshing ? 0.6 : 1,
               })}
             >
-              {deleting ? 'Se șterge…' : 'Șterge'}
+              {deleting ? t('deleting') : tc.t('delete')}
             </button>
           </div>
         </Modal>

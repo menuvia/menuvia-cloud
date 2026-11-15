@@ -6,11 +6,17 @@ import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { confirm as confirmDialog } from './ui/confirm'
 import { Modal } from './_dashboard/sharedUI'
-import { toUserMessage, zeroRowsAsDenied } from '../lib/userMessages'
+import { zeroRowsAsDenied } from '../lib/userMessages'
 import { Button } from './ui/Button'
 import { modifierGroupMin } from '../lib/qr'
 import { MENU_LANGS, activeTranslationLangs, mergeTranslations, type Translations } from '../lib/i18nMenu'
 import { fetchLinkableProducts, fetchModifierGroupLinks, setModifierGroupProducts } from '../lib/modifierLinks'
+import { describeModifierError } from '../lib/modifierMessages'
+import { menuLangName } from '../lib/translationMessages'
+import { useT } from '../i18n/useT'
+import { modifiersNs } from '../i18n/ns/modifiers'
+import { commonNs } from '../i18n/ns/common'
+import { translationsNs } from '../i18n/ns/translations'
 
 interface ModifierOption {
   id: string
@@ -31,6 +37,13 @@ interface ModifierGroup {
   modifier_options: ModifierOption[]
   translations?: Translations | null
 }
+
+// Eroarea ecranului ținută ca DATĂ (lotul L5b): validarea e o cheie, refuzul
+// serverului e eroarea brută + cheia rezervei; textul se compune la RANDARE,
+// în limba curentă — o schimbare de limbă cu eroarea pe ecran o retraduce.
+type ModifiersError =
+  | { kind: 'nameRequired' }
+  | { kind: 'server'; err: unknown; fallback?: 'err_pickSave' | 'err_optionTr'; name?: string }
 
 const btn = (e: React.CSSProperties = {}): React.CSSProperties => ({
   display: 'inline-flex',
@@ -72,6 +85,13 @@ export default function ModifiersTab({
   menuLanguages?: readonly string[]
   baseLang?: string
 }) {
+  // Sus, înaintea oricărui return: dialogurile (grup, „Alege produsele”) și
+  // confirmările folosesc aceleași namespace-uri — inclusiv `translations`,
+  // pentru numele limbilor meniului —, deci nu suspendă fila (L4b/L4c).
+  const mt = useT(modifiersNs)
+  const { t, tp } = mt
+  const tc = useT(commonNs)
+  const trTr = useT(translationsNs)
   const trLangs = activeTranslationLangs(menuLanguages, baseLang)
   // Traducerile din dialogul de grup: numele grupului și ale opțiunilor lui.
   const [gTr, setGTr] = useState<Record<string, string>>({})
@@ -93,7 +113,7 @@ export default function ModifiersTab({
   const draftFor = (groupId: string) => optDraft[groupId] ?? { name: '', price: '0' }
   const setDraftFor = (groupId: string, patch: Partial<{ name: string; price: string }>) =>
     setOptDraft((d) => ({ ...d, [groupId]: { ...draftFor(groupId), ...patch } }))
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<ModifiersError | null>(null)
   // Eroare de ÎNCĂRCARE ≠ „niciun grup": fără ea, un refuz RLS/blip de rețea
   // (supabase-js nu aruncă) randa fals empty state-ul peste date existente.
   const [loadError, setLoadError] = useState(false)
@@ -208,7 +228,7 @@ export default function ModifiersTab({
   async function saveGroup() {
     // Fără return tăcut: click pe „Salvează" cu numele gol arăta un buton „stricat".
     if (!gName.trim()) {
-      setError('Numele e obligatoriu')
+      setError({ kind: 'nameRequired' })
       return
     }
     setSaving(true)
@@ -232,7 +252,7 @@ export default function ModifiersTab({
       })
       // La eroare păstrăm modalul deschis (input-ul userului rămâne pentru corectare).
       if (e) {
-        setError(toUserMessage(e))
+        setError({ kind: 'server', err: e })
         setSaving(false)
         return
       }
@@ -251,7 +271,7 @@ export default function ModifiersTab({
         })
         .eq('id', editGroup.id)
       if (e) {
-        setError(toUserMessage(e))
+        setError({ kind: 'server', err: e })
         setSaving(false)
         return
       }
@@ -262,7 +282,7 @@ export default function ModifiersTab({
             .update({ translations: mergeTranslations(o.translations, oTr[o.id] ?? {}, trLangs, baseLang) })
             .eq('id', o.id)
           if (oe) {
-            setError(toUserMessage(oe, `Traducerea opțiunii „${o.name}” nu a fost salvată.`))
+            setError({ kind: 'server', err: oe, fallback: 'err_optionTr', name: o.name })
             setSaving(false)
             return
           }
@@ -279,13 +299,13 @@ export default function ModifiersTab({
     const nOpts = g?.modifier_options.length ?? 0
     // Ștergere ireversibilă (FK on delete cascade pe opțiuni) — fără confirmare,
     // o atingere greșită pierdea tot grupul; inconsistent cu CategoriesTab.
+    // `cancelLabel` EXPLICIT: implicitul urmează <html lang> (pe rutele de
+    // personal `ro`), nu limba personalului (precedentul L5a2).
     const ok = await confirmDialog({
-      title: `Ștergi grupul „${g?.name ?? ''}"?`,
-      description:
-        nOpts > 0
-          ? `Se șterg definitiv și cele ${nOpts} opțiuni ale lui.`
-          : 'Acțiunea nu poate fi anulată.',
-      confirmLabel: 'Șterge',
+      title: t('del_title', { name: g?.name ?? '' }),
+      description: nOpts === 0 ? t('del_descNone') : tp('del_descOptions', nOpts),
+      confirmLabel: tc.t('delete'),
+      cancelLabel: tc.t('cancel'),
       destructive: true,
     })
     if (!ok) return
@@ -297,7 +317,7 @@ export default function ModifiersTab({
     // Nu mai înghițim tăcut un refuz RLS / eroare de rețea: dacă pică, anunțăm
     // și NU re-încărcăm cu impresia că s-a șters (UI rămânea desincronizat).
     if (e) {
-      setError(toUserMessage(e))
+      setError({ kind: 'server', err: e })
       return
     }
     await load(true)
@@ -324,7 +344,7 @@ export default function ModifiersTab({
       return n
     })
     if (e) {
-      setError(toUserMessage(e))
+      setError({ kind: 'server', err: e })
       return
     }
     setOptDraft((d) => ({ ...d, [groupId]: { name: '', price: '0' } }))
@@ -340,9 +360,10 @@ export default function ModifiersTab({
     const users = g ? (groupProducts[g.id] ?? []).length : 0
     if (current && g && g.is_required && othersAvailable === 0 && users > 0) {
       const ok = await confirmDialog({
-        title: `Nicio opțiune disponibilă în „${g.name}”?`,
-        description: `Grupul e obligatoriu: cele ${users} ${users === 1 ? 'produs care îl folosește nu se va' : 'produse care îl folosesc nu se vor'} mai putea comanda până marchezi din nou o opțiune disponibilă.`,
-        confirmLabel: 'Marchează indisponibil',
+        title: t('lastOff_title', { group: g.name }),
+        description: tp('lastOff_desc', users),
+        confirmLabel: t('opt_markUnavailable'),
+        cancelLabel: tc.t('cancel'),
         destructive: true,
       })
       if (!ok) return
@@ -352,7 +373,7 @@ export default function ModifiersTab({
       .update({ is_available: !current })
       .eq('id', id)
     if (e) {
-      setError(toUserMessage(e))
+      setError({ kind: 'server', err: e })
       return
     }
     await load(true)
@@ -364,7 +385,7 @@ export default function ModifiersTab({
       await supabase.from('modifier_options').delete().eq('id', id).select('id'),
     )
     if (e) {
-      setError(toUserMessage(e))
+      setError({ kind: 'server', err: e })
       return
     }
     await load(true)
@@ -391,11 +412,23 @@ export default function ModifiersTab({
       setPickFor(null)
       await load(true)
     } catch (e) {
-      setError(toUserMessage(e, 'Nu am putut salva produsele grupului.'))
+      setError({ kind: 'server', err: e, fallback: 'err_pickSave' })
     } finally {
       setPickSaving(false)
     }
   }
+
+  const errorText =
+    error == null
+      ? null
+      : error.kind === 'nameRequired'
+        ? t('err_nameRequired')
+        : describeModifierError(
+            error.err,
+            mt,
+            tc,
+            error.fallback ? t(error.fallback, { name: error.name ?? '' }) : undefined,
+          )
 
   const pickVisible = products.filter((p) =>
     p.name.toLowerCase().includes(pickQuery.trim().toLowerCase()),
@@ -405,7 +438,7 @@ export default function ModifiersTab({
     <div>
       {/* Banner de eroare la nivel de listă (operațiile delete/toggle/add se fac
           fără modal deschis, deci eroarea lor n-ar fi vizibilă altfel). */}
-      {error && !editGroup && !pickFor && (
+      {errorText == null || editGroup != null || pickFor != null ? null : (
         <div
           role="alert"
           style={{
@@ -418,7 +451,7 @@ export default function ModifiersTab({
             borderRadius: 8,
           }}
         >
-          {error}
+          {errorText}
         </div>
       )}
       <div
@@ -433,7 +466,7 @@ export default function ModifiersTab({
       >
         <div>
           <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>
-            Grupuri de opțiuni (ex: Extra sos, Mărime)
+            {t('intro')}
           </p>
         </div>
         <button
@@ -441,12 +474,12 @@ export default function ModifiersTab({
           style={btn({ background: D.gold, color: '#000', gap: 7 })}
         >
           <Icon name="plus" size={16} />
-          Grup nou
+          {t('newGroup')}
         </button>
       </div>
 
       {loading ? (
-        <Skeleton variant="card" count={2} />
+        <Skeleton count={2} variant="card" />
       ) : loadError ? (
         <div
           style={{
@@ -458,23 +491,23 @@ export default function ModifiersTab({
             textAlign: 'center',
           }}
         >
-          <div style={{ marginBottom: 12 }}>Nu am putut încărca grupurile de opțiuni.</div>
+          <div style={{ marginBottom: 12 }}>{t('loadError')}</div>
           <button onClick={() => void load()} style={btn({ background: D.gold, color: '#000' })}>
-            Reîncearcă
+            {tc.t('retry')}
           </button>
         </div>
       ) : groups.length === 0 ? (
         <EmptyState
           icon="tag"
-          title="Niciun grup de opțiuni"
-          description="Adaugă primul grup ca să oferi extra-opțiuni la produse (ex: Mărime, Topping-uri)."
+          title={t('empty_title')}
+          description={t('empty_desc')}
           action={
             <button
               onClick={() => openEdit('add')}
               style={btn({ background: D.gold, color: '#000', gap: 7 })}
             >
               <Icon name="plus" size={16} />
-              Grup nou
+              {t('newGroup')}
             </button>
           }
         />
@@ -501,39 +534,34 @@ export default function ModifiersTab({
               <div>
                 <div style={{ fontSize: '0.95rem', fontWeight: 600, color: D.t1 }}>{g.name}</div>
                 <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
-                  {g.selection_type === 'single'
-                    ? 'Selecție unică'
-                    : 'Selecție multiplă'}
+                  {g.selection_type === 'single' ? t('card_single') : t('card_multiple')}
                   {/* Plafonul de selecții e vizibil pe card — altfel patronul trebuia
                       să redeschidă editorul ca să verifice ce aplică serverul la comenzi. */}
-                  {g.max_select != null &&
-                    ` · max ${g.max_select} ${g.max_select === 1 ? 'opțiune' : 'opțiuni'}`}
-                  {g.is_required && (
-                    <span style={{ color: D.gold, marginLeft: 6 }}>Obligatoriu</span>
-                  )}
+                  {g.max_select == null ? null : ` · ${tp('card_max', g.max_select)}`}
+                  {g.is_required ? (
+                    <span style={{ color: D.gold, marginLeft: 6 }}>{t('card_required')}</span>
+                  ) : null}
                 </div>
                 <div
                   style={{
                     fontSize: '0.72rem',
-                    color: (groupProducts[g.id] ?? []).length > 0 ? D.t2 : D.amber,
+                    color: (groupProducts[g.id] ?? []).length === 0 ? D.amber : D.t2,
                     marginTop: 2,
                   }}
                 >
                   {(groupProducts[g.id] ?? []).length === 0
-                    ? 'Nu e folosit de niciun produs — clienții nu îl văd'
-                    : (groupProducts[g.id] ?? []).length === 1
-                      ? 'Folosit de 1 produs'
-                      : `Folosit de ${(groupProducts[g.id] ?? []).length} produse`}
+                    ? t('card_unused')
+                    : tp('card_usedBy', (groupProducts[g.id] ?? []).length)}
                 </div>
-                {modifierGroupMin(g) > g.modifier_options.filter((o) => o.is_available).length && (
+                {g.modifier_options.filter((o) => o.is_available).length < modifierGroupMin(g) ? (
                   <div role="note" style={{ fontSize: '0.72rem', color: D.red, marginTop: 2 }}>
-                    ⚠ Prea puține opțiuni disponibile: produsele cu acest grup nu se pot comanda.
+                    {t('card_tooFew')}
                   </div>
-                )}
+                ) : null}
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 <Button variant="secondary" size="sm" onClick={() => openPicker(g)}>
-                  Alege produsele
+                  {t('card_pick')}
                 </Button>
                 <button
                   onClick={() => openEdit(g)}
@@ -547,10 +575,10 @@ export default function ModifiersTab({
                   })}
                 >
                   <Icon name="edit" size={14} />
-                  Editează
+                  {tc.t('edit')}
                 </button>
                 <button
-                  aria-label="Șterge grup"
+                  aria-label={t('card_deleteAria')}
                   onClick={() => void deleteGroup(g.id)}
                   style={btn({
                     background: D.redA,
@@ -584,19 +612,21 @@ export default function ModifiersTab({
                 <span
                   style={{
                     fontSize: '0.82rem',
-                    color: o.price_delta > 0 ? D.gold : o.price_delta < 0 ? D.green : D.t3,
+                    // `0 < x` = `x > 0` scris invers (fals-pozitivul SK5 pe
+                    // `a > 0 ? … : a < 0 ? …`); orice altă valoare → „Inclus”, ca înainte.
+                    color: 0 < o.price_delta ? D.gold : o.price_delta < 0 ? D.green : D.t3,
                   }}
                 >
-                  {o.price_delta > 0
-                    ? '+' + o.price_delta.toLocaleString('ro-RO') + ' lei'
+                  {0 < o.price_delta
+                    ? t('price_plus', { amount: o.price_delta.toLocaleString('ro-RO') })
                     : o.price_delta < 0
-                      ? '−' + Math.abs(o.price_delta).toLocaleString('ro-RO') + ' lei'
-                      : 'Inclus'}
+                      ? t('price_minus', { amount: Math.abs(o.price_delta).toLocaleString('ro-RO') })
+                      : t('price_included')}
                 </span>
                 <button
                   onClick={() => void toggleOption(o.id, o.is_available)}
-                  aria-label={o.is_available ? 'Marchează indisponibil' : 'Marchează disponibil'}
-                  title={o.is_available ? 'Disponibil' : 'Indisponibil'}
+                  aria-label={o.is_available ? t('opt_markUnavailable') : t('opt_markAvailable')}
+                  title={o.is_available ? t('opt_available') : t('opt_unavailable')}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -612,7 +642,7 @@ export default function ModifiersTab({
                   {o.is_available ? '●' : '○'}
                 </button>
                 <button
-                  aria-label="Șterge opțiune"
+                  aria-label={t('opt_deleteAria')}
                   onClick={() => void deleteOption(o.id)}
                   style={{
                     background: 'none',
@@ -634,16 +664,16 @@ export default function ModifiersTab({
               <input
                 value={draftFor(g.id).name}
                 onChange={(e) => setDraftFor(g.id, { name: e.target.value })}
-                placeholder="Nume opțiune"
-                aria-label={'Nume opțiune nouă pentru grupul ' + g.name}
+                placeholder={t('opt_namePh')}
+                aria-label={t('opt_nameAria', { group: g.name })}
                 style={{ ...inp, flex: '1 1 120px', height: 36, fontSize: '0.82rem' }}
               />
               <input
                 type="number"
                 value={draftFor(g.id).price}
                 onChange={(e) => setDraftFor(g.id, { price: e.target.value })}
-                placeholder="+lei"
-                aria-label={'Preț suplimentar pentru opțiunea nouă din grupul ' + g.name}
+                placeholder={t('opt_pricePh')}
+                aria-label={t('opt_priceAria', { group: g.name })}
                 style={{ ...inp, width: 70, height: 36, fontSize: '0.82rem' }}
               />
               <button
@@ -659,7 +689,7 @@ export default function ModifiersTab({
                 })}
               >
                 <Icon name="plus" size={14} />
-                Adaugă
+                {t('opt_add')}
               </button>
             </div>
           </div>
@@ -667,22 +697,22 @@ export default function ModifiersTab({
       )}
 
       {pickFor != null && (
-        <Modal title={`Produsele cu „${pickFor.name}”`} onClose={() => setPickFor(null)} width={440}>
+        <Modal title={t('pick_title', { group: pickFor.name })} onClose={() => setPickFor(null)} width={440}>
           <div>
             <div style={{ fontSize: '0.78rem', color: D.t2, marginBottom: 10, lineHeight: 1.5 }}>
-              Bifează produsele la care clientul și ospătarul aleg din acest grup.
+              {t('pick_desc')}
             </div>
             <input
               value={pickQuery}
               onChange={(e) => setPickQuery(e.target.value)}
-              placeholder="Caută produs"
-              aria-label="Caută produs"
+              placeholder={t('pick_search')}
+              aria-label={t('pick_search')}
               style={{ ...inp, marginBottom: 10 }}
             />
             <div style={{ maxHeight: 320, overflowY: 'auto', marginBottom: 14 }}>
               {pickVisible.length === 0 ? (
                 <div style={{ fontSize: '0.8rem', color: D.t3, padding: '8px 0' }}>
-                  {products.length === 0 ? 'Nu ai încă produse.' : 'Niciun produs găsit.'}
+                  {products.length === 0 ? t('pick_noProducts') : t('pick_noMatch')}
                 </div>
               ) : (
                 pickVisible.map((p) => (
@@ -716,20 +746,20 @@ export default function ModifiersTab({
                 ))
               )}
             </div>
-            {error && (
+            {errorText == null ? null : (
               <div role="alert" style={{ color: D.red, fontSize: 13, marginBottom: 14 }}>
-                {error}
+                {errorText}
               </div>
             )}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
               <span style={{ fontSize: '0.75rem', color: D.t3, marginRight: 'auto' }}>
-                {picked.size === 1 ? '1 produs ales' : `${picked.size} produse alese`}
+                {tp('pick_count', picked.size)}
               </span>
               <Button variant="secondary" onClick={() => setPickFor(null)}>
-                Anulează
+                {tc.t('cancel')}
               </Button>
               <Button onClick={() => void savePicker()} loading={pickSaving}>
-                Salvează
+                {tc.t('save')}
               </Button>
             </div>
           </div>
@@ -740,7 +770,7 @@ export default function ModifiersTab({
         /* Modal partajat (sharedUI): portal la <body> + scroll-lock + maxHeight 90vh —
            overlay-ul construit manual lăsa pagina să deruleze sub modal pe mobil. */
         <Modal
-          title={editGroup === 'add' ? 'Grup nou' : 'Editează grup'}
+          title={editGroup === 'add' ? t('newGroup') : t('edit_title')}
           onClose={() => setEditGroup(null)}
           width={400}
         >
@@ -749,12 +779,12 @@ export default function ModifiersTab({
               <label
                 style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}
               >
-                Nume *
+                {t('field_name')}
               </label>
               <input
                 value={gName}
                 onChange={(e) => setGName(e.target.value)}
-                placeholder="Extra topping"
+                placeholder={t('field_namePh')}
                 style={inp}
               />
             </div>
@@ -762,29 +792,27 @@ export default function ModifiersTab({
               <label
                 style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}
               >
-                Tip selecție
+                {t('field_type')}
               </label>
               <div style={{ display: 'flex', gap: 8 }}>
-                {(['single', 'multiple'] as const).map((t) => (
+                {(['single', 'multiple'] as const).map((kind) => (
                   <button
-                    key={t}
-                    onClick={() => setGType(t)}
+                    key={kind}
+                    onClick={() => setGType(kind)}
                     style={btn({
                       flex: 1,
-                      background: gType === t ? D.goldA : D.s3,
-                      color: gType === t ? D.gold : D.t2,
-                      border: `1px solid ${gType === t ? D.gold : D.border}`,
+                      background: gType === kind ? D.goldA : D.s3,
+                      color: gType === kind ? D.gold : D.t2,
+                      border: `1px solid ${gType === kind ? D.gold : D.border}`,
                       height: 36,
                     })}
                   >
-                    {t === 'single' ? 'O singură opțiune' : 'Mai multe opțiuni'}
+                    {kind === 'single' ? t('type_single') : t('type_multiple')}
                   </button>
                 ))}
               </div>
               <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 5 }}>
-                {gType === 'single'
-                  ? 'Ex: "Mărime" — client alege Mică SAU Medie SAU Mare'
-                  : 'Ex: "Topping-uri" — client poate alege mai multe deodată'}
+                {gType === 'single' ? t('type_singleHint') : t('type_multipleHint')}
               </div>
             </div>
             {gType === 'multiple' && (
@@ -792,18 +820,18 @@ export default function ModifiersTab({
                 <label
                   style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}
                 >
-                  Număr maxim de opțiuni
+                  {t('field_max')}
                 </label>
                 <input
                   type="number"
                   min={1}
                   value={gMaxSelect}
                   onChange={(e) => setGMaxSelect(e.target.value)}
-                  placeholder="Nelimitat"
+                  placeholder={t('field_maxPh')}
                   style={inp}
                 />
                 <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 5 }}>
-                  Câte opțiuni poate bifa clientul. Lasă gol pentru nelimitat.
+                  {t('field_maxHint')}
                 </div>
               </div>
             )}
@@ -811,7 +839,7 @@ export default function ModifiersTab({
               <label
                 style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}
               >
-                Trebuie clientul să aleagă?
+                {t('field_required')}
               </label>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button
@@ -824,7 +852,7 @@ export default function ModifiersTab({
                     height: 36,
                   })}
                 >
-                  Da, obligatoriu
+                  {t('req_yes')}
                 </button>
                 <button
                   onClick={() => setGRequired(false)}
@@ -836,23 +864,21 @@ export default function ModifiersTab({
                     height: 36,
                   })}
                 >
-                  Nu, opțional
+                  {t('req_no')}
                 </button>
               </div>
               <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 5 }}>
-                {gRequired
-                  ? 'Clientul nu poate adăuga produsul în coș fără să aleagă ceva'
-                  : 'Clientul poate sări peste această secțiune'}
+                {gRequired ? t('req_yesHint') : t('req_noHint')}
               </div>
             </div>
             {/* Traduceri (lotul O6b): numele grupului și al opțiunilor, în
                 limbile active ale meniului — altfel un oaspete englez vedea
                 „Mărime” și „Mare” în română pe un meniu tradus. */}
-            {editGroup !== 'add' && editGroup != null && trLangs.length > 0 && (
+            {editGroup === 'add' || editGroup == null || trLangs.length === 0 ? null : (
               <div style={{ marginBottom: 18 }}>
-                <div style={{ fontSize: '0.78rem', color: D.t2, marginBottom: 8 }}>Traduceri</div>
+                <div style={{ fontSize: '0.78rem', color: D.t2, marginBottom: 8 }}>{t('tr_title')}</div>
                 {[
-                  { id: '__group__', label: gName || 'Grup' },
+                  { id: '__group__', label: gName || t('tr_groupFallback') },
                   ...editGroup.modifier_options.map((o) => ({ id: o.id, label: o.name })),
                 ].map((row) => (
                   <div key={row.id} style={{ marginBottom: 10 }}>
@@ -860,13 +886,17 @@ export default function ModifiersTab({
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                       {trLangs.map((l) => {
                         const meta = MENU_LANGS.find((x) => x.code === l)
+                        // Numele limbii meniului (lotul L5b): în română EXACT
+                        // `MENU_LANGS[].label` de dinainte (LX7); un cod
+                        // necunoscut rămâne codul, ca înainte.
+                        const langName = menuLangName(l, trTr, l)
                         const value = row.id === '__group__' ? (gTr[l] ?? '') : (oTr[row.id]?.[l] ?? '')
                         return (
                           <input
                             key={l}
                             value={value}
-                            placeholder={`${meta?.flag ?? ''} ${meta?.label ?? l}`}
-                            aria-label={`${row.label} — ${meta?.label ?? l}`}
+                            placeholder={`${meta?.flag ?? ''} ${langName}`}
+                            aria-label={`${row.label} — ${langName}`}
                             onChange={(e) => {
                               const v = e.target.value
                               setTrDirty(true)
@@ -883,20 +913,22 @@ export default function ModifiersTab({
                 ))}
               </div>
             )}
-            {error && <div style={{ color: D.red, fontSize: 13, marginBottom: 14 }}>{error}</div>}
+            {errorText == null ? null : (
+              <div style={{ color: D.red, fontSize: 13, marginBottom: 14 }}>{errorText}</div>
+            )}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button
                 onClick={() => setEditGroup(null)}
                 style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
               >
-                Anulează
+                {tc.t('cancel')}
               </button>
               <button
                 onClick={() => void saveGroup()}
                 disabled={saving}
                 style={btn({ background: D.gold, color: '#000', opacity: saving ? 0.7 : 1 })}
               >
-                {saving ? 'Se salvează...' : 'Salvează'}
+                {saving ? t('saving') : tc.t('save')}
               </button>
             </div>
           </div>

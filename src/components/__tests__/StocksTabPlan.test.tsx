@@ -47,6 +47,10 @@ vi.mock('../../lib/stocks', () => ({
   createPurchaseOrder: vi.fn(),
   fetchProductProfitability: async () => [],
   formatStock: (n: number, u: string) => `${n} ${u}`,
+  // Variantele traduse (lotul L5b) — StocksTab le folosește pe ele.
+  formatStockT: (n: number, u: string) => `${n} ${u}`,
+  unitSymbolT: (u: string) => u,
+  MANUAL_ADJUST_NOTE: 'Ajustare manuală',
 }))
 vi.mock('../../lib/vat', () => ({
   fetchVatRates: async () => {

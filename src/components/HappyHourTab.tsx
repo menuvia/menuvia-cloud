@@ -20,13 +20,23 @@ import {
   updateHappyHourRule,
   deleteHappyHourRule,
   evaluateHappyHourForNow,
-  DAY_LABELS,
   type HappyHourRule,
   type ActiveRule,
 } from '../lib/happyHour'
 import { supabase } from '../lib/supabase'
 import { usePollWhileVisible } from '../hooks/usePollWhileVisible'
-import { toUserMessage } from '../lib/userMessages'
+import { dayLabel, dayLabels } from '../lib/happyHourDays'
+import { useT } from '../i18n/useT'
+import { promotionsNs } from '../i18n/ns/promotions'
+import { commonNs } from '../i18n/ns/common'
+import { describeStaffError } from '../i18n/staffErrors'
+import { fillNodes } from '../i18n/fillNodes'
+import type { StringKey } from '../i18n/core'
+import type promotionsRo from '../i18n/ns/promotions/ro'
+
+// Erorile ținute ca DATE (lotul L5b): validarea editorului e o cheie, refuzul
+// serverului e eroarea brută; textul se compune la RANDARE, în limba curentă.
+type EditorError = { kind: 'invalid'; key: StringKey<typeof promotionsRo> } | { kind: 'server'; err: unknown }
 
 interface Props {
   restaurantId: string
@@ -95,12 +105,16 @@ const btn = (extra: React.CSSProperties = {}): React.CSSProperties => ({
 
 // ── Main ──────────────────────────────────────────────────────
 export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
+  // Sus, înaintea returnului de încărcare: cardurile, editorul și confirmarea
+  // folosesc aceleași namespace-uri, deci nu suspendă fila (L4b/L4c).
+  const { t, tp } = useT(promotionsNs)
+  const tc = useT(commonNs)
   const [rules, setRules] = useState<HappyHourRule[]>([])
   const [active, setActive] = useState<ActiveRule[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
-  const [err, setErr] = useState<string | null>(null)
+  const [err, setErr] = useState<{ err: unknown } | null>(null)
   const [editing, setEditing] = useState<HappyHourRule | 'new' | null>(null)
   const [delId, setDelId] = useState<string | null>(null)
 
@@ -128,7 +142,7 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
       setCategories((cats.data ?? []) as Category[])
       setProducts((prods.data ?? []) as Product[])
     } catch (e) {
-      setErr(toUserMessage(e))
+      setErr({ err: e })
     } finally {
       setLoading(false)
     }
@@ -168,7 +182,7 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
       setDelId(null)
       void load()
     } catch (e) {
-      setErr(toUserMessage(e))
+      setErr({ err: e })
     }
   }
 
@@ -177,12 +191,12 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
       await updateHappyHourRule(rule.id, { is_active: !rule.is_active })
       void load()
     } catch (e) {
-      setErr(toUserMessage(e))
+      setErr({ err: e })
     }
   }
 
   if (loading && rules.length === 0) {
-    return <InlineSpinner label="Se încarcă regulile..." />
+    return <InlineSpinner label={t('loading')} />
   }
 
   return (
@@ -199,9 +213,7 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
       >
         <div>
           <div style={{ fontSize: '0.86rem', color: D.t2, marginTop: 4, maxWidth: 600 }}>
-            {payAtTable
-              ? 'Reguli automate de reducere pe interval orar și zilele săptămânii. Ospătarul va vedea un buton „Aplică Happy Hour” la plată dacă există regulă activă.'
-              : 'Reguli automate de reducere pe interval orar și zilele săptămânii. Reducerea se aplică singură comenzilor din meniul QR și celor pentru ridicare, cât timp regula e activă.'}
+            {payAtTable ? t('intro_payAtTable') : t('intro_auto')}
           </div>
         </div>
         <button
@@ -209,11 +221,11 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
           style={btn({ background: D.gold, color: '#000', height: 40 })}
         >
           <Icon name="plus" size={16} />
-          Regulă nouă
+          {t('newRule')}
         </button>
       </div>
 
-      {err && (
+      {err == null ? null : (
         <div
           style={{
             ...card,
@@ -223,10 +235,10 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
             marginBottom: 16,
           }}
         >
-          {err}
+          {describeStaffError(err.err, tc)}
           <button
             onClick={() => setErr(null)}
-            aria-label="Închide eroarea"
+            aria-label={t('closeError')}
             style={{
               float: 'right',
               background: 'transparent',
@@ -246,7 +258,7 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
       )}
 
       {/* Active right now banner */}
-      {active.length > 0 && (
+      {active.length === 0 ? null : (
         <div
           style={{
             ...card,
@@ -267,7 +279,7 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
             }}
           >
             <Icon name="sparkle" size={15} />
-            {active.length === 1 ? 'ACTIVĂ ACUM' : `ACTIVE ACUM (${active.length})`}
+            {tp('activeNow', active.length)}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {active.map((r) => (
@@ -282,8 +294,10 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
                   border: `1px solid ${D.gold}`,
                 }}
               >
-                <strong>{r.name}</strong> · {r.discount_value}
-                {r.discount_type === 'percent' ? '%' : ' lei'}
+                <strong>{r.name}</strong> ·{' '}
+                {r.discount_type === 'percent'
+                  ? t('value_pct', { value: r.discount_value })
+                  : t('value_amount', { value: r.discount_value })}
               </span>
             ))}
           </div>
@@ -294,19 +308,15 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
       {rules.length === 0 ? (
         <EmptyState
           icon="percent"
-          title="Nicio regulă încă"
-          description={
-            payAtTable
-              ? 'Creează prima regulă (ex: "Happy Hour 17-19, -20% pe tot") și sistemul va sugera automat reducerea la plată în acest interval.'
-              : 'Creează prima regulă (ex: "Happy Hour 17-19, -20% pe tot") și reducerea se aplică singură comenzilor din meniu în acest interval.'
-          }
+          title={t('empty_title')}
+          description={payAtTable ? t('empty_payAtTable') : t('empty_auto')}
           action={
             <button
               onClick={() => setEditing('new')}
               style={btn({ background: D.gold, color: '#000', height: 40 })}
             >
               <Icon name="plus" size={16} />
-              Prima regulă
+              {t('firstRule')}
             </button>
           }
         />
@@ -363,16 +373,18 @@ function RuleCard({
   onDelete: () => void
   onToggle: () => void
 }) {
+  const { t } = useT(promotionsNs)
+  const tc = useT(commonNs)
   const cat = categories.find((c) => c.id === rule.category_id)
   const prod = products.find((p) => p.id === rule.product_id)
   const days =
     rule.days_of_week.length === 0
-      ? 'Toate zilele'
-      : rule.days_of_week.map((d) => DAY_LABELS[d - 1] ?? '?').join(' ')
+      ? t('days_all')
+      : rule.days_of_week.map((d) => dayLabel(d, { t })).join(' ')
   const scope =
     rule.scope === 'all' ? (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-        <Icon name="tag" size={13} /> Pe tot
+        <Icon name="tag" size={13} /> {t('scope_all')}
       </span>
     ) : rule.scope === 'category' ? (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -427,7 +439,7 @@ function RuleCard({
                   fontWeight: 600,
                 }}
               >
-                ACTIVĂ
+                {t('status_active')}
               </span>
             ) : (
               <span
@@ -440,7 +452,7 @@ function RuleCard({
                   fontWeight: 600,
                 }}
               >
-                OPRITĂ
+                {t('status_off')}
               </span>
             )}
           </div>
@@ -461,9 +473,12 @@ function RuleCard({
             </span>
             <span>{scope}</span>
             <span style={{ color: D.gold, fontWeight: 600 }}>
-              −{rule.discount_value}
-              {rule.discount_type === 'percent' ? '%' : ' lei'}
-              {rule.max_discount != null && rule.max_discount > 0 && ` (max ${rule.max_discount} lei)`}
+              {rule.discount_type === 'percent'
+                ? t('card_offPct', { value: rule.discount_value })
+                : t('card_offAmount', { value: rule.discount_value })}
+              {rule.max_discount == null || !(rule.max_discount > 0)
+                ? null
+                : ` ${t('card_cap', { amount: rule.max_discount })}`}
             </span>
           </div>
         </div>
@@ -479,7 +494,7 @@ function RuleCard({
               fontSize: '0.78rem',
             })}
           >
-            {rule.is_active ? 'Oprește' : 'Pornește'}
+            {rule.is_active ? t('stop') : t('start')}
           </button>
           <button
             onClick={onEdit}
@@ -492,11 +507,11 @@ function RuleCard({
               fontSize: '0.78rem',
             })}
           >
-            Editează
+            {tc.t('edit')}
           </button>
           <button
             onClick={onDelete}
-            aria-label={`Șterge regula ${rule.name}`}
+            aria-label={t('deleteAria', { name: rule.name })}
             style={btn({
               background: 'transparent',
               color: D.red,
@@ -529,6 +544,8 @@ function RuleEditor({
   onClose: () => void
   onSave: (r: Omit<HappyHourRule, 'id' | 'restaurant_id' | 'created_at' | 'updated_at'>) => Promise<void>
 }) {
+  const { t } = useT(promotionsNs)
+  const tc = useT(commonNs)
   const [name, setName] = useState(rule?.name ?? '')
   const [startsAt, setStartsAt] = useState(rule?.starts_at?.slice(0, 5) ?? '17:00')
   const [endsAt, setEndsAt] = useState(rule?.ends_at?.slice(0, 5) ?? '19:00')
@@ -544,7 +561,7 @@ function RuleEditor({
     rule?.max_discount != null ? String(rule.max_discount) : '',
   )
   const [isActive, setIsActive] = useState(rule?.is_active ?? true)
-  const [err, setErr] = useState<string | null>(null)
+  const [err, setErr] = useState<EditorError | null>(null)
   const isMobile = useIsMobile()
 
   function toggleDay(d: number) {
@@ -554,23 +571,23 @@ function RuleEditor({
   function go() {
     const dv = Number(discountValue.replace(',', '.'))
     if (!name.trim()) {
-      setErr('Numele e obligatoriu')
+      setErr({ kind: 'invalid', key: 'err_name' })
       return
     }
     if (isNaN(dv) || dv <= 0) {
-      setErr('Valoarea reducerii trebuie să fie pozitivă')
+      setErr({ kind: 'invalid', key: 'err_value' })
       return
     }
     if (discountType === 'percent' && dv > 100) {
-      setErr('Procent max 100')
+      setErr({ kind: 'invalid', key: 'err_pctMax' })
       return
     }
     if (scope === 'category' && !categoryId) {
-      setErr('Selectează o categorie')
+      setErr({ kind: 'invalid', key: 'err_category' })
       return
     }
     if (scope === 'product' && !productId) {
-      setErr('Selectează un produs')
+      setErr({ kind: 'invalid', key: 'err_product' })
       return
     }
     setErr(null)
@@ -585,9 +602,9 @@ function RuleEditor({
       product_id: scope === 'product' ? productId : null,
       discount_type: discountType,
       discount_value: dv,
-      max_discount: maxDiscount.trim().length > 0 ? Number(maxDiscount.replace(',', '.')) : null,
+      max_discount: maxDiscount.trim().length === 0 ? null : Number(maxDiscount.replace(',', '.')),
     }).catch((e: unknown) => {
-      setErr(toUserMessage(e, 'Eroare la salvare'))
+      setErr({ kind: 'server', err: e })
     })
   }
 
@@ -627,25 +644,25 @@ function RuleEditor({
             marginBottom: 16,
           }}
         >
-          {rule ? 'Editare regulă' : 'Regulă nouă'}
+          {rule ? t('edit_title') : t('newRule')}
         </h2>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <div style={lbl}>Nume *</div>
+            <div style={lbl}>{t('field_name')}</div>
             <input
+              autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
               style={inp}
-              placeholder="ex: Happy Hour 17-19"
+              placeholder={t('field_namePh')}
               maxLength={80}
-              autoFocus
             />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
             <div>
-              <div style={lbl}>De la</div>
+              <div style={lbl}>{t('field_from')}</div>
               <input
                 type="time"
                 value={startsAt}
@@ -654,7 +671,7 @@ function RuleEditor({
               />
             </div>
             <div>
-              <div style={lbl}>Până la</div>
+              <div style={lbl}>{t('field_to')}</div>
               <input
                 type="time"
                 value={endsAt}
@@ -665,9 +682,9 @@ function RuleEditor({
           </div>
 
           <div>
-            <div style={lbl}>Zilele săptămânii (gol = toate)</div>
+            <div style={lbl}>{t('field_days')}</div>
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-              {DAY_LABELS.map((lab, i) => {
+              {dayLabels({ t }).map((lab, i) => {
                 const d = i + 1
                 const on = days.includes(d)
                 return (
@@ -689,7 +706,7 @@ function RuleEditor({
                   </button>
                 )
               })}
-              {days.length > 0 && (
+              {days.length === 0 ? null : (
                 <button
                   type="button"
                   onClick={() => setDays([])}
@@ -701,14 +718,14 @@ function RuleEditor({
                     padding: '0 10px',
                   })}
                 >
-                  Resetează
+                  {t('days_reset')}
                 </button>
               )}
             </div>
           </div>
 
           <div>
-            <div style={lbl}>Aplicare</div>
+            <div style={lbl}>{t('field_scope')}</div>
             <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
               {(['all', 'category', 'product'] as const).map((s) => (
                 <button
@@ -728,7 +745,7 @@ function RuleEditor({
                     name={s === 'all' ? 'tag' : s === 'category' ? 'box' : 'utensils'}
                     size={14}
                   />
-                  {s === 'all' ? 'Pe tot' : s === 'category' ? 'Categorie' : 'Produs'}
+                  {s === 'all' ? t('scope_all') : s === 'category' ? t('scope_category') : t('scope_product')}
                 </button>
               ))}
             </div>
@@ -738,7 +755,7 @@ function RuleEditor({
                 onChange={(e) => setCategoryId(e.target.value)}
                 style={inp}
               >
-                <option value="">— Selectează categorie —</option>
+                <option value="">{t('pick_category')}</option>
                 {categories.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.emoji} {c.name}
@@ -748,7 +765,7 @@ function RuleEditor({
             )}
             {scope === 'product' && (
               <select value={productId} onChange={(e) => setProductId(e.target.value)} style={inp}>
-                <option value="">— Selectează produs —</option>
+                <option value="">{t('pick_product')}</option>
                 {products.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.emoji} {p.name}
@@ -759,7 +776,7 @@ function RuleEditor({
           </div>
 
           <div>
-            <div style={lbl}>Reducere</div>
+            <div style={lbl}>{t('field_discount')}</div>
             <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
               <button
                 type="button"
@@ -772,7 +789,7 @@ function RuleEditor({
                   fontSize: '0.82rem',
                 })}
               >
-                Procent (%)
+                {t('type_pct')}
               </button>
               <button
                 type="button"
@@ -788,7 +805,7 @@ function RuleEditor({
                   fontSize: '0.82rem',
                 })}
               >
-                Sumă fixă (lei)
+                {t('type_amount')}
               </button>
             </div>
             <div
@@ -800,7 +817,7 @@ function RuleEditor({
               }}
             >
               <div>
-                <div style={lbl}>Valoare</div>
+                <div style={lbl}>{t('field_value')}</div>
                 <input
                   type="number"
                   step="0.5"
@@ -809,12 +826,12 @@ function RuleEditor({
                   onChange={(e) => setDiscountValue(e.target.value)}
                   style={inp}
                   placeholder={discountType === 'percent' ? '20' : '50'}
-                  aria-label="Valoarea reducerii"
+                  aria-label={t('field_valueAria')}
                 />
               </div>
               {discountType === 'percent' && (
                 <div>
-                  <div style={lbl}>Plafon maxim (lei, opțional)</div>
+                  <div style={lbl}>{t('field_cap')}</div>
                   <input
                     type="number"
                     step="0.5"
@@ -822,8 +839,8 @@ function RuleEditor({
                     value={maxDiscount}
                     onChange={(e) => setMaxDiscount(e.target.value)}
                     style={inp}
-                    placeholder="Max lei (opțional)"
-                    aria-label="Plafon maxim în lei, opțional"
+                    placeholder={t('field_capPh')}
+                    aria-label={t('field_capAria')}
                   />
                 </div>
               )}
@@ -845,10 +862,10 @@ function RuleEditor({
               checked={isActive}
               onChange={(e) => setIsActive(e.target.checked)}
             />
-            <span>Regulă activă imediat</span>
+            <span>{t('field_active')}</span>
           </label>
 
-          {err && (
+          {err == null ? null : (
             <div
               style={{
                 padding: 10,
@@ -858,7 +875,9 @@ function RuleEditor({
                 fontSize: '0.86rem',
               }}
             >
-              {err}
+              {err.kind === 'invalid'
+                ? t(err.key)
+                : describeStaffError(err.err, tc, { fallback: t('err_save') })}
             </div>
           )}
 
@@ -867,10 +886,10 @@ function RuleEditor({
               onClick={onClose}
               style={btn({ background: D.s2, color: D.t2, border: `1px solid ${D.border}` })}
             >
-              Anulează
+              {tc.t('cancel')}
             </button>
             <button onClick={go} style={btn({ background: D.gold, color: '#000' })}>
-              {rule ? 'Salvează modificări' : 'Creează regulă'}
+              {rule ? t('saveChanges') : t('create')}
             </button>
           </div>
         </div>
@@ -889,6 +908,8 @@ function ConfirmDelete({
   onCancel: () => void
   onConfirm: () => void
 }) {
+  const { t } = useT(promotionsNs)
+  const tc = useT(commonNs)
   return (
     <div
       onClick={onCancel}
@@ -921,20 +942,20 @@ function ConfirmDelete({
             marginBottom: 10,
           }}
         >
-          Ștergi regula?
+          {t('del_title')}
         </h3>
         <p style={{ color: D.t2, fontSize: '0.88rem', marginBottom: 18 }}>
-          Vrei să ștergi <strong style={{ color: D.t1 }}>{name}</strong>? Acțiunea e ireversibilă.
+          {fillNodes(t('del_question'), { name: <strong style={{ color: D.t1 }}>{name}</strong> })}
         </p>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button
             onClick={onCancel}
             style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
           >
-            Anulează
+            {tc.t('cancel')}
           </button>
           <button onClick={onConfirm} style={btn({ background: D.red, color: '#fff' })}>
-            Șterge
+            {tc.t('delete')}
           </button>
         </div>
       </div>
