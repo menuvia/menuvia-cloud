@@ -470,6 +470,14 @@ begin
   where r.id = p_restaurant_id;
 
   if v_limit is not null then
+    -- Fusul NU se poate schimba între numărătoare și ștampilă (recenzie
+    -- CodeRabbit pe #376): sub READ COMMITTED, trigger-ul de ștampilă citește
+    -- fusul într-o instrucțiune NOUĂ, deci o schimbare comisă între ele ar
+    -- ștampila rândul într-o lună al cărei plafon nu s-a verificat — repetat,
+    -- o lună se umple în timp ce luna verificată rămâne la zero. FOR SHARE
+    -- face UPDATE-ul concurent pe restaurant să aștepte COMMIT-ul nostru (FK-ul
+    -- inserției ia deja KEY SHARE pe același rând); doar pe ramura cu plafon.
+    perform 1 from public.restaurants r where r.id = p_restaurant_id for share;
     v_month := public._restaurant_month(p_restaurant_id, now());
     select count(*) into v_used
     from public.sms_queue
@@ -707,9 +715,12 @@ begin
   if position('is_module_enabled' in v_src) = 0 or position('restaurant_has_feature' in v_src) = 0
      or position('fn_sms_normalize_ro_phone' in v_src) = 0
      or position('on conflict (dedup_key) do nothing' in v_src) = 0
+     or position('where r.id = p_restaurant_id for share;' in v_src) = 0
+     -- lacătul ÎNAINTEA calculului lunii (după el, cursa rămâne deschisă)
+     or position('for share;' in v_src) > position('v_month := public._restaurant_month(' in v_src)
      or position($q$status <> 'cancelled'$q$ in v_src) = 0
      or v_src ~* '\mraise\M' then
-    raise exception 'mig 324: enqueue_sms a pierdut un invariant 228 (gate-uri / dedup / zero raise)';
+    raise exception 'mig 324: enqueue_sms a pierdut un invariant 228 (gate-uri / dedup / zero raise) sau lacătul pe fus';
   end if;
   select prosrc into v_src from pg_proc where oid = 'public.get_sms_usage(uuid)'::regprocedure;
   if position('public.is_admin(p_restaurant_id)' in v_src) = 0
