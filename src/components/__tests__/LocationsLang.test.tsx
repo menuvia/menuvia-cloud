@@ -49,6 +49,7 @@ vi.mock('../../lib/locations', async (importOriginal) => ({
 import LocationsTab from '../LocationsTab'
 import AddLocationCard from '../AddLocationCard'
 import { MSG_LOCATION_LIMIT } from '../../lib/locations'
+import { toUserMessage } from '../../lib/userMessages'
 import { preloadNamespace, type Dict } from '../../i18n/core'
 import { locationsNs } from '../../i18n/ns/locations'
 import { settingsCardsNs } from '../../i18n/ns/settingsCards'
@@ -212,8 +213,14 @@ describe('Toate locațiile în limba personalului', () => {
   })
 
   it('LN3: refuzul serverului — în română mesajul lui, în engleză/germană fără el', async () => {
-    const SERVER = 'Rezumatul a fost refuzat de politica restaurantului.'
+    // Cu diacritice: `isRomanianText` (lib/userMessages) clasează un text FĂRĂ
+    // diacritice după cuvinte, iar „a” numără ca engleză — prima variantă a
+    // fixturii („Rezumatul a fost refuzat…”) ieșea „necunoscut” și trecea pe
+    // rezervă, deci aserțiunea nu exersa ramura „mesajul serverului”.
+    const SERVER = 'Rezumatul locațiilor a fost refuzat de politica restaurantului.'
     m.fetch.mockRejectedValue(new Error(SERVER))
+    // Oracolul: exact ce dădea `toUserMessage` înainte de L6b, și chiar textul serverului.
+    expect(toUserMessage(new Error(SERVER), 'Nu am putut încărca locațiile. Reîncearcă.')).toBe(SERVER)
     const ro = inLang(null, tab())
     expect(await screen.findByRole('alert')).toHaveTextContent(SERVER)
     expect(screen.getByRole('button', { name: 'Reîncearcă' })).toBeInTheDocument()
