@@ -2,13 +2,20 @@
 // LoyaltySettingsCard: gate-ul REAL e server-side (plan_features +
 // modulul `sms_notifications` + plafonul lunar, toate în enqueue_sms);
 // aici doar UX-ul: toggle + contorul lunar din get_sms_usage.
+// Limba (lotul L6b): textele vin din `settingsCards` (același chunk cu fila
+// Setări); erorile prin `describeStaffError` (în română exact `toUserMessage`).
+// SMS-urile TRIMISE oaspeților nu sunt aici (L8).
 import { useEffect, useState } from 'react'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { Toggle, AutoSaveHint } from './_dashboard/sharedUI'
 import { Icon } from './ui/Icon'
 import type { useRestaurantModules } from '../hooks/useRestaurantModules'
-import { toUserMessage } from '../lib/userMessages'
+import { useT } from '../i18n/useT'
+import { describeStaffError } from '../i18n/staffErrors'
+import { settingsCardsNs } from '../i18n/ns/settingsCards'
+import { commonNs } from '../i18n/ns/common'
+import { fillNodes } from '../i18n/fillNodes'
 
 interface Props {
   restaurantId: string
@@ -25,6 +32,8 @@ interface SmsUsage {
 }
 
 export default function SmsNotificationsCard({ restaurantId, plan, modulesState, toast }: Props) {
+  const tr = useT(settingsCardsNs)
+  const tc = useT(commonNs)
   // `planTier(plan) >= 1` era mereu adevărat (tier-ul e 1–3), deci condiția
   // reală a fost dintotdeauna „nu e free" — oglinda `sms_notifications` din
   // plan_features (starter+). Din lotul P, SettingsTab montează cardul doar pe
@@ -60,14 +69,13 @@ export default function SmsNotificationsCard({ restaurantId, plan, modulesState,
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
         <Icon name="bell" size={16} color={D.gold} />
         <span style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1 }}>
-          Notificări SMS către clienți
+          {tr.t('sms_title')}
         </span>
         {/* Comutatorul scrie imediat (setModule) — fără „Salvează" (lotul R2). */}
         {eligible && <AutoSaveHint />}
       </div>
       <div style={{ fontSize: '0.75rem', color: D.t2, lineHeight: 1.6, marginBottom: 14 }}>
-        Clientul primește SMS la confirmarea rezervării și când comanda de ridicare e gata.
-        Doar numere de mobil românești; mesajele sunt strict tranzacționale (fără marketing).
+        {tr.t('sms_desc')}
       </div>
 
       {!eligible ? (
@@ -80,7 +88,7 @@ export default function SmsNotificationsCard({ restaurantId, plan, modulesState,
             color: D.t2,
           }}
         >
-          Disponibil pe planurile plătite — fiecare plan include un număr de SMS-uri pe lună.
+          {tr.t('sms_locked')}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -94,22 +102,21 @@ export default function SmsNotificationsCard({ restaurantId, plan, modulesState,
           >
             <div>
               <div style={{ fontSize: '0.82rem', fontWeight: 600, color: D.t1 }}>
-                Activează SMS-urile
+                {tr.t('sms_enableTitle')}
               </div>
               <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
-                Confirmare rezervare + „comanda e gata" la ridicare. Se opresc automat când
-                atingi plafonul lunar al planului.
+                {tr.t('sms_enableDesc')}
               </div>
             </div>
             <Toggle
-              label="SMS-uri către clienți"
+              label={tr.t('sms_toggle')}
               value={enabled}
               onChange={(v) => {
                 modulesState
                   .setModule('sms_notifications', v)
-                  .then(() => toast(v ? 'SMS-urile au fost activate' : 'SMS-urile au fost dezactivate'))
-                  .catch((err) =>
-                    toast(toUserMessage(err, 'Eroare la salvare'), 'error'),
+                  .then(() => toast(tr.t(v ? 'sms_enabled' : 'sms_disabled')))
+                  .catch((err: unknown) =>
+                    toast(describeStaffError(err, tc, { fallback: tr.t('err_save') }), 'error'),
                   )
               }}
             />
@@ -130,13 +137,17 @@ export default function SmsNotificationsCard({ restaurantId, plan, modulesState,
             >
               <Icon name="chart" size={14} color={D.t2} />
               <span>
-                Luna aceasta:{' '}
-                <strong style={{ color: D.t1 }}>
-                  {usage.used}
-                  {usage.cap != null ? ` / ${usage.cap}` : ''} SMS
-                </strong>
+                {fillNodes(tr.t('sms_usage'), {
+                  count: (
+                    <strong style={{ color: D.t1 }}>
+                      {usage.cap != null
+                        ? tr.t('sms_usageCap', { used: usage.used, cap: usage.cap })
+                        : tr.t('sms_usageNoCap', { used: usage.used })}
+                    </strong>
+                  ),
+                })}
                 {usage.cap != null && usage.used >= usage.cap && (
-                  <span style={{ color: D.amber }}> — plafon atins; reia luna viitoare</span>
+                  <span style={{ color: D.amber }}> {tr.t('sms_capReached')}</span>
                 )}
               </span>
             </div>
