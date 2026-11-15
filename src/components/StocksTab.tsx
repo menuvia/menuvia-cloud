@@ -49,7 +49,7 @@ import type {
   ProductProfitability,
 } from '../lib/stocks'
 import Autocomplete from './Autocomplete'
-import { stockFormErrorText, vatGroupLabel, type StockFormError } from '../lib/stockMessages'
+import { nirDateLabel, stockFormErrorText, vatGroupLabel, type StockFormError } from '../lib/stockMessages'
 import { useT } from '../i18n/useT'
 import { stocksNs } from '../i18n/ns/stocks'
 import { commonNs } from '../i18n/ns/common'
@@ -1476,8 +1476,9 @@ function PurchasesSection({
                     {supplier?.name ?? '—'} ·{' '}
                     {/* invoice_date vine ISO (YYYY-MM-DD) — formatăm la fel ca fallback-ul,
                         altfel lista amestecă două formate de dată. Locale-ul personalului
-                        (`staffLocale`: în română EXACT „ro-RO” de dinainte). */}
-                    {new Date(po.invoice_date ?? po.created_at).toLocaleDateString(staffLocale(lang))}
+                        (`staffLocale`: în română EXACT „ro-RO” de dinainte); data
+                        calendaristică în UTC, momentul de rezervă în fusul local. */}
+                    {nirDateLabel(po.invoice_date, po.created_at, staffLocale(lang))}
                   </div>
                 </div>
                 <div

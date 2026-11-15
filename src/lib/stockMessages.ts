@@ -74,3 +74,23 @@ export function vatGroupLabel(rates: readonly VatRate[], group: number, tr: Stoc
   const r = rates.find((x) => x.vat_group === group)
   return r ? `${r.rate_percent}% (${r.label})` : tr.t('vat_group', { n: group })
 }
+
+/**
+ * Data afișată a unui NIR: `invoice_date` e o DATĂ CALENDARISTICĂ
+ * (`YYYY-MM-DD`), pe care `new Date()` o citește ca miezul nopții UTC, deci se
+ * formatează în UTC — altfel, pe un browser cu fus negativ (Americile), ziua
+ * afișată ar fi cea dinainte (recenzie CodeRabbit pe #371). Rezerva
+ * `created_at` e un MOMENT, deci rămâne în fusul browserului (`localTimeZone`
+ * nedat = fusul local; parametrul există doar ca testul să poată simula un fus
+ * negativ într-un CI care rulează în UTC). În română (UTC+2/+3) ieșirea e
+ * EXACT cea de dinainte: aceeași zi, același format „ro-RO”.
+ */
+export function nirDateLabel(
+  invoiceDate: string | null,
+  createdAt: string,
+  locale: string,
+  localTimeZone?: string,
+): string {
+  if (invoiceDate) return new Date(invoiceDate).toLocaleDateString(locale, { timeZone: 'UTC' })
+  return new Date(createdAt).toLocaleDateString(locale, localTimeZone ? { timeZone: localTimeZone } : undefined)
+}
