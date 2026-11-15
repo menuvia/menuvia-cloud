@@ -365,14 +365,14 @@ describe('Mese & QR în limba personalului', () => {
     await pick('Download QR codes', /A4 poster/)
     expect(await screen.findByText('No QR codes to print')).toBeInTheDocument()
     expect(screen.queryByText('Niciun QR de tipărit')).not.toBeInTheDocument()
-    expect(h.download.mock.calls.at(-1)![0]).toMatchObject({ menuLanguage: null })
+    expect(h.download.mock.lastCall![0]).toMatchObject({ menuLanguage: null })
     en.unmount()
 
     inLang(null, tab('ro'))
     await screen.findByText('4 locuri')
     await pick('Descarcă QR-uri', /Grilă/)
     expect(await screen.findByText('Niciun QR de tipărit')).toBeInTheDocument()
-    expect(h.download.mock.calls.at(-1)![0]).toMatchObject({ menuLanguage: 'ro' })
+    expect(h.download.mock.lastCall![0]).toMatchObject({ menuLanguage: 'ro' })
   })
 
   it('TQ7: generarea rapidă în engleză/germană scrie numele-DATĂ `Masa N`', async () => {
