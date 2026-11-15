@@ -7,7 +7,7 @@ import { THEMES, FLIPBOOK_MAX_PAGES, resolveEffectiveMenuLayout } from '../lib/t
 import { MENU_LANGS, menuBaseLang } from '../lib/i18nMenu'
 import { MENU_CURRENCIES, resolveMenuCurrency } from '../lib/currency'
 import type { PlanSurface } from '../lib/planSurface'
-import { pickupCardDescription, pickupOnlyToggleDescription } from '../lib/pickupCopy'
+import { pickupSettingsCopyT } from '../lib/pickupCopy'
 import { encodeForUpload } from '../lib/imageEncode'
 import VatRatesEditor from './VatRatesEditor'
 import OnlinePaymentsCard from './OnlinePaymentsCard'
@@ -32,28 +32,36 @@ import { confirm } from './ui/confirm'
 import { browserSite, siteHost } from '../lib/domain'
 import { COUNTRIES, countrySettingVisible, followCountryDefaults, timeZoneOptions } from '../lib/countries'
 import { clearPendingCountry } from '../lib/pendingCountry'
-import { toUserMessage } from '../lib/userMessages'
+import { useT } from '../i18n/useT'
+import { fillNodes } from '../i18n/fillNodes'
+import { describeStaffError } from '../i18n/staffErrors'
+import { settingsNs } from '../i18n/ns/settings'
+import { settingsCardsNs } from '../i18n/ns/settingsCards'
+import { commonNs } from '../i18n/ns/common'
+import { translationsNs } from '../i18n/ns/translations'
+import { homeNs } from '../i18n/ns/home'
+import { menuLangTitle } from '../lib/translationMessages'
+import {
+  CHECKOUT_SUGGESTION_DEFAULT_MESSAGE,
+  WEEK_DAY_KEYS,
+  accentName,
+  amenityLabel,
+  countryLabel,
+  themeDescription,
+  themeName,
+  weekDayLabel,
+  type WeekDayKey,
+} from '../lib/settingsLang'
 
 // ── Constants for hours_structured editor ──
-
-type WeekDayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
+// Zilele (`WEEK_DAY_KEYS`) și etichetele lor stau în lib/settingsLang.ts
+// (lotul L6b): în română EXACT `WEEK_DAY_LABELS` de dinainte, mutat acolo ca
+// oracol; în celelalte limbi cheile `day_*` din namespace-ul `settings`.
 
 interface DayHoursForm {
   open: string
   close: string
   closed: boolean
-}
-
-const WEEK_DAY_KEYS: WeekDayKey[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
-
-const WEEK_DAY_LABELS: Record<WeekDayKey, string> = {
-  mon: 'Luni',
-  tue: 'Marți',
-  wed: 'Miercuri',
-  thu: 'Joi',
-  fri: 'Vineri',
-  sat: 'Sâmbătă',
-  sun: 'Duminică',
 }
 
 // Valorile implicite pentru pickup_settings — baza peste care se aplică
@@ -142,6 +150,10 @@ function SettingsCard({
 const UPLOAD_LABEL_CLASS = 'btn btn--secondary btn--md'
 // Butoanele doar-iconiță: pătrat de 44px (ținta tactilă).
 const ICON_BTN: CSSProperties = { width: 44, minWidth: 44, padding: 0 }
+// Prefixul adresei de recenzie Google din previzualizare — un URL, nu text.
+const REVIEW_URL_PREVIEW_PREFIX = 'search.google.com/local/writereview?placeid='
+// Un Place ID de exemplu (placeholder-ul câmpului) — un identificator, nu text.
+const PLACE_ID_EXAMPLE = 'ChIJN1t_tDeuEmsRUsoyG83frY4'
 
 // ── SettingsTab — lifted from DashboardPage.tsx (identical behavior) ──
 
@@ -198,6 +210,20 @@ export default function SettingsTab({
   // lib/locations.ts). Lipsă = cardul nu apare (fail-closed, ca `isOwner`).
   addLocation?: AddLocationProps
 }) {
+  // Limba personalului (lotul L6b): `settings` + cardurile montate static
+  // (`settingsCards`, același chunk) + `common` + `translations` (numele
+  // limbilor meniului) + `home` (SubscriptionCard din „Abonament & cont”: fila
+  // Acasă e leneșă, deci `home` nu e garantat încărcat când se deschide direct
+  // această secțiune) — toate cerute SUS, necondiționat, ca prima randare într-o
+  // limbă nouă să încarce dicționarele filei sub Suspense-ul ei, nu card cu card
+  // la schimbarea secțiunii (o suspendare atunci ar goli fila). `dashboard`
+  // (UiLanguageCard) e cerut deja de DashboardPage, deasupra filei.
+  // Traducătorul se numește `st`: `t` e deja tema curentă din bucla THEMES.
+  const st = useT(settingsNs)
+  useT(settingsCardsNs)
+  const tc = useT(commonNs)
+  const trTr = useT(translationsNs)
+  useT(homeNs)
   const { user } = useAuth()
   // Mobile-first: pe telefon stivuim coloanele (altfel layout-ul 2-col se taie lateral).
   const isMobile = useIsMobile()
@@ -267,7 +293,7 @@ export default function SettingsTab({
       return data.publicUrl
     } catch (e) {
       console.error(`${kind} upload failed`, e)
-      toast('Upload eșuat', 'error')
+      toast(st.t('toast_uploadFailed'), 'error')
       return null
     } finally {
       setBusy(false)
@@ -318,11 +344,11 @@ export default function SettingsTab({
     if (files.length === 0) return
     const room = FLIPBOOK_MAX_PAGES - flipbookPages.length
     if (room <= 0) {
-      toast(`Maxim ${FLIPBOOK_MAX_PAGES} pagini — șterge una ca să adaugi alta`, 'error')
+      toast(st.t('fb_full', { max: FLIPBOOK_MAX_PAGES }), 'error')
       return
     }
-    if (files.length > room) {
-      toast(`Maxim ${FLIPBOOK_MAX_PAGES} pagini — încarc doar primele ${room}`, 'error')
+    if (room < files.length) {
+      toast(st.tp('fb_partial', room, { max: FLIPBOOK_MAX_PAGES }), 'error')
     }
     const urls: string[] = []
     // Secvențial (nu Promise.all): canvas-ul redimensionează pe rând, iar
@@ -333,7 +359,7 @@ export default function SettingsTab({
     }
     if (urls.length > 0) {
       setFlipbookPages([...flipbookPages, ...urls])
-      toast(`${urls.length} ${urls.length === 1 ? 'pagină adăugată' : 'pagini adăugate'} — nu uita să salvezi`)
+      toast(st.tp('fb_added', urls.length))
     }
   }
 
@@ -347,9 +373,10 @@ export default function SettingsTab({
     // Acțiune distructivă: suprascrie orarul personalizat din Marți–Duminică.
     // Cerem confirmare explicită înainte, ca un click accidental să nu piardă datele.
     const ok = await confirm({
-      title: 'Suprascrii orarul din Marți–Duminică cu cel de Luni?',
-      description: 'Nu poți anula această acțiune.',
-      confirmLabel: 'Suprascrie',
+      title: st.t('hours_confirmTitle'),
+      description: st.t('hours_confirmDesc'),
+      confirmLabel: st.t('hours_confirmOk'),
+      cancelLabel: tc.t('cancel'),
       destructive: true,
     })
     if (!ok) return
@@ -365,6 +392,9 @@ export default function SettingsTab({
   // Curățarea capetelor o face RPC-ul change_restaurant_slug la salvare.
   const slugifyWhileTyping = (s: string) => s.toLowerCase().replace(/[^a-z0-9-]+/g, '-')
 
+  const saveHints: Readonly<Record<string, string>> | undefined =
+    tc.lang === 'ro' ? undefined : { country_owner_only: st.t('country_ownerOnly') }
+
   const handleSave = async () => {
     setSaving(true)
     // Slug-ul are flux separat (RPC change_restaurant_slug — PR 1B 096B revocă
@@ -379,12 +409,12 @@ export default function SettingsTab({
           newSlug: form.slug as string,
         })
         if (!r.ok) {
-          toast(`Slug indisponibil: "${r.slug}" e deja folosit`, 'error')
+          toast(st.t('slug_taken', { slug: r.slug }), 'error')
           setSaving(false)
           return
         }
       } catch (e) {
-        toast(toUserMessage(e, 'Eroare la schimbarea slug-ului.'), 'error')
+        toast(describeStaffError(e, tc, { fallback: st.t('err_slug') }), 'error')
         setSaving(false)
         return
       }
@@ -394,7 +424,11 @@ export default function SettingsTab({
     const { slug: _slug, ...rest } = form
     void _slug
     const { error } = await onUpdate(restaurant.id, rest)
-    if (error) toast(toUserMessage(error), 'error')
+    // În română: EXACT textul de dinainte (`toUserMessage` pe eroare, fără
+    // hint-uri — regula 1 din staffErrors ar înlocui textul românesc de azi).
+    // În celelalte limbi, refuzul trigger-ului de țară (mig 296) își are
+    // textul propriu.
+    if (error) toast(describeStaffError(error, tc, { hints: saveHints }), 'error')
     else {
       // Țara aleasă explicit aici înlocuiește orice intenție rămasă de la
       // onboarding (lib/pendingCountry.ts) — altfel ar fi re-aplicată peste ea.
@@ -402,7 +436,7 @@ export default function SettingsTab({
       // salvare cu aceeași țară confirmă alegerea și stinge o intenție veche,
       // care altfel ar fi re-aplicată la următoarea încărcare (recenzie #288).
       if (countrySettingVisible(browserSite(), restaurant.country)) clearPendingCountry(restaurant.id)
-      toast('Salvat')
+      toast(st.t('toast_saved'))
     }
     setSaving(false)
   }
@@ -454,7 +488,8 @@ export default function SettingsTab({
   // la „Comenzi & plăți” vede consecința ÎNAINTE să salveze; altfel aceeași
   // pagină ar spune „Flipbook” într-o filă și ar promite comenzi în cealaltă.
   const menuFlipbook = resolveEffectiveMenuLayout(form.theme_settings) === 'flipbook'
-  const pickupDesc = pickupCardDescription(true, menuFlipbook)
+  const pickupTexts = pickupSettingsCopyT(st)
+  const pickupDesc = pickupTexts.pickupCardDescription(true, menuFlipbook)
 
   return (
     <div>
@@ -471,7 +506,7 @@ export default function SettingsTab({
           }}
         >
           <Button variant="primary" onClick={handleSave} loading={saving}>
-            {saving ? 'Se salvează...' : 'Salvează'}
+            {saving ? st.t('save_busy') : tc.t('save')}
           </Button>
         </div>
       )}
@@ -483,31 +518,34 @@ export default function SettingsTab({
           <>
             {/* „Agentul tău Menuvia" (mig 303) stă pe Acasă — acolo trimite și
                 emailul cererii de acces; aici era a doua copie (lotul R2). */}
-            <SettingsCard icon="info" title="Informații principale">
+            <SettingsCard icon="info" title={st.t('info_title')}>
               {(
                 [
-                  ['name', 'Nume restaurant *', 'La Bella Trattoria'],
-                  ['tagline', 'Tagline', 'Bucătărie autentică'],
-                  ['city', 'Oraș', 'Sibiu'],
-                  ['phone', 'Telefon', '07xx xxx xxx'],
-                  ['hours', 'Program', 'Lun–Dum: 12:00–23:00'],
-                  ['description', 'Descriere', 'Despre restaurant...'],
-                ] as [keyof Restaurant, string, string][]
-              ).map(([k, label, ph]) => (
-                <div key={k} style={{ marginBottom: 13 }}>
-                  <label
-                    style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}
-                  >
-                    {label}
-                  </label>
-                  <Inp
-                    label={label.replace(/\s*\*$/, '')}
-                    value={String(form[k] || '')}
-                    onChange={(v) => upd(k, v)}
-                    placeholder={ph}
-                  />
-                </div>
-              ))}
+                  ['name', 'info_name', 'info_namePh'],
+                  ['tagline', 'info_tagline', 'info_taglinePh'],
+                  ['city', 'info_city', 'info_cityPh'],
+                  ['phone', 'info_phone', 'info_phonePh'],
+                  ['hours', 'info_hours', 'info_hoursPh'],
+                  ['description', 'info_description', 'info_descriptionPh'],
+                ] as const
+              ).map(([k, labelKey, phKey]) => {
+                const label = st.t(labelKey)
+                return (
+                  <div key={k} style={{ marginBottom: 13 }}>
+                    <label
+                      style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}
+                    >
+                      {label}
+                    </label>
+                    <Inp
+                      label={label.replace(/\s*\*$/, '')}
+                      value={String(form[k] || '')}
+                      onChange={(v) => upd(k, v)}
+                      placeholder={st.t(phKey)}
+                    />
+                  </div>
+                )
+              })}
             </SettingsCard>
 
             {/* Țara (mig 296) — DOAR pe un host .com sau pentru un local deja în
@@ -517,15 +555,11 @@ export default function SettingsTab({
             {countrySettingVisible(browserSite(), restaurant.country) && (
               <SettingsCard
                 icon="info"
-                title="Țara restaurantului"
-                desc={
-                  surface?.vat === true
-                    ? 'Plățile în aplicație, bonul fiscal și raportul TVA există doar pentru restaurantele din România.'
-                    : 'Țara în care funcționează localul.'
-                }
+                title={st.t('country_title')}
+                desc={surface?.vat === true ? st.t('country_descRo') : st.t('country_desc')}
                 right={
                   <select
-                    aria-label="Țara restaurantului"
+                    aria-label={st.t('country_title')}
                     value={form.country ?? 'RO'}
                     onChange={(e) => {
                       // Moneda și fusul urmează țara cât timp erau încă
@@ -558,16 +592,14 @@ export default function SettingsTab({
                       )}
                     {COUNTRIES.map((c) => (
                       <option key={c.code} value={c.code}>
-                        {c.name}
+                        {countryLabel(c.code, c.name, st.lang)}
                       </option>
                     ))}
                   </select>
                 }
               >
                 {user?.id !== restaurant.owner_id && (
-                  <div style={{ fontSize: '0.75rem', color: D.t2 }}>
-                    Doar proprietarul restaurantului poate schimba țara.
-                  </div>
+                  <div style={{ fontSize: '0.75rem', color: D.t2 }}>{st.t('country_ownerOnly')}</div>
                 )}
               </SettingsCard>
             )}
@@ -582,11 +614,11 @@ export default function SettingsTab({
               (restaurant.timezone ?? 'Europe/Bucharest') !== 'Europe/Bucharest') && (
               <SettingsCard
                 icon="clock"
-                title="Fusul orar"
-                desc="Ora din program, de la ridicări și de la rezervări se socotește în acest fus."
+                title={st.t('tz_title')}
+                desc={st.t('tz_desc')}
                 right={
                   <select
-                    aria-label="Fusul orar al restaurantului"
+                    aria-label={st.t('tz_aria')}
                     value={form.timezone ?? 'Europe/Bucharest'}
                     onChange={(e) => upd('timezone', e.target.value)}
                     style={{
@@ -615,16 +647,17 @@ export default function SettingsTab({
             {/* PROGRAM DETALIAT — hours_structured per zi */}
             <SettingsCard
               icon="clock"
-              title="Program detaliat"
-              desc={`Folosit pentru indicatorul "DESCHIS ACUM" și textul "Astăzi 08:00–23:00" din meniul public.`}
+              title={st.t('hours_title')}
+              desc={st.t('hours_desc')}
               right={
                 <Button variant="ghost" size="sm" onClick={copyMondayToAll}>
-                  Copiază luni → toate
+                  {st.t('hours_copyMonday')}
                 </Button>
               }
             >
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {WEEK_DAY_KEYS.map((day) => {
+                  const dayLabel = weekDayLabel(day, st)
                   const cur = ((form.hours_structured ?? {}) as Record<string, DayHoursForm>)[
                     day
                   ] ?? {
@@ -642,7 +675,7 @@ export default function SettingsTab({
                         alignItems: 'center',
                       }}
                     >
-                      <span style={{ fontSize: '0.78rem', color: D.t1 }}>{WEEK_DAY_LABELS[day]}</span>
+                      <span style={{ fontSize: '0.78rem', color: D.t1 }}>{dayLabel}</span>
                       <label
                         style={{
                           fontSize: '0.72rem',
@@ -658,7 +691,7 @@ export default function SettingsTab({
                           checked={!cur.closed}
                           onChange={(e) => updHours(day, { closed: !e.target.checked })}
                         />
-                        Deschis
+                        {st.t('hours_open')}
                       </label>
                       {/* Pe mobil (1 coloană) inputurile de oră stau stivuite fără
                           antet de coloană → mici label-uri „Deschide"/„Închide"
@@ -667,7 +700,7 @@ export default function SettingsTab({
                       <div>
                         {isMobile && (
                           <label style={{ display: 'block', fontSize: '0.68rem', color: D.t3, marginBottom: 3 }}>
-                            Deschide
+                            {st.t('hours_opensLabel')}
                           </label>
                         )}
                         <input
@@ -675,7 +708,7 @@ export default function SettingsTab({
                           disabled={cur.closed}
                           value={cur.open}
                           onChange={(e) => updHours(day, { open: e.target.value })}
-                          aria-label={`${WEEK_DAY_LABELS[day]} deschidere`}
+                          aria-label={st.t('hours_openAria', { day: dayLabel })}
                           style={{
                             background: D.s3,
                             border: `1px solid ${D.border}`,
@@ -692,7 +725,7 @@ export default function SettingsTab({
                       <div>
                         {isMobile && (
                           <label style={{ display: 'block', fontSize: '0.68rem', color: D.t3, marginBottom: 3 }}>
-                            Închide
+                            {st.t('hours_closesLabel')}
                           </label>
                         )}
                         <input
@@ -700,7 +733,7 @@ export default function SettingsTab({
                           disabled={cur.closed}
                           value={cur.close}
                           onChange={(e) => updHours(day, { close: e.target.value })}
-                          aria-label={`${WEEK_DAY_LABELS[day]} închidere`}
+                          aria-label={st.t('hours_closeAria', { day: dayLabel })}
                           style={{
                             background: D.s3,
                             border: `1px solid ${D.border}`,
@@ -723,14 +756,14 @@ export default function SettingsTab({
             {/* LOGO upload — square */}
             <SettingsCard
               icon="tag"
-              title="Logo"
-              desc="Logo pătrat. Opțional, folosit ca avatar / favicon viitor."
+              title={st.t('logo_title')}
+              desc={st.t('logo_desc')}
             >
               <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
                 {form.logo_url ? (
                   <img
                     src={form.logo_url}
-                    alt="Logo"
+                    alt={st.t('logo_alt')}
                     style={{
                       width: 80,
                       height: 80,
@@ -764,7 +797,7 @@ export default function SettingsTab({
                     opacity: uploadingLogo ? 0.6 : 1,
                   }}
                 >
-                  {uploadingLogo ? 'Se încarcă...' : 'Încarcă logo'}
+                  {uploadingLogo ? st.t('uploading') : st.t('logo_upload')}
                   <input
                     type="file"
                     accept="image/*"
@@ -780,7 +813,7 @@ export default function SettingsTab({
                 </label>
                 {form.logo_url && (
                   <Button variant="ghost" onClick={() => upd('logo_url', null)}>
-                    Șterge logo
+                    {st.t('logo_remove')}
                   </Button>
                 )}
               </div>
@@ -789,19 +822,14 @@ export default function SettingsTab({
             {/* COVER IMAGE — afișată în hero-ul meniului public */}
             <SettingsCard
               icon="image"
-              title="Imagine cover"
-              desc={
-                <>
-                  Afișată în hero-ul meniului public. Recomandat: format 16:9, &gt;1200px lățime.
-                  Dacă lipsește, folosim un gradient generat din tema ta.
-                </>
-              }
+              title={st.t('cover_title')}
+              desc={st.t('cover_desc')}
             >
               {form.cover_url ? (
                 <div style={{ position: 'relative', marginBottom: 10 }}>
                   <img
                     src={form.cover_url}
-                    alt="Cover"
+                    alt={st.t('cover_alt')}
                     style={{
                       width: '100%',
                       aspectRatio: '16 / 9',
@@ -816,7 +844,7 @@ export default function SettingsTab({
                     onClick={() => upd('cover_url', null)}
                     style={{ position: 'absolute', top: 8, right: 8 }}
                   >
-                    Șterge
+                    {tc.t('delete')}
                   </Button>
                 </div>
               ) : (
@@ -834,7 +862,7 @@ export default function SettingsTab({
                     marginBottom: 10,
                   }}
                 >
-                  Fără imagine — gradient temă activă
+                  {st.t('cover_none')}
                 </div>
               )}
               <label
@@ -844,7 +872,7 @@ export default function SettingsTab({
                   opacity: uploadingCover ? 0.6 : 1,
                 }}
               >
-                {uploadingCover ? 'Se încarcă...' : 'Încarcă imagine'}
+                {uploadingCover ? st.t('uploading') : st.t('cover_upload')}
                 <input
                   type="file"
                   accept="image/*"
@@ -863,8 +891,8 @@ export default function SettingsTab({
             {/* AMENITIES toggles */}
             <SettingsCard
               icon="sparkle"
-              title="Facilități"
-              desc="Afișate ca pills în hero-ul meniului public."
+              title={st.t('amen_title')}
+              desc={st.t('amen_desc')}
             >
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {AMENITIES.map((a) => {
@@ -889,7 +917,7 @@ export default function SettingsTab({
                         cursor: 'pointer',
                       }}
                     >
-                      {a.labelRo}
+                      {amenityLabel(a, st)}
                     </button>
                   )
                 })}
@@ -899,25 +927,26 @@ export default function SettingsTab({
             {/* WiFi password */}
             <SettingsCard
               icon="wifi"
-              title="Parolă WiFi (opțional)"
-              desc="Afișată în meniu sub formă vizibilă. Lasă gol dacă nu vrei să publici."
+              title={st.t('wifi_title')}
+              desc={st.t('wifi_desc')}
             >
               <Inp
-                label="Parolă WiFi"
+                label={st.t('wifi_label')}
                 value={form.wifi_password ?? ''}
                 onChange={(v) => upd('wifi_password', v.trim() || null)}
-                placeholder="ex: tinctura2024"
+                placeholder={st.t('wifi_ph')}
               />
             </SettingsCard>
 
             {/* Social media */}
-            <SettingsCard icon="link" title="Social media">
+            <SettingsCard icon="link" title={st.t('social_title')}>
               {(
                 [
                   ['instagram', 'Instagram', '@tinctura.cafe'],
                   ['facebook', 'Facebook', 'facebook.com/tinctura'],
                   ['tiktok', 'TikTok', '@tinctura'],
-                  ['website', 'Website', 'https://tinctura.ro'],
+                  // „Website” e singura etichetă care nu e un nume propriu.
+                  ['website', st.t('social_website'), 'https://tinctura.ro'],
                 ] as const
               ).map(([k, label, ph]) => {
                 const socials = (form.socials ?? {}) as Record<string, string | null | undefined>
@@ -947,35 +976,35 @@ export default function SettingsTab({
             {/* Google Review CTA settings */}
             <SettingsCard
               icon="star"
-              title="Google Reviews (recenzii automate)"
+              title={st.t('google_title')}
               desc={
                 // Fără plată în aplicație (Planurile 1–2), textul nu pomenește plata.
                 // Pe `payments` (planul, nu țara): pe Planul 3 nu se schimbă nimic.
-                surface?.payments === true
-                  ? 'După ce clientul finalizează plata și răspunde la întrebările de feedback, îi afișăm un buton „Scrie o recenzie pe Google” care îl duce direct la pagina ta de business. Butonul apare tuturor clienților, indiferent de notă — Google nu permite să arăți linkul doar celor mulțumiți.'
-                  : 'După ce clientul răspunde la întrebările de feedback, îi afișăm un buton „Scrie o recenzie pe Google” care îl duce direct la pagina ta de business. Butonul apare tuturor clienților, indiferent de notă — Google nu permite să arăți linkul doar celor mulțumiți.'
+                surface?.payments === true ? st.t('google_descPay') : st.t('google_desc')
               }
             >
               <label style={{ display: 'block', fontSize: '0.74rem', color: D.t2, marginBottom: 5 }}>
-                Google Place ID
+                {st.t('google_placeId')}
               </label>
               <Inp
-                label="Google Place ID"
+                label={st.t('google_placeId')}
                 value={form.google_place_id ?? ''}
                 onChange={(v) => upd('google_place_id', v.trim() || null)}
-                placeholder="ChIJN1t_tDeuEmsRUsoyG83frY4"
+                placeholder={PLACE_ID_EXAMPLE}
               />
               <div style={{ fontSize: '0.7rem', color: D.t2, marginTop: 6, lineHeight: 1.5 }}>
-                Găsești Place ID-ul aici:{' '}
-                <a
-                  href="https://developers.google.com/maps/documentation/places/web-service/place-id"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: D.gold }}
-                >
-                  Place ID Finder
-                </a>
-                . Caută numele localului tău, copiază ID-ul (începe cu "ChIJ...").
+                {fillNodes(st.t('google_help'), {
+                  link: (
+                    <a
+                      href="https://developers.google.com/maps/documentation/places/web-service/place-id"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: D.gold }}
+                    >
+                      {st.t('google_finder')}
+                    </a>
+                  ),
+                })}
               </div>
 
               {form.google_place_id && (
@@ -999,19 +1028,23 @@ export default function SettingsTab({
                     }}
                   >
                     <Icon name="check" size={13} color={D.green} />
-                    Configurat
+                    {st.t('google_configured')}
                   </div>
                   <div>
-                    URL preview:{' '}
-                    <a
-                      href={`https://search.google.com/local/writereview?placeid=${form.google_place_id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ color: D.gold, wordBreak: 'break-all' }}
-                    >
-                      search.google.com/local/writereview?placeid={form.google_place_id.slice(0, 12)}
-                      ...
-                    </a>
+                    {fillNodes(st.t('google_preview'), {
+                      link: (
+                        <a
+                          href={`https://search.google.com/local/writereview?placeid=${form.google_place_id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: D.gold, wordBreak: 'break-all' }}
+                        >
+                          {REVIEW_URL_PREVIEW_PREFIX}
+                          {form.google_place_id.slice(0, 12)}
+                          ...
+                        </a>
+                      ),
+                    })}
                   </div>
                 </div>
               )}
@@ -1026,8 +1059,8 @@ export default function SettingsTab({
                 prima ca userul să vadă efectul modificărilor din secțiune imediat. */}
             <SettingsCard
               icon="eye"
-              title="Previzualizare"
-              desc="Așa arată meniul clienților — se actualizează pe măsură ce schimbi."
+              title={st.t('preview_title')}
+              desc={st.t('preview_desc')}
             >
               <div style={{ display: 'flex', justifyContent: 'center' }}>
                 <MenuPreview
@@ -1040,7 +1073,7 @@ export default function SettingsTab({
               </div>
             </SettingsCard>
 
-            <SettingsCard icon="qr" title="URL meniu">
+            <SettingsCard icon="qr" title={st.t('url_title')}>
               <div
                 style={{
                   display: 'flex',
@@ -1067,27 +1100,30 @@ export default function SettingsTab({
                   {siteHost()}/m/
                 </span>
                 <Inp
-                  label="Adresa meniului (slug)"
+                  label={st.t('url_slugLabel')}
                   value={form.slug || ''}
                   onChange={(v) => upd('slug', slugifyWhileTyping(v))}
-                  placeholder="slug-url"
+                  placeholder={st.t('url_slugPh')}
                 />
               </div>
             </SettingsCard>
 
-            <SettingsCard icon="sparkle" title="Culoare accent">
+            <SettingsCard icon="sparkle" title={st.t('accent_title')}>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {/* Mostrele sunt DATE (lib/accentPalette.ts) — culoarea aleasă pentru
-                    meniul oaspetelui —, nu culori ale panoului. Numele RO =
-                    eticheta accesibilă + indicatorul ne-cromatic. */}
-                {ACCENT_SWATCHES.map(({ hex: c, name }) => {
+                    meniul oaspetelui —, nu culori ale panoului. Numele (în limba
+                    personalului, `accentName`) = eticheta accesibilă + indicatorul
+                    ne-cromatic. */}
+                {ACCENT_SWATCHES.map((swatch) => {
+                  const c = swatch.hex
+                  const name = accentName(swatch, st)
                   const selected = form.primary_color === c
                   return (
                     <button
                       key={c}
                       type="button"
                       onClick={() => upd('primary_color', c)}
-                      aria-label={`Culoare accent ${name}`}
+                      aria-label={st.t('accent_aria', { name })}
                       aria-pressed={selected}
                       title={name}
                       style={{
@@ -1114,8 +1150,8 @@ export default function SettingsTab({
             {/* Theme picker — 8 preset themes for QR menu */}
             <SettingsCard
               icon="image"
-              title="Tema meniului QR"
-              desc="Alege stilul vizual pentru meniul tău. Se aplică instant pe pagina pe care o văd clienții."
+              title={st.t('theme_title')}
+              desc={st.t('theme_desc')}
             >
               <div
                 style={{
@@ -1160,7 +1196,7 @@ export default function SettingsTab({
                             color: isSelected ? D.gold : D.t1,
                           }}
                         >
-                          {t.name}
+                          {themeName(t, st)}
                         </span>
                       </div>
                       {/* Color preview */}
@@ -1173,7 +1209,7 @@ export default function SettingsTab({
                             background: t.colors.bg,
                             border: `1px solid ${D.border}`,
                           }}
-                          title="Background"
+                          title={st.t('theme_bg')}
                         />
                         <div
                           style={{
@@ -1182,7 +1218,7 @@ export default function SettingsTab({
                             borderRadius: 3,
                             background: t.colors.accent,
                           }}
-                          title="Accent"
+                          title={st.t('theme_accent')}
                         />
                         <div
                           style={{
@@ -1192,13 +1228,13 @@ export default function SettingsTab({
                             background: t.colors.surface,
                             border: `1px solid ${D.border}`,
                           }}
-                          title="Surface"
+                          title={st.t('theme_surface')}
                         />
                       </div>
                       <div
                         style={{ fontSize: '0.65rem', color: D.t3, lineHeight: 1.3, marginTop: 4 }}
                       >
-                        {t.description}
+                        {themeDescription(t, st)}
                       </div>
                     </button>
                   )
@@ -1217,8 +1253,7 @@ export default function SettingsTab({
               >
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   <Icon name="info" size={13} color={D.t3} />
-                  După salvare, clienții vor vedea noua temă instant la următoarea încărcare a
-                  meniului.
+                  {st.t('theme_note')}
                 </span>
               </div>
             </SettingsCard>
@@ -1226,8 +1261,8 @@ export default function SettingsTab({
             {/* Layout picker — aspectul listei de produse (separat de temă/culori) */}
             <SettingsCard
               icon="menu"
-              title="Așezarea produselor"
-              desc="Cum sunt aranjate produsele pe pagina pe care o văd clienții. Se aplică pe meniul digital și pe meniul QR."
+              title={st.t('layout_title')}
+              desc={st.t('layout_desc')}
             >
               <div
                 style={{
@@ -1238,36 +1273,11 @@ export default function SettingsTab({
               >
                 {(
                   [
-                    {
-                      id: 'list',
-                      icon: 'menu',
-                      name: 'Listă',
-                      desc: 'Poză mică + text. Clasic și compact.',
-                    },
-                    {
-                      id: 'grid',
-                      icon: 'image',
-                      name: 'Galerie foto',
-                      desc: 'Poze mari, 2 coloane. Cel mai vizual.',
-                    },
-                    {
-                      id: 'minimal',
-                      icon: 'minus',
-                      name: 'Minimal elegant',
-                      desc: 'Text, fără poze. Aer editorial, clasic și rapid.',
-                    },
-                    {
-                      id: 'photo',
-                      icon: 'camera',
-                      name: 'Foto-first',
-                      desc: 'Poze mari cu numele și prețul pe poză. Atinge poza pentru detalii și opțiuni.',
-                    },
-                    {
-                      id: 'flipbook',
-                      icon: 'copy',
-                      name: 'Flipbook (PDF/pagini)',
-                      desc: 'Paginile meniului ca imagini, răsfoibile ca o carte.',
-                    },
+                    { id: 'list', icon: 'menu', name: 'layout_list', desc: 'layout_listDesc' },
+                    { id: 'grid', icon: 'image', name: 'layout_grid', desc: 'layout_gridDesc' },
+                    { id: 'minimal', icon: 'minus', name: 'layout_minimal', desc: 'layout_minimalDesc' },
+                    { id: 'photo', icon: 'camera', name: 'layout_photo', desc: 'layout_photoDesc' },
+                    { id: 'flipbook', icon: 'copy', name: 'layout_flipbook', desc: 'layout_flipbookDesc' },
                   ] as const
                 ).map((l) => {
                   const isSelected = (form.theme_settings?.menu_layout ?? 'list') === l.id
@@ -1302,10 +1312,10 @@ export default function SettingsTab({
                             color: isSelected ? D.gold : D.t1,
                           }}
                         >
-                          {l.name}
+                          {st.t(l.name)}
                         </span>
                       </div>
-                      <div style={{ fontSize: '0.68rem', color: D.t3, lineHeight: 1.3 }}>{l.desc}</div>
+                      <div style={{ fontSize: '0.68rem', color: D.t3, lineHeight: 1.3 }}>{st.t(l.desc)}</div>
                     </button>
                   )
                 })}
@@ -1317,11 +1327,10 @@ export default function SettingsTab({
               {(form.theme_settings?.menu_layout ?? 'list') === 'flipbook' && (
                 <div style={{ marginTop: 16 }}>
                   <div style={{ fontSize: '0.82rem', fontWeight: 600, color: D.t1, marginBottom: 6 }}>
-                    Paginile meniului ({flipbookPages.length}/{FLIPBOOK_MAX_PAGES})
+                    {st.t('fb_pagesTitle', { n: flipbookPages.length, max: FLIPBOOK_MAX_PAGES })}
                   </div>
                   <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 12, lineHeight: 1.5 }}>
-                    Ai meniul ca PDF? Exportă paginile ca imagini (sau pozează-le) și încarcă-le aici
-                    — ori folosește Importul AI din Produse ca să-l transformi în meniu interactiv.
+                    {st.t('fb_help')}
                   </div>
 
                   {/* Lista de pagini: thumbnail + reordonare ↑↓ + ștergere. */}
@@ -1345,7 +1354,7 @@ export default function SettingsTab({
                           </span>
                           <img
                             src={url}
-                            alt={`Pagina ${idx + 1}`}
+                            alt={st.t('fb_pageAlt', { n: idx + 1 })}
                             loading="lazy"
                             style={{
                               width: 56,
@@ -1363,7 +1372,7 @@ export default function SettingsTab({
                             size="sm"
                             onClick={() => moveFlipbookPage(idx, -1)}
                             disabled={idx === 0}
-                            aria-label={`Mută pagina ${idx + 1} mai sus`}
+                            aria-label={st.t('fb_moveUp', { n: idx + 1 })}
                             style={ICON_BTN}
                           >
                             <Icon name="chevronUp" size={16} />
@@ -1373,7 +1382,7 @@ export default function SettingsTab({
                             size="sm"
                             onClick={() => moveFlipbookPage(idx, 1)}
                             disabled={idx === flipbookPages.length - 1}
-                            aria-label={`Mută pagina ${idx + 1} mai jos`}
+                            aria-label={st.t('fb_moveDown', { n: idx + 1 })}
                             style={ICON_BTN}
                           >
                             <Icon name="chevronDown" size={16} />
@@ -1382,9 +1391,9 @@ export default function SettingsTab({
                             variant="ghost"
                             size="sm"
                             onClick={() => removeFlipbookPage(idx)}
-                            aria-label={`Șterge pagina ${idx + 1}`}
+                            aria-label={st.t('fb_remove', { n: idx + 1 })}
                           >
-                            Șterge
+                            {tc.t('delete')}
                           </Button>
                         </div>
                       ))}
@@ -1404,7 +1413,7 @@ export default function SettingsTab({
                         lineHeight: 1.5,
                       }}
                     >
-                      Nicio pagină încă. Până încarci pagini, clienții văd meniul pe stilul „Listă".
+                      {st.t('fb_empty')}
                     </div>
                   )}
 
@@ -1415,7 +1424,7 @@ export default function SettingsTab({
                       opacity: uploadingPages ? 0.6 : 1,
                     }}
                   >
-                    {uploadingPages ? 'Se încarcă...' : 'Încarcă pagini (poți selecta mai multe)'}
+                    {uploadingPages ? st.t('uploading') : st.t('fb_upload')}
                     <input
                       type="file"
                       accept="image/*"
@@ -1450,8 +1459,7 @@ export default function SettingsTab({
                     >
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                         <Icon name="info" size={13} color={D.t3} />
-                        Cu flipbook, clienții văd meniul ca pe o carte — comanda din meniu nu e
-                        disponibilă pe acest stil; chemarea ospătarului rămâne.
+                        {st.t('fb_orderNote')}
                       </span>
                     </div>
                   )}
@@ -1462,40 +1470,21 @@ export default function SettingsTab({
             {/* Elemente meniu — ce se vede pe hero-ul clienților. Toate ON implicit. */}
             <SettingsCard
               icon="settings"
-              title="Elemente meniu"
-              desc="Alege ce se vede pe meniul clienților. Toate sunt pornite implicit."
+              title={st.t('el_title')}
+              desc={st.t('el_desc')}
             >
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {(
                   [
-                    {
-                      key: 'cover',
-                      name: 'Copertă',
-                      desc: 'Imaginea de copertă din partea de sus. Dezactivată, se afișează un gradient.',
-                    },
-                    {
-                      key: 'tagline',
-                      name: 'Slogan',
-                      desc: 'Sloganul restaurantului afișat sub nume.',
-                    },
-                    {
-                      key: 'status',
-                      name: 'Status deschis / închis',
-                      desc: 'Pastila care arată dacă restaurantul e deschis acum.',
-                    },
-                    {
-                      key: 'amenities',
-                      name: 'WiFi & Vegan',
-                      desc: 'Pile cu facilitățile WiFi și opțiuni vegan.',
-                    },
-                    {
-                      key: 'social',
-                      name: 'Social',
-                      desc: 'Pile cu link-uri Instagram, TikTok, Facebook și website.',
-                    },
+                    { key: 'cover', name: 'el_cover', desc: 'el_coverDesc' },
+                    { key: 'tagline', name: 'el_tagline', desc: 'el_taglineDesc' },
+                    { key: 'status', name: 'el_status', desc: 'el_statusDesc' },
+                    { key: 'amenities', name: 'el_amenities', desc: 'el_amenitiesDesc' },
+                    { key: 'social', name: 'el_social', desc: 'el_socialDesc' },
                   ] as const
                 ).map((el) => {
                   const value = form.theme_settings?.elements?.[el.key] ?? true
+                  const elName = st.t(el.name)
                   return (
                     <div
                       key={el.key}
@@ -1508,12 +1497,12 @@ export default function SettingsTab({
                     >
                       <div>
                         <div style={{ fontSize: '0.85rem', fontWeight: 500, color: D.t1 }}>
-                          {el.name}
+                          {elName}
                         </div>
-                        <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>{el.desc}</div>
+                        <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>{st.t(el.desc)}</div>
                       </div>
                       <Toggle
-                        label={el.name}
+                        label={elName}
                         value={value}
                         onChange={(v) =>
                           // Păstrăm tema/accentul/layout-ul; schimbăm doar un element.
@@ -1545,14 +1534,14 @@ export default function SettingsTab({
                   >
                     <div>
                       <div style={{ fontSize: '0.85rem', fontWeight: 500, color: D.t1 }}>
-                        {'Badge „Creat cu Menuvia"'}
+                        {st.t('branding_title')}
                       </div>
                       <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
-                        Linkul discret din josul meniului public. Pe planul tău îl poți ascunde.
+                        {st.t('branding_desc')}
                       </div>
                     </div>
                     <Toggle
-                      label={'Afișează badge-ul „Creat cu Menuvia"'}
+                      label={st.t('branding_toggle')}
                       value={!(form.theme_settings?.hide_branding ?? false)}
                       onChange={(v) => updTheme({ hide_branding: !v })}
                     />
@@ -1566,19 +1555,19 @@ export default function SettingsTab({
                 peste tot: un meniu scris în franceză apărea „Română”. */}
             <SettingsCard
               icon="info"
-              title="Limbi meniu"
-              desc="Limba în care e scris meniul și limbile în plus în care clientul îl poate vedea."
+              title={st.t('langs_title')}
+              desc={st.t('langs_desc')}
             >
               <div style={{ marginBottom: 12, maxWidth: 320 }}>
                 <label
                   htmlFor="menu-base-lang"
                   style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}
                 >
-                  Limba originală a meniului
+                  {st.t('langs_base')}
                 </label>
                 <Sel
                   id="menu-base-lang"
-                  label="Limba originală a meniului"
+                  label={st.t('langs_base')}
                   value={menuBaseLang(form.language)}
                   onChange={(v) => {
                     upd('language', v)
@@ -1589,13 +1578,12 @@ export default function SettingsTab({
                 >
                   {MENU_LANGS.map((l) => (
                     <option key={l.code} value={l.code}>
-                      {l.flag} {l.label}
+                      {l.flag} {menuLangTitle(l.code, trTr, l.label)}
                     </option>
                   ))}
                 </Sel>
                 <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 5, lineHeight: 1.5 }}>
-                  Limba în care ai scris numele și descrierile produselor. Traducerile se adaugă pentru
-                  celelalte limbi.
+                  {st.t('langs_baseHelp')}
                 </div>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -1623,7 +1611,7 @@ export default function SettingsTab({
                       }}
                     >
                       <span>{l.flag}</span>
-                      {l.label}
+                      {menuLangTitle(l.code, trTr, l.label)}
                     </button>
                   )
                 })}
@@ -1633,15 +1621,11 @@ export default function SettingsTab({
             {/* Moneda meniului (mig 205) — pista internațională, planurile 1-2. */}
             <SettingsCard
               icon="info"
-              title="Moneda meniului"
-              desc={
-                surface?.payments === true
-                  ? 'Moneda în care se afișează prețurile în meniul public și QR. Abonamentul Menuvia și fiscalizarea nu sunt afectate.'
-                  : 'Moneda în care se afișează prețurile în meniul public și QR. Abonamentul Menuvia nu e afectat.'
-              }
+              title={st.t('cur_title')}
+              desc={surface?.payments === true ? st.t('cur_descPay') : st.t('cur_desc')}
               right={
                 <select
-                  aria-label="Moneda meniului"
+                  aria-label={st.t('cur_title')}
                   value={(form.currency as string) ?? 'RON'}
                   onChange={(e) => upd('currency', e.target.value)}
                   style={{
@@ -1658,7 +1642,7 @@ export default function SettingsTab({
                 >
                   {MENU_CURRENCIES.map((c) => (
                     <option key={c} value={c}>
-                      {c === 'RON' ? 'RON (lei)' : c}
+                      {c === 'RON' ? st.t('cur_ron') : c}
                     </option>
                   ))}
                 </select>
@@ -1673,10 +1657,10 @@ export default function SettingsTab({
             {modulesState && (
               <SettingsCard
                 icon="sparkle"
-                title="Module opționale"
+                title={st.t('mod_title')}
                 // Comutatorul scrie imediat (setModule), fără „Salvează".
                 autoSave
-                desc="Activează doar ce ai nevoie. Modulele dezactivate sunt blocate server-side — nici clienții, nici angajații nu pot crea date pe ele."
+                desc={st.t('mod_desc')}
               >
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <div
@@ -1699,25 +1683,20 @@ export default function SettingsTab({
                         }}
                       >
                         <Icon name="calendar" size={15} color={D.t2} />
-                        Rezervări
+                        {st.t('mod_resv')}
                       </div>
                       <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
-                        Permite clienților să rezerve mese din meniul public. Le confirmi și le
-                        gestionezi din panou, la Rezervări.
+                        {st.t('mod_resvDesc')}
                       </div>
                     </div>
                     <Toggle
-                      label="Rezervări"
+                      label={st.t('mod_resv')}
                       value={modulesState.isEnabled('reservations')}
                       onChange={(v) => {
                         modulesState
                           .setModule('reservations', v)
-                          .then(() =>
-                            toast(v ? 'Modulul Rezervări activat' : 'Modulul Rezervări dezactivat'),
-                          )
-                          .catch((err) =>
-                            toast(toUserMessage(err, 'Eroare la salvare')),
-                          )
+                          .then(() => toast(v ? st.t('mod_resvOn') : st.t('mod_resvOff')))
+                          .catch((err) => toast(describeStaffError(err, tc, { fallback: st.t('err_save') })))
                       }}
                     />
                   </div>
@@ -1770,7 +1749,7 @@ export default function SettingsTab({
             {surface?.pickup === true && (
             <SettingsCard
               icon="box"
-              title="Comenzi pentru ridicare (click-and-collect)"
+              title={st.t('pickup_title')}
               desc={
                 <>
                   {pickupDesc.lead}{' '}
@@ -1782,7 +1761,7 @@ export default function SettingsTab({
               }
               right={
                 <Toggle
-                  label="Comenzi pentru ridicare"
+                  label={st.t('pickup_toggle')}
                   value={form.pickup_settings?.enabled ?? false}
                   onChange={(v) => updPickup({ enabled: v })}
                 />
@@ -1805,14 +1784,14 @@ export default function SettingsTab({
                   >
                     <div>
                       <div style={{ fontSize: '0.85rem', fontWeight: 500, color: D.t1 }}>
-                        Mod „doar ridicare" (fără mese)
+                        {st.t('pickupOnly_title')}
                       </div>
                       <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
-                        {pickupOnlyToggleDescription(true)}
+                        {pickupTexts.pickupOnlyToggleDescription(true)}
                       </div>
                     </div>
                     <Toggle
-                      label={'Mod „doar ridicare" (fără mese)'}
+                      label={st.t('pickupOnly_title')}
                       value={form.pickup_settings?.pickup_only ?? false}
                       onChange={(v) => updPickup({ pickup_only: v })}
                     />
@@ -1827,10 +1806,10 @@ export default function SettingsTab({
                           marginBottom: 5,
                         }}
                       >
-                        Pregătire minim (min)
+                        {st.t('pickup_lead')}
                       </label>
                       <Inp
-                        label="Pregătire minim (minute)"
+                        label={st.t('pickup_leadAria')}
                         value={String(form.pickup_settings?.min_lead_time_minutes ?? 20)}
                         onChange={(v) => {
                           const n = parseInt(v)
@@ -1848,10 +1827,10 @@ export default function SettingsTab({
                           marginBottom: 5,
                         }}
                       >
-                        Interval slot (min)
+                        {st.t('pickup_slot')}
                       </label>
                       <Inp
-                        label="Interval slot (minute)"
+                        label={st.t('pickup_slotAria')}
                         value={String(form.pickup_settings?.slot_interval_minutes ?? 15)}
                         onChange={(v) => {
                           const n = parseInt(v)
@@ -1871,10 +1850,10 @@ export default function SettingsTab({
                           marginBottom: 5,
                         }}
                       >
-                        Deschidere
+                        {st.t('pickup_open')}
                       </label>
                       <Inp
-                        label="Deschidere ridicare"
+                        label={st.t('pickup_openAria')}
                         value={form.pickup_settings?.open_hours?.start ?? '09:00'}
                         onChange={(v) =>
                           updPickup({
@@ -1896,10 +1875,10 @@ export default function SettingsTab({
                           marginBottom: 5,
                         }}
                       >
-                        Închidere
+                        {st.t('pickup_close')}
                       </label>
                       <Inp
-                        label="Închidere ridicare"
+                        label={st.t('pickup_closeAria')}
                         value={form.pickup_settings?.open_hours?.end ?? '21:00'}
                         onChange={(v) =>
                           updPickup({
@@ -1917,15 +1896,15 @@ export default function SettingsTab({
                     <label
                       style={{ display: 'block', fontSize: '0.74rem', color: D.t2, marginBottom: 5 }}
                     >
-                      Instrucțiuni client (opțional)
+                      {st.t('pickup_instr')}
                     </label>
                     <Inp
-                      label="Instrucțiuni client (opțional)"
+                      label={st.t('pickup_instr')}
                       value={form.pickup_settings?.instructions ?? ''}
                       onChange={(v) =>
                         updPickup({ instructions: v.length > 0 ? v : null })
                       }
-                      placeholder="Ex: Sună la sosire, intrarea pe lateral"
+                      placeholder={st.t('pickup_instrPh')}
                     />
                   </div>
                   <div
@@ -1939,9 +1918,9 @@ export default function SettingsTab({
                     }}
                   >
                     <Icon name="info" size={13} color={D.t3} />{' '}
-                    Comenzile pickup apar în KitchenPage cu badge{' '}
-                    <strong style={{ color: D.gold }}>📦 Pickup</strong>. Numele clientului și ora
-                    ridicării sunt vizibile.
+                    {fillNodes(st.t('pickup_kitchenNote'), {
+                      badge: <strong style={{ color: D.gold }}>{st.t('pickup_badge')}</strong>,
+                    })}
                   </div>
                 </div>
               )}
@@ -1953,18 +1932,18 @@ export default function SettingsTab({
             {surface?.ordering === true && (
             <SettingsCard
               icon="orders"
-              title="Sugestii la coș"
-              desc="Sugerează automat produse din categorii lipsă din coș (ex: client a luat fel principal dar n-a luat desert)."
+              title={st.t('sugg_title')}
+              desc={st.t('sugg_desc')}
               right={
                 <Toggle
-                  label="Sugestii la coș"
+                  label={st.t('sugg_title')}
                   value={form.checkout_suggestion_settings?.enabled ?? false}
                   onChange={(v) =>
                     upd('checkout_suggestion_settings', {
                       ...(form.checkout_suggestion_settings ?? {
                         categories: [],
                         max_suggestions: 2,
-                        message: '🍰 Înainte să trimiți... ai vrea ceva în plus?',
+                        message: CHECKOUT_SUGGESTION_DEFAULT_MESSAGE,
                       }),
                       enabled: v,
                     })
@@ -1983,10 +1962,10 @@ export default function SettingsTab({
                       marginTop: 8,
                     }}
                   >
-                    Mesaj afișat
+                    {st.t('sugg_msgLabel')}
                   </label>
                   <Inp
-                    label="Mesaj afișat la sugestii"
+                    label={st.t('sugg_msgAria')}
                     value={form.checkout_suggestion_settings?.message ?? ''}
                     onChange={(v) =>
                       upd('checkout_suggestion_settings', {
@@ -1999,7 +1978,7 @@ export default function SettingsTab({
                         message: v,
                       })
                     }
-                    placeholder="🍰 Înainte să trimiți... ai vrea ceva în plus?"
+                    placeholder={st.t('sugg_msgPh')}
                   />
                 </div>
               )}
@@ -2012,8 +1991,8 @@ export default function SettingsTab({
             {surface?.vat === true && (
               <SettingsCard
                 icon="receipt"
-                title="Cote TVA"
-                desc="Cele 4 grupe de TVA folosite în restaurantul tău. Modifică procentul când statul schimbă cotele — produsele își păstrează automat grupa."
+                title={st.t('vat_title')}
+                desc={st.t('vat_desc')}
               >
                 <VatRatesEditor restaurantId={restaurant.id} />
               </SettingsCard>
@@ -2053,11 +2032,11 @@ export default function SettingsTab({
 
             <SettingsCard
               icon="star"
-              title="Plan curent"
+              title={st.t('plan_title')}
               right={
                 surface == null && planLoadError && onRetryPlan ? (
                   <Button variant="secondary" size="sm" onClick={onRetryPlan}>
-                    Reîncearcă
+                    {tc.t('retry')}
                   </Button>
                 ) : undefined
               }
@@ -2077,13 +2056,13 @@ export default function SettingsTab({
                 {surface != null
                   ? PLAN_LABELS[plan] || plan
                   : planLoadError
-                    ? 'Nu am putut verifica planul'
-                    : 'Se verifică…'}
+                    ? st.t('plan_failed')
+                    : st.t('plan_checking')}
               </span>
             </SettingsCard>
 
             <Button variant="secondary" fullWidth onClick={onSignOut}>
-              Deconectare
+              {st.t('signOut')}
             </Button>
           </>
         )}
@@ -2110,11 +2089,9 @@ export default function SettingsTab({
             boxShadow: `0 -6px 20px ${D.scrim}`,
           }}
         >
-          <span style={{ color: D.t2, fontSize: '0.78rem', marginRight: 'auto' }}>
-            Ai modificări nesalvate
-          </span>
+          <span style={{ color: D.t2, fontSize: '0.78rem', marginRight: 'auto' }}>{st.t('unsaved')}</span>
           <Button variant="primary" onClick={handleSave} loading={saving}>
-            {saving ? 'Se salvează...' : 'Salvează'}
+            {saving ? st.t('save_busy') : tc.t('save')}
           </Button>
         </div>
       )}

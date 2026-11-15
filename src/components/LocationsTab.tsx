@@ -9,19 +9,26 @@
 //   - eroare          → mesajul în română + „Reîncearcă";
 //   - RPC nedeployat  → „rezumatul nu e încă disponibil" (nu „nicio locație");
 //   - încasări `null` → câmpul NU apare (nu „0 lei" pe un plan fără bani).
+// Limba (lotul L6b): textele vin din `locations` („Reîncearcă” din `common`);
+// erorile sunt ținute ca DATE și traduse la randare (`describeStaffError` — în
+// română exact `toUserMessage`). Suma rămâne `fmtPrice` în RON, ca azi.
 import { useEffect, useState, type CSSProperties } from 'react'
 import { D } from '../lib/constants'
 import { fmtPrice } from '../lib/currency'
-import { fetchLocationsSummary, formatLastOrder, type LocationSummary } from '../lib/locations'
-import { toUserMessage } from '../lib/userMessages'
+import { fetchLocationsSummary, formatLastOrderT, type LocationSummary } from '../lib/locations'
 import { Button } from './ui/Button'
 import { Card } from './ui/Card'
 import { Icon } from './ui/Icon'
 import { Skeleton } from './ui/Skeleton'
+import { useT } from '../i18n/useT'
+import { useUiLang } from '../i18n/UiLangContext'
+import { describeStaffError } from '../i18n/staffErrors'
+import { locationsNs } from '../i18n/ns/locations'
+import { commonNs } from '../i18n/ns/common'
 
 type LoadState =
   | { status: 'loading' }
-  | { status: 'error'; text: string }
+  | { status: 'error'; err: unknown }
   | { status: 'unavailable' }
   | { status: 'ready'; locations: LocationSummary[] }
 
@@ -65,10 +72,15 @@ export default function LocationsTab({
   // recitește întâi un id necunoscut) — eroarea apare aici, fără comutare.
   onOpen: (restaurantId: string) => Promise<void>
 }) {
+  const tr = useT(locationsNs)
+  const tc = useT(commonNs)
+  // Formatele urmează limba UTILIZATORULUI, nu `tr.lang` (dicționarul servit).
+  const { lang: uiLang } = useUiLang()
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
   const [opening, setOpening] = useState<string | null>(null)
-  const [openError, setOpenError] = useState<string | null>(null)
+  // Eroarea deschiderii, ca DATĂ (`{ err }`): se traduce la randare.
+  const [openError, setOpenError] = useState<{ err: unknown } | null>(null)
 
   const open = async (restaurantId: string) => {
     setOpening(restaurantId)
@@ -76,7 +88,7 @@ export default function LocationsTab({
     try {
       await onOpen(restaurantId)
     } catch (err) {
-      setOpenError(toUserMessage(err, 'Nu am putut deschide locația. Reîncearcă.'))
+      setOpenError({ err })
     }
     setOpening(null)
   }
@@ -91,10 +103,7 @@ export default function LocationsTab({
       })
       .catch((err: unknown) => {
         if (cancelled) return
-        setState({
-          status: 'error',
-          text: toUserMessage(err, 'Nu am putut încărca locațiile. Reîncearcă.'),
-        })
+        setState({ status: 'error', err })
       })
     return () => {
       cancelled = true
@@ -103,8 +112,7 @@ export default function LocationsTab({
 
   const intro = (
     <p style={{ color: D.t2, fontSize: '0.85rem', lineHeight: 1.5, margin: '0 0 16px' }}>
-      Ziua de azi în fiecare locație pe care o administrezi. Cifrele se calculează la deschiderea
-      ecranului.
+      {tr.t('intro')}
     </p>
   )
 
@@ -125,10 +133,10 @@ export default function LocationsTab({
         {intro}
         <Card variant="flat">
           <div role="alert" style={{ color: D.redText, fontSize: '0.85rem', marginBottom: 12 }}>
-            {state.text}
+            {describeStaffError(state.err, tc, { fallback: tr.t('err_load') })}
           </div>
           <Button variant="secondary" size="sm" onClick={() => setAttempt((n) => n + 1)}>
-            Reîncearcă
+            {tc.t('retry')}
           </Button>
         </Card>
       </div>
@@ -140,10 +148,7 @@ export default function LocationsTab({
       <div>
         {intro}
         <Card variant="flat">
-          <div style={{ color: D.t2, fontSize: '0.85rem' }}>
-            Rezumatul locațiilor nu este încă disponibil. Poți comuta între locații din selectorul
-            de restaurant din bara laterală.
-          </div>
+          <div style={{ color: D.t2, fontSize: '0.85rem' }}>{tr.t('unavailable')}</div>
         </Card>
       </div>
     )
@@ -154,14 +159,12 @@ export default function LocationsTab({
       {intro}
       {openError && (
         <div role="alert" style={{ color: D.redText, fontSize: '0.85rem', marginBottom: 12 }}>
-          {openError}
+          {describeStaffError(openError.err, tc, { fallback: tr.t('err_open') })}
         </div>
       )}
       {state.locations.length === 0 ? (
         <Card variant="flat">
-          <div style={{ color: D.t2, fontSize: '0.85rem' }}>
-            Nu am găsit nicio locație pe care o administrezi.
-          </div>
+          <div style={{ color: D.t2, fontSize: '0.85rem' }}>{tr.t('empty')}</div>
         </Card>
       ) : (
         <div style={GRID}>
@@ -197,7 +200,7 @@ export default function LocationsTab({
                   </h2>
                   {isCurrent && (
                     <span style={{ fontSize: '0.72rem', color: D.goldL, whiteSpace: 'nowrap' }}>
-                      Deschisă acum
+                      {tr.t('current')}
                     </span>
                   )}
                 </div>
@@ -209,12 +212,12 @@ export default function LocationsTab({
                     marginBottom: 16,
                   }}
                 >
-                  <Stat label="Comenzi azi" value={String(loc.ordersToday)} />
-                  <Stat label="Deschise acum" value={String(loc.openOrders)} />
+                  <Stat label={tr.t('stat_ordersToday')} value={String(loc.ordersToday)} />
+                  <Stat label={tr.t('stat_open')} value={String(loc.openOrders)} />
                   {loc.revenueToday != null && (
-                    <Stat label="Încasări azi" value={fmtPrice(loc.revenueToday, 'RON')} />
+                    <Stat label={tr.t('stat_revenue')} value={fmtPrice(loc.revenueToday, 'RON')} />
                   )}
-                  <Stat label="Ultima comandă" value={formatLastOrder(loc.lastOrderAt)} />
+                  <Stat label={tr.t('stat_last')} value={formatLastOrderT(tr, uiLang, loc.lastOrderAt)} />
                 </div>
                 {!isCurrent && (
                   <Button
@@ -223,9 +226,9 @@ export default function LocationsTab({
                     loading={opening === loc.id}
                     disabled={opening != null}
                     onClick={() => void open(loc.id)}
-                    aria-label={`Deschide ${loc.name}`}
+                    aria-label={tr.t('open_aria', { name: loc.name })}
                   >
-                    Deschide
+                    {tr.t('open')}
                   </Button>
                 )}
               </Card>

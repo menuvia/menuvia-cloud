@@ -6,13 +6,25 @@
 //   - Art. 17:    request_account_deletion → ștergere programată la D+30
 //                 (cu fereastră de grație și cancel_deletion_request)
 // RPC-urile sunt SECURITY DEFINER pe auth.uid() — nu primesc niciun parametru.
+// Limba (lotul L6b): textele cardului vin din `settingsCards` (același chunk
+// cu fila Setări), „Anulează” din `common`; erorile prin `describeStaffError`
+// (în română exact `toUserMessage`). Linkul duce tot la Politica de
+// confidențialitate (documentul legal rămâne cum e); doar textul lui se
+// traduce. Data programării se formatează în limba personalului.
 import { useEffect, useState } from 'react'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from './ui/useToast'
 import { confirm } from './ui/confirm'
-import { toUserMessage } from '../lib/userMessages'
+import { useT } from '../i18n/useT'
+import { useUiLang } from '../i18n/UiLangContext'
+import { describeStaffError } from '../i18n/staffErrors'
+import { staffLocale } from '../i18n/format'
+import { settingsCardsNs } from '../i18n/ns/settingsCards'
+import { commonNs } from '../i18n/ns/common'
+import { fillNodes } from '../i18n/fillNodes'
+import { isActiveSubscriptionRefusal } from '../lib/accountRefusals'
 
 const btnStyle = (variant: 'neutral' | 'danger' | 'safe'): React.CSSProperties => ({
   background: variant === 'danger' ? D.redA : D.s3,
@@ -28,6 +40,10 @@ const btnStyle = (variant: 'neutral' | 'danger' | 'safe'): React.CSSProperties =
 })
 
 export default function GdprCard() {
+  const tr = useT(settingsCardsNs)
+  const tc = useT(commonNs)
+  // Data programării în formatul limbii UTILIZATORULUI, nu `tr.lang`.
+  const { lang: uiLang } = useUiLang()
   const { user } = useAuth()
   const toast = useToast()
   const [exporting, setExporting] = useState(false)
@@ -71,9 +87,9 @@ export default function GdprCard() {
       a.click()
       a.remove()
       URL.revokeObjectURL(url)
-      toast.success('Exportul a fost descărcat.')
+      toast.success(tr.t('gdpr_exported'))
     } catch (e) {
-      toast.error(toUserMessage(e, 'Exportul a eșuat. Reîncearcă.'))
+      toast.error(describeStaffError(e, tc, { fallback: tr.t('gdpr_err_export') }))
     } finally {
       setExporting(false)
     }
@@ -82,11 +98,10 @@ export default function GdprCard() {
   const handleRequestDeletion = async () => {
     if (deleting) return
     const ok = await confirm({
-      title: 'Ștergi contul?',
-      description:
-        'Contul și datele tale (restaurante, meniuri, membri) vor fi șterse definitiv după 30 de zile. ' +
-        'În această perioadă te poți răzgândi de aici. Facturile fiscale rămân arhivate conform legii (10 ani).',
-      confirmLabel: 'Programează ștergerea',
+      title: tr.t('gdpr_confirmTitle'),
+      description: tr.t('gdpr_confirmDesc'),
+      confirmLabel: tr.t('gdpr_confirmOk'),
+      cancelLabel: tc.t('cancel'),
       destructive: true,
     })
     if (!ok) return
@@ -98,12 +113,19 @@ export default function GdprCard() {
       setDeletionRequestedAt(new Date().toISOString())
       toast.success(
         d?.deletion_scheduled_at
-          ? `Ștergerea e programată pentru ${new Date(d.deletion_scheduled_at).toLocaleDateString('ro-RO')}.`
-          : 'Ștergerea contului a fost programată (30 de zile).',
+          ? tr.t('gdpr_scheduledFor', {
+              date: new Date(d.deletion_scheduled_at).toLocaleDateString(staffLocale(uiLang)),
+            })
+          : tr.t('gdpr_scheduled'),
       )
     } catch (e) {
-      // Mesajul RPC-ului e deja prietenos (ex. „Aveți un abonament activ...").
-      toast.error(toUserMessage(e, 'Cererea de ștergere a eșuat.'))
+      // Mesajul RPC-ului e deja prietenos (ex. „Aveți un abonament activ...") —
+      // în română rămâne ca atare; în altă limbă refuzul cunoscut are text propriu.
+      toast.error(
+        tc.lang !== 'ro' && isActiveSubscriptionRefusal(e)
+          ? tr.t('gdpr_err_activeSub')
+          : describeStaffError(e, tc, { fallback: tr.t('gdpr_err_request') }),
+      )
     } finally {
       setDeleting(false)
     }
@@ -116,9 +138,9 @@ export default function GdprCard() {
       const { error } = await supabase.rpc('cancel_deletion_request')
       if (error) throw new Error(error.message)
       setDeletionRequestedAt(null)
-      toast.success('Cererea de ștergere a fost anulată. Contul rămâne activ.')
+      toast.success(tr.t('gdpr_cancelled'))
     } catch (e) {
-      toast.error(toUserMessage(e, 'Anularea a eșuat. Reîncearcă.'))
+      toast.error(describeStaffError(e, tc, { fallback: tr.t('gdpr_err_cancel') }))
     } finally {
       setDeleting(false)
     }
@@ -133,18 +155,20 @@ export default function GdprCard() {
         padding: 22,
       }}
     >
-      <div style={{ fontWeight: 700, color: D.t1, marginBottom: 4 }}>Datele mele (GDPR)</div>
+      <div style={{ fontWeight: 700, color: D.t1, marginBottom: 4 }}>{tr.t('gdpr_title')}</div>
       <p style={{ fontSize: '0.78rem', color: D.t2, lineHeight: 1.5, margin: '0 0 14px' }}>
-        Poți descărca o copie a datelor contului tău sau poți cere ștergerea contului. Detalii în{' '}
-        <a href="/confidentialitate" target="_blank" rel="noopener noreferrer" style={{ color: D.gold }}>
-          Politica de confidențialitate
-        </a>
-        .
+        {fillNodes(tr.t('gdpr_desc'), {
+          policy: (
+            <a href="/confidentialitate" target="_blank" rel="noopener noreferrer" style={{ color: D.gold }}>
+              {tr.t('gdpr_policy')}
+            </a>
+          ),
+        })}
       </p>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
         <button onClick={() => void handleExport()} disabled={exporting} style={btnStyle('neutral')}>
-          {exporting ? 'Se pregătește…' : '⬇ Exportă datele mele (JSON)'}
+          {exporting ? tr.t('gdpr_preparing') : tr.t('gdpr_export')}
         </button>
 
         {deletionRequestedAt ? (
@@ -153,7 +177,7 @@ export default function GdprCard() {
             disabled={deleting}
             style={btnStyle('safe')}
           >
-            {deleting ? 'Se anulează…' : '↩ Anulează ștergerea programată'}
+            {deleting ? tr.t('gdpr_cancelling') : tr.t('gdpr_cancelDeletion')}
           </button>
         ) : (
           <button
@@ -161,15 +185,14 @@ export default function GdprCard() {
             disabled={deleting || deletionRequestedAt === undefined}
             style={btnStyle('danger')}
           >
-            {deleting ? 'Se trimite…' : 'Șterge contul'}
+            {deleting ? tr.t('gdpr_sending') : tr.t('gdpr_delete')}
           </button>
         )}
       </div>
 
       {deletionRequestedAt ? (
         <p style={{ fontSize: '0.75rem', color: D.red, margin: '12px 0 0', lineHeight: 1.5 }}>
-          ⚠️ Ștergerea contului e programată (la 30 de zile de la cerere). Până atunci contul
-          funcționează normal și poți anula oricând de aici.
+          {tr.t('gdpr_pendingNote')}
         </p>
       ) : null}
     </div>

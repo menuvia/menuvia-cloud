@@ -6,8 +6,13 @@
 // existent `create_restaurant` (mig 096A/221: fără preset de meniu, fără
 // categorii; cotele TVA / setările de rezervare vin din triggerele de la
 // INSERT, ca la onboarding). După succes, apelantul face noul restaurant
-// ACTIV. Refuzul de limită (hint `upgrade_plan`) ajunge la om în română
-// (`describeCreateLocationError`, lib/locations.ts), nu ca text de server.
+// ACTIV. Refuzul de limită (hint `upgrade_plan`) ajunge la om în limba lui
+// (`describeCreateLocationErrorT`, lib/locations.ts), nu ca text de server.
+//
+// Limba (lotul L6b): textele vin din `settingsCards` (același chunk cu fila
+// Setări), „Anulează”/„Închide” din `common`. Eroarea e ținută ca DATĂ
+// (`AddLocationError`) și se traduce la randare — o schimbare de limbă cu
+// dialogul deschis o retraduce.
 //
 // Fără a doua creare la reîncercare (recenzia #344): un restaurant nu se mai
 // poate șterge (DELETE revocat din 096B), deci o locație dublă ar ocupa
@@ -22,8 +27,7 @@ import { useRef, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { D } from '../lib/constants'
 import {
-  MSG_CREATE_UNCERTAIN,
-  describeCreateLocationError,
+  describeCreateLocationErrorT,
   findCreatedLocation,
   hardReloadTo,
   isAmbiguousCreateFailure,
@@ -36,6 +40,9 @@ import { Card } from './ui/Card'
 import { FocusTrap } from './ui/FocusTrap'
 import { Icon } from './ui/Icon'
 import '../styles/components/confirm-dialog.css'
+import { useT } from '../i18n/useT'
+import { settingsCardsNs } from '../i18n/ns/settingsCards'
+import { commonNs } from '../i18n/ns/common'
 
 export interface AddLocationProps {
   // Reîncarcă listele (restaurante + membership-uri) și face locația activă.
@@ -52,6 +59,10 @@ export interface AddLocationProps {
   confirmBeforeOpen?: () => Promise<boolean>
 }
 
+// Eroarea dialogului, ca DATĂ: numele lipsă sau refuzul creării (tradus la
+// randare prin `describeCreateLocationErrorT`).
+type AddLocationError = { kind: 'name' } | { kind: 'create'; err: unknown }
+
 type PendingCheck =
   | { status: 'found'; id: string }
   | { status: 'absent' }
@@ -63,10 +74,12 @@ export default function AddLocationCard({
   knownRestaurantIds,
   confirmBeforeOpen,
 }: AddLocationProps) {
+  const tr = useT(settingsCardsNs)
+  const tc = useT(commonNs)
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<AddLocationError | null>(null)
   // Nu știm dacă s-a creat și nici nu putem verifica: doar „Reîncarcă".
   const [uncertain, setUncertain] = useState(false)
   // Locația deja creată într-o încercare a cărei a doua jumătate (reîncărcarea
@@ -121,7 +134,7 @@ export default function AddLocationCard({
     if (uncertain) return
     const trimmed = name.trim()
     if (!trimmed && createdRef.current == null && pendingRef.current == null) {
-      setError('Scrie numele locației.')
+      setError({ kind: 'name' })
       return
     }
     setSaving(true)
@@ -143,7 +156,7 @@ export default function AddLocationCard({
       }
       if (id == null) {
         if (!trimmed && pendingRef.current == null) {
-          setError('Scrie numele locației.')
+          setError({ kind: 'name' })
           setSaving(false)
           return
         }
@@ -196,7 +209,7 @@ export default function AddLocationCard({
       setName('')
       createdRef.current = null
     } catch (err) {
-      setError(describeCreateLocationError(err))
+      setError({ kind: 'create', err })
       setSaving(false)
     }
   }
@@ -217,18 +230,17 @@ export default function AddLocationCard({
           }}
         >
           <Icon name="mapPin" size={16} color={D.gold} />
-          Locații
+          {tr.t('loc_title')}
         </h2>
         <div style={{ fontSize: '0.75rem', color: D.t2, marginBottom: 14, lineHeight: 1.5 }}>
-          Ai mai multe localuri? Adaugă o locație nouă — pornește goală, cu meniul și mesele
-          ei. Câte locații poți avea depinde de planul contului.
+          {tr.t('loc_desc')}
         </div>
         <Button
           variant="secondary"
           onClick={() => void openDialog()}
           icon={<Icon name="plus" size={16} />}
         >
-          Adaugă o locație
+          {tr.t('loc_add')}
         </Button>
       </Card>
 
@@ -245,18 +257,15 @@ export default function AddLocationCard({
             >
               <FocusTrap onEscape={close} />
               <h3 id="add-location-title" className="confirm-dialog__title">
-                Adaugă o locație
+                {tr.t('loc_add')}
               </h3>
-              <p className="confirm-dialog__desc">
-                Locația nouă pornește goală: adaugi apoi produsele, mesele și echipa ei. Restaurantul
-                pe care îl administrezi acum rămâne neschimbat.
-              </p>
+              <p className="confirm-dialog__desc">{tr.t('loc_dialogDesc')}</p>
               <form onSubmit={(e) => void submit(e)}>
                 <label
                   htmlFor="add-location-name"
                   style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}
                 >
-                  Numele locației
+                  {tr.t('loc_name')}
                 </label>
                 <input
                   id="add-location-name"
@@ -285,7 +294,9 @@ export default function AddLocationCard({
                     role="alert"
                     style={{ color: D.redText, fontSize: '0.8rem', lineHeight: 1.45, marginBottom: 12 }}
                   >
-                    {error}
+                    {error.kind === 'name'
+                      ? tr.t('loc_err_nameRequired')
+                      : describeCreateLocationErrorT(error.err, tr, tc)}
                   </div>
                 )}
                 {uncertain ? (
@@ -294,24 +305,24 @@ export default function AddLocationCard({
                       role="alert"
                       style={{ color: D.redText, fontSize: '0.8rem', lineHeight: 1.45, marginBottom: 12 }}
                     >
-                      {MSG_CREATE_UNCERTAIN}
+                      {tr.t('loc_uncertain')}
                     </div>
                     <div className="confirm-dialog__actions">
                       <Button variant="ghost" onClick={close}>
-                        Închide
+                        {tc.t('close')}
                       </Button>
                       <Button variant="primary" onClick={() => hardReloadTo('/dashboard')}>
-                        Reîncarcă
+                        {tr.t('loc_reload')}
                       </Button>
                     </div>
                   </>
                 ) : (
                   <div className="confirm-dialog__actions">
                     <Button variant="ghost" onClick={close} disabled={saving}>
-                      Anulează
+                      {tc.t('cancel')}
                     </Button>
                     <Button type="submit" variant="primary" loading={saving}>
-                      Creează locația
+                      {tr.t('loc_create')}
                     </Button>
                   </div>
                 )}

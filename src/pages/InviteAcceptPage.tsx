@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { D } from '../lib/constants'
 import type { MemberRole } from '../lib/constants'
 import { Icon } from '../components/ui/Icon'
-import { FunnelLangProvider } from '../i18n/UiLangContext'
+import { FunnelLangProvider, useUiLang } from '../i18n/UiLangContext'
 import { useT } from '../i18n/useT'
 import { fillNodes } from '../i18n/fillNodes'
 import { staffLocale } from '../i18n/format'
@@ -73,7 +73,10 @@ export default function InviteAcceptPage(props: InviteAcceptProps) {
 }
 
 function InviteAcceptScreen({ token, navigate }: InviteAcceptProps) {
-  const { t, lang } = useT(inviteNs)
+  const { t } = useT(inviteNs)
+  // Data expirării în formatul limbii ecranului (UTILIZATORULUI), nu limba
+  // dicționarului servit.
+  const { lang: uiLang } = useUiLang()
   const [invite, setInvite] = useState<InviteData | null>(null)
   const [step, setStep] = useState<Step>('loading')
   const [isNew, setIsNew] = useState(true)
@@ -258,7 +261,7 @@ function InviteAcceptScreen({ token, navigate }: InviteAcceptProps) {
   const expiresDate = invite?.expires_at ? new Date(invite.expires_at) : null
   const expiresLabel =
     expiresDate && !Number.isNaN(expiresDate.getTime())
-      ? expiresDate.toLocaleDateString(staffLocale(lang), { day: 'numeric', month: 'long', year: 'numeric' })
+      ? expiresDate.toLocaleDateString(staffLocale(uiLang), { day: 'numeric', month: 'long', year: 'numeric' })
       : null
 
   if (step === 'loading')

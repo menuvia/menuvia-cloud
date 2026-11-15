@@ -11,17 +11,61 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import type { MemberRole } from '../lib/constants'
 import type { Restaurant } from '../hooks/useData'
 import { changeMemberRole, removeMember, revokeInvite } from '../lib/restaurants'
-import { toUserMessage } from '../lib/userMessages'
+// Limba (lotul L6b): textele vin din `team` („Anulează”/„Reîncearcă” din
+// `common`); erorile sunt ținute ca DATE și traduse la randare — încărcarea
+// prin `describeStaffError` (în română exact `toUserMessage`), refuzul
+// invitației după `code` (în română textul serverului, ca înainte).
+import { useT } from '../i18n/useT'
+import { useUiLang } from '../i18n/UiLangContext'
+import { describeStaffError } from '../i18n/staffErrors'
+import { staffLocale } from '../i18n/format'
+import { fillNodes } from '../i18n/fillNodes'
+import { teamNs } from '../i18n/ns/team'
+import { commonNs } from '../i18n/ns/common'
+import type { Translator } from '../i18n/core'
+import type teamRo from '../i18n/ns/team/ro'
 // Toast-ul unic al panoului (sharedUI → ui/useToast, lotul V): înainte TeamManager
 // avea o copie locală (fixă jos-dreapta, fără regiune live), deci notificările
 // echipei arătau și se anunțau altfel decât restul panoului.
 import { useToast, Toast } from './_dashboard/sharedUI'
 
-const ROLE_LABELS: Record<MemberRole, string> = {
-  owner: 'Proprietar',
-  manager: 'Manager',
-  waiter: 'Ospătar',
-  kitchen: 'Bucătărie',
+// Valoarea din DB → cheia textului (se traduce doar afișarea, nu valoarea).
+const ROLE_KEYS = {
+  owner: 'role_owner',
+  manager: 'role_manager',
+  waiter: 'role_waiter',
+  kitchen: 'role_kitchen',
+} as const satisfies Record<MemberRole, string>
+
+// `code`-urile lui `send-invite.js` cu text propriu în celelalte limbi.
+const INVITE_ERROR_KEYS = {
+  server_config: 'inv_err_server_config',
+  email_not_configured: 'inv_err_email_not_configured',
+  missing_fields: 'inv_err_missing_fields',
+  invalid_email: 'inv_err_invalid_email',
+  invalid_role: 'inv_err_invalid_role',
+  auth_invalid: 'inv_err_auth_invalid',
+  forbidden: 'inv_err_forbidden',
+  rate_limit_unavailable: 'inv_err_rate_limit_unavailable',
+  rate_limited: 'inv_err_rate_limited',
+  already_member: 'inv_err_already_member',
+  invite_create_failed: 'inv_err_invite_create_failed',
+  email_send_uncertain: 'inv_err_email_send_uncertain',
+  email_send_failed: 'inv_err_email_send_failed',
+} as const
+
+// Refuzul invitației, ca DATĂ: textul și codul serverului, sau rețeaua.
+type InviteError = { kind: 'server'; text: string | null; code: string | null } | { kind: 'network' }
+
+function inviteErrorText(e: InviteError, tm: Translator<typeof teamRo>): string {
+  if (e.kind === 'network') return tm.t('inv_err_network')
+  // În română serverul își trimite deja textul românesc (ca înainte).
+  if (tm.lang === 'ro') return e.text || tm.t('inv_err_send')
+  const key =
+    e.code && Object.prototype.hasOwnProperty.call(INVITE_ERROR_KEYS, e.code)
+      ? INVITE_ERROR_KEYS[e.code as keyof typeof INVITE_ERROR_KEYS]
+      : null
+  return key ? tm.t(key) : tm.t('inv_err_send')
 }
 const ROLE_COLORS: Record<MemberRole, string> = {
   owner: D.gold,
@@ -87,6 +131,10 @@ export default function TeamManager({
   // doar un refuz. Echipa rămâne vizibilă.
   canInvite: boolean
 }) {
+  const tm = useT(teamNs)
+  const tc = useT(commonNs)
+  // Data invitației în formatul limbii UTILIZATORULUI, nu `tm.lang`.
+  const { lang: uiLang } = useUiLang()
   const isMobile = useIsMobile()
   const { toasts, toast } = useToast()
   const [members, setMembers] = useState<Member[]>([])
@@ -95,11 +143,12 @@ export default function TeamManager({
   // Eroare persistentă de încărcare: fără ea, un eșec pe interogarea de membri
   // colapsa la starea goală „Niciun membru încă" (minte că echipa e goală în loc
   // să spună că n-a putut încărca) — arătăm QueryError cu Reîncearcă.
-  const [error, setError] = useState<string | null>(null)
+  // Ca DATĂ (`{ err }`): se traduce la randare.
+  const [error, setError] = useState<{ err: unknown } | null>(null)
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<Exclude<MemberRole, 'owner'>>('waiter')
   const [sending, setSending] = useState(false)
-  const [invErr, setInvErr] = useState<string | null>(null)
+  const [invErr, setInvErr] = useState<InviteError | null>(null)
   const [removeTarget, setRemoveTarget] = useState<Member | null>(null)
 
   const load = useCallback(async () => {
@@ -161,7 +210,7 @@ export default function TeamManager({
       setInvites((ir.data || []) as unknown as Invite[])
     } catch (err) {
       console.error('[TeamManager] load error:', err)
-      setError(toUserMessage(err, 'Nu s-a putut încărca echipa'))
+      setError({ err })
     }
     setLoading(false)
   }, [restaurant.id])
@@ -197,18 +246,22 @@ export default function TeamManager({
       })
       const d = await res.json()
       if (!res.ok) {
-        setInvErr(d.error || 'Eroare la trimitere')
+        setInvErr({
+          kind: 'server',
+          text: typeof d.error === 'string' ? d.error : null,
+          code: typeof d.code === 'string' ? d.code : null,
+        })
         // Emailul poate să fi plecat (timeout după trimitere): invitația nouă
         // există, deci lista trebuie să o arate, cum promite mesajul serverului.
         if (d.code === 'email_send_uncertain') await load()
       } else {
-        toast(`Invitație trimisă la ${email}`)
+        toast(tm.t('inv_sent', { email }))
         setEmail('')
         await load()
       }
     } catch (err) {
       console.error('[TeamManager] sendInvite error:', err)
-      setInvErr('Eroare de conexiune. Verifică internetul.')
+      setInvErr({ kind: 'network' })
     }
     setSending(false)
   }
@@ -216,10 +269,10 @@ export default function TeamManager({
   const handleRevokeInvite = async (id: string) => {
     try {
       await revokeInvite({ inviteId: id })
-      toast('Invitație anulată')
+      toast(tm.t('inv_revoked'))
       await load()
     } catch {
-      toast('Eroare la anulare', 'error')
+      toast(tm.t('err_revoke'), 'error')
     }
   }
 
@@ -227,20 +280,20 @@ export default function TeamManager({
     if (!removeTarget) return
     try {
       await removeMember({ membershipId: removeTarget.id })
-      toast('Membru eliminat')
+      toast(tm.t('member_removed'))
       setRemoveTarget(null)
       await load()
     } catch {
       // Pe eroare păstrăm modalul deschis (userul poate reîncerca) — nu mai închidem +
       // reîncărcăm ca și cum eliminarea a reușit.
-      toast('Eroare la eliminare', 'error')
+      toast(tm.t('err_remove'), 'error')
     }
   }
 
   const handleChangeRole = async (id: string, newRole: MemberRole) => {
     if (newRole === 'owner') {
       // UI nu permite promovarea la owner; defense in depth.
-      toast('Promovarea la proprietar nu este permisă', 'error')
+      toast(tm.t('owner_forbidden'), 'error')
       return
     }
     try {
@@ -248,29 +301,43 @@ export default function TeamManager({
         membershipId: id,
         newRole: newRole as Exclude<MemberRole, 'owner'>,
       })
-      toast('Rol actualizat')
+      toast(tm.t('role_updated'))
       await load()
     } catch {
-      toast('Eroare la actualizare rol', 'error')
+      toast(tm.t('err_role'), 'error')
     }
   }
 
-  if (error) return <QueryError message={error} onRetry={() => void load()} />
+  if (error)
+    return (
+      <QueryError
+        message={describeStaffError(error.err, tc, { fallback: tm.t('err_load') })}
+        onRetry={() => void load()}
+        retryLabel={tc.t('retry')}
+      />
+    )
+
+  const roleOptions = (
+    <>
+      <option value="manager">{tm.t('role_manager')}</option>
+      <option value="waiter">{tm.t('role_waiter')}</option>
+      <option value="kitchen">{tm.t('role_kitchen')}</option>
+    </>
+  )
 
   return (
     <div>
       <Toast toasts={toasts} />
       <div style={{ marginBottom: 24 }}>
         <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>
-          {members.length} membr{members.length === 1 ? 'u' : 'i'} · Invitații expiră în 7 zile
+          {tm.tp('members_count', members.length)}
         </p>
       </div>
 
       {/* Invite form */}
       {!canInvite ? (
         <p style={{ color: D.t2, fontSize: '0.82rem', lineHeight: 1.5, marginBottom: 24 }}>
-          În modul fondator vezi echipa, dar invitațiile le trimite doar proprietarul sau managerul
-          restaurantului, din contul lui.
+          {tm.t('founder_note')}
         </p>
       ) : (
       <div
@@ -283,7 +350,7 @@ export default function TeamManager({
         }}
       >
         <div style={{ fontSize: '0.875rem', fontWeight: 600, color: D.t1, marginBottom: 14 }}>
-          Invită un membru nou
+          {tm.t('invite_title')}
         </div>
         <form
           onSubmit={sendInvite}
@@ -297,13 +364,13 @@ export default function TeamManager({
         >
           <div style={{ flex: '1 1 200px' }}>
             <label style={{ display: 'block', fontSize: '0.75rem', color: D.t2, marginBottom: 5 }}>
-              Email
+              {tm.t('email')}
             </label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="ion@restaurant.ro"
+              placeholder={tm.t('email_placeholder')}
               required
               style={inp}
               onFocus={(e) => (e.target.style.borderColor = D.gold)}
@@ -312,16 +379,14 @@ export default function TeamManager({
           </div>
           <div style={{ flex: isMobile ? '1 1 auto' : '0 0 160px' }}>
             <label style={{ display: 'block', fontSize: '0.75rem', color: D.t2, marginBottom: 5 }}>
-              Rol
+              {tm.t('role')}
             </label>
             <select
               value={role}
               onChange={(e) => setRole(e.target.value as Exclude<MemberRole, 'owner'>)}
               style={{ ...inp, cursor: 'pointer' }}
             >
-              <option value="manager">Manager</option>
-              <option value="waiter">Ospătar</option>
-              <option value="kitchen">Bucătărie</option>
+              {roleOptions}
             </select>
           </div>
           <button
@@ -336,11 +401,11 @@ export default function TeamManager({
             })}
           >
             {sending ? (
-              'Se trimite...'
+              tm.t('sending')
             ) : (
               <>
                 <Icon name="send" size={15} />
-                Trimite invitație
+                {tm.t('send')}
               </>
             )}
           </button>
@@ -356,7 +421,7 @@ export default function TeamManager({
               padding: '8px 12px',
             }}
           >
-            {invErr}
+            {inviteErrorText(invErr, tm)}
           </div>
         )}
       </div>
@@ -375,7 +440,7 @@ export default function TeamManager({
               marginBottom: 10,
             }}
           >
-            Invitații în așteptare ({invites.length})
+            {tm.t('pending_title', { n: invites.length })}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {invites.map((inv) => (
@@ -398,8 +463,10 @@ export default function TeamManager({
                     {inv.email}
                   </div>
                   <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
-                    {ROLE_LABELS[inv.role]} · expiră{' '}
-                    {new Date(inv.expires_at).toLocaleDateString('ro-RO')}
+                    {tm.t('pending_meta', {
+                      role: tm.t(ROLE_KEYS[inv.role]),
+                      date: new Date(inv.expires_at).toLocaleDateString(staffLocale(uiLang)),
+                    })}
                   </div>
                 </div>
                 <button
@@ -413,7 +480,7 @@ export default function TeamManager({
                     width: isMobile ? '100%' : undefined,
                   })}
                 >
-                  Anulează
+                  {tc.t('cancel')}
                 </button>
               </div>
             ))}
@@ -433,7 +500,7 @@ export default function TeamManager({
             marginBottom: 10,
           }}
         >
-          Membri actuali ({members.length})
+          {tm.t('current_title', { n: members.length })}
         </div>
         {loading ? (
           <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -442,15 +509,15 @@ export default function TeamManager({
         ) : members.length === 0 ? (
           <EmptyState
             icon="users"
-            title="Niciun membru încă"
-            description="Invită colegii tăi ca să gestionați împreună restaurantul."
+            title={tm.t('empty_title')}
+            description={tm.t('empty_desc')}
           />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {members.map((m) => {
               const isSelf = m.user?.id === currentUserId
               const isOwner = m.role === 'owner'
-              const name = m.user?.full_name || m.user?.email || 'Utilizator'
+              const name = m.user?.full_name || m.user?.email || tm.t('user_fallback')
               return (
                 <div
                   key={m.id}
@@ -497,7 +564,7 @@ export default function TeamManager({
                             borderRadius: 4,
                           }}
                         >
-                          Tu
+                          {tm.t('self')}
                         </span>
                       )}
                     </div>
@@ -519,7 +586,7 @@ export default function TeamManager({
                       <select
                         value={m.role}
                         onChange={(e) => handleChangeRole(m.id, e.target.value as MemberRole)}
-                        aria-label={`Rol pentru ${name}`}
+                        aria-label={tm.t('role_aria', { name })}
                         style={{
                           background: D.s3,
                           border: `1px solid ${D.border}`,
@@ -532,21 +599,19 @@ export default function TeamManager({
                           fontFamily: 'DM Sans,sans-serif',
                         }}
                       >
-                        <option value="manager">Manager</option>
-                        <option value="waiter">Ospătar</option>
-                        <option value="kitchen">Bucătărie</option>
+                        {roleOptions}
                       </select>
                     ) : (
                       <span
                         style={{ fontSize: '0.8rem', color: ROLE_COLORS[m.role], fontWeight: 500 }}
                       >
-                        {ROLE_LABELS[m.role]}
+                        {tm.t(ROLE_KEYS[m.role])}
                       </span>
                     )}
                     {!isOwner && !isSelf && (
                       <button
                         onClick={() => setRemoveTarget(m)}
-                        aria-label={`Elimină ${name} din echipă`}
+                        aria-label={tm.t('remove_aria', { name })}
                         style={{
                           width: 44,
                           height: 44,
@@ -607,24 +672,26 @@ export default function TeamManager({
                 marginBottom: 12,
               }}
             >
-              Elimină din echipă
+              {tm.t('remove_title')}
             </div>
             <p style={{ color: D.t2, fontSize: '0.875rem', marginBottom: 22 }}>
-              Ești sigur că vrei să elimini{' '}
-              <strong style={{ color: D.t1 }}>
-                {removeTarget.user?.full_name || removeTarget.user?.email}
-              </strong>
-              ?
+              {fillNodes(tm.t('remove_confirm'), {
+                name: (
+                  <strong style={{ color: D.t1 }}>
+                    {removeTarget.user?.full_name || removeTarget.user?.email}
+                  </strong>
+                ),
+              })}
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button
                 onClick={() => setRemoveTarget(null)}
                 style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
               >
-                Anulează
+                {tc.t('cancel')}
               </button>
               <button onClick={handleRemoveMember} style={btn({ background: D.red, color: '#fff' })}>
-                Elimină
+                {tm.t('remove')}
               </button>
             </div>
           </div>

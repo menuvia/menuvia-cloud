@@ -2,6 +2,10 @@
 // Userul își alege furnizorul (OpenAI / Anthropic / Gemini / custom
 // OpenAI-compatible), modelul și cheia API. Cheia se trimite o singură dată,
 // se criptează server-side (ai-config) și NU se mai întoarce niciodată în clar.
+// Limba (lotul L6b): textele vin din `aiSettings` („Reîncearcă” din `common`).
+// Mesajul de sub formular e ținut ca DATĂ (`AiMsg`: cheia + cauza) și se
+// traduce la randare; erorile funcțiilor AI: în română textul serverului, ca
+// înainte (`describeStaffError` = `toUserMessage`), în altă limbă după `code`.
 import { useState, useEffect } from 'react'
 import { D } from '../lib/constants'
 import { useIsMobile } from '../hooks/useIsMobile'
@@ -13,13 +17,21 @@ import {
   type AiProvider,
   type AiQuota,
 } from '../lib/ai'
-import { toUserMessage } from '../lib/userMessages'
 import { Button } from './ui/Button'
+import { useT } from '../i18n/useT'
+import { useUiLang } from '../i18n/UiLangContext'
+import { describeStaffError } from '../i18n/staffErrors'
+import { staffLocale } from '../i18n/format'
+import { aiSettingsNs } from '../i18n/ns/aiSettings'
+import { commonNs } from '../i18n/ns/common'
+import type { Translator } from '../i18n/core'
+import type aiSettingsRo from '../i18n/ns/aiSettings/ro'
+import type commonRo from '../i18n/ns/common/ro'
 
 interface ProviderMeta {
   id: AiProvider
-  label: string
-  hint: string
+  labelKey: 'provider_openai' | 'provider_anthropic' | 'provider_gemini' | 'provider_custom'
+  hintKey: 'hint_openai' | 'hint_anthropic' | 'hint_gemini' | 'hint_custom'
   modelExamples: string[]
   needsBaseUrl?: boolean
 }
@@ -30,26 +42,26 @@ interface ProviderMeta {
 const PROVIDERS: ProviderMeta[] = [
   {
     id: 'openai',
-    label: 'OpenAI',
-    hint: 'Cheie de la platform.openai.com (începe cu sk-…)',
+    labelKey: 'provider_openai',
+    hintKey: 'hint_openai',
     modelExamples: ['gpt-4o', 'gpt-4o-mini'],
   },
   {
     id: 'anthropic',
-    label: 'Anthropic (Claude)',
-    hint: 'Cheie de la console.anthropic.com',
+    labelKey: 'provider_anthropic',
+    hintKey: 'hint_anthropic',
     modelExamples: ['claude-sonnet-4-6', 'claude-haiku-4-5'],
   },
   {
     id: 'gemini',
-    label: 'Google Gemini',
-    hint: 'Cheie de la aistudio.google.com',
+    labelKey: 'provider_gemini',
+    hintKey: 'hint_gemini',
     modelExamples: ['gemini-1.5-flash', 'gemini-1.5-pro'],
   },
   {
     id: 'custom',
-    label: 'Personalizat (OpenAI-compatible)',
-    hint: 'Orice endpoint compatibil OpenAI (ex. self-hosted, OpenRouter)',
+    labelKey: 'provider_custom',
+    hintKey: 'hint_custom',
     modelExamples: ['model-name'],
     needsBaseUrl: true,
   },
@@ -65,11 +77,54 @@ const DEFAULT_MODEL: Record<AiProvider, string> = {
   custom: '',
 }
 
-const CREDIT_PACKS: { id: 'small' | 'medium' | 'large'; tokens: string; price: string }[] = [
-  { id: 'small', tokens: '100.000 tokens', price: '19 lei' },
-  { id: 'medium', tokens: '500.000 tokens', price: '79 lei' },
-  { id: 'large', tokens: '2.000.000 tokens', price: '249 lei' },
+// Prețurile sunt BANI (rămân ca azi, în lei); numărul de tokens se formatează
+// în limba personalului (în română exact „100.000 tokens”, ca înainte).
+const CREDIT_PACKS: { id: 'small' | 'medium' | 'large'; tokens: number; price: string }[] = [
+  { id: 'small', tokens: 100_000, price: '19 lei' },
+  { id: 'medium', tokens: 500_000, price: '79 lei' },
+  { id: 'large', tokens: 2_000_000, price: '249 lei' },
 ]
+
+type AiMsgKey = 'err_customUrl' | 'err_customKey' | 'saved_byo' | 'saved_platform' | 'err_save' | 'err_buy'
+
+// Mesajul de sub formular, ca DATĂ: cheia (textul propriu sau rezerva) și,
+// pentru un eșec al serverului, cauza.
+type AiMsg = { kind: 'ok' | 'err'; key: AiMsgKey; cause?: unknown }
+
+// `code`-urile contractului `{ error, code }` (netlify/functions/lib/aiErrors.js)
+// cu text propriu în celelalte limbi. În română serverul își trimite textul.
+const AI_ERROR_KEYS = {
+  network: 'err_network',
+  auth_missing: 'err_auth',
+  auth_invalid: 'err_auth',
+  forbidden: 'err_forbidden',
+  rate_limited: 'err_rate_limited',
+  server_config: 'err_unavailable',
+  service_unavailable: 'err_unavailable',
+  server_error: 'err_unavailable',
+  model_missing: 'err_model_missing',
+  base_url_required: 'err_customUrl',
+  base_url_rejected: 'err_base_url',
+  api_key_invalid: 'err_api_key_invalid',
+  api_key_too_long: 'err_api_key_invalid',
+  api_key_required: 'err_api_key_required',
+  checkout_failed: 'err_checkout_failed',
+} as const
+
+function codeOf(err: unknown): string | null {
+  if (err == null || typeof err !== 'object') return null
+  const c = (err as { code?: unknown }).code
+  return typeof c === 'string' && c ? c : null
+}
+
+function aiMsgText(m: AiMsg, tr: Translator<typeof aiSettingsRo>, tc: Translator<typeof commonRo>): string {
+  if (m.cause === undefined) return tr.t(m.key)
+  const code = codeOf(m.cause)
+  if (tc.lang !== 'ro' && code && Object.prototype.hasOwnProperty.call(AI_ERROR_KEYS, code)) {
+    return tr.t(AI_ERROR_KEYS[code as keyof typeof AI_ERROR_KEYS])
+  }
+  return describeStaffError(m.cause, tc, { fallback: tr.t(m.key) })
+}
 
 // Starea citirii configurației salvate (tiparul LoyaltySettingsCard). Formularul
 // și „Salvează" există DOAR pe 'ready': pe 'error' nu știm ce e salvat, iar
@@ -87,6 +142,14 @@ export default function AiSettingsTab({
   // erori. Vede configurația, nu o schimbă.
   readOnly?: boolean
 }) {
+  const tr = useT(aiSettingsNs)
+  const tc = useT(commonNs)
+  // Numerele (tokens, credite): în română `toLocaleString('ro-RO')`, ca înainte.
+  // Limba UTILIZATORULUI, nu `tr.lang` (dicționarul servit cade pe română la
+  // o încărcare eșuată; formatele urmează omul, ca `fmt` din `useT`).
+  const { lang: uiLang } = useUiLang()
+  const locale = staffLocale(uiLang)
+  const num = (n: number): string => n.toLocaleString(locale)
   const isMobile = useIsMobile()
   const [provider, setProvider] = useState<AiProvider>('openai')
   const [model, setModel] = useState('')
@@ -99,7 +162,7 @@ export default function AiSettingsTab({
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [reloadKey, setReloadKey] = useState(0)
   const [saving, setSaving] = useState(false)
-  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  const [msg, setMsg] = useState<AiMsg | null>(null)
   const [buying, setBuying] = useState<string | null>(null)
 
   useEffect(() => {
@@ -163,14 +226,14 @@ export default function AiSettingsTab({
     setMsg(null)
     // Furnizorul personalizat rămâne strict: are nevoie de propriul endpoint https.
     if (meta.needsBaseUrl && !/^https:\/\//i.test(baseUrl.trim())) {
-      setMsg({ kind: 'err', text: 'Furnizorul personalizat are nevoie de un URL https.' })
+      setMsg({ kind: 'err', key: 'err_customUrl' })
       return
     }
     // Cheia proprie e obligatorie DOAR pentru furnizorul personalizat (nu avem
     // cheie de platformă pentru un endpoint arbitrar). Pentru ceilalți furnizori
     // platforma acoperă cheia — salvarea merge fără să introduci nimic.
     if (meta.needsBaseUrl && !hasKey && !apiKey.trim()) {
-      setMsg({ kind: 'err', text: 'Furnizorul personalizat are nevoie de o cheie API.' })
+      setMsg({ kind: 'err', key: 'err_customKey' })
       return
     }
     // Dacă userul n-a atins „Avansat", trimitem provider-ul implicit ('openai')
@@ -189,14 +252,9 @@ export default function AiSettingsTab({
       })
       if (res.config.key_masked) setHasKey(true)
       setApiKey('')
-      setMsg({
-        kind: 'ok',
-        text: res.config.key_masked
-          ? 'Configurație salvată. Cheia ta este criptată și securizată.'
-          : 'Configurație salvată. Cheia este gestionată de Menuvia.',
-      })
+      setMsg({ kind: 'ok', key: res.config.key_masked ? 'saved_byo' : 'saved_platform' })
     } catch (e) {
-      setMsg({ kind: 'err', text: toUserMessage(e, 'Eroare la salvare.') })
+      setMsg({ kind: 'err', key: 'err_save', cause: e })
     } finally {
       setSaving(false)
     }
@@ -209,7 +267,7 @@ export default function AiSettingsTab({
       const { url } = await buyAiCredits({ restaurant_id: restaurantId, pack })
       window.location.href = url
     } catch (e) {
-      setMsg({ kind: 'err', text: toUserMessage(e, 'Nu am putut porni plata.') })
+      setMsg({ kind: 'err', key: 'err_buy', cause: e })
       setBuying(null)
     }
   }
@@ -227,28 +285,27 @@ export default function AiSettingsTab({
     boxSizing: 'border-box' as const,
   }
 
-  if (loadState === 'loading') return <div style={{ color: D.t2, padding: 20 }}>Se încarcă...</div>
+  if (loadState === 'loading') return <div style={{ color: D.t2, padding: 20 }}>{tr.t('loading')}</div>
 
   return (
     <div style={{ maxWidth: 720 }}>
       <p style={{ color: D.t2, fontSize: '0.9rem', lineHeight: 1.5, marginBottom: 24 }}>
-        Activează asistentul AI ca să folosești chatbot-ul din panou și importul de meniu din poze.
-        Nu ai nevoie de nicio configurare tehnică — cheia e gestionată de Menuvia.
+        {tr.t('intro')}
       </p>
 
       {/* Cotă */}
       {quota && (
         <div style={{ background: D.s2, border: `1px solid ${D.border}`, borderRadius: 14, padding: 18, marginBottom: 22 }}>
           <div style={{ fontSize: '0.72rem', color: D.t3, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12, fontWeight: 600 }}>
-            Consum luna aceasta
+            {tr.t('quota_title')}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
             <span style={{ color: D.t1, fontSize: '1.1rem', fontWeight: 600 }}>
-              {quota.used_tokens.toLocaleString('ro-RO')} <span style={{ color: D.t2, fontSize: '0.85rem', fontWeight: 400 }}>/ {quota.included_tokens.toLocaleString('ro-RO')} incluse</span>
+              {num(quota.used_tokens)} <span style={{ color: D.t2, fontSize: '0.85rem', fontWeight: 400 }}>{tr.t('quota_included', { n: num(quota.included_tokens) })}</span>
             </span>
             {quota.credit_balance > 0 && (
               <span style={{ color: D.gold, fontSize: '0.82rem' }}>
-                + {quota.credit_balance.toLocaleString('ro-RO')} credite
+                {tr.t('quota_credits', { n: num(quota.credit_balance) })}
               </span>
             )}
           </div>
@@ -267,7 +324,7 @@ export default function AiSettingsTab({
           </div>
           {quota.included_remaining === 0 && quota.credit_balance === 0 && (
             <p style={{ color: D.amber, fontSize: '0.8rem', marginTop: 10, marginBottom: 0 }}>
-              Ai consumat cota inclusă. Cumpără credite mai jos ca să continui.
+              {tr.t('quota_exhausted')}
             </p>
           )}
         </div>
@@ -294,12 +351,9 @@ export default function AiSettingsTab({
             color: D.t1,
           }}
         >
-          <span>
-            Nu am putut citi configurația AI salvată. Ca să nu o înlocuim cu valorile implicite (și
-            să nu se piardă cheia API salvată), salvarea e blocată până o citim.
-          </span>
+          <span>{tr.t('load_error')}</span>
           <Button variant="secondary" size="sm" onClick={() => setReloadKey((k) => k + 1)}>
-            Reîncearcă
+            {tc.t('retry')}
           </Button>
         </div>
       ) : (
@@ -307,12 +361,11 @@ export default function AiSettingsTab({
         {/* Toggle principal — singurul lucru necesar pentru non-tehnici */}
         <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 8 }}>
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} style={{ width: 18, height: 18, accentColor: D.gold }} />
-          <span style={{ color: D.t1, fontSize: '0.88rem', fontWeight: 600 }}>Activează asistentul AI pentru acest restaurant</span>
+          <span style={{ color: D.t1, fontSize: '0.88rem', fontWeight: 600 }}>{tr.t('enable')}</span>
         </label>
         <p style={{ color: D.t2, fontSize: '0.8rem', lineHeight: 1.5, margin: '0 0 4px 28px' }}>
-          Asistentul e activ implicit pentru contul tău — cheia e gestionată de Menuvia, nu ai
-          nevoie de nicio configurare tehnică.
-          {quota && ` Ai ${quota.included_tokens.toLocaleString('ro-RO')} tokens incluși pe lună.`}
+          {tr.t('enable_desc')}
+          {quota && ` ${tr.t('enable_quota', { n: num(quota.included_tokens) })}`}
         </p>
 
         {/* Avansat (opțional) — pliat implicit; câmpurile BYO rămân neatinse */}
@@ -334,16 +387,16 @@ export default function AiSettingsTab({
           }}
         >
           {/* Glifa e pur decorativă — starea reală o comunică aria-expanded. */}
-          <span aria-hidden="true">{showAdvanced ? '▾' : '▸'}</span> Avansat (opțional)
+          <span aria-hidden="true">{showAdvanced ? '▾' : '▸'}</span> {tr.t('advanced')}
         </button>
 
         {showAdvanced && (
           <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${D.border}` }}>
             <p style={{ color: D.t2, fontSize: '0.8rem', lineHeight: 1.5, marginTop: 0, marginBottom: 16 }}>
-              Doar dacă vrei să folosești propria cheie / alt furnizor.
+              {tr.t('advanced_desc')}
             </p>
 
-            <label style={label}>Furnizor</label>
+            <label style={label}>{tr.t('provider')}</label>
             {/* O coloană pe mobil — eticheta „Personalizat (OpenAI-compatible)" nu încape pe două. */}
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 8, marginBottom: 16 }}>
               {PROVIDERS.map((p) => {
@@ -367,18 +420,18 @@ export default function AiSettingsTab({
                       fontWeight: active ? 600 : 400,
                     }}
                   >
-                    {p.label}
+                    {tr.t(p.labelKey)}
                   </button>
                 )
               })}
             </div>
 
             <div style={{ marginBottom: 16 }}>
-              <label style={label}>Model</label>
+              <label style={label}>{tr.t('model')}</label>
               <input
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
-                placeholder={`ex. ${meta.modelExamples.join(', ')}`}
+                placeholder={tr.t('model_placeholder', { examples: meta.modelExamples.join(', ') })}
                 list="ai-model-suggestions"
                 style={input}
               />
@@ -391,27 +444,27 @@ export default function AiSettingsTab({
 
             {meta.needsBaseUrl && (
               <div style={{ marginBottom: 16 }}>
-                <label style={label}>URL endpoint (https)</label>
+                <label style={label}>{tr.t('baseUrl')}</label>
                 <input
                   value={baseUrl}
                   onChange={(e) => setBaseUrl(e.target.value)}
-                  placeholder="https://api.exemplu.ro/v1"
+                  placeholder={tr.t('baseUrl_placeholder')}
                   style={input}
                 />
               </div>
             )}
 
             <div style={{ marginBottom: 4 }}>
-              <label style={label}>Cheie API {hasKey && <span style={{ color: D.green, textTransform: 'none', letterSpacing: 0 }}>· salvată ✓</span>}</label>
+              <label style={label}>{tr.t('apiKey')} {hasKey && <span style={{ color: D.green, textTransform: 'none', letterSpacing: 0 }}>{tr.t('apiKey_saved')}</span>}</label>
               <input
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 type="password"
                 autoComplete="off"
-                placeholder={hasKey ? '•••••••• (lasă gol pentru a păstra cheia)' : 'Lasă gol pentru cheia Menuvia'}
+                placeholder={hasKey ? tr.t('apiKey_placeholderSaved') : tr.t('apiKey_placeholderEmpty')}
                 style={input}
               />
-              <p style={{ color: D.t2, fontSize: '0.75rem', marginTop: 6, marginBottom: 0 }}>{meta.hint}</p>
+              <p style={{ color: D.t2, fontSize: '0.75rem', marginTop: 6, marginBottom: 0 }}>{tr.t(meta.hintKey)}</p>
             </div>
           </div>
         )}
@@ -431,15 +484,14 @@ export default function AiSettingsTab({
             marginBottom: 16,
           }}
         >
-          {msg.text}
+          {aiMsgText(msg, tr, tc)}
         </div>
       )}
 
       {/* „Salvează" nu există în afara lui 'ready' (vezi LoadState). */}
       {loadState === 'ready' && (readOnly ? (
         <p style={{ color: D.t2, fontSize: '0.82rem', lineHeight: 1.5 }}>
-          În modul fondator vezi configurația, dar o poate salva doar echipa restaurantului, din
-          contul ei.
+          {tr.t('readonly_note')}
         </p>
       ) : (
       <button
@@ -459,7 +511,7 @@ export default function AiSettingsTab({
           opacity: saving ? 0.6 : 1,
         }}
       >
-        {saving ? 'Se salvează...' : 'Salvează configurația'}
+        {saving ? tr.t('saving') : tr.t('save')}
       </button>
       ))}
 
@@ -467,15 +519,15 @@ export default function AiSettingsTab({
       {!readOnly && (
       <div style={{ marginTop: 32 }}>
         <h2 style={{ fontFamily: 'Fraunces,serif', fontSize: '1.1rem', fontWeight: 600, color: D.t1, marginBottom: 6 }}>
-          Credite suplimentare
+          {tr.t('credits_title')}
         </h2>
         <p style={{ color: D.t2, fontSize: '0.85rem', lineHeight: 1.5, marginBottom: 16 }}>
-          Ai depășit cota inclusă? Cumpără tokens suplimentari care nu expiră.
+          {tr.t('credits_desc')}
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3,1fr)', gap: 12 }}>
           {CREDIT_PACKS.map((pack) => (
             <div key={pack.id} style={{ background: D.s2, border: `1px solid ${D.border}`, borderRadius: 12, padding: 16 }}>
-              <div style={{ color: D.t1, fontSize: '0.95rem', fontWeight: 600, marginBottom: 4 }}>{pack.tokens}</div>
+              <div style={{ color: D.t1, fontSize: '0.95rem', fontWeight: 600, marginBottom: 4 }}>{tr.t('pack_tokens', { n: num(pack.tokens) })}</div>
               <div style={{ fontFamily: 'Fraunces,serif', color: D.gold, fontSize: '1.3rem', fontWeight: 700, marginBottom: 12 }}>{pack.price}</div>
               <button
                 onClick={() => handleBuy(pack.id)}
@@ -496,7 +548,7 @@ export default function AiSettingsTab({
                   opacity: buying && buying !== pack.id ? 0.5 : 1,
                 }}
               >
-                {buying === pack.id ? 'Se deschide...' : 'Cumpără'}
+                {buying === pack.id ? tr.t('opening') : tr.t('buy')}
               </button>
             </div>
           ))}

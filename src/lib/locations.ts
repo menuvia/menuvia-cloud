@@ -14,6 +14,16 @@ import { supabase } from './supabase'
 import { toUserMessage } from './userMessages'
 import { isNetworkError } from './networkError'
 import { formatTimeInZone, isoToRomaniaYMD, toRomaniaYMD } from './dates'
+// Doar TIPURI din i18n (lotul L6b): lib/locations e în graful static al
+// DashboardPage, deci dicționarele nu au voie să intre pe aici — traducătorul
+// vine ca parametru, din componenta leneșă care l-a cerut cu `useT`.
+import type { Translator } from '../i18n/core'
+import type commonRo from '../i18n/ns/common/ro'
+import type locationsRo from '../i18n/ns/locations/ro'
+import type settingsCardsRo from '../i18n/ns/settingsCards/ro'
+import { describeStaffError } from '../i18n/staffErrors'
+import { staffLocale } from '../i18n/format'
+import type { StaffLang } from '../i18n/langs'
 
 /** Pragul de la care panoul arată „Toate locațiile". */
 export const MIN_LOCATIONS_FOR_OVERVIEW = 2
@@ -155,6 +165,41 @@ export function formatLastOrder(iso: string | null, now: Date = new Date()): str
   return `${d}.${m}.${y}, ${time}`
 }
 
+/**
+ * `formatLastOrder` în limba personalului (lotul L6b). În română ieșirea e
+ * BYTE-identică cu `formatLastOrder` (LN8 din settingsCardsLang.test.ts);
+ * ora rămâne HH:mm în fusul României în toate limbile (fusul restaurantului e
+ * G2, în afara lotului), iar data e formatul scurt al limbii personalului.
+ * `lang` = limba UTILIZATORULUI (`useUiLang().lang`), NU `tr.lang`: aceea e
+ * limba dicționarului servit, care cade pe română la o încărcare eșuată —
+ * textul rămâne al dicționarului, formatul datei urmează omul (ca `fmt`).
+ */
+export function formatLastOrderT(
+  tr: Translator<typeof locationsRo>,
+  lang: StaffLang,
+  iso: string | null,
+  now: Date = new Date(),
+): string {
+  if (!iso) return tr.t('last_none')
+  const ymd = isoToRomaniaYMD(iso)
+  if (!ymd) return '—'
+  const time = formatTimeInZone(iso)
+  const today = toRomaniaYMD(now)
+  if (ymd === today) return tr.t('last_today', { time })
+  if (ymd === previousYmd(today)) return tr.t('last_yesterday', { time })
+  const [y, m, d] = ymd.split('-')
+  const date =
+    lang === 'ro'
+      ? `${d}.${m}.${y}`
+      : new Intl.DateTimeFormat(staffLocale(lang), {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          timeZone: 'UTC',
+        }).format(Date.UTC(Number(y), Number(m) - 1, Number(d)))
+  return tr.t('last_date', { date, time })
+}
+
 /** Hint-urile cu care serverul refuză o locație peste limita planului (mig 131/290). */
 const PLAN_LIMIT_HINTS: ReadonlySet<string> = new Set(['upgrade_plan', 'plan_upgrade_required'])
 
@@ -167,6 +212,23 @@ export function describeCreateLocationError(err: unknown): string {
     typeof err === 'object' && err !== null ? (err as { hint?: unknown }).hint : undefined
   if (typeof hint === 'string' && PLAN_LIMIT_HINTS.has(hint)) return MSG_LOCATION_LIMIT
   return toUserMessage(err, 'Locația nu a putut fi creată. Reîncearcă.')
+}
+
+/**
+ * `describeCreateLocationError` în limba personalului (lotul L6b). În română
+ * e EXACT varianta de mai sus (limita → `MSG_LOCATION_LIMIT`, altfel
+ * `toUserMessage` cu aceeași rezervă); în altă limbă un text românesc al
+ * serverului nu ajunge pe ecran (`describeStaffError`).
+ */
+export function describeCreateLocationErrorT(
+  err: unknown,
+  tr: Translator<typeof settingsCardsRo>,
+  tc: Translator<typeof commonRo>,
+): string {
+  const limit = tr.t('loc_err_limit')
+  const hints: Record<string, string> = {}
+  for (const h of PLAN_LIMIT_HINTS) hints[h] = limit
+  return describeStaffError(err, tc, { fallback: tr.t('loc_err_create'), hints })
 }
 
 // ── „Adaugă o locație": când se arată și cum nu se creează de două ori ──────

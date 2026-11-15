@@ -3,12 +3,24 @@
 // apoi activarea enforcement-ului server-side (set_my_mfa_enforced): din acel
 // moment is_platform_admin() cere sesiune aal2. Dezactivarea cere un cod TOTP
 // valid (verify → aal2) — clichetul anti-downgrade e în RPC, nu doar în UI.
+// Limba (lotul L6b): textele vin din `settingsCards` (același chunk cu fila
+// Setări), „Se încarcă…” din `common`. Eroarea e ținută ca DATĂ (`MfaError`:
+// cheia de rezervă + cauza) și se traduce la randare: erorile Supabase Auth și
+// ale RPC-ului prin `describeStaffError` (în română exact `toUserMessage`).
 import { useCallback, useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { useToast } from './ui/useToast'
-import { toUserMessage } from '../lib/userMessages'
+import { useT } from '../i18n/useT'
+import { describeStaffError } from '../i18n/staffErrors'
+import { settingsCardsNs } from '../i18n/ns/settingsCards'
+import { commonNs } from '../i18n/ns/common'
+import { fillNodes } from '../i18n/fillNodes'
+import { isMfaAal2Refusal } from '../lib/accountRefusals'
+import type { Translator } from '../i18n/core'
+import type settingsCardsRo from '../i18n/ns/settingsCards/ro'
+import type commonRo from '../i18n/ns/common/ro'
 
 interface EnrollState {
   factorId: string
@@ -20,6 +32,32 @@ interface EnrollState {
 // brut — normalizăm o singură dată aici.
 function qrSrc(qr: string): string {
   return qr.startsWith('data:') ? qr : 'data:image/svg+xml;utf8,' + encodeURIComponent(qr)
+}
+
+type MfaErrKey =
+  | 'mfa_err_load'
+  | 'mfa_err_start'
+  | 'mfa_err_badCode'
+  | 'mfa_err_verify'
+  | 'mfa_err_disable'
+  | 'mfa_err_reactivate'
+
+// Eroarea cardului, ca DATĂ: cheia (mesajul propriu sau rezerva) și, când
+// există, cauza (eroarea Supabase Auth / RPC).
+type MfaError = { key: MfaErrKey } | { key: MfaErrKey; cause: unknown }
+
+function mfaErrorText(
+  e: MfaError,
+  tr: Translator<typeof settingsCardsRo>,
+  tc: Translator<typeof commonRo>,
+): string {
+  if (!('cause' in e)) return tr.t(e.key)
+  // Refuzul `set_my_mfa_enforced` fără hint (mig 235): doar în celelalte limbi
+  // (în română textul serverului rămâne afișat ca atare).
+  if (tc.lang !== 'ro' && isMfaAal2Refusal(e.cause)) {
+    return tr.t('mfa_err_aal2')
+  }
+  return describeStaffError(e.cause, tc, { fallback: tr.t(e.key) })
 }
 
 const inputStyle: CSSProperties = {
@@ -59,10 +97,12 @@ const ghostBtn: CSSProperties = {
 }
 
 export default function MfaCard() {
+  const tr = useT(settingsCardsNs)
+  const tc = useT(commonNs)
   const toast = useToast()
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<MfaError | null>(null)
   const [verifiedFactorId, setVerifiedFactorId] = useState<string | null>(null)
   const [enforced, setEnforced] = useState(false)
   const [enroll, setEnroll] = useState<EnrollState | null>(null)
@@ -95,7 +135,7 @@ export default function MfaCard() {
         if (!pErr && prof) setEnforced(Boolean((prof as { mfa_enforced?: boolean }).mfa_enforced))
       }
     } catch (e) {
-      setError(toUserMessage(e, 'Nu am putut încărca starea MFA'))
+      setError({ key: 'mfa_err_load', cause: e })
     } finally {
       setLoading(false)
     }
@@ -126,7 +166,7 @@ export default function MfaCard() {
       setEnroll({ factorId: data.id, qrCode: data.totp.qr_code, secret: data.totp.secret })
       setCode('')
     } catch (e) {
-      setError(toUserMessage(e, 'Nu am putut porni activarea MFA'))
+      setError({ key: 'mfa_err_start', cause: e })
     } finally {
       setBusy(false)
     }
@@ -141,7 +181,7 @@ export default function MfaCard() {
       code: code.trim(),
     })
     if (vErr) {
-      setError('Cod incorect sau expirat. Încearcă din nou cu codul curent din aplicație.')
+      setError({ key: 'mfa_err_badCode' })
       return false
     }
     return true
@@ -156,12 +196,12 @@ export default function MfaCard() {
       // Sesiunea e acum aal2 — pornim enforcement-ul server-side.
       const { error: rpcErr } = await supabase.rpc('set_my_mfa_enforced', { p_enforced: true })
       if (rpcErr) throw rpcErr
-      toast.success('MFA activat — contul cere de acum codul din aplicație')
+      toast.success(tr.t('mfa_enabledToast'))
       setEnroll(null)
       setCode('')
       await load()
     } catch (e) {
-      setError(toUserMessage(e, 'Verificarea nu a reușit'))
+      setError({ key: 'mfa_err_verify', cause: e })
     } finally {
       setBusy(false)
     }
@@ -180,12 +220,12 @@ export default function MfaCard() {
       // „dezactivat" cu factorul încă înrolat (stare derutantă la re-login).
       const { error: unErr } = await supabase.auth.mfa.unenroll({ factorId: verifiedFactorId })
       if (unErr) throw unErr
-      toast.success('MFA dezactivat')
+      toast.success(tr.t('mfa_disabledToast'))
       setDisabling(false)
       setCode('')
       await load()
     } catch (e) {
-      setError(toUserMessage(e, 'Dezactivarea nu a reușit'))
+      setError({ key: 'mfa_err_disable', cause: e })
     } finally {
       setBusy(false)
     }
@@ -200,12 +240,12 @@ export default function MfaCard() {
       if (!(await verifyCode(verifiedFactorId))) return
       const { error: rpcErr } = await supabase.rpc('set_my_mfa_enforced', { p_enforced: true })
       if (rpcErr) throw rpcErr
-      toast.success('MFA reactivat — contul cere de acum codul din aplicație')
+      toast.success(tr.t('mfa_reactivatedToast'))
       setReactivating(false)
       setCode('')
       await load()
     } catch (e) {
-      setError(toUserMessage(e, 'Reactivarea nu a reușit'))
+      setError({ key: 'mfa_err_reactivate', cause: e })
     } finally {
       setBusy(false)
     }
@@ -224,7 +264,7 @@ export default function MfaCard() {
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
         <div style={{ fontWeight: 600, color: D.t1, fontSize: '0.95rem' }}>
-          Autentificare în doi pași (MFA)
+          {tr.t('mfa_title')}
         </div>
         <span
           style={{
@@ -236,35 +276,33 @@ export default function MfaCard() {
             color: active ? D.green : D.t3,
           }}
         >
-          {active ? 'Activ' : 'Inactiv'}
+          {active ? tr.t('mfa_active') : tr.t('mfa_inactive')}
         </span>
       </div>
       <p style={{ color: D.t2, fontSize: '0.82rem', margin: '0 0 14px', lineHeight: 1.5 }}>
-        Protejează contul cu un cod generat de o aplicație de autentificare (Google
-        Authenticator, 1Password, Aegis). Recomandat obligatoriu pentru conturile cu acces
-        de platformă.
+        {tr.t('mfa_desc')}
       </p>
 
       {loading ? (
-        <div style={{ color: D.t3, fontSize: '0.82rem' }}>Se încarcă…</div>
+        <div style={{ color: D.t3, fontSize: '0.82rem' }}>{tc.t('loading')}</div>
       ) : enroll ? (
         <div>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
             <img
               src={qrSrc(enroll.qrCode)}
-              alt="Cod QR pentru aplicația de autentificare"
+              alt={tr.t('mfa_qrAlt')}
               width={160}
               height={160}
               style={{ background: '#fff', borderRadius: 8, padding: 8 }}
             />
             <div style={{ flex: 1, minWidth: 220 }}>
               <p style={{ color: D.t2, fontSize: '0.82rem', margin: '0 0 8px' }}>
-                Scanează codul QR cu aplicația de autentificare, apoi introdu codul de 6
-                cifre generat.
+                {tr.t('mfa_scan')}
               </p>
               <div style={{ color: D.t3, fontSize: '0.75rem', marginBottom: 12 }}>
-                Nu poți scana? Introdu manual cheia:{' '}
-                <code style={{ color: D.t2, wordBreak: 'break-all' }}>{enroll.secret}</code>
+                {fillNodes(tr.t('mfa_manual'), {
+                  key: <code style={{ color: D.t2, wordBreak: 'break-all' }}>{enroll.secret}</code>,
+                })}
               </div>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 <input
@@ -273,11 +311,11 @@ export default function MfaCard() {
                   inputMode="numeric"
                   autoComplete="one-time-code"
                   placeholder="000000"
-                  aria-label="Cod de verificare din aplicație"
+                  aria-label={tr.t('mfa_codeAria')}
                   style={inputStyle}
                 />
                 <button onClick={confirmEnroll} disabled={busy || code.length < 6} style={primaryBtn}>
-                  {busy ? 'Se verifică…' : 'Confirmă și activează'}
+                  {busy ? tr.t('mfa_verifying') : tr.t('mfa_confirmEnable')}
                 </button>
                 <button
                   onClick={() => {
@@ -288,7 +326,7 @@ export default function MfaCard() {
                   disabled={busy}
                   style={ghostBtn}
                 >
-                  Renunță
+                  {tr.t('mfa_dismiss')}
                 </button>
               </div>
             </div>
@@ -297,7 +335,7 @@ export default function MfaCard() {
       ) : disabling ? (
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <span style={{ color: D.t2, fontSize: '0.82rem' }}>
-            Confirmă cu codul din aplicație:
+            {tr.t('mfa_confirmWithCode')}
           </span>
           <input
             value={code}
@@ -305,11 +343,11 @@ export default function MfaCard() {
             inputMode="numeric"
             autoComplete="one-time-code"
             placeholder="000000"
-            aria-label="Cod de verificare din aplicație"
+            aria-label={tr.t('mfa_codeAria')}
             style={inputStyle}
           />
           <button onClick={confirmDisable} disabled={busy || code.length < 6} style={primaryBtn}>
-            {busy ? 'Se verifică…' : 'Dezactivează MFA'}
+            {busy ? tr.t('mfa_verifying') : tr.t('mfa_disable')}
           </button>
           <button
             onClick={() => {
@@ -320,18 +358,18 @@ export default function MfaCard() {
             disabled={busy}
             style={ghostBtn}
           >
-            Renunță
+            {tr.t('mfa_dismiss')}
           </button>
         </div>
       ) : active ? (
         <button onClick={() => setDisabling(true)} style={ghostBtn}>
-          Dezactivează MFA…
+          {tr.t('mfa_disableStart')}
         </button>
       ) : verifiedFactorId ? (
         reactivating ? (
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             <span style={{ color: D.t2, fontSize: '0.82rem' }}>
-              Confirmă cu codul din aplicație:
+              {tr.t('mfa_confirmWithCode')}
             </span>
             <input
               value={code}
@@ -339,7 +377,7 @@ export default function MfaCard() {
               inputMode="numeric"
               autoComplete="one-time-code"
               placeholder="000000"
-              aria-label="Cod de verificare din aplicație"
+              aria-label={tr.t('mfa_codeAria')}
               style={inputStyle}
             />
             <button
@@ -347,7 +385,7 @@ export default function MfaCard() {
               disabled={busy || code.length < 6}
               style={primaryBtn}
             >
-              {busy ? 'Se verifică…' : 'Reactivează MFA'}
+              {busy ? tr.t('mfa_verifying') : tr.t('mfa_reactivate')}
             </button>
             <button
               onClick={() => {
@@ -358,23 +396,23 @@ export default function MfaCard() {
               disabled={busy}
               style={ghostBtn}
             >
-              Renunță
+              {tr.t('mfa_dismiss')}
             </button>
           </div>
         ) : (
           <button onClick={() => setReactivating(true)} style={primaryBtn}>
-            Activează MFA
+            {tr.t('mfa_enable')}
           </button>
         )
       ) : (
         <button onClick={startEnroll} disabled={busy} style={primaryBtn}>
-          {busy ? 'Se pregătește…' : 'Activează MFA'}
+          {busy ? tr.t('mfa_preparing') : tr.t('mfa_enable')}
         </button>
       )}
 
       {error && (
         <div style={{ color: D.red, fontSize: '0.8rem', marginTop: 10 }} role="alert">
-          {error}
+          {mfaErrorText(error, tr, tc)}
         </div>
       )}
     </div>

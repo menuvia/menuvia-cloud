@@ -3,14 +3,23 @@
 // (plan_features.loyalty growth+ + modulul `loyalty` + program activ);
 // aici doar UX-ul. Configurația (puncte/leu, prag, recompensă) se scrie
 // direct în loyalty_programs — RLS permite doar adminilor restaurantului.
+// Limba (lotul L6b): textele vin din `settingsCards` (același chunk cu fila
+// Setări), „Reîncearcă” din `common`; erorile serverului prin
+// `describeStaffError` (în română exact `toUserMessage`). Recompensa
+// IMPLICITĂ rămâne românească: e o valoare a meniului (o vede oaspetele), nu
+// un text al personalului.
 import { useEffect, useId, useState, type CSSProperties } from 'react'
-import { D } from '../lib/constants'
+import { D, PLAN_LABELS } from '../lib/constants'
 import { planTier } from '../lib/features'
 import { supabase } from '../lib/supabase'
 import { Toggle } from './_dashboard/sharedUI'
 import { Icon } from './ui/Icon'
 import type { useRestaurantModules } from '../hooks/useRestaurantModules'
-import { toUserMessage } from '../lib/userMessages'
+import { useT } from '../i18n/useT'
+import { describeStaffError } from '../i18n/staffErrors'
+import { settingsCardsNs } from '../i18n/ns/settingsCards'
+import { commonNs } from '../i18n/ns/common'
+import { fillNodes } from '../i18n/fillNodes'
 
 interface Props {
   restaurantId: string
@@ -44,11 +53,17 @@ interface LoyaltyProgramRow {
 // localului cu cele implicite (100 de puncte, „Un desert din partea casei").
 type LoadState = 'loading' | 'ready' | 'error'
 
+// Valoarea implicită a recompensei: DATĂ a meniului (o vede oaspetele), deci
+// în română în orice limbă a personalului — ca numele „Masa N” din L6a.
+const DEFAULT_REWARD = 'Un desert din partea casei'
+
 export default function LoyaltySettingsCard({ restaurantId, plan, modulesState, toast }: Props) {
+  const tr = useT(settingsCardsNs)
+  const tc = useT(commonNs)
   const eligible = planTier(plan) >= 2
   const [pointsPerLeu, setPointsPerLeu] = useState('1')
   const [threshold, setThreshold] = useState('100')
-  const [reward, setReward] = useState('Un desert din partea casei')
+  const [reward, setReward] = useState(DEFAULT_REWARD)
   const [saving, setSaving] = useState(false)
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [reloadKey, setReloadKey] = useState(0)
@@ -93,15 +108,15 @@ export default function LoyaltySettingsCard({ restaurantId, plan, modulesState, 
     const ppl = parseFloat(pointsPerLeu.replace(',', '.'))
     const thr = parseInt(threshold, 10)
     if (!Number.isFinite(ppl) || ppl <= 0 || ppl > 100) {
-      toast('Punctele pe leu trebuie între 0,1 și 100.', 'error')
+      toast(tr.t('loy_err_ppl'), 'error')
       return
     }
     if (!Number.isFinite(thr) || thr < 1 || thr > 100000) {
-      toast('Pragul trebuie între 1 și 100.000 de puncte.', 'error')
+      toast(tr.t('loy_err_threshold'), 'error')
       return
     }
     if (reward.trim().length === 0 || reward.length > 200) {
-      toast('Descrie recompensa (max. 200 de caractere).', 'error')
+      toast(tr.t('loy_err_reward'), 'error')
       return
     }
     setSaving(true)
@@ -115,10 +130,10 @@ export default function LoyaltySettingsCard({ restaurantId, plan, modulesState, 
     })
     setSaving(false)
     if (error) {
-      toast(toUserMessage(error), 'error')
+      toast(describeStaffError(error, tc), 'error')
       return
     }
-    toast('Programul de fidelizare a fost salvat')
+    toast(tr.t('loy_saved'))
   }
 
   return (
@@ -133,13 +148,11 @@ export default function LoyaltySettingsCard({ restaurantId, plan, modulesState, 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
         <Icon name="star" size={16} color={D.gold} />
         <span style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1 }}>
-          Fidelizare — puncte și recompense
+          {tr.t('loy_title')}
         </span>
       </div>
       <div style={{ fontSize: '0.75rem', color: D.t2, lineHeight: 1.6, marginBottom: 14 }}>
-        Clienții primesc puncte la fiecare comandă din meniul QR și o recompensă când ating pragul.
-        Punctele merg pe un card digital în telefonul clientului — opțional legat de numărul lui de
-        telefon (stocat criptat, ca hash).
+        {tr.t('loy_desc')}
       </div>
 
       {!eligible ? (
@@ -152,8 +165,9 @@ export default function LoyaltySettingsCard({ restaurantId, plan, modulesState, 
             color: D.t2,
           }}
         >
-          Disponibil de la planul <strong style={{ color: D.gold }}>Meniu + Comenzi</strong> —
-          punctele se acordă pe comenzile din QR.
+          {fillNodes(tr.t('loy_locked'), {
+            plan: <strong style={{ color: D.gold }}>{PLAN_LABELS.growth}</strong>,
+          })}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -167,22 +181,21 @@ export default function LoyaltySettingsCard({ restaurantId, plan, modulesState, 
           >
             <div>
               <div style={{ fontSize: '0.82rem', fontWeight: 600, color: D.t1 }}>
-                Activează fidelizarea în meniul QR
+                {tr.t('loy_enableTitle')}
               </div>
               <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
-                Clienții văd cardul de puncte în meniu; ospătarii răscumpără recompensele din pagina
-                lor, pe codul cardului.
+                {tr.t('loy_enableDesc')}
               </div>
             </div>
             <Toggle
-              label="Fidelizarea în meniul QR"
+              label={tr.t('loy_toggle')}
               value={modulesState.isEnabled('loyalty')}
               onChange={(v) => {
                 modulesState
                   .setModule('loyalty', v)
-                  .then(() => toast(v ? 'Fidelizarea activată' : 'Fidelizarea dezactivată'))
-                  .catch((err) =>
-                    toast(toUserMessage(err, 'Eroare la salvare'), 'error'),
+                  .then(() => toast(tr.t(v ? 'loy_enabled' : 'loy_disabled')))
+                  .catch((err: unknown) =>
+                    toast(describeStaffError(err, tc, { fallback: tr.t('err_save') }), 'error'),
                   )
               }}
             />
@@ -205,10 +218,7 @@ export default function LoyaltySettingsCard({ restaurantId, plan, modulesState, 
                 color: D.t1,
               }}
             >
-              <span>
-                Nu am putut citi programul de fidelizare salvat. Ca să nu-l suprascriem cu valorile
-                implicite, salvarea e blocată până îl citim.
-              </span>
+              <span>{tr.t('loy_loadError')}</span>
               <button
                 type="button"
                 onClick={() => setReloadKey((k) => k + 1)}
@@ -225,7 +235,7 @@ export default function LoyaltySettingsCard({ restaurantId, plan, modulesState, 
                   cursor: 'pointer',
                 }}
               >
-                Reîncearcă
+                {tc.t('retry')}
               </button>
             </div>
           )}
@@ -242,7 +252,7 @@ export default function LoyaltySettingsCard({ restaurantId, plan, modulesState, 
                 htmlFor={`${fieldId}-ppl`}
                 style={{ display: 'block', fontSize: '0.72rem', color: D.t2, marginBottom: 5 }}
               >
-                Puncte per leu cheltuit
+                {tr.t('loy_ppl')}
               </label>
               <input
                 id={`${fieldId}-ppl`}
@@ -257,7 +267,7 @@ export default function LoyaltySettingsCard({ restaurantId, plan, modulesState, 
                 htmlFor={`${fieldId}-thr`}
                 style={{ display: 'block', fontSize: '0.72rem', color: D.t2, marginBottom: 5 }}
               >
-                Prag pentru recompensă (puncte)
+                {tr.t('loy_threshold')}
               </label>
               <input
                 id={`${fieldId}-thr`}
@@ -273,13 +283,13 @@ export default function LoyaltySettingsCard({ restaurantId, plan, modulesState, 
               htmlFor={`${fieldId}-reward`}
               style={{ display: 'block', fontSize: '0.72rem', color: D.t2, marginBottom: 5 }}
             >
-              Recompensa (ce primește clientul la prag)
+              {tr.t('loy_reward')}
             </label>
             <input
               id={`${fieldId}-reward`}
               value={reward}
               onChange={(e) => setReward(e.target.value.slice(0, 200))}
-              placeholder="Ex: Un desert din partea casei"
+              placeholder={tr.t('loy_rewardPlaceholder')}
               style={inp}
             />
           </div>
@@ -301,7 +311,7 @@ export default function LoyaltySettingsCard({ restaurantId, plan, modulesState, 
                 opacity: saving || !loaded ? 0.7 : 1,
               }}
             >
-              {saving ? 'Se salvează…' : 'Salvează programul'}
+              {saving ? tr.t('loy_saving') : tr.t('loy_save')}
             </button>
           </div>
         </div>

@@ -53,6 +53,7 @@ import { PLAN_LABELS } from './constants'
 import { PICKUP_MIN_PLAN, type PickupToggleState } from './pickupAvailability'
 import type { Translator } from '../i18n/core'
 import type tablesRo from '../i18n/ns/tables/ro'
+import type settingsRo from '../i18n/ns/settings/ro'
 
 /** Numele COMERCIAL al planului care deblochează ridicarea (din `PLAN_LABELS`). */
 export function pickupPlanName(): string {
@@ -219,8 +220,9 @@ export function pickupOnlyToggleDescription(feature: boolean | null): string {
 // aici: pickupCopy e în graful static al DashboardPage, iar dicționarele intră
 // doar în chunk-ul leneș al filei (SK4). În română ieșirea e EXACT cea a
 // funcțiilor de mai sus (TQ8 compară pe toate stările); acelea rămân oracolul
-// și sursa SettingsTab-ului (lotul L6b). Numele planului rămâne cel COMERCIAL
-// din `PLAN_LABELS` (nume propriu, ca în panou).
+// (SettingsTab trece din lotul L6b prin `pickupSettingsCopyT`, mai jos).
+// Numele planului rămâne cel COMERCIAL din `PLAN_LABELS` (nume propriu, ca în
+// panou).
 export interface TablesPickupCopy {
   generalMenuQrText: (feature: boolean | null, flipbook: boolean) => string
   pickupOnlyEmptyStateText: (feature: boolean | null, flipbook: boolean) => string
@@ -241,5 +243,34 @@ export function pickupCopyT(tr: Translator<typeof tablesRo>): TablesPickupCopy {
       if (feature === true) return tr.t('po_withPickup', { head, tail })
       return tr.t('po_plain', { head, tail })
     },
+  }
+}
+
+// ── Variantele în limba personalului (lotul L6b), pentru fila Setări ─────
+// Același tipar ca `pickupCopyT`: `pickupSettingsCopyT(tr)` leagă traducătorul
+// namespace-ului `settings` și întoarce ACELEAȘI două funcții, cu aceeași
+// semnătură și aceeași formă de ieșire, deci SettingsTab le cheamă exact ca
+// înainte (`pickupTexts.pickupCardDescription(true, menuFlipbook)` — PK5
+// îngheață apelurile pe sursă). În română ieșirea e EXACT cea a lui
+// `pickupCardDescription` / `pickupOnlyToggleDescription` de mai sus, pe toate
+// stările (testul TW pur); acelea rămân oracolul, cu semnătura NESCHIMBATĂ.
+// Doar TIPUL namespace-ului e importat aici (SK4). `pickupToggleNotice` nu are
+// variantă: SettingsTab nu-l mai cheamă (recenzia #334, PK5).
+export interface SettingsPickupCopy {
+  pickupCardDescription: (feature: boolean | null, flipbook: boolean) => { lead: string; tail: string }
+  pickupOnlyToggleDescription: (feature: boolean | null) => string
+}
+
+export function pickupSettingsCopyT(tr: Pick<Translator<typeof settingsRo>, 't'>): SettingsPickupCopy {
+  return {
+    pickupCardDescription: (feature, flipbook) => {
+      const lead = tr.t('pk_lead')
+      if (feature === true && flipbook) {
+        return { lead, tail: tr.t('pk_flipbookTail', { why: tr.t('pk_flipbookNoOrders') }) }
+      }
+      if (feature === true) return { lead: tr.t('pk_activeLead'), tail: tr.t('pk_activeTail') }
+      return { lead, tail: tr.t('pk_plainTail') }
+    },
+    pickupOnlyToggleDescription: (feature) => (feature === false ? tr.t('po_suspended') : tr.t('po_desc')),
   }
 }
