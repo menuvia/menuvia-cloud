@@ -37,6 +37,13 @@
 //        prima deschidere a unei fișe ar suspenda fila); tab-ul e LENEȘ în
 //        DashboardPage. Nota implicită a ajustării rămâne DATA românească de
 //        dinainte. Mutația care pică: `useT(commonNs)` scos din StocksTab.
+//   KS15 data unui NIR (`nirDateLabel`, recenzie CodeRabbit pe #371): `invoice_date`
+//        e o dată CALENDARISTICĂ (YYYY-MM-DD), deci se formatează în UTC — pe un
+//        browser cu fus negativ (America/Los_Angeles, simulat prin parametru:
+//        CI-ul rulează în UTC, unde bug-ul n-ar fi vizibil) ziua rămâne aceeași;
+//        rezerva `created_at` e un MOMENT și urmează fusul local. În română
+//        formatul e „ro-RO” de dinainte. Mutația care pică: `localTimeZone`
+//        folosit și pe ramura datei calendaristice.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect, vi } from 'vitest'
@@ -46,7 +53,7 @@ vi.mock('../supabase', () => ({ supabase: {} }))
 
 import { MANUAL_ADJUST_NOTE, formatStock, formatStockT, unitLabel, unitLabelT, unitSymbolT } from '../stocks'
 import type { IngredientUnit } from '../stocks'
-import { describeStockError, stockErrorHints, stockFormErrorText, vatGroupLabel } from '../stockMessages'
+import { describeStockError, nirDateLabel, stockErrorHints, stockFormErrorText, vatGroupLabel } from '../stockMessages'
 import { getVatLabel, type VatRate } from '../vat'
 import { toUserMessage } from '../userMessages'
 import { makeTranslator, type Dict } from '../../i18n/core'
@@ -271,5 +278,20 @@ describe('precondiția L4b/L4c (structural)', () => {
     // Nota implicită a ajustării e DATĂ (stock_movements.notes): neschimbată.
     expect(MANUAL_ADJUST_NOTE).toBe('Ajustare manuală')
     expect(tab).toContain('notes || MANUAL_ADJUST_NOTE')
+  })
+})
+
+describe('data unui NIR', () => {
+  it('KS15 data calendaristică în UTC (aceeași zi pe orice fus); momentul de rezervă în fusul local', () => {
+    const LA = 'America/Los_Angeles'
+    // Control: fără `timeZone: 'UTC'`, aceeași dată ar ieși cu o zi în urmă pe fusul negativ.
+    expect(new Date('2026-11-01').toLocaleDateString('ro-RO', { timeZone: LA })).toBe('31.10.2026')
+    // Data calendaristică: aceeași zi oriunde, formatul românesc de dinainte.
+    expect(nirDateLabel('2026-11-01', '2026-10-30T12:00:00Z', 'ro-RO', LA)).toBe('01.11.2026')
+    expect(nirDateLabel('2026-11-01', '2026-10-30T12:00:00Z', 'ro-RO', 'Europe/Bucharest')).toBe('01.11.2026')
+    expect(nirDateLabel('2026-11-01', '2026-10-30T12:00:00Z', 'en-GB', LA)).toBe('01/11/2026')
+    // Momentul de rezervă urmează fusul local: 01:30Z pe 1 noiembrie e încă 31 octombrie în LA.
+    expect(nirDateLabel(null, '2026-11-01T01:30:00Z', 'ro-RO', LA)).toBe('31.10.2026')
+    expect(nirDateLabel(null, '2026-11-01T01:30:00Z', 'ro-RO', 'Europe/Bucharest')).toBe('01.11.2026')
   })
 })
