@@ -6,8 +6,11 @@
 //        `analytics` + `common` SUS, înaintea primului `return` (și înaintea
 //        gate-ului `analyticsAccess`), nu folosește alt namespace, nu mai are
 //        `toUserMessage(` și nici localul fix „ro-RO” pe axa zilelor; fila
-//        rămâne `lazy` în DashboardPage. Mutația care pică: `useT(analyticsNs)`
-//        mutat sub `if (!hasAccess) return null`.
+//        rămâne `lazy` în DashboardPage; localul axei vine din limba
+//        UTILIZATORULUI (`staffLocale(uiLang)`, clichetul LF din L6b — până la
+//        recenzia CodeRabbit pe #373 testul îngheța limba dicționarului
+//        servit). Mutația care pică: `useT(analyticsNs)` mutat sub
+//        `if (!hasAccess) return null`.
 //   AY7  ziua de pe axă: `staffLocale('ro')` = „ro-RO”, deci în română EXACT
 //        formatul de dinainte (ZZ.LL); engleza/franceza/germana au formatul lor
 //        („03/11”, „03.11.”). Mutația care pică: `staffLocale` cu „en-US”
@@ -40,7 +43,7 @@ describe('Statistici — părțile pure', () => {
     expect(imported.sort()).toEqual(['analytics', 'common'])
     expect(src).not.toContain('toUserMessage(')
     expect(src).not.toContain("'ro-RO'")
-    expect(src).toContain('staffLocale(ta.lang)')
+    expect(src).toContain('staffLocale(uiLang)')
     expect(read('src/pages/DashboardPage.tsx')).toContain("lazy(() => import('../components/AnalyticsTab'))")
   })
 

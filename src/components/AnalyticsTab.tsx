@@ -22,6 +22,7 @@ import {
   Cell,
 } from 'recharts'
 import { useT } from '../i18n/useT'
+import { useUiLang } from '../i18n/UiLangContext'
 import { staffLocale } from '../i18n/format'
 import { describeStaffError } from '../i18n/staffErrors'
 import { analyticsNs } from '../i18n/ns/analytics'
@@ -219,6 +220,8 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
   // necondiționat — o singură suspendare la prima randare într-o limbă nouă.
   const ta = useT(analyticsNs)
   const tc = useT(commonNs)
+  // Formatele urmează limba UTILIZATORULUI, nu `ta.lang` (clichetul LF din L6b).
+  const { lang: uiLang } = useUiLang()
   const isMobile = useIsMobile()
   const [daily, setDaily] = useState<Record<string, unknown>[]>([])
   const [products, setProducts] = useState<Record<string, unknown>[]>([])
@@ -374,7 +377,7 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
   // Ziua de pe axă în limba personalului (`staffLocale`: în română EXACT
   // „ro-RO”, ca înainte); fusul rămâne cel de azi (al browserului — G2).
   // Cheile seriilor (`day`/`orders`) sunt interne recharts, nu text.
-  const dayLocale = staffLocale(ta.lang)
+  const dayLocale = staffLocale(uiLang)
   const chartData = daily.map((d) => ({
     day: new Date(d.day as string).toLocaleDateString(dayLocale, { day: '2-digit', month: '2-digit' }),
     orders: Number(d.total_orders || 0),

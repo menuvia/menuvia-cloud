@@ -45,6 +45,7 @@ import {
   reportPdfText,
 } from '../lib/reportsExport'
 import { useT } from '../i18n/useT'
+import { useUiLang } from '../i18n/UiLangContext'
 import { staffLocale } from '../i18n/format'
 import { describeStaffError } from '../i18n/staffErrors'
 import { reportsNs } from '../i18n/ns/reports'
@@ -200,7 +201,10 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
   // Necondiționat, SUS: o limbă nouă suspendă o singură dată, la prima randare.
   const tr = useT(reportsNs)
   const tc = useT(commonNs)
-  const locale = staffLocale(tr.lang)
+  // Datele (perioada, ziua de pe grafic, exporturile) în formatul limbii
+  // UTILIZATORULUI, nu limba dicționarului servit (clichetul LF din L6b).
+  const { lang: uiLang } = useUiLang()
+  const locale = staffLocale(uiLang)
   const [period, setPeriod] = useState<Period>('today')
   // Ziua curentă în fusul României (toISO/UTC dădea „ieri" între 00:00–03:00 ora RO).
   const [custom, setCustom] = useState({
