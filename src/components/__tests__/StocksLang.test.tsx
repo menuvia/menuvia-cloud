@@ -260,7 +260,9 @@ const COMMON_RO = /Anulează|Salvează|Șterge|Editează|Reîncearcă/
 describe('ingredientele în limba personalului', () => {
   it('KS0: control pozitiv — fila românească are resturi față de engleză', async () => {
     const { container } = render(tree(null, tab()))
-    expect(await screen.findByText('Făină')).toBeInTheDocument()
+    // Numele apare de DOUĂ ori: pe card și în rândul „sub prag” (fixtura are
+    // stocul sub minim), deci `findByText` ar pica pe „multiple elements”.
+    expect(await screen.findAllByText('Făină')).toHaveLength(2)
     const left = romanianLeftovers(nodeText(container), stocksEn as Dict)
     expect(left.length).toBeGreaterThan(3)
     expect(left.some((l) => l.startsWith('ing_add:'))).toBe(true)
@@ -268,7 +270,9 @@ describe('ingredientele în limba personalului', () => {
 
   it('KS1: fără provider, româna de dinainte', async () => {
     render(tree(null, tab()))
-    expect(await screen.findByText('Făină')).toBeInTheDocument()
+    // Numele apare de DOUĂ ori: pe card și în rândul „sub prag” (fixtura are
+    // stocul sub minim), deci `findByText` ar pica pe „multiple elements”.
+    expect(await screen.findAllByText('Făină')).toHaveLength(2)
     expect(screen.getByText('Stocuri, rețete, furnizori, profitabilitate.')).toBeInTheDocument()
     expect(await screen.findByText('1 sub prag')).toBeInTheDocument()
     expect(screen.getByText('70 lei')).toBeInTheDocument()
@@ -291,7 +295,9 @@ describe('ingredientele în limba personalului', () => {
   it('KS2: lista și fișa în engleză; validarea retradusă la schimbarea limbii', async () => {
     const user = userEvent.setup()
     const { container, rerender } = render(tree('en', tab()))
-    expect(await screen.findByText('Făină')).toBeInTheDocument()
+    // Numele apare de DOUĂ ori: pe card și în rândul „sub prag” (fixtura are
+    // stocul sub minim), deci `findByText` ar pica pe „multiple elements”.
+    expect(await screen.findAllByText('Făină')).toHaveLength(2)
     expect(screen.getByText('Stock, recipes, suppliers, profitability.')).toBeInTheDocument()
     expect(await screen.findByText('1 below minimum')).toBeInTheDocument()
     expect(screen.getByText('70 lei')).toBeInTheDocument()

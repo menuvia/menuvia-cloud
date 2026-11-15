@@ -74,7 +74,7 @@ describe('LZ1–LZ3 textele noi ale cromului', () => {
 
   it('LZ3 registrul: de la „Sie”, fr cu spațiu înainte de : ? !', () => {
     const du = /\b(du|dein|deine|deinen|dich|dir)\b/i
-    const frPunct = /[^\s  ][:?!]/
+    const frPunct = /[^\s\u00a0\u202f][:?!]/
     // Control pozitiv: detectorii văd forma greșită.
     expect(du.test('Lade die Seite neu, wenn du willst')).toBe(true)
     expect(frPunct.test('Erreur: réessayez')).toBe(true)
