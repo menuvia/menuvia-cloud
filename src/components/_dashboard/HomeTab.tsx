@@ -14,12 +14,11 @@ import { fmtPrice } from '../../lib/currency'
 import type { PlanSurface, PlanUpsellTarget } from '../../lib/planSurface'
 import {
   fetchHealthScore,
-  scoreLabel,
   scoreColor,
-  getActionableSuggestions,
   planHealthScore,
   type HealthScore,
 } from '../../lib/health'
+import { getActionableSuggestionsT, scoreLabelT } from '../../lib/healthLang'
 import { Card } from '../ui/Card'
 import { Button } from '../ui/Button'
 import { PageHeader } from '../ui/PageHeader'
@@ -32,6 +31,7 @@ import { LIVE_ORDERS_TAB, type HomeNavTarget } from '../../lib/dashboardNav'
 import { useT } from '../../i18n/useT'
 import { homeNs } from '../../i18n/ns/home'
 import { commonNs } from '../../i18n/ns/common'
+import { healthNs } from '../../i18n/ns/health'
 
 // Paleta de scor — citește din tokens-urile existente (CSS vars).
 const scorePalette = { green: D.green, gold: D.gold, orange: D.amber, red: D.red }
@@ -297,6 +297,11 @@ export default function HomeTab({
   // Textele: lotul L3a (namespace `home`; „Reîncearcă” din `common`).
   const { t } = useT(homeNs)
   const tc = useT(commonNs)
+  // Eticheta și sugestiile cardului „Scor meniu” (lotul L7): `health`, cerut
+  // SUS și necondiționat — cardul e randat de HomeTab însuși, deci în afara
+  // `<Suspense>`-ului propriu al lui HealthScoreTab (care protejează doar
+  // conținutul desfășurat).
+  const th = useT(healthNs)
   // ── Cifrele zilei + datele de setup (HEAD counts, o singură rundă) ──
   const [ordersToday, setOrdersToday] = useState<number | null>(null)
   const [tablesCount, setTablesCount] = useState<number | null>(null)
@@ -626,7 +631,7 @@ export default function HomeTab({
   // fiscal pe Planul 2 (lib/health.ts).
   const healthScope = { fiscal: isFiscal }
   const healthSuggestions = health
-    ? getActionableSuggestions(health, healthScope).slice(0, 2)
+    ? getActionableSuggestionsT(health, healthScope, th).slice(0, 2)
     : []
   const shownScore = health ? planHealthScore(health, healthScope) : null
 
@@ -954,7 +959,7 @@ export default function HomeTab({
                         padding: '2px 10px',
                       }}
                     >
-                      {scoreLabel(shownScore)}
+                      {scoreLabelT(shownScore, th)}
                     </span>
                   )}
                 </div>
