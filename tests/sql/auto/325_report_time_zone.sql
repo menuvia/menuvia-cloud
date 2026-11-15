@@ -92,13 +92,15 @@
 --         fusul localului — ora 12/11, adică două definiții ale zilei pe același
 --         local]
 --   FZ8  `zoned_day_start` (fereastra zilei din `get_locations_summary`) dă
---        PRIMUL minut al zilei: Havana 1 nov 2026 (00:00 apare de două ori) =
---        04:00Z, control 2 nov = 05:00Z; pe 15 fusuri × 2025–2027 instantul cade
---        în ziua cerută și minutul dinainte în ziua precedentă; pe București
+--        PRIMUL minut al zilei, verificat pe PROPRIETATE (tzdata diferă între
+--        PG16 local și postgres:17 din CI — o valoare fixă pe Havana pica într-un
+--        mediu): pe 16 fusuri × 2025–2027 instantul cade în ziua cerută și
+--        minutul dinainte în ziua precedentă, iar setul conține cel puțin o zi cu
+--        miezul nopții DUBLU (Atlantic/Azores, regula UE — anti-vacuitate); pe București
 --        IDENTIC cu forma 314; EXECUTE doar `authenticated`, INVOKER. FZ6 cere
 --        în corp fereastra prin helper (ambele capete).
 --        [PICĂ: helperul pe forma 314 `p_day::timestamp at time zone p_tz`
---         (M15: Havana → 05:00Z); fereastra din corp revenită la forma 314
+--         (M15: miezul nopții dublu → a doua apariție, caracterizarea pică); fereastra din corp revenită la forma 314
 --         (M16: FZ6, token lipsă); grant scos de la authenticated (M17: FZ0 —
 --         apelul lui A aruncă 42501 — și FZ8)]
 --
@@ -500,21 +502,31 @@ do $$
 declare
   v_bad text; v_n int;
 begin
-  -- Valoarea fixă de pe tranziția la miezul nopții (oglinda clientului, DZ4) și
-  -- control: ziua următoare, pe ofsetul de iarnă.
-  if public.zoned_day_start('2026-11-01', 'America/Havana') is distinct from '2026-11-01 04:00:00+00'::timestamptz then
-    raise exception 'FZ8 FAIL: Havana 1 nov 2026 începe la % (aștepta 04:00Z — prima apariție a lui 00:00)',
-      public.zoned_day_start('2026-11-01', 'America/Havana'); end if;
-  if public.zoned_day_start('2026-11-02', 'America/Havana') is distinct from '2026-11-02 05:00:00+00'::timestamptz then
-    raise exception 'FZ8 FAIL: control Havana 2 nov 2026 = % (aștepta 05:00Z)',
-      public.zoned_day_start('2026-11-02', 'America/Havana'); end if;
+  -- Pe PROPRIETATE, nu pe instante fixe (ca DZ4 în client): tzdata diferă între
+  -- versiuni — imaginea postgres:17 din CI nu mai are tranziția Havanei din
+  -- 1 nov 2026 pe care o are PG16 local, deci o valoare fixă (04:00Z) pica pe
+  -- un mediu și trecea pe altul. Anti-vacuitate: setul TREBUIE să conțină cel
+  -- puțin o zi în care miezul nopții apare de DOUĂ ori (forma 314 nu e primul minut) —
+  -- Atlantic/Azores, regula UE (ultima duminică din oct, 01:00 UTC: 01:00 → 00:00),
+  -- e acolo în orice tzdata recent; fără o astfel de zi, mutația M15 (helperul
+  -- pe forma 314) n-ar mai pica nicăieri.
+  select count(*), string_agg(format('%s %s', z.tz, g.day::date), ', ')
+    into v_n, v_bad
+    from unnest(array['America/Havana', 'Atlantic/Azores']) z(tz)
+   cross join generate_series('2025-01-01'::date, '2027-12-31'::date, interval '1 day') g(day)
+   -- independent de helper: zilele în care forma 314 NU e primul minut (minutul
+   -- dinaintea ei e încă în aceeași zi) — exact unde helperul trebuie să difere
+   where (((g.day::date::timestamp at time zone z.tz) - interval '1 minute') at time zone z.tz)::date = g.day::date;
+  if v_n = 0 then
+    raise exception 'FZ8 FAIL: niciun miez al nopții dublu în set (anti-vacuitate) — caracterizarea de mai jos n-ar prinde forma 314'; end if;
+  raise notice 'FZ8: % zile cu miezul nopții dublu în set: %', v_n, left(v_bad, 200);
   -- Caracterizarea „primul minut al zilei”: instantul cade în ziua cerută, iar
   -- minutul dinaintea lui în ziua precedentă — pe fusuri cu tranziții la miezul
   -- nopții (Havana, Santiago, Beirut, Asuncion, Amman, Damasc, Cairo) și pe
   -- fusurile obișnuite, 2025–2027.
   select string_agg(format('%s %s → %s', z.tz, g.day::date, public.zoned_day_start(g.day::date, z.tz)), '; '), count(*)
     into v_bad, v_n
-    from unnest(array['America/Havana', 'America/Santiago', 'Asia/Beirut', 'America/Asuncion',
+    from unnest(array['America/Havana', 'Atlantic/Azores', 'America/Santiago', 'Asia/Beirut', 'America/Asuncion',
                       'Asia/Amman', 'Asia/Damascus', 'Africa/Cairo', 'Europe/Bucharest',
                       'Europe/London', 'America/New_York', 'Pacific/Auckland', 'Asia/Kolkata',
                       'Australia/Lord_Howe', 'Pacific/Chatham', 'America/St_Johns']) z(tz)
@@ -543,7 +555,7 @@ begin
   if (select prosecdef from pg_proc where oid = 'public.zoned_day_start(date, text)'::regprocedure) then
     raise exception 'FZ8 FAIL: zoned_day_start e SECURITY DEFINER (nu are de ce)'; end if;
   -- (Viu sub authenticated: FZ0 — fără EXECUTE apelul lui A aruncă 42501.)
-  raise notice 'FZ8 PASS: zoned_day_start dă primul minut al zilei (Havana 1 nov 2026 = 04:00Z), identic cu 314 pe București';
+  raise notice 'FZ8 PASS: zoned_day_start dă primul minut al zilei pe 16 fusuri × 2025–2027 (inclusiv miezul nopții dublu), identic cu 314 pe București';
 end $$;
 
 rollback;
