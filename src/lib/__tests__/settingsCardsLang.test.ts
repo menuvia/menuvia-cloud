@@ -10,6 +10,11 @@
 //        HH:mm a României și data în formatul limbii. Mutația care pică:
 //        `last_today` cu „azi ” (spațiu în plus) în ro, sau ziua calculată în
 //        UTC.
+//   LN8b dicționarul SERVIT căzut pe română (engleza n-a putut fi încărcată) cu
+//        limba utilizatorului `en`: textul rămâne românesc („azi, …”,
+//        controlul pozitiv că traducătorul e cel românesc), data e „31/10/2026”
+//        (formatul limbii alese, ca `fmt`). Mutația care pică: `tr.lang` în loc
+//        de `lang` în formatLastOrderT (ar ieși „31.10.2026”).
 //   LN9  refuzul „Adaugă o locație” (`describeCreateLocationErrorT`): în
 //        română EXACT `describeCreateLocationError` (limita de plan pe AMBELE
 //        hint-uri, textul românesc al serverului, rețeaua, eroarea englezească
@@ -86,10 +91,10 @@ describe('„Ultima comandă” și refuzul locației noi', () => {
   it('LN8: formatLastOrderT — româna = oracolul; en/fr/de fără resturi', () => {
     const ro = makeTranslator(locRo, 'ro')
     for (const iso of LAST_ORDERS)
-      expect(formatLastOrderT(ro, iso, NOW), String(iso)).toBe(formatLastOrder(iso, NOW))
+      expect(formatLastOrderT(ro, 'ro', iso, NOW), String(iso)).toBe(formatLastOrder(iso, NOW))
     // Granița de fus: 22:30Z pe 13 = 00:30 pe 14 în România = „ieri”.
-    expect(formatLastOrderT(ro, '2026-11-13T22:30:00Z', NOW)).toBe('ieri, 00:30')
-    expect(formatLastOrderT(ro, '2026-10-31T10:05:00Z', NOW)).toBe('31.10.2026, 12:05')
+    expect(formatLastOrderT(ro, 'ro', '2026-11-13T22:30:00Z', NOW)).toBe('ieri, 00:30')
+    expect(formatLastOrderT(ro, 'ro', '2026-10-31T10:05:00Z', NOW)).toBe('31.10.2026, 12:05')
     const expected = {
       en: ['No orders yet', 'today, 10:32', 'yesterday, 23:30', '31/10/2026, 12:05'],
       fr: [
@@ -103,18 +108,25 @@ describe('„Ultima comandă” și refuzul locației noi', () => {
     for (const [lang, loc] of OTHER) {
       const tr = makeTranslator(loc, lang)
       const got = [
-        formatLastOrderT(tr, null, NOW),
-        formatLastOrderT(tr, '2026-11-15T08:32:00Z', NOW),
-        formatLastOrderT(tr, '2026-11-14T21:30:00Z', NOW),
-        formatLastOrderT(tr, '2026-10-31T10:05:00Z', NOW),
+        formatLastOrderT(tr, lang, null, NOW),
+        formatLastOrderT(tr, lang, '2026-11-15T08:32:00Z', NOW),
+        formatLastOrderT(tr, lang, '2026-11-14T21:30:00Z', NOW),
+        formatLastOrderT(tr, lang, '2026-10-31T10:05:00Z', NOW),
       ]
       expect(got, lang).toEqual(expected[lang])
       for (const iso of LAST_ORDERS) {
-        const text = formatLastOrderT(tr, iso, NOW)
+        const text = formatLastOrderT(tr, lang, iso, NOW)
         expect(text, `${lang} ${String(iso)}`).not.toMatch(RO_LETTERS)
         expect(text).not.toMatch(/\{\w+\}/)
       }
     }
+  })
+
+  it('LN8b: dicționar căzut pe română + limba aleasă en → text românesc, dată en-GB', () => {
+    const ro = makeTranslator(locRo, 'ro')
+    expect(formatLastOrderT(ro, 'en', '2026-11-15T08:32:00Z', NOW)).toBe('azi, 10:32')
+    expect(formatLastOrderT(ro, 'en', '2026-10-31T10:05:00Z', NOW)).toBe('31/10/2026, 12:05')
+    expect(formatLastOrderT(ro, 'de', '2026-10-31T10:05:00Z', NOW)).toBe('31.10.2026, 12:05')
   })
 
   it('LN9: describeCreateLocationErrorT — româna = oracolul; altă limbă fără serverul românesc', () => {

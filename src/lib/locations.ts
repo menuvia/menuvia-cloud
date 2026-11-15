@@ -23,6 +23,7 @@ import type locationsRo from '../i18n/ns/locations/ro'
 import type settingsCardsRo from '../i18n/ns/settingsCards/ro'
 import { describeStaffError } from '../i18n/staffErrors'
 import { staffLocale } from '../i18n/format'
+import type { StaffLang } from '../i18n/langs'
 
 /** Pragul de la care panoul arată „Toate locațiile". */
 export const MIN_LOCATIONS_FOR_OVERVIEW = 2
@@ -169,9 +170,13 @@ export function formatLastOrder(iso: string | null, now: Date = new Date()): str
  * BYTE-identică cu `formatLastOrder` (LN8 din settingsCardsLang.test.ts);
  * ora rămâne HH:mm în fusul României în toate limbile (fusul restaurantului e
  * G2, în afara lotului), iar data e formatul scurt al limbii personalului.
+ * `lang` = limba UTILIZATORULUI (`useUiLang().lang`), NU `tr.lang`: aceea e
+ * limba dicționarului servit, care cade pe română la o încărcare eșuată —
+ * textul rămâne al dicționarului, formatul datei urmează omul (ca `fmt`).
  */
 export function formatLastOrderT(
   tr: Translator<typeof locationsRo>,
+  lang: StaffLang,
   iso: string | null,
   now: Date = new Date(),
 ): string {
@@ -184,9 +189,9 @@ export function formatLastOrderT(
   if (ymd === previousYmd(today)) return tr.t('last_yesterday', { time })
   const [y, m, d] = ymd.split('-')
   const date =
-    tr.lang === 'ro'
+    lang === 'ro'
       ? `${d}.${m}.${y}`
-      : new Intl.DateTimeFormat(staffLocale(tr.lang), {
+      : new Intl.DateTimeFormat(staffLocale(lang), {
           day: '2-digit',
           month: '2-digit',
           year: 'numeric',

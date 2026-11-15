@@ -16,6 +16,7 @@ import { changeMemberRole, removeMember, revokeInvite } from '../lib/restaurants
 // prin `describeStaffError` (în română exact `toUserMessage`), refuzul
 // invitației după `code` (în română textul serverului, ca înainte).
 import { useT } from '../i18n/useT'
+import { useUiLang } from '../i18n/UiLangContext'
 import { describeStaffError } from '../i18n/staffErrors'
 import { staffLocale } from '../i18n/format'
 import { fillNodes } from '../i18n/fillNodes'
@@ -132,6 +133,8 @@ export default function TeamManager({
 }) {
   const tm = useT(teamNs)
   const tc = useT(commonNs)
+  // Data invitației în formatul limbii UTILIZATORULUI, nu `tm.lang`.
+  const { lang: uiLang } = useUiLang()
   const isMobile = useIsMobile()
   const { toasts, toast } = useToast()
   const [members, setMembers] = useState<Member[]>([])
@@ -462,7 +465,7 @@ export default function TeamManager({
                   <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
                     {tm.t('pending_meta', {
                       role: tm.t(ROLE_KEYS[inv.role]),
-                      date: new Date(inv.expires_at).toLocaleDateString(staffLocale(tm.lang)),
+                      date: new Date(inv.expires_at).toLocaleDateString(staffLocale(uiLang)),
                     })}
                   </div>
                 </div>
