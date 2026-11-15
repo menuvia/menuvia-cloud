@@ -34,6 +34,14 @@
 //        la demontarea ei limba rămâne a rutei. Control: fără preferință →
 //        „Se încarcă…”. Mutația vizată: `FunnelLangProvider` scriind
 //        documentul și sub rută (la demontarea paginii ar reface „fără lang”).
+//   LD9  navigarea ÎNTRE rutele funnel-ului (recenzie CodeRabbit pe #372):
+//        App.tsx întoarce `<FunnelDocumentLang>` pe aceeași poziție, deci
+//        instanța supraviețuiește /reset-password (en păstrat) → Back pe
+//        /auth?lang=ro; pagina nouă și documentul trebuie să fie în română.
+//        Mutația care pică: `?lang=` citit doar la montarea rutei (memo doar pe
+//        limba contului — rămânea „en”). Control: pe ACELAȘI URL, spinner →
+//        pagină, o limbă păstrată schimbată între timp NU răstoarnă limba
+//        (mutația care pică: rezolvare la fiecare randare).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, renderHook, screen, within } from '@testing-library/react'
 import { useState } from 'react'
@@ -508,5 +516,54 @@ describe('LD8 spinner-ul rutei de funnel', () => {
     expect(document.title).toBe(INDEX_TITLE)
     expect(await screen.findByText('Se încarcă…')).toBeInTheDocument()
     expect(romanianLeftovers(nodeText(view.container), 'en').length).toBeGreaterThan(0)
+  })
+})
+
+describe('LD9 navigarea între rutele funnel-ului', () => {
+  function PageLang() {
+    return <span data-testid="page-lang">{useUiLang().lang}</span>
+  }
+  /** Ca AppRouter: același `FunnelDocumentLang` pe aceeași poziție; pagina
+   *  (cu propriul `FunnelLangProvider`) e alt tip pe fiecare rută → `key`. */
+  function Route({ page }: { page: 'spinner' | 'reset' | 'auth' }) {
+    return (
+      <FunnelDocumentLang>
+        {page === 'spinner' ? (
+          <PageSpinner />
+        ) : (
+          <FunnelLangProvider key={page}>
+            <PageLang />
+          </FunnelLangProvider>
+        )}
+      </FunnelDocumentLang>
+    )
+  }
+  afterEach(() => {
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('LD9 /reset-password (en păstrat) → Back pe /auth?lang=ro: pagina și documentul în română', () => {
+    localStorage.setItem('menuvia_ui_lang', 'en')
+    window.history.replaceState(null, '', '/reset-password')
+    const view = render(<Route page="reset" />)
+    expect(screen.getByTestId('page-lang').textContent).toBe('en')
+    expect(htmlLang()).toBe('en')
+    window.history.replaceState(null, '', '/auth?lang=ro')
+    view.rerender(<Route page="auth" />)
+    expect(screen.getByTestId('page-lang').textContent).toBe('ro')
+    expect(htmlLang()).toBe('ro')
+    expect(document.title).toBe(INDEX_TITLE)
+  })
+
+  it('LD9 control: pe același URL, spinner → pagină, limba nu se răstoarnă', () => {
+    window.history.replaceState(null, '', '/auth')
+    const view = render(<Route page="spinner" />)
+    expect(htmlLang()).toBe('ro')
+    // Alt tab scrie între timp o limbă păstrată: formularul de pe ecran nu
+    // are voie să-și schimbe limba sub degetele omului.
+    localStorage.setItem('menuvia_ui_lang', 'en')
+    view.rerender(<Route page="auth" />)
+    expect(screen.getByTestId('page-lang').textContent).toBe('ro')
+    expect(htmlLang()).toBe('ro')
   })
 })
