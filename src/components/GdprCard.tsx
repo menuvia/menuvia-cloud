@@ -18,6 +18,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useToast } from './ui/useToast'
 import { confirm } from './ui/confirm'
 import { useT } from '../i18n/useT'
+import { useUiLang } from '../i18n/UiLangContext'
 import { describeStaffError } from '../i18n/staffErrors'
 import { staffLocale } from '../i18n/format'
 import { settingsCardsNs } from '../i18n/ns/settingsCards'
@@ -41,6 +42,8 @@ const btnStyle = (variant: 'neutral' | 'danger' | 'safe'): React.CSSProperties =
 export default function GdprCard() {
   const tr = useT(settingsCardsNs)
   const tc = useT(commonNs)
+  // Data programării în formatul limbii UTILIZATORULUI, nu `tr.lang`.
+  const { lang: uiLang } = useUiLang()
   const { user } = useAuth()
   const toast = useToast()
   const [exporting, setExporting] = useState(false)
@@ -111,7 +114,7 @@ export default function GdprCard() {
       toast.success(
         d?.deletion_scheduled_at
           ? tr.t('gdpr_scheduledFor', {
-              date: new Date(d.deletion_scheduled_at).toLocaleDateString(staffLocale(tr.lang)),
+              date: new Date(d.deletion_scheduled_at).toLocaleDateString(staffLocale(uiLang)),
             })
           : tr.t('gdpr_scheduled'),
       )

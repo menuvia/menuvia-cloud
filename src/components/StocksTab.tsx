@@ -51,6 +51,7 @@ import type {
 import Autocomplete from './Autocomplete'
 import { nirDateLabel, stockFormErrorText, vatGroupLabel, type StockFormError } from '../lib/stockMessages'
 import { useT } from '../i18n/useT'
+import { useUiLang } from '../i18n/UiLangContext'
 import { stocksNs } from '../i18n/ns/stocks'
 import { commonNs } from '../i18n/ns/common'
 import { fillNodes } from '../i18n/fillNodes'
@@ -1345,8 +1346,11 @@ function PurchasesSection({
   restaurantId: string
   showVat: boolean
 }) {
-  const { t, tp, lang } = useT(stocksNs)
+  const { t, tp } = useT(stocksNs)
   const tc = useT(commonNs)
+  // Data NIR-ului în formatul limbii UTILIZATORULUI, nu limba dicționarului
+  // servit (care cade pe română la o încărcare eșuată).
+  const { lang: uiLang } = useUiLang()
   const [items, setItems] = useState<PurchaseOrder[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [ingredients, setIngredients] = useState<Ingredient[]>([])
@@ -1478,7 +1482,7 @@ function PurchasesSection({
                         altfel lista amestecă două formate de dată. Locale-ul personalului
                         (`staffLocale`: în română EXACT „ro-RO” de dinainte); data
                         calendaristică în UTC, momentul de rezervă în fusul local. */}
-                    {nirDateLabel(po.invoice_date, po.created_at, staffLocale(lang))}
+                    {nirDateLabel(po.invoice_date, po.created_at, staffLocale(uiLang))}
                   </div>
                 </div>
                 <div

@@ -19,6 +19,7 @@ import {
 } from '../lib/ai'
 import { Button } from './ui/Button'
 import { useT } from '../i18n/useT'
+import { useUiLang } from '../i18n/UiLangContext'
 import { describeStaffError } from '../i18n/staffErrors'
 import { staffLocale } from '../i18n/format'
 import { aiSettingsNs } from '../i18n/ns/aiSettings'
@@ -144,7 +145,10 @@ export default function AiSettingsTab({
   const tr = useT(aiSettingsNs)
   const tc = useT(commonNs)
   // Numerele (tokens, credite): în română `toLocaleString('ro-RO')`, ca înainte.
-  const locale = staffLocale(tr.lang)
+  // Limba UTILIZATORULUI, nu `tr.lang` (dicționarul servit cade pe română la
+  // o încărcare eșuată; formatele urmează omul, ca `fmt` din `useT`).
+  const { lang: uiLang } = useUiLang()
+  const locale = staffLocale(uiLang)
   const num = (n: number): string => n.toLocaleString(locale)
   const isMobile = useIsMobile()
   const [provider, setProvider] = useState<AiProvider>('openai')

@@ -21,6 +21,7 @@ import { Card } from './ui/Card'
 import { Icon } from './ui/Icon'
 import { Skeleton } from './ui/Skeleton'
 import { useT } from '../i18n/useT'
+import { useUiLang } from '../i18n/UiLangContext'
 import { describeStaffError } from '../i18n/staffErrors'
 import { locationsNs } from '../i18n/ns/locations'
 import { commonNs } from '../i18n/ns/common'
@@ -73,6 +74,8 @@ export default function LocationsTab({
 }) {
   const tr = useT(locationsNs)
   const tc = useT(commonNs)
+  // Formatele urmează limba UTILIZATORULUI, nu `tr.lang` (dicționarul servit).
+  const { lang: uiLang } = useUiLang()
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
   const [opening, setOpening] = useState<string | null>(null)
@@ -214,7 +217,7 @@ export default function LocationsTab({
                   {loc.revenueToday != null && (
                     <Stat label={tr.t('stat_revenue')} value={fmtPrice(loc.revenueToday, 'RON')} />
                   )}
-                  <Stat label={tr.t('stat_last')} value={formatLastOrderT(tr, loc.lastOrderAt)} />
+                  <Stat label={tr.t('stat_last')} value={formatLastOrderT(tr, uiLang, loc.lastOrderAt)} />
                 </div>
                 {!isCurrent && (
                   <Button
