@@ -3,6 +3,10 @@
 // Customer Health Score dashboard pentru admin.
 // Citește scorul cached, breakdown pe componente, sugestii acționabile.
 // Buton recalculare manual cu cooldown 5 min.
+// Limba personalului (lotul L7): textele din namespace-ul `health` (+
+// `common`), cerute SUS; textele calculate (eticheta, tendința, sugestiile,
+// vârsta, narațiunea) din lib/healthLang.ts. Erorile se țin ca DATE (cauza) și
+// se traduc la randare. Montat LENEȘ din HomeTab, sub un `<Suspense>` propriu.
 // =============================================================
 import { useEffect, useState, useCallback } from 'react'
 import { D, D_RAW } from '../lib/constants'
@@ -13,15 +17,22 @@ import {
   recomputeHealthScore,
   type HealthScore,
   SCORE_MAX,
-  trendLabel,
   trendColor,
   scoreColor,
-  scoreLabel,
-  getActionableSuggestions,
   planHealthScore,
   planHealthTrend,
 } from '../lib/health'
-import { toUserMessage } from '../lib/userMessages'
+import {
+  formatTimeAgoT,
+  getActionableSuggestionsT,
+  scoreLabelT,
+  scoreNarrativeT,
+  trendLabelT,
+} from '../lib/healthLang'
+import { useT } from '../i18n/useT'
+import { describeStaffError } from '../i18n/staffErrors'
+import { healthNs } from '../i18n/ns/health'
+import { commonNs } from '../i18n/ns/common'
 
 // Colors palette pentru lib helpers.
 // D_RAW (hex brut), nu D: aceste valori alimentează `stroke` pe inelul SVG
@@ -33,15 +44,27 @@ const PALETTE = {
   red: D_RAW.red,
 }
 
+// Eroarea afișată, ca DATĂ: cauza + rezerva contextului (cheia din `health`).
+type HealthErr = { cause: unknown; fallback: 'err_load' | 'err_recompute' }
+
 // `fiscal` = planul are bon fiscal (planSurface.fiscal). Fără el componenta
 // „Stabilitate" (bonurile în eroare ale Bridge-ului fiscal) iese din scor, din
 // compoziție și din sugestii — lotul P: fiecare plan vede doar ce are.
 export default function HealthScoreTab({ fiscal }: { fiscal: boolean }) {
+  // `tc` e deja culoarea tendinței (mai jos), deci traducătorul comun e `tcm`.
+  const th = useT(healthNs)
+  const tcm = useT(commonNs)
   const { activeId } = useRestaurantCtx()
   const [score, setScore] = useState<HealthScore | null>(null)
   const [loading, setLoading] = useState(true)
   const [recomputing, setRecomputing] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
+  const [errState, setErr] = useState<HealthErr | null>(null)
+  // Hint-urile refuzurilor, DOAR în afara românei: în română rămâne textul
+  // serverului (regula 1 a lui `describeStaffError` ar schimba-o).
+  const hints = tcm.lang === 'ro' ? undefined : { cooldown: th.t('err_cooldown') }
+  const err = errState
+    ? describeStaffError(errState.cause, tcm, { fallback: th.t(errState.fallback), hints })
+    : null
   const [loadError, setLoadError] = useState(false)
 
   const load = useCallback(async () => {
@@ -56,7 +79,7 @@ export default function HealthScoreTab({ fiscal }: { fiscal: boolean }) {
       // Eroare reală de fetch (rețea/permisiuni) — distinctă de „scor inexistent",
       // care e reprezentat de `score === null` fără excepție.
       setLoadError(true)
-      setErr(toUserMessage(e, 'Eroare la încărcare'))
+      setErr({ cause: e, fallback: 'err_load' })
     } finally {
       setLoading(false)
     }
@@ -74,7 +97,7 @@ export default function HealthScoreTab({ fiscal }: { fiscal: boolean }) {
       const fresh = await recomputeHealthScore(activeId)
       setScore(fresh)
     } catch (e) {
-      setErr(toUserMessage(e, 'Eroare recalculare'))
+      setErr({ cause: e, fallback: 'err_recompute' })
     } finally {
       setRecomputing(false)
     }
@@ -96,10 +119,10 @@ export default function HealthScoreTab({ fiscal }: { fiscal: boolean }) {
       <div style={{ padding: 40, textAlign: 'center', color: D.t2 }}>
         <div style={{ fontSize: 32, marginBottom: 8 }}>⚠️</div>
         <div style={{ fontFamily: 'Fraunces,serif', fontSize: 20, color: D.t1, marginBottom: 8 }}>
-          Nu am putut încărca scorul
+          {th.t('loadFail_title')}
         </div>
         <p style={{ maxWidth: 480, margin: '0 auto 16px' }}>
-          A apărut o eroare la comunicarea cu serverul. Încearcă din nou în câteva momente.
+          {th.t('loadFail_desc')}
         </p>
         {err && <div style={{ color: D.red, fontSize: 13, marginBottom: 16 }}>{err}</div>}
         <button
@@ -115,7 +138,7 @@ export default function HealthScoreTab({ fiscal }: { fiscal: boolean }) {
             cursor: 'pointer',
           }}
         >
-          Reîncearcă
+          {tcm.t('retry')}
         </button>
       </div>
     )
@@ -126,10 +149,10 @@ export default function HealthScoreTab({ fiscal }: { fiscal: boolean }) {
       <div style={{ padding: 40, textAlign: 'center', color: D.t2 }}>
         <div style={{ fontSize: 32, marginBottom: 8 }}>📊</div>
         <div style={{ fontFamily: 'Fraunces,serif', fontSize: 20, color: D.t1, marginBottom: 8 }}>
-          Scorul nu a fost încă calculat
+          {th.t('none_title')}
         </div>
         <p style={{ maxWidth: 480, margin: '0 auto 16px' }}>
-          Scorul se calculează automat la 30 minute. Poți declanșa o recalculare manuală acum.
+          {th.t('none_desc')}
         </p>
         <button
           onClick={handleRecompute}
@@ -146,7 +169,7 @@ export default function HealthScoreTab({ fiscal }: { fiscal: boolean }) {
             opacity: recomputing ? 0.6 : 1,
           }}
         >
-          {recomputing ? 'Se calculează…' : 'Calculează acum'}
+          {recomputing ? th.t('computing') : th.t('compute_now')}
         </button>
         {err && <div style={{ color: D.red, fontSize: 13, marginTop: 12 }}>{err}</div>}
       </div>
@@ -154,7 +177,7 @@ export default function HealthScoreTab({ fiscal }: { fiscal: boolean }) {
   }
 
   const scope = { fiscal }
-  const suggestions = getActionableSuggestions(score, scope)
+  const suggestions = getActionableSuggestionsT(score, scope, th)
   const shown = planHealthScore(score, scope)
   // Fără bon: `stable` (neutru) — narațiunea se decide doar pe scorul afișat.
   const trend = planHealthTrend(score, scope)
@@ -189,7 +212,7 @@ export default function HealthScoreTab({ fiscal }: { fiscal: boolean }) {
               marginBottom: 4,
             }}
           >
-            Customer Health Score
+            {th.t('eyebrow')}
           </div>
           <h1
             style={{
@@ -201,10 +224,10 @@ export default function HealthScoreTab({ fiscal }: { fiscal: boolean }) {
               letterSpacing: '-0.02em',
             }}
           >
-            Cum stă cafeneaua ta
+            {th.t('title')}
           </h1>
           <div style={{ fontSize: 13, color: D.t3, marginTop: 6 }}>
-            Ultima recalculare: {formatTimeAgo(score.computed_at)}
+            {th.t('last_recompute', { ago: formatTimeAgoT(score.computed_at, th) })}
           </div>
         </div>
         <button
@@ -225,7 +248,7 @@ export default function HealthScoreTab({ fiscal }: { fiscal: boolean }) {
             gap: 6,
           }}
         >
-          {recomputing ? '⏳ Calculez…' : '↻ Recalculează'}
+          {recomputing ? th.t('recomputing') : th.t('recompute')}
         </button>
       </div>
 
@@ -270,24 +293,23 @@ export default function HealthScoreTab({ fiscal }: { fiscal: boolean }) {
               marginBottom: 4,
             }}
           >
-            {scoreLabel(shown)}
+            {scoreLabelT(shown, th)}
           </div>
           {/* Tendința și delta vin din scorul BRUT al serverului (cu Bridge
               fiscal) — doar pe planul cu bon; altfel ar contrazice scorul
               normalizat de alături (recenzia #334 / CodeRabbit). */}
           {fiscal && (
             <div style={{ color: tc, fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
-              {trendIcon(trend)} {trendLabel(trend)}
+              {trendIcon(trend)} {trendLabelT(trend, th)}
               {delta !== null && delta !== 0 && (
                 <span style={{ color: D.t3, fontWeight: 400, marginLeft: 8 }}>
-                  ({delta > 0 ? '+' : ''}
-                  {delta} față de scorul precedent)
+                  {th.t('delta_vs_prev', { delta: `${delta > 0 ? '+' : ''}${delta}` })}
                 </span>
               )}
             </div>
           )}
           <p style={{ color: D.t2, fontSize: 14, lineHeight: 1.55, margin: 0 }}>
-            {scoreNarrative(shown, trend)}
+            {scoreNarrativeT(shown, trend, th)}
           </p>
         </div>
       </div>
@@ -304,7 +326,7 @@ export default function HealthScoreTab({ fiscal }: { fiscal: boolean }) {
             fontWeight: 600,
           }}
         >
-          Compoziție scor
+          {th.t('comp_title')}
         </div>
         <div
           style={{
@@ -314,28 +336,28 @@ export default function HealthScoreTab({ fiscal }: { fiscal: boolean }) {
           }}
         >
           <ScoreBar
-            label="Login frecvență"
+            label={th.t('bar_login')}
             current={score.score_login}
             max={SCORE_MAX.login}
             icon="🔐"
           />
           <ScoreBar
-            label="Volum comenzi"
+            label={th.t('bar_orders')}
             current={score.score_orders}
             max={SCORE_MAX.orders}
             icon="📈"
           />
-          <ScoreBar label="Echipă" current={score.score_team} max={SCORE_MAX.team} icon="👥" />
+          <ScoreBar label={th.t('bar_team')} current={score.score_team} max={SCORE_MAX.team} icon="👥" />
           {fiscal && (
             <ScoreBar
-              label="Stabilitate"
+              label={th.t('bar_tickets')}
               current={score.score_tickets}
               max={SCORE_MAX.tickets}
               icon="✓"
             />
           )}
           <ScoreBar
-            label="Engagement"
+            label={th.t('bar_engagement')}
             current={score.score_engagement}
             max={SCORE_MAX.engagement}
             icon="⚙"
@@ -356,7 +378,7 @@ export default function HealthScoreTab({ fiscal }: { fiscal: boolean }) {
               fontWeight: 600,
             }}
           >
-            Ce poți face pentru a crește scorul
+            {th.t('sugg_title')}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {suggestions.map((s, i) => (
@@ -414,11 +436,9 @@ export default function HealthScoreTab({ fiscal }: { fiscal: boolean }) {
         }}
       >
         <div style={{ fontWeight: 600, color: D.gold, marginBottom: 6 }}>
-          Cum funcționează scorul
+          {th.t('how_title')}
         </div>
-        {fiscal
-          ? 'Scor 0-100, recalculat la 30 de minute, din 5 componente: login (20), comenzi (30), echipă (15), stabilitatea casei de marcat (20) și folosirea funcțiilor (15).'
-          : 'Scor 0-100, recalculat la 30 de minute, din 4 componente: login, comenzi, echipă și folosirea funcțiilor.'}
+        {fiscal ? th.t('how_fiscal') : th.t('how_nonFiscal')}
       </div>
     </div>
   )
@@ -544,31 +564,4 @@ function trendIcon(trend: HealthScore['trend']): string {
     case 'critical':
       return '⚠'
   }
-}
-
-function formatTimeAgo(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime()
-  const mins = Math.floor(ms / 60000)
-  if (mins < 1) return 'acum câteva secunde'
-  if (mins < 60) return `acum ${mins} minute`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `acum ${hrs} ore`
-  const days = Math.floor(hrs / 24)
-  return `acum ${days} zile`
-}
-
-function scoreNarrative(score: number, trend: HealthScore['trend']): string {
-  if (trend === 'critical') {
-    return 'Cafeneaua ta arată semne îngrijorătoare. Verifică sugestiile de mai jos; dacă ai blocaje, folosește butonul „Ajutor”.'
-  }
-  if (score >= 80) {
-    return 'Felicitări! Folosești Menuvia la potențial maxim. Continuă tot așa și consideră să recomanzi platforma altor patroni.'
-  }
-  if (score >= 60) {
-    return 'Cont sănătos, dar mai sunt zone de îmbunătățit. Caută-ți spațiu pentru 1-2 din sugestiile de mai jos.'
-  }
-  if (score >= 40) {
-    return 'Sunt destule oportunități de optimizare. Adresează în primul rând componenta cu scorul cel mai mic.'
-  }
-  return 'Folosirea aplicației e sub potențial. Începe cu componenta cu scorul cel mai mic.'
 }

@@ -10,8 +10,6 @@
 // fondatorului, afiliați, site-ul de marketing, documentele legale) stau aici
 // la valoarea lor; nu au voie să crească nici ele.
 export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
-  'src/components/AiChatbot.tsx': 37,
-  'src/components/AnalyticsTab.tsx': 29,
   'src/components/BridgeOfflineBanner.tsx': 5,
   'src/components/BridgeTab.tsx': 123,
   'src/components/CashRegisterTab.tsx': 104,
@@ -19,14 +17,12 @@ export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
   'src/components/FounderActivationCard.tsx': 8,
   'src/components/FounderAiPanel.tsx': 22,
   'src/components/FounderPayoutRow.tsx': 35,
-  'src/components/HealthScoreTab.tsx': 30,
   'src/components/InvoicesTab.tsx': 48,
   'src/components/IssueInvoiceModal.tsx': 28,
   'src/components/LegalFooter.tsx': 12,
   'src/components/OnlinePaymentsCard.tsx': 23,
   'src/components/PageLoader.tsx': 3,
   'src/components/PartnerAccessList.tsx': 19,
-  'src/components/ReportsTab.tsx': 68,
   'src/components/VatRatesEditor.tsx': 21,
   'src/components/VatReportTab.tsx': 25,
   'src/components/afiliat/ContactConsentSection.tsx': 3,
