@@ -103,13 +103,16 @@
 --         trigger-ul de ștampilă `or update` (M30); luna CURENTĂ din perechea
 --         SMS calculată pe alt fus decât ștampila — `_restaurant_month(null,
 --         now())` = București (M31: trece de TOT TZ8 în afara orelor de graniță,
---         fiindcă `now()` nu se poate muta, deci doar clichetul o vede)]
+--         fiindcă `now()` nu se poate muta, deci doar clichetul o vede);
+--         lacătul FOR SHARE pe restaurant scos din `enqueue_sms` sau mutat după
+--         calculul lunii (M32: cursa e între două sesiuni — schimbarea de fus
+--         comisă între numărătoare și ștampilă —, deci doar clichetul o vede)]
 --
 -- `report_by_hour` NU e în 324 (recenzia adversarială): singurul consumator e
 -- suprafața FISCALĂ (ReportsTab sub `fiscalReports`, `money === 3`, adică doar
 -- România), deci rămâne pe lanțul 122 și se decide în G2b cu fereastra.
 --
--- Mutațiile M1–M31 (fără M19–M21, retrase odată cu `report_by_hour`) au fost
+-- Mutațiile M1–M32 (fără M19–M21, retrase odată cu `report_by_hour`) au fost
 -- verificate pe un cluster de replay (KEEP=1
 -- scripts/verify-migrations-local.sh), fiecare într-o tranzacție derulată
 -- înapoi: suita pică EXACT la testul notat. Unde o mutație e prinsă de un test
@@ -832,6 +835,14 @@ begin
     -- = București) trece de TZ8 în ~29 de zile din 30 (M31).
     if position('v_month := public._restaurant_month(p_restaurant_id, now());' in v_src) = 0 then
       raise exception 'TZ9 FAIL: % nu calculează luna curentă pe restaurantul lui, la now() (eticheta ar putea diverge de ștampilă)', v_sig;
+    end if;
+    -- Fusul înghețat între numărătoare și ștampilă (recenzia CodeRabbit pe #376):
+    -- cursa e între DOUĂ sesiuni, deci un test in-process e vacuu — clichetul
+    -- ține lacătul (M32). Doar pe enqueue_sms: get_sms_usage doar afișează.
+    if v_sig like 'public.enqueue_sms(%'
+       and (position('where r.id = p_restaurant_id for share;' in v_src) = 0
+            or position('for share;' in v_src) > position('v_month := public._restaurant_month(' in v_src)) then
+      raise exception 'TZ9 FAIL: enqueue_sms nu blochează rândul restaurantului (FOR SHARE) înaintea lunii — o schimbare de fus concurentă ștampilează în altă lună decât cea verificată';
     end if;
   end loop;
 
