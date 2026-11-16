@@ -63,6 +63,39 @@ export async function fetchRestaurantFeatures(
 
 // ── Helpers ─────────────────────────────────────────────────
 
+/** Oglinda `feature_requires_ro` (mig 296): feature-urile care există DOAR pentru
+ *  un restaurant din România. Lista se schimbă în AMBELE locuri (FC1). */
+const RO_ONLY_FEATURES: readonly string[] = [
+  'fiscal_receipt',
+  'online_payments',
+  'split_bill',
+  'shifts',
+  'reports_vat',
+]
+
+/**
+ * Feature-urile din cache aliniate la ȚARA cunoscută ACUM (recenzia CodeRabbit
+ * pe #377). Serverul le stinge pentru `country <> 'RO'` (mig 296), dar
+ * `useFeatures` le ține în cache per restaurant: după ce owner-ul mută țara din
+ * România, ziua de raportare se mută imediat (`reportTimeZone` citește țara din
+ * rând), iar gate-urile pe bani ar fi rămas pe valorile vechi până la o
+ * revalidare reușită — Rapoartele ar fi cerut banii pe ziua noului fus, cu
+ * defalcarea pe ziua românească. Cu țara cunoscută ≠ RO, feature-urile
+ * românești sunt false indiferent de cache sau de un reload eșuat; pe RO sau
+ * țară necunoscută (bază fără 296, restaurant neîncărcat) — neschimbat.
+ */
+export function countryScopedFeatures(
+  features: RestaurantFeatures | null,
+  country: string | null | undefined,
+): RestaurantFeatures | null {
+  if (!features || !country || country === 'RO') return features
+  const next: Record<string, FeatureLimit> = { ...features.features }
+  for (const name of RO_ONLY_FEATURES) {
+    next[name] = { enabled: false, limit: next[name]?.limit ?? null }
+  }
+  return { ...features, features: next }
+}
+
 export function hasFeature(features: RestaurantFeatures | null, name: FeatureName): boolean {
   if (!features) return false
   return features.features[name]?.enabled ?? false

@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, Suspense, lazy } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { useFeatures } from '../hooks/useFeatures'
-import { productLimitReason, surfaceTiers } from '../lib/features'
+import { countryScopedFeatures, hasFeature, productLimitReason, surfaceTiers } from '../lib/features'
 import { planSurface, planUpsellTarget } from '../lib/planSurface'
 import { browserSite } from '../lib/domain'
 import {
@@ -871,20 +871,28 @@ export default function DashboardPage({
   // separat „știm planul" de „planul e free" — banda „Demo gratuit", eticheta
   // planului și upsell-ul de pe Acasă apar DOAR pe un plan cunoscut, altfel un
   // plătitor vedea „Plan Gratuit 0/15" la fiecare încărcare sau blip de RPC.
-  const plan = features.features?.plan ?? 'free'
-  const planKnown = features.features != null
+  // Gate-urile pe bani urmează ȚARA de acum, nu doar cache-ul (oglinda
+  // `feature_requires_ro`, mig 296): după o mutare din România, ziua de
+  // raportare și suprafețele fiscale se schimbă ÎMPREUNĂ, chiar înainte de
+  // revalidare sau dacă revalidarea pică (recenzia CodeRabbit pe #377, FC2).
+  const scopedFeatures = useMemo(
+    () => countryScopedFeatures(features.features, restaurantCountry),
+    [features.features, restaurantCountry],
+  )
+  const plan = scopedFeatures?.plan ?? 'free'
+  const planKnown = scopedFeatures != null
 
   // DOUĂ tier-uri (surfaceTiers, lib/features.ts): `tier` = planul (gating
   // general, inclusiv feature-urile NEfiscale de Plan 3: harta sălii,
   // statistici, program echipă); `money` = moneyTier, DOAR pe suprafețele de
   // bani/bon (plăți, bonuri, casă, facturi, încasări, TVA) — coborât sub 3
   // pentru un restaurant din afara României (mig 296). Pe RO sunt identice.
-  const { general: tier, money } = surfaceTiers(features.features)
+  const { general: tier, money } = surfaceTiers(scopedFeatures)
   // CE VEDE planul în tab-uri (lib/planSurface.ts, lotul P): planurile
   // inferioare nu văd nimic din cele superioare. `tier`/`money` de mai sus
   // rămân DOAR pentru filtrul NAV_GROUPS (minTier, lib/dashboardNav.ts).
   // `null` = planul nu e cunoscut: nici funcția, nici upsell-ul.
-  const surface = planSurface(features.features)
+  const surface = planSurface(scopedFeatures)
   const fiscalSurface = surface?.fiscal === true
   // Upsell-ul unic de pe Acasă. Plata la masă și bonul există doar pentru un
   // restaurant din România, pe site-ul .ro (mig 296, lib/siteMarket.ts).
@@ -902,7 +910,7 @@ export default function DashboardPage({
   // pâlpâirea nav-ului la fiecare încărcare. Sursa unică: `pickupOnlyMode`,
   // citit și de Mese (TablesManager) pentru empty state.
   const pickupOnly =
-    pickupOnlyMode(restaurant?.pickup_settings, pickupFeatureState(features.features)) === 'on'
+    pickupOnlyMode(restaurant?.pickup_settings, pickupFeatureState(scopedFeatures)) === 'on'
 
   // Grupurile vizibile pe rol + tier + module (Gate D), cu etichetele planului
   // (lib/dashboardNav.ts). Un grup fără niciun sub-tab vizibil dispare complet.
@@ -1814,7 +1822,7 @@ export default function DashboardPage({
                   <AnalyticsTab
                     restaurantId={restaurant.id}
                     plan={plan}
-                    fiscalEnabled={features.features?.features?.fiscal_receipt?.enabled ?? null}
+                    fiscalEnabled={scopedFeatures?.features?.fiscal_receipt?.enabled ?? null}
                   />
                 </Suspense>
               )}
@@ -1863,12 +1871,12 @@ export default function DashboardPage({
                   <StocksTab restaurantId={restaurant.id} showVat={surface.vat} timeZone={reportTz} />
                 </Suspense>
               )}
-              {tab === 'tva' && features.has('reports_vat') && (
+              {tab === 'tva' && hasFeature(scopedFeatures, 'reports_vat') && (
                 <Suspense fallback={<InlineSpinner label={t('loading_vatReport')} />}>
                   <VatReportTab restaurantId={restaurant.id} />
                 </Suspense>
               )}
-              {tab === 'casa-tura' && features.has('shifts') && (
+              {tab === 'casa-tura' && hasFeature(scopedFeatures, 'shifts') && (
                 <Suspense fallback={<InlineSpinner label={t('loading_generic')} />}>
                   <CashRegisterTab restaurantId={restaurant.id} />
                 </Suspense>
