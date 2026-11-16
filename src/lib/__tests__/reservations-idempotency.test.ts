@@ -15,6 +15,10 @@
 //          O SINGURĂ dată, fără cheie, cu contractul vechi;
 //   R9     eroarea aruncată e un `Error` REAL cu `hint`/`code` păstrate —
 //          ReservationSheet mapează pe ele mesajele prietenoase.
+//   R13–R18 limba oaspetelui (mig 328, lotul L8b): pleacă normalizată în
+//          `p_guest_language`, nu pleacă deloc când e necunoscută, iar pe o bază
+//          fără 328 / fără 273 clientul coboară câte O treaptă (328 → 273 →
+//          vechi) — doar pe PGRST202, niciodată pe o eroare de business.
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 const { rpcMock } = vi.hoisted(() => ({ rpcMock: vi.fn() }))
@@ -26,7 +30,10 @@ import {
   createReservationPublic,
   TERMINAL_RESERVATION_STATUSES,
   isTerminalReservation,
+  RESERVATION_GUEST_LANGS,
+  reservationGuestLanguage,
 } from '../reservations'
+import { MENU_LANGS } from '../i18nMenu'
 
 const SLUG = 'bistro-test'
 const STORAGE_KEY = 'menuvia_idem_resv:' + SLUG
@@ -223,5 +230,88 @@ describe('createReservationPublic', () => {
     const row = await createReservationPublic(ARGS, 'cheie-123')
     expect(row.party_size).toBe(5)
     expect(row.starts_at).toBe('2027-06-01T15:00:00.000Z')
+  })
+})
+
+describe('createReservationPublic — limba oaspetelui (mig 328)', () => {
+  const NOT_FOUND = { data: null, error: { code: 'PGRST202', message: 'not found' } }
+
+  beforeEach(() => {
+    sessionStorage.clear()
+    rpcMock.mockReset()
+  })
+
+  it('R13 (clichet): limba ajunge NORMALIZATĂ în p_guest_language, lângă cheie', async () => {
+    rpcMock.mockResolvedValue({ data: [ROW], error: null })
+    await createReservationPublic(ARGS, 'cheie-123', 'de-AT')
+    expect(rpcMock).toHaveBeenCalledTimes(1)
+    expect(rpcMock.mock.calls[0][1]).toMatchObject({
+      ...ARGS,
+      p_idempotency_key: 'cheie-123',
+      p_guest_language: 'de',
+    })
+  })
+
+  it('R14: lista clientului = cele 7 limbi ale meniului (CHECK-ul din mig 328)', () => {
+    expect([...RESERVATION_GUEST_LANGS].sort()).toEqual(MENU_LANGS.map((l) => l.code).sort())
+    expect(reservationGuestLanguage(' EN-gb ')).toBe('en')
+    expect(reservationGuestLanguage('fr_CA')).toBe('fr')
+    for (const bad of ['pt-BR', 'english', '', null, undefined]) {
+      expect(reservationGuestLanguage(bad)).toBeNull()
+    }
+  })
+
+  it('R15: limbă necunoscută → parametrul NU pleacă (contractul 273, un singur apel)', async () => {
+    rpcMock.mockResolvedValue({ data: [ROW], error: null })
+    await createReservationPublic(ARGS, 'cheie-123', 'pt-BR')
+    expect(rpcMock).toHaveBeenCalledTimes(1)
+    expect(rpcMock.mock.calls[0][1]).not.toHaveProperty('p_guest_language')
+    expect(rpcMock.mock.calls[0][1]).toMatchObject({ p_idempotency_key: 'cheie-123' })
+  })
+
+  it('R16: bază fără 328 → a doua încercare păstrează CHEIA, fără limbă', async () => {
+    rpcMock.mockResolvedValueOnce(NOT_FOUND).mockResolvedValueOnce({ data: [ROW], error: null })
+    const row = await createReservationPublic(ARGS, 'cheie-123', 'en')
+    expect(row.confirmation_code).toBe('ABCD1234')
+    expect(rpcMock).toHaveBeenCalledTimes(2)
+    expect(rpcMock.mock.calls[0][1]).toMatchObject({
+      p_guest_language: 'en',
+      p_idempotency_key: 'cheie-123',
+    })
+    expect(rpcMock.mock.calls[1][1]).toMatchObject({ p_idempotency_key: 'cheie-123' })
+    expect(rpcMock.mock.calls[1][1]).not.toHaveProperty('p_guest_language')
+  })
+
+  it('R17: bază fără 273 → a treia încercare e contractul vechi (nici cheie, nici limbă)', async () => {
+    rpcMock
+      .mockResolvedValueOnce(NOT_FOUND)
+      .mockResolvedValueOnce(NOT_FOUND)
+      .mockResolvedValueOnce({ data: [ROW], error: null })
+    await createReservationPublic(ARGS, 'cheie-123', 'en')
+    expect(rpcMock).toHaveBeenCalledTimes(3)
+    expect(rpcMock.mock.calls[2][1]).toEqual(ARGS)
+    // Fără cheie de la început: doar două trepte (cu limbă, apoi fără).
+    rpcMock.mockReset()
+    rpcMock.mockResolvedValueOnce(NOT_FOUND).mockResolvedValueOnce({ data: [ROW], error: null })
+    await createReservationPublic(ARGS, null, 'en')
+    expect(rpcMock).toHaveBeenCalledTimes(2)
+    expect(rpcMock.mock.calls[1][1]).toEqual(ARGS)
+  })
+
+  it('R18: o eroare de business pe contractul nou NU coboară treapta; PGRST202 peste tot → eroarea iese', async () => {
+    rpcMock.mockResolvedValue({
+      data: null,
+      error: { code: '23514', message: 'Masa aleasă nu mai este disponibilă', hint: 'table_unavailable' },
+    })
+    const err = await createReservationPublic(ARGS, 'cheie-123', 'en').catch((e) => e)
+    expect(rpcMock).toHaveBeenCalledTimes(1)
+    expect((err as Error & { hint?: string }).hint).toBe('table_unavailable')
+
+    rpcMock.mockReset()
+    rpcMock.mockResolvedValue(NOT_FOUND)
+    const lost = await createReservationPublic(ARGS, 'cheie-123', 'en').catch((e) => e)
+    expect(rpcMock).toHaveBeenCalledTimes(3)
+    expect(lost).toBeInstanceOf(Error)
+    expect((lost as Error & { code?: string }).code).toBe('PGRST202')
   })
 })

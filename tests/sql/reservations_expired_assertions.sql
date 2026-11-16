@@ -283,7 +283,7 @@ do $$
 declare v_sig text; v_def text; v_n int;
 begin
   foreach v_sig in array array[
-    'public.create_reservation_public(text,text,text,smallint,timestamptz,text,text,smallint,text,uuid,uuid)',
+    'public.create_reservation_public(text,text,text,smallint,timestamptz,text,text,smallint,text,uuid,uuid,text)',
     'public.get_tables_availability(text,timestamptz,timestamptz,smallint)',
     'public.check_availability(uuid,timestamptz,timestamptz,smallint,text)'] loop
     v_def := pg_get_functiondef(v_sig::regprocedure);
@@ -306,7 +306,7 @@ begin
   select count(*) into v_n from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and p.proname = 'create_reservation_public';
   if v_n <> 1 then raise exception 'RX7 FAIL: create_reservation_public are % semnături (PGRST203)', v_n; end if;
-  v_def := pg_get_functiondef('public.create_reservation_public(text,text,text,smallint,timestamptz,text,text,smallint,text,uuid,uuid)'::regprocedure);
+  v_def := pg_get_functiondef('public.create_reservation_public(text,text,text,smallint,timestamptz,text,text,smallint,text,uuid,uuid,text)'::regprocedure);
   if v_def not like '%is_module_enabled%'
      or v_def not like '%close_time <= v_settings.open_time%'
      or v_def not like '%- interval ''1 day''%'
@@ -315,7 +315,7 @@ begin
      or v_def not like '%idempotency_key%'
      or v_def not like '%v_settings.reservation_duration%' then
     raise exception 'RX7 FAIL: create_reservation_public și-a pierdut un invariant (modul / wrap-around / zi de serviciu / lock / table_unavailable / idempotență / plafon durată)'; end if;
-  if not has_function_privilege('anon', 'public.create_reservation_public(text,text,text,smallint,timestamptz,text,text,smallint,text,uuid,uuid)', 'execute')
+  if not has_function_privilege('anon', 'public.create_reservation_public(text,text,text,smallint,timestamptz,text,text,smallint,text,uuid,uuid,text)', 'execute')
      or not has_function_privilege('authenticated', 'public.get_tables_availability(text,timestamptz,timestamptz,smallint)', 'execute') then
     raise exception 'RX7 FAIL: suprafața publică de rezervare și-a pierdut grant-ul'; end if;
   raise notice 'RX7 OK: expired în 3 funcții + index + EXCLUDE + CHECK; invarianții 199/201/241/273 rămași';

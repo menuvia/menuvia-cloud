@@ -56,31 +56,63 @@ export interface CreatedReservation {
 }
 
 /**
- * Cheamă `create_reservation_public` cu cheia de idempotență.
+ * Limbile oaspetelui pe care le acceptă rezervarea (mig 328): oglinda
+ * `MENU_LANGS` din `i18nMenu.ts` și a CHECK-ului de pe
+ * `reservations.guest_language` (R14 le compară). Tabela stă aici, nu importată
+ * din `i18nMenu.ts`, ca modulul să rămână ușor pentru panou (care îl citește
+ * pentru etichetele de status).
+ */
+export const RESERVATION_GUEST_LANGS: readonly string[] = ['ro', 'en', 'de', 'fr', 'it', 'hu', 'es']
+
+/**
+ * Limba oaspetelui pentru `p_guest_language`: subeticheta primară, lowercase
+ * ('en-US' → 'en'), doar una din cele 7; altfel `null` — atunci parametrul nu
+ * se trimite deloc. Serverul normalizează la fel (o etichetă necunoscută nu
+ * respinge niciodată rezervarea), deci aici e doar ca să nu trimitem gunoi.
+ */
+export function reservationGuestLanguage(lang: string | null | undefined): string | null {
+  if (typeof lang !== 'string') return null
+  const m = /^([A-Za-z]{2,3})(?:[-_].*)?$/.exec(lang.trim())
+  const primary = m ? m[1].toLowerCase() : ''
+  return RESERVATION_GUEST_LANGS.includes(primary) ? primary : null
+}
+
+/**
+ * Cheamă `create_reservation_public` cu cheia de idempotență și limba oaspetelui.
  *
- * Compatibilitate cu o bază pe care mig 273 nu e încă aplicată: PostgREST
- * răspunde PGRST202 („function not found") pentru semnătura cu 11 argumente,
- * fiindcă parametrii se potrivesc pe NUME. În cazul ăsta se reîncearcă O
- * SINGURĂ DATĂ cu contractul vechi, fără cheie — rezervarea se face, doar fără
- * protecția la dublură, exact ca înainte. Fără fallback, clientul deployat
- * înaintea migrației ar fi rupt complet rezervările.
+ * Contractele, de la cel mai nou la cel mai vechi — PostgREST potrivește
+ * funcția după NUMELE argumentelor, deci o bază rămasă în urmă răspunde
+ * PGRST202 („function not found") la un argument pe care nu-l cunoaște:
+ *   1. mig 328: + `p_guest_language` (doar dacă limba e cunoscută);
+ *   2. mig 273: + `p_idempotency_key` (doar dacă există cheie);
+ *   3. contractul de dinainte, fără niciunul.
+ * Pe PGRST202 se coboară O treaptă și se reîncearcă; orice altă eroare iese
+ * imediat. Ordinea de deploy e liberă: o bază fără 328 primește rezervarea cu
+ * cheie (fără limbă), una fără 273 o primește fără protecția la dublură —
+ * exact ca înainte. Fără trepte, clientul deployat înaintea migrației ar fi
+ * rupt complet rezervările.
  */
 export async function createReservationPublic(
   args: CreateReservationArgs,
   idempotencyKey: string | null,
+  guestLanguage: string | null = null,
 ): Promise<CreatedReservation> {
-  const withKey =
-    idempotencyKey === null ? args : { ...args, p_idempotency_key: idempotencyKey }
+  const lang = reservationGuestLanguage(guestLanguage)
+  const withKey: Record<string, unknown> =
+    idempotencyKey === null ? { ...args } : { ...args, p_idempotency_key: idempotencyKey }
+  const attempts: Record<string, unknown>[] = []
+  if (lang !== null) attempts.push({ ...withKey, p_guest_language: lang })
+  attempts.push(withKey)
+  if (idempotencyKey !== null) attempts.push({ ...args })
 
-  const { data, error } = await supabase.rpc('create_reservation_public', withKey)
-
-  if (error && idempotencyKey !== null && error.code === 'PGRST202') {
-    const retry = await supabase.rpc('create_reservation_public', args)
-    if (retry.error) throw toReservationError(retry.error)
-    return firstRow(retry.data, args)
+  let last: { message?: string; hint?: string; code?: string } | null = null
+  for (let i = 0; i < attempts.length; i++) {
+    const { data, error } = await supabase.rpc('create_reservation_public', attempts[i])
+    if (!error) return firstRow(data, args)
+    last = error
+    if (error.code !== 'PGRST202') break
   }
-  if (error) throw toReservationError(error)
-  return firstRow(data, args)
+  throw toReservationError(last ?? {})
 }
 
 function firstRow(data: unknown, args: CreateReservationArgs): CreatedReservation {

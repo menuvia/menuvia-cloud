@@ -274,9 +274,9 @@ begin
   if position('raise;' in v_src) = 0 then
     raise exception 'RI8 FAIL: handler-ul nu mai RE-ARUNCĂ violările străine — o coliziune de confirmation_code ar trece drept succes'; end if;
 
-  if not has_function_privilege('anon', 'public.create_reservation_public(text, text, text, smallint, timestamptz, text, text, smallint, text, uuid, uuid)', 'EXECUTE') then
+  if not has_function_privilege('anon', 'public.create_reservation_public(text, text, text, smallint, timestamptz, text, text, smallint, text, uuid, uuid, text)', 'EXECUTE') then
     raise exception 'RI8 FAIL: anon nu mai poate chema RPC-ul'; end if;
-  if not has_function_privilege('authenticated', 'public.create_reservation_public(text, text, text, smallint, timestamptz, text, text, smallint, text, uuid, uuid)', 'EXECUTE') then
+  if not has_function_privilege('authenticated', 'public.create_reservation_public(text, text, text, smallint, timestamptz, text, text, smallint, text, uuid, uuid, text)', 'EXECUTE') then
     raise exception 'RI8 FAIL: authenticated nu mai poate chema RPC-ul'; end if;
   raise notice 'RI8 OK: o semnătură, index unic parțial scopat, backstop cu re-aruncare, suprafață anon+authenticated';
 end $$;

@@ -271,7 +271,7 @@ declare
   v_n   int;
   v_bad text;
   v_tok text;
-  c_crp constant text := 'public.create_reservation_public(text,text,text,smallint,timestamptz,text,text,smallint,text,uuid,uuid)';
+  c_crp constant text := 'public.create_reservation_public(text,text,text,smallint,timestamptz,text,text,smallint,text,uuid,uuid,text)';
 begin
   select count(*) into v_n
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
