@@ -71,6 +71,16 @@ function guestEmailLang(v) {
 }
 
 /**
+ * Limba unui mesaj către OASPETE (lotul L8b, SMS + reminderul pe email): cea
+ * STOCATĂ pe rezervare (`reservations.guest_language`, mig 328 — limba în care a
+ * văzut formularul) → limba de bază a localului → română. Doar cele 7 limbi ale
+ * meniului; o valoare stocată necunoscută cade pe limba localului, nu pe română.
+ */
+function resolveGuestLang(stored, restaurantLanguage) {
+  return langIn(stored, GUEST_LANGS) || langIn(restaurantLanguage, GUEST_LANGS) || 'ro'
+}
+
+/**
  * Limba invitației: alegerea INVITATULUI (dacă are deja cont), apoi a
  * invitatorului, apoi româna — toate pe limbile ACTIVE. O alegere explicită
  * 'ro' a invitatului câștigă (nu se confundă cu „fără alegere”).
@@ -191,6 +201,7 @@ module.exports = {
   staffEmailLang,
   funnelEmailLang,
   guestEmailLang,
+  resolveGuestLang,
   resolveInviteLang,
   emailLocale,
   safeTimeZone,

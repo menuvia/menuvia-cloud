@@ -115,7 +115,7 @@ begin
     ('modifier_group_is_published(uuid)'),
     -- rezervări publice (ReservePage / ReservationSheet)
     ('cancel_reservation_by_code(text,text)'),          -- anulare pe cod (256)
-    ('create_reservation_public(text,text,text,smallint,timestamp with time zone,text,text,smallint,text,uuid,uuid)'),
+    ('create_reservation_public(text,text,text,smallint,timestamp with time zone,text,text,smallint,text,uuid,uuid,text)'), -- limba oaspetelui (328)
     ('get_public_floor_plan(text)'),                    -- harta publică (199/200)
     ('get_tables_availability(text,timestamp with time zone,timestamp with time zone,smallint)'),
     -- vizitator nelogat: afiliere, white-label, invitații

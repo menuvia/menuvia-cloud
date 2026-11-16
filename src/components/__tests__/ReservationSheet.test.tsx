@@ -462,3 +462,35 @@ describe('ReservationSheet — fusul localului (G2c)', () => {
     await waitFor(() => expect(pressed()).toHaveLength(0))
   })
 })
+
+// Lotul L8b (mig 328): limba în care oaspetele a văzut formularul pleacă la
+// server, ca SMS-ul și reminderul să fie în ea. Mutația care pică: al treilea
+// argument scos din apelul `createReservationPublic` (sau fixat pe 'ro').
+describe('ReservationSheet — limba oaspetelui (L8b)', () => {
+  beforeEach(() => {
+    h.createMock.mockReset()
+    h.createMock.mockResolvedValue(reservationRow('confirmed'))
+    sessionStorage.clear()
+  })
+
+  it('RS-T formularul în germană trimite limba „de”', async () => {
+    renderSheet('de')
+    await userEvent.click(byText('button', /^Morgen$/))
+    await userEvent.type(screen.getByPlaceholderText(/^Name$/), 'Anna Berg')
+    await userEvent.type(screen.getByPlaceholderText(/^Telefon$/), '0722000111')
+    const row = await screen.findByTestId('time-slot-row')
+    const slot = within(row).getAllByRole('button')[0]
+    if (!slot) throw new Error('niciun slot randat')
+    await userEvent.click(slot)
+    await userEvent.click(byText('button', /^Reservieren$/))
+    await waitFor(() => expect(h.createMock).toHaveBeenCalledTimes(1))
+    expect(h.createMock.mock.calls[0]?.[2]).toBe('de')
+  })
+
+  it('RS-U control: formularul în română trimite „ro” (nu lasă limba nedefinită)', async () => {
+    renderSheet('ro')
+    await fillAndSubmit()
+    await waitFor(() => expect(h.createMock).toHaveBeenCalledTimes(1))
+    expect(h.createMock.mock.calls[0]?.[2]).toBe('ro')
+  })
+})

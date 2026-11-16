@@ -926,7 +926,7 @@ begin
    where p.oid = any (array(select s::regprocedure::oid
                               from unnest(c_helpers || c_wrappers || array[
                                 'public.safe_time_zone(text)',
-                                'public.create_reservation_public(text,text,text,smallint,timestamptz,text,text,smallint,text,uuid,uuid)']) s));
+                                'public.create_reservation_public(text,text,text,smallint,timestamptz,text,text,smallint,text,uuid,uuid,text)']) s));
   if v_n <> 1 then
     raise exception 'TZ9 FAIL: helperii și învelișurile au % proprietari (un DEFINER cu alt proprietar primește 42501)', v_n;
   end if;

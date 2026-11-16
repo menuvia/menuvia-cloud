@@ -389,6 +389,9 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
           p_table_id: selectedTableId,
         },
         idemKeyRef.current,
+        // Limba în care oaspetele a văzut formularul (mig 328): confirmarea și
+        // reminderul (SMS + email) pleacă în ea, nu în limba de bază a localului.
+        lang,
       )
     } catch (err) {
       setSubmitting(false)

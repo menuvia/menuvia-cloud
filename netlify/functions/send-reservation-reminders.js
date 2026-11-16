@@ -100,9 +100,11 @@ exports.handler = async () => {
             party_size: r.party_size,
             confirmation_code: r.confirmation_code,
             // Lotul L8a: worker-ul de email citește fusul și limba de bază ale
-            // LOCALULUI după această cheie (o ignoră un worker vechi). Doar
-            // emailul: SMS-ul de mai jos rămâne neatins până la L8b (SR2).
+            // LOCALULUI după această cheie (o ignoră un worker vechi).
             restaurant_id: r.restaurant_id,
+            // Lotul L8b: limba oaspetelui (mig 328) bate limba localului. Pe o
+            // bază fără 328 claim-ul n-are coloana → null → limba localului.
+            guest_language: r.guest_language ?? null,
           },
           p_recipient_name: r.customer_name,
           p_dedup_key: 'reservation_reminder:' + r.id,
@@ -132,6 +134,9 @@ exports.handler = async () => {
           starts_at: r.starts_at,
           party_size: r.party_size,
           confirmation_code: r.confirmation_code,
+          // Lotul L8b: limba oaspetelui; restaurantul îl ia worker-ul din
+          // `sms_queue.restaurant_id` (p_restaurant_id de mai sus).
+          guest_language: r.guest_language ?? null,
         },
         p_dedup_key: 'sms_reservation_reminder:' + r.id,
       })

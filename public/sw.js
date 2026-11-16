@@ -113,6 +113,10 @@ async function networkFirstWithFallback(req) {
 }
 
 // ── Push Notifications ──────────────────────────────────────────
+// Textele vin DIN PAYLOAD (netlify/functions/send-push.js), deja în limba
+// fiecărui abonat: titlul, corpul și eticheta acțiunii (`actionTitle`, lotul
+// L8b). Rezervele românești de mai jos acoperă doar un payload vechi/stricat —
+// româna e singura limbă activă pentru personal azi.
 self.addEventListener('push', (event) => {
   if (!event.data) return
   let payload = {}
@@ -131,7 +135,7 @@ self.addEventListener('push', (event) => {
     renotify: true,
     vibrate: [200, 100, 200],
     data: { url: payload.url || '/kitchen', orderId: payload.orderId },
-    actions: [{ action: 'open', title: 'Deschide bucătăria' }],
+    actions: [{ action: 'open', title: payload.actionTitle || 'Deschide bucătăria' }],
   }
   event.waitUntil(self.registration.showNotification(title, options))
 })

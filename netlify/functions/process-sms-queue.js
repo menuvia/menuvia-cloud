@@ -21,52 +21,53 @@
 
 const { createClient } = require('@supabase/supabase-js')
 
-// ── Template-uri SMS ────────────────────────────────────────────
-// FĂRĂ diacritice: un singur caracter non-GSM-7 forțează UCS-2 (70 caractere/
-// segment în loc de 160) și dublează costul. Ținta: <= 160 caractere.
-const RO_MAP = { ă: 'a', â: 'a', î: 'i', ș: 's', ş: 's', ț: 't', ţ: 't',
-                 Ă: 'A', Â: 'A', Î: 'I', Ș: 'S', Ş: 'S', Ț: 'T', Ţ: 'T' }
-function stripDiacritics(text) {
-  return String(text || '').replace(/[ăâîșşțţĂÂÎȘŞȚŢ]/g, (c) => RO_MAP[c] || c)
-}
+// ── Template-uri SMS (lotul L8b) ────────────────────────────────
+// Textele, transliterarea GSM-7 și formatul orei stau în lib/smsText.js: 3
+// șabloane în cele 7 limbi ale meniului, doar caractere din tabela GSM-7 de
+// BAZĂ în TOATE limbile (un caracter din afara ei forțează UCS-2: 70 de
+// caractere pe segment în loc de 160, cost dublu). Româna pe București = textul
+// de dinainte, byte cu byte, pe orice text care era deja GSM-7 de bază (oracolul
+// SO din tests/functions/sms-legacy-oracle.test.js).
+const { TEMPLATES, RO_SMS_CTX } = require('./lib/smsText')
+const { DEFAULT_TZ, isUuid, safeTimeZone, resolveGuestLang, fetchRestaurantsRegional } = require('./lib/emailLang')
 
-// '15 iul 19:30' în ora României — lunile scurte RO nu au diacritice.
-function formatDateTimeRo(iso) {
-  if (!iso) return ''
+// Kind-urile al căror destinatar e oaspetele unei REZERVĂRI: limba lui e
+// stocată (mig 328, `template_data.guest_language`). Pickup-ul n-are coloană de
+// limbă pe comandă → limba de bază a localului (consemnat).
+const RESERVATION_KINDS = new Set(['reservation_confirmed', 'reservation_reminder'])
+
+// ── Limba și fusul fiecărui SMS din lot ─────────────────────────
+// O SINGURĂ interogare pe `restaurants` (după `sms_queue.restaurant_id`, coloana
+// rândului), indiferent de mărimea lotului. Limba = cea a oaspetelui → limba de
+// bază a localului → română; fusul = fusul OPERAȚIONAL al localului (aceeași oră
+// pe care o arată fila Rezervări). Tolerant, nu aruncă niciodată: dacă
+// interogarea pe `restaurants` eșuează, fusul cade pe București, iar limba
+// STOCATĂ a oaspetelui rămâne (altfel română) — doar rândurile FĂRĂ limbă
+// stocată (pickup, rezervările din panou, istoricul) ies atunci byte-identice
+// cu worker-ul vechi. Doar o excepție neașteptată aici golește tot contextul
+// (lotul pleacă pe RO_SMS_CTX: română + București).
+async function resolveSmsContexts(supabase, rows) {
+  const out = new Map()
   try {
-    const d = new Date(iso)
-    const date = d.toLocaleDateString('ro-RO', {
-      day: 'numeric', month: 'short', timeZone: 'Europe/Bucharest',
-    }).replace('.', '')
-    const time = d.toLocaleTimeString('ro-RO', {
-      hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Bucharest',
-    })
-    return `${date} ${time}`
-  } catch {
-    return ''
+    const list = Array.isArray(rows) ? rows : []
+    const ids = list.map((r) => r && r.restaurant_id).filter(isUuid)
+    const restaurants = await fetchRestaurantsRegional(supabase, ids)
+    for (const row of list) {
+      if (!row) continue
+      const rest = isUuid(row.restaurant_id) ? restaurants.get(row.restaurant_id) : undefined
+      const stored = RESERVATION_KINDS.has(row.template_kind) && row.template_data
+        ? row.template_data.guest_language
+        : null
+      out.set(row.id, {
+        lang: resolveGuestLang(stored, rest && rest.language),
+        timeZone: rest ? safeTimeZone(rest.timezone) : DEFAULT_TZ,
+      })
+    }
+  } catch (e) {
+    console.warn('[process-sms-queue] contextul de limbă/fus a eșuat, lotul pleacă în română:', e && e.message)
+    out.clear()
   }
-}
-
-const TEMPLATES = {
-  reservation_confirmed: (d) => {
-    const name = stripDiacritics(d.restaurant_name || 'Restaurantul').slice(0, 30)
-    const when = formatDateTimeRo(d.starts_at)
-    const base = `${name}: Rezervare confirmata ${when} pentru ${d.party_size || '?'} pers. Cod: ${d.confirmation_code || '-'}.`
-    const withPhone = d.restaurant_phone ? `${base} Modificari? ${d.restaurant_phone}` : base
-    return (withPhone.length <= 160 ? withPhone : base).slice(0, 160)
-  },
-  pickup_ready: (d) => {
-    const name = stripDiacritics(d.restaurant_name || 'Restaurantul').slice(0, 40)
-    return `${name}: Comanda #${d.short_id || ''} este gata de ridicare. Te asteptam!`.slice(0, 160)
-  },
-  // Reminder pre-sosire (mig 233/234) — anti no-show pe rezervările telefonice.
-  reservation_reminder: (d) => {
-    const name = stripDiacritics(d.restaurant_name || 'Restaurantul').slice(0, 30)
-    const when = formatDateTimeRo(d.starts_at)
-    const base = `${name}: Reminder rezervare ${when} pentru ${d.party_size || '?'} pers. Cod: ${d.confirmation_code || '-'}.`
-    const withPhone = d.restaurant_phone ? `${base} Nu ajungi? ${d.restaurant_phone}` : base
-    return (withPhone.length <= 160 ? withPhone : base).slice(0, 160)
-  },
+  return out
 }
 
 // Parsarea răspunsului SMSO e izolată aici — dacă forma API-ului diferă,
@@ -125,6 +126,8 @@ function expiryReason(sms, nowMs) {
 }
 
 // ── Main handler ──────────────────────────────────────────────
+exports.TEMPLATES = TEMPLATES
+exports.resolveSmsContexts = resolveSmsContexts
 exports.handler = async () => {
   const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
   const { SUPABASE_SERVICE_ROLE_KEY, SMSO_API_KEY, SMSO_SENDER } = process.env
@@ -154,6 +157,8 @@ exports.handler = async () => {
   if (!pending || pending.length === 0) {
     return { statusCode: 200, body: 'No pending SMS' }
   }
+
+  const contexts = await resolveSmsContexts(supabase, pending)
 
   let sent = 0, failed = 0, authFailures = 0
   // Rânduri ELIBERATE înapoi în 'queued' din cauza configurației rupte și
@@ -216,7 +221,7 @@ exports.handler = async () => {
 
     let text
     try {
-      text = template(sms.template_data || {})
+      text = template(sms.template_data || {}, contexts.get(sms.id) || RO_SMS_CTX)
     } catch (err) {
       await supabase.from('sms_queue').update({
         status: 'failed',

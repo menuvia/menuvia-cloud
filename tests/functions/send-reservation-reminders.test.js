@@ -1,14 +1,17 @@
 // tests/functions/send-reservation-reminders.test.js
-// Reminderul de rezervare (lotul L8a): emailul poartă restaurantul, ca
-// worker-ul să-i citească fusul și limba de bază; SMS-ul rămâne neatins (L8b).
+// Reminderul de rezervare: emailul poartă restaurantul, ca worker-ul să-i
+// citească fusul și limba de bază (lotul L8a); AMBELE canale poartă limba
+// oaspetelui întoarsă de claim (lotul L8b, mig 328).
 //
 //   SR1  `enqueue_email` primește `p_template_data.restaurant_id` = restaurantul
-//        rezervării, plus TOATE cheile de dinainte (dedup și destinatar
-//        neschimbate).
-//        [PICĂ: cheia scoasă]
-//   SR2  `enqueue_sms` primește EXACT setul vechi de chei (restaurant_name,
-//        restaurant_phone, starts_at, party_size, confirmation_code).
-//        [PICĂ: cheia adăugată și la SMS]
+//        rezervării și `guest_language` = limba din claim, plus TOATE cheile de
+//        dinainte (dedup și destinatar neschimbate).
+//        [PICĂ: oricare cheie scoasă]
+//   SR2  `enqueue_sms` primește setul vechi de chei + `guest_language` (fără
+//        `restaurant_id` — worker-ul îl ia din `sms_queue.restaurant_id`).
+//        [PICĂ: limba scoasă din SMS]
+//   SR3  claim-ul unei baze fără mig 328 (fără coloană) → `guest_language` null
+//        pe ambele canale, fără eroare: worker-ii cad pe limba localului.
 //
 // Rulează în jobul „Bridge tests" (vitest nu vede tests/functions).
 'use strict'
@@ -30,6 +33,7 @@ const ROW = {
   starts_at: '2026-11-17T18:00:00Z',
   party_size: 2,
   confirmation_code: 'AB12CD34',
+  guest_language: 'de',
 }
 
 const saved = {}
@@ -48,7 +52,7 @@ afterEach(() => {
   }
 })
 
-describe('send-reservation-reminders: restaurantul în emailul de reminder', () => {
+describe('send-reservation-reminders: restaurantul și limba oaspetelui în reminder', () => {
   it('SR1: emailul poartă restaurant_id, restul contractului neschimbat', async () => {
     const res = await loadFunction(REL).handler({})
     assert.equal(res.statusCode, 200, res.body)
@@ -58,28 +62,44 @@ describe('send-reservation-reminders: restaurantul în emailul de reminder', () 
     assert.deepEqual(Object.keys(call.args.p_template_data).sort(), [
       'confirmation_code',
       'customer_name',
+      'guest_language',
       'party_size',
       'restaurant_id',
       'restaurant_name',
       'restaurant_phone',
       'starts_at',
     ])
+    assert.equal(call.args.p_template_data.guest_language, 'de')
     assert.equal(call.args.p_dedup_key, `reservation_reminder:${ROW.id}`)
     assert.equal(call.args.p_recipient_email, 'ana@x.test')
     assert.equal(call.args.p_template_kind, 'reservation_reminder')
   })
 
-  it('SR2: SMS-ul are EXACT cheile de dinainte', async () => {
+  it('SR2: SMS-ul are cheile de dinainte + limba oaspetelui', async () => {
     await loadFunction(REL).handler({})
     const [call] = rpcCallsFor('enqueue_sms')
     assert.ok(call, 'enqueue_sms nechemat')
     assert.deepEqual(Object.keys(call.args.p_template_data).sort(), [
       'confirmation_code',
+      'guest_language',
       'party_size',
       'restaurant_name',
       'restaurant_phone',
       'starts_at',
     ])
+    assert.equal(call.args.p_template_data.guest_language, 'de')
     assert.equal(call.args.p_restaurant_id, RID)
+    assert.equal(call.args.p_dedup_key, `sms_reservation_reminder:${ROW.id}`)
+  })
+
+  it('SR3: claim fără coloana guest_language (bază fără 328) → null pe ambele canale', async () => {
+    const legacy = { ...ROW }
+    delete legacy.guest_language
+    state.rpcHandlers.claim_reservation_reminders = () => ({ data: [legacy], error: null })
+    const res = await loadFunction(REL).handler({})
+    assert.equal(res.statusCode, 200, res.body)
+    assert.deepEqual(JSON.parse(res.body), { enqueued: 1, failed: 0 })
+    assert.equal(rpcCallsFor('enqueue_email')[0].args.p_template_data.guest_language, null)
+    assert.equal(rpcCallsFor('enqueue_sms')[0].args.p_template_data.guest_language, null)
   })
 })

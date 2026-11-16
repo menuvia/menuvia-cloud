@@ -40,6 +40,12 @@ const state = {
   // întoarce `https://storage.test/<bucket>/<path>` (ai-generate-image).
   storageHandler: null,
   storageCalls: [],
+  // web-push (send-push.js): sendNotification(sub, payload) se înregistrează cu
+  // payload-ul PARSAT; `webpushImpl(sub, payload)` (opțional) poate respinge
+  // (ex. 410 Gone). setVapidDetails se înregistrează în `webpushVapid`.
+  webpushImpl: null,
+  webpushCalls: [],
+  webpushVapid: null,
 }
 
 function resetMocks() {
@@ -54,6 +60,9 @@ function resetMocks() {
   state.authCalls = []
   state.storageHandler = null
   state.storageCalls = []
+  state.webpushImpl = null
+  state.webpushCalls = []
+  state.webpushVapid = null
 }
 
 // ── Fake supabase-js ─────────────────────────────────────────────────────────
@@ -250,6 +259,19 @@ function FakeStripe(key, opts) {
   }
 }
 
+// ── Fake web-push ────────────────────────────────────────────────────────────
+// Pachetul real nu e instalat în tests/functions (zero deps); send-push.js
+// cheamă doar setVapidDetails + sendNotification.
+const fakeWebPushModule = {
+  setVapidDetails: (...args) => {
+    state.webpushVapid = args
+  },
+  sendNotification: async (subscription, payload) => {
+    state.webpushCalls.push({ subscription, payload: JSON.parse(payload) })
+    return state.webpushImpl ? state.webpushImpl(subscription, payload) : { statusCode: 201 }
+  },
+}
+
 // ── Interceptarea require-urilor ─────────────────────────────────────────────
 // `stripe: 'real'` lasă require('stripe') să ajungă la pachetul REAL (folosit de
 // tests/stripe-contract/, care rulează după `npm ci`); supabase rămâne fake.
@@ -268,6 +290,7 @@ function installModuleMocks({ stripe = 'fake' } = {}) {
   const originalLoad = Module._load
   Module._load = function (request, parent, isMain) {
     if (request === '@supabase/supabase-js') return fakeSupabaseModule
+    if (request === 'web-push') return fakeWebPushModule
     if (request === 'stripe' && stripe === 'fake') return FakeStripe
     return originalLoad.apply(this, arguments)
   }

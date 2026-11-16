@@ -21,6 +21,14 @@
 //   EW6  în producție (ENABLED = ['ro']) un patron cu `ui_language = 'en'`
 //        primește BYTE-ul de dinainte (oracolul vechi, ceas oprit).
 //        [PICĂ: gate-ul scos]
+//   EW7  reminderul oaspetelui (lotul L8b): limba STOCATĂ pe rezervare
+//        (`template_data.guest_language`, mig 328) bate limba de bază a
+//        localului, fusul rămâne al localului; o limbă stocată necunoscută cade
+//        pe limba localului; fără restaurant, limba stocată rămâne (pe
+//        București); un kind de PERSONAL ignoră cheia. EW7b: cap-coadă prin
+//        handler — subiectul și eticheta în italiană, ora pe Berlin.
+//        [PICĂ: cheia ignorată (limba localului peste tot); limba stocată
+//         aplicată și personalului]
 //
 // Rulează în jobul „Bridge tests" (vitest nu vede tests/functions).
 'use strict'
@@ -246,6 +254,24 @@ describe('EW5/EW6: prin handler', () => {
     assert.ok(updates.some((u) => u.status === 'sent'))
   })
 
+  it('EW7b: reminderul cu guest_language=it la un local german pleacă în italiană, cu ora Berlinului', async () => {
+    claim([
+      {
+        id: 'rem-it',
+        template_kind: 'reservation_reminder',
+        template_data: { ...F.ASCII_CASES.reservation_reminder, restaurant_id: R1, guest_language: 'it' },
+      },
+    ])
+    scriptDb({ restaurants: { [R1]: { timezone: 'Europe/Berlin', language: 'de', country: 'DE' } } })
+    const res = await Q.handler({})
+    assert.equal(res.statusCode, 200, res.body)
+    assert.equal(resend.length, 1)
+    assert.match(resend[0].body.subject, /^Promemoria: la tua prenotazione da Zorba Grill /)
+    assert.ok(resend[0].body.html.includes('Data e ora'))
+    assert.ok(resend[0].body.html.includes('23:30'), 'ora pe Berlin (22:30Z)')
+    assert.equal(resend[0].headers['Idempotency-Key'], 'idempotency-email-rem-it')
+  })
+
   it('EW6: în producție (doar româna activă) patronul cu ui_language=en primește byte-ul de dinainte', async () => {
     const data = F.CASES.reservation_created[0].data
     claim([{ id: 'rc-1', template_kind: 'reservation_created', user_id: U1, template_data: data }])
@@ -267,5 +293,30 @@ describe('EW5/EW6: prin handler', () => {
     assert.equal(resend[0].body.html, old.html)
     // Control: s-a cerut limba (gate-ul a decis, nu lipsa interogării).
     assert.equal(calls('profiles').length, 1)
+  })
+})
+
+describe('EW7: limba oaspetelui stocată pe rezervare (L8b)', () => {
+  it('stocată → a localului → română; fusul rămâne al localului; personalul o ignoră', async () => {
+    scriptDb(DB)
+    const rows = [
+      { id: 'g1', template_kind: 'reservation_reminder', template_data: { restaurant_id: R1, guest_language: 'it' } },
+      { id: 'g2', template_kind: 'reservation_reminder', template_data: { restaurant_id: R1, guest_language: 'pt' } },
+      { id: 'g3', template_kind: 'reservation_reminder', template_data: { guest_language: 'es' } },
+      { id: 'g4', template_kind: 'reservation_reminder', template_data: { restaurant_id: R2, guest_language: null } },
+      { id: 'g5', template_kind: 'reservation_created', user_id: U1, template_data: { restaurant_id: R2, guest_language: 'de' } },
+    ]
+    // Germana și engleza ACTIVE pentru personal: altfel g5 ar ieși 'ro' oricum și
+    // n-ar arăta că personalul ignoră cheia oaspetelui.
+    const ctxs = await Q.resolveEmailContexts(require('@supabase/supabase-js').createClient(), rows, {
+      now: NOW,
+      enabled: ['ro', 'en', 'de'],
+    })
+    assert.equal(ctxs.get('g1').lang, 'it', 'limba stocată n-a bătut limba localului')
+    assert.equal(ctxs.get('g1').timeZone, 'Europe/Berlin')
+    assert.equal(ctxs.get('g2').lang, 'de', 'o limbă stocată necunoscută trebuie să cadă pe limba localului')
+    assert.deepEqual([ctxs.get('g3').lang, ctxs.get('g3').timeZone], ['es', 'Europe/Bucharest'])
+    assert.equal(ctxs.get('g4').lang, 'en')
+    assert.equal(ctxs.get('g5').lang, 'en', 'personalul primește limba LUI (ui_language), nu pe a oaspetelui')
   })
 })

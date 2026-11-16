@@ -14,7 +14,7 @@ const {
   DEFAULT_TZ,
   isUuid,
   staffEmailLang,
-  guestEmailLang,
+  resolveGuestLang,
   emailLocale,
   safeTimeZone,
   fetchUiLanguages,
@@ -45,8 +45,9 @@ const APP_URL    = appUrl({ keys: ['APP_URL'], fallback: LEGACY_NETLIFY_URL })
 //   audience 'staff' — patronul / echipa: limba = profiles.ui_language al
 //                      email_queue.user_id, DOAR dacă e o limbă ACTIVĂ
 //                      (ENABLED_STAFF_LANGS, oglinda src/i18n/langs.ts);
-//   audience 'guest' — oaspetele: limba de bază a restaurantului (7 limbi);
-//                      limba oaspetelui stocată pe rezervare vine în L8b;
+//   audience 'guest' — oaspetele: limba lui stocată pe rezervare
+//                      (`template_data.guest_language`, mig 328 / L8b) → limba
+//                      de bază a restaurantului → română (7 limbi);
 //   audience 'ro'    — rămâne în română, cu MOTIV obligatoriu.
 //   tz 'operational' — orele pe fusul LOCALULUI (restaurants.timezone, după
 //                      template_data.restaurant_id); 'bucharest' — București.
@@ -235,8 +236,8 @@ const TEMPLATES = {
     }
   },
 
-  // Singurul email către OASPETE: limba = limba de bază a restaurantului (până
-  // la L8b, care stochează limba oaspetelui), ora pe fusul LOCALULUI, iar
+  // Singurul email către OASPETE: limba = limba lui stocată pe rezervare (mig
+  // 328), apoi limba de bază a restaurantului; ora pe fusul LOCALULUI, iar
   // „astăzi/mâine” se compară pe ziua localului față de momentul trimiterii.
   reservation_reminder: (d, ctx = RO_CTX) => {
     const s = kindStrings('reservation_reminder', ctx.lang)
@@ -1347,7 +1348,9 @@ async function resolveEmailContexts(supabase, rows, { now = Date.now(), enabled 
       const rest = isUuid(rid) ? restaurants.get(rid) : undefined
       let lang = 'ro'
       if (a.audience === 'staff') lang = staffEmailLang(langs.get(row.user_id), enabled)
-      else if (a.audience === 'guest') lang = guestEmailLang(rest && rest.language)
+      // Oaspetele: limba lui stocată pe rezervare (mig 328, pusă de
+      // send-reservation-reminders.js) → limba de bază a localului → română.
+      else if (a.audience === 'guest') lang = resolveGuestLang(row.template_data && row.template_data.guest_language, rest && rest.language)
       const timeZone = a.tz === 'operational' && rest ? safeTimeZone(rest.timezone) : DEFAULT_TZ
       out.set(row.id, makeCtx({ lang, locale: emailLocale(lang, rest && rest.country), timeZone, now }))
     }
