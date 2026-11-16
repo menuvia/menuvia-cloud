@@ -213,7 +213,7 @@ const TEMPLATES = {
     subject: fill(kindStrings('daily_report', ctx.lang).subject, {
       revenue: lei(d.revenue, ctx),
       orders: `${d.orders || 0}`,
-      restaurant: esc(d.restaurant_name || ''),
+      restaurant: subjectValue(d.restaurant_name || '', ctx),
     }),
     html: dailyReportHtml(d, ctx),
   }),
@@ -243,7 +243,7 @@ const TEMPLATES = {
     const customer = d.customer_name || ''
     const restaurant = esc(d.restaurant_name || '')
     return {
-      subject: fill(s.subject, { restaurant, when: relativeWord(d.starts_at, ctx) }),
+      subject: fill(s.subject, { restaurant: subjectValue(d.restaurant_name || '', ctx), when: relativeWord(d.starts_at, ctx) }),
       html: `
       <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
         <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px;margin:0 0 16px">
@@ -280,9 +280,9 @@ const TEMPLATES = {
     const s = kindStrings('reservation_created', ctx.lang)
     return {
       subject: fill(s.subject, {
-        restaurant: esc(d.restaurant_name || ''),
-        customer: esc(d.customer_name || ''),
-        party: esc(String(d.party_size || '')),
+        restaurant: subjectValue(d.restaurant_name || '', ctx),
+        customer: subjectValue(d.customer_name || '', ctx),
+        party: subjectValue(String(d.party_size || ''), ctx),
       }),
       html: `
       <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
@@ -325,9 +325,9 @@ const TEMPLATES = {
     const when = esc(dateTimeLong(d.starts_at, ctx))
     return {
       subject: fill(s.subject, {
-        restaurant: esc(d.restaurant_name || ''),
-        customer: esc(d.customer_name || ''),
-        when,
+        restaurant: subjectValue(d.restaurant_name || '', ctx),
+        customer: subjectValue(d.customer_name || '', ctx),
+        when: subjectValue(dateTimeLong(d.starts_at, ctx), ctx),
       }),
       html: `
       <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
@@ -350,7 +350,7 @@ const TEMPLATES = {
     const s = kindStrings('win_back_7d', ctx.lang)
     const restaurant = esc(d.restaurant_name || '')
     return {
-      subject: fill(s.subject, { restaurant }),
+      subject: fill(s.subject, { restaurant: subjectValue(d.restaurant_name || '', ctx) }),
       html: `
       <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
         <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:26px;margin:0 0 16px">${greetName(s, d.owner_name, ctx)}</h1>
@@ -373,7 +373,7 @@ const TEMPLATES = {
     const s = kindStrings('win_back_30d', ctx.lang)
     const restaurant = esc(d.restaurant_name || '')
     return {
-      subject: fill(s.subject, { restaurant }),
+      subject: fill(s.subject, { restaurant: subjectValue(d.restaurant_name || '', ctx) }),
       html: `
       <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
         <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:26px;margin:0 0 16px">${greetName(s, d.owner_name, ctx)}</h1>
@@ -407,7 +407,7 @@ const TEMPLATES = {
     const link = (score) =>
       `mailto:${replyEmail}?subject=${encodeURIComponent('NPS ' + score + '/10 — ' + (d.restaurant_name || ''))}&body=${encodeURIComponent(fill(s.mailto_score, { score: String(score) }) + '\n\n' + s.mailto_reason + '\n\n\n—\nUser: ' + (d.user_id || '') + '\nRestaurant: ' + (d.restaurant_name || ''))}`
     return {
-      subject: fill(s.subject, { restaurant: esc(d.restaurant_name || 'Menuvia') }),
+      subject: fill(s.subject, { restaurant: subjectValue(d.restaurant_name || 'Menuvia', ctx) }),
       html: `
         <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
           <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:26px;margin:0 0 16px">${greetName(s, d.owner_name, ctx)}</h1>
@@ -1038,6 +1038,16 @@ function subjectText(s) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 150)
+}
+
+/**
+ * O valoare interpolată într-un SUBIECT. Pe 'ro' rămâne esc(): oracolul EO
+ * îngheață octeții de azi (reziduu consemnat — un nume cu apostrof apare
+ * „&#39;” în inbox-ul românesc, ca înainte de L8a). În celelalte limbi
+ * subiectul e text simplu, ca la invitație (EL8): esc() ar arăta entitățile.
+ */
+function subjectValue(raw, ctx) {
+  return ctx && ctx.lang !== 'ro' ? subjectText(raw) : esc(raw)
 }
 
 /**

@@ -49,8 +49,10 @@
 //        ajung în en/fr/de — salutul generic; în română rămân.
 //        [PICĂ: tratarea scoasă din ownerName]
 //   EL8  escaparea în toate limbile: `<script>&'` din date apare escapat,
-//        niciodată brut (control: markerul escapat e prezent).
-//        [PICĂ: o valoare dată lui `fill` neescapată]
+//        niciodată brut (control: markerul escapat e prezent). SUBIECTUL e
+//        text simplu în limbile ≠ ro (valoarea brută, fără entități); pe 'ro'
+//        rămâne esc() — octeții de azi, înghețați de oracol.
+//        [PICĂ: o valoare dată lui `fill` neescapată; un subiect ≠ ro pe esc()]
 //   EL9  o limbă incompletă cade ÎNTREG pe engleză (niciun șir din limba
 //        incompletă), fără throw.
 //        [PICĂ: fallback cheie cu cheie]
@@ -509,6 +511,28 @@ describe('EL8: escaparea în toate limbile', () => {
       }
     })
   }
+  // Subiectul e ANTET de text simplu: în limbile ≠ ro valoarea apare BRUTĂ
+  // („L'Étoile”, nu „L&#39;Étoile”); pe 'ro' rămâne esc() — octeții de azi,
+  // înghețați de oracolul EO (reziduu consemnat). Recenzie CodeRabbit pe #381.
+  // [PICĂ: oricare dintre subiecte trecut înapoi pe esc() în limbile ≠ ro]
+  for (const kind of ['daily_report', 'reservation_created', 'reservation_cancelled', 'reservation_reminder', 'win_back_7d', 'win_back_30d', 'nps_survey']) {
+    it(`${kind}: subiectul e text simplu în limbile ≠ ro`, () => {
+      for (const l of audienceLangs(kind)) {
+        const { subject } = Q.renderEmail(kind, evil, ctxFor(l))
+        if (l === 'ro') {
+          assert.ok(subject.includes(XE), `${kind}.ro: subiectul românesc e cel de azi (esc)`)
+          continue
+        }
+        assert.ok(subject.includes(X), `${kind}.${l}: numele brut lipsește din subiect: ${subject}`)
+        assert.ok(!/&(?:lt|gt|amp|#39|quot);/.test(subject), `${kind}.${l}: entitate HTML în subiect: ${subject}`)
+      }
+    })
+  }
+  it("reservation_reminder.de: „L'Étoile” apare cu apostroful brut în subiect", () => {
+    const { subject, html } = Q.renderEmail('reservation_reminder', { restaurant_name: "L'Étoile", starts_at: '2026-11-17T18:00:00Z', party_size: 2 }, ctxFor('de'))
+    assert.ok(subject.includes("L'Étoile"), subject)
+    assert.ok(html.includes('L&#39;Étoile'), 'corpul HTML rămâne escapat (control)')
+  })
   it('invitația și bun-venitul', () => {
     for (const l of lang.STAFF_LANGS) {
       const inv = INVITE.renderInviteEmail(l, { restaurantName: X, invitedByName: X, roleKey: 'waiter', acceptUrl: 'https://x/invite/t' })
