@@ -22,6 +22,25 @@
 //   INV6  insert eșuat → 500 invite_create_failed, nicio ștergere.
 //   INV7  fără RESEND_API_KEY → 503 înaintea oricărei scrieri.
 //   INV8  fiecare eroare e `{ error: <română>, code }`.
+//   INV9  (lotul L8a) româna e BYTE-identică: subiectul și HTML-ul trimise la
+//         Resend == șablonul de dinainte, copiat literal mai jos, cu un nume de
+//         restaurant care cere escapare; și când invitatul are deja
+//         `ui_language = 'en'` (doar româna e activă pentru personal).
+//         Mutația care pică: o literă schimbată în `team_invite.ro`.
+//   INV10 limba: invitatul (cont existent) > invitatorul > română, doar pe
+//         limbile active; handler-ul cere limbile pentru AMBII.
+//         Mutația care pică: ordinea inversată în resolveInviteLang.
+//   INV11 toleranță: o bază fără mig 323 (select cu `ui_language` → 42703)
+//         NU strică numele: emailul pleacă cu „Ana” și „Bistro”, iar
+//         interogarea de limbă chiar a fost făcută (control).
+//         Mutația care pică: `ui_language` în același select cu `full_name, email`.
+//   INV12 linkul de acceptare NU primește `?lang=` (pe pagină ar deveni
+//         preferința DISPOZITIVULUI invitatului).
+//   INV13 numele lipsesc din DB (restaurant/profil null) → rezerva e în limba
+//         emailului: pe română EXACT „restaurantul tău” / „Un coleg” (byte-
+//         identic cu șablonul vechi), în en/fr/de fără niciun rest românesc.
+//         Mutația care pică: rezerva literală românească în renderInviteEmail
+//         (`s.restaurant_anon` → 'restaurantul tău').
 //
 // Rulează în jobul „Bridge tests" (vitest nu vede tests/functions).
 
@@ -201,5 +220,173 @@ describe('send-invite: o invitație nouă nu mai șterge alte invitații', () =>
     expectError(await invite('ion@x.ro'), 401, 'auth_invalid')
     const { handler } = loadFunction(REL)
     expectError(await handler({ httpMethod: 'GET', headers: {} }), 405, 'method_not_allowed')
+  })
+})
+
+// ── Lotul L8a: limba invitației ─────────────────────────────────────────────
+const { LEGACY_NETLIFY_URL } = require('../../netlify/functions/lib/appUrl')
+const OWNER_UUID = '32700000-0000-4000-8000-0000000000e1'
+const INVITEE_UUID = '32700000-0000-4000-8000-0000000000e2'
+
+// Șablonul de DINAINTE (git show 30a6400:netlify/functions/send-invite.js),
+// copiat literal — oracolul pentru română.
+function legacyInvite({ subjectRestaurantName, safeRestaurantName, safeInvitedBy, roleLabel, acceptUrl }) {
+  return {
+    subject: `Ai fost invitat la ${subjectRestaurantName} pe Menuvia`,
+    html: `
+        <div style="font-family:'DM Sans',sans-serif;max-width:520px;margin:0 auto;background:#0F0F0F;border-radius:16px;padding:40px;color:#F0EAE0;">
+          <div style="font-family:Georgia,serif;font-size:24px;color:#C8963C;margin-bottom:24px;">Menuvia</div>
+          <h2 style="font-family:Georgia,serif;font-size:20px;color:#F0EAE0;margin-bottom:12px;">
+            Ai fost invitat la <strong>${safeRestaurantName}</strong>
+          </h2>
+          <p style="color:#9A9590;line-height:1.6;margin-bottom:8px;">
+            ${safeInvitedBy} te-a invitat ca <strong style="color:#E2B472">${roleLabel}</strong> pe Menuvia.
+          </p>
+          <p style="color:#9A9590;line-height:1.6;margin-bottom:28px;">
+            Acceptă invitația pentru a accesa dashboardul restaurantului.
+          </p>
+          <a href="${acceptUrl}" style="display:inline-block;background:#C8963C;color:#000;padding:14px 28px;border-radius:10px;text-decoration:none;font-weight:600;font-size:15px;margin-bottom:24px;">
+            Acceptă invitația
+          </a>
+          <p style="color:#4A4844;font-size:12px;line-height:1.5;margin-top:24px;">
+            Linkul expiră în 7 zile. Dacă nu ai solicitat această invitație, ignoră acest email.
+          </p>
+        </div>
+      `,
+  }
+}
+
+const selectOf = (ops) => String((ops.find((o) => o.m === 'select') || { args: [''] }).args[0])
+
+describe('send-invite: limba emailului (lotul L8a)', () => {
+  function scriptProfiles({ invitee = null, langs = {}, langError = null } = {}) {
+    state.fromHandlers['profiles'] = (ops) => {
+      const sel = selectOf(ops)
+      if (sel.includes('ui_language')) {
+        if (langError) return { data: null, error: langError }
+        const ids = (ops.find((o) => o.m === 'in') || { args: [null, []] }).args[1]
+        return { data: ids.filter((id) => id in langs).map((id) => ({ id, ui_language: langs[id] })), error: null }
+      }
+      if (ops.some((o) => o.m === 'ilike')) return { data: invitee ? { id: invitee } : null, error: null }
+      return { data: { full_name: 'Ana', email: 'ana@x.test' }, error: null }
+    }
+    // Invitatul cu cont NU e deja membru (altfel 409).
+    state.fromHandlers['restaurant_memberships'] = (ops) =>
+      ops.some((o) => o.m === 'select' && o.args[0] === 'role')
+        ? { data: { role: 'owner' }, error: null }
+        : { data: null, error: null }
+  }
+
+  for (const [label, setup] of [
+    ['invitat fără cont', () => scriptProfiles()],
+    ['invitatul are deja ui_language=en (engleza nu e activă)', () => scriptProfiles({ invitee: INVITEE_UUID, langs: { [INVITEE_UUID]: 'en', [OWNER_UUID]: 'de' } })],
+  ]) {
+    it(`INV9: româna byte-identică — ${label}`, async () => {
+      state.authUser = { id: OWNER_UUID }
+      setup()
+      state.fromHandlers['restaurants'] = () => ({ data: { name: "Fish & <Chips>'" }, error: null })
+      const res = await invite('ion@x.ro')
+      assert.equal(res.statusCode, 200, res.body)
+      const want = legacyInvite({
+        subjectRestaurantName: "Fish & <Chips>'",
+        safeRestaurantName: 'Fish &amp; &lt;Chips&gt;&#39;',
+        safeInvitedBy: 'Ana',
+        roleLabel: 'Ospătar',
+        acceptUrl: `${LEGACY_NETLIFY_URL}/invite/tok-new`,
+      })
+      assert.equal(resend[0].body.subject, want.subject)
+      assert.equal(resend[0].body.html, want.html)
+    })
+  }
+
+  it('INV10: invitatul > invitatorul > română, pe limbile active; limbile se cer pentru amândoi', async () => {
+    const { resolveInviteLang } = require('../../netlify/functions/lib/emailLang')
+    const enabled = ['ro', 'en', 'fr']
+    assert.equal(resolveInviteLang({ invitee: 'fr', inviter: 'en' }, enabled), 'fr')
+    assert.equal(resolveInviteLang({ invitee: undefined, inviter: 'en' }, enabled), 'en')
+    assert.equal(resolveInviteLang({ invitee: 'de', inviter: 'de' }, enabled), 'ro')
+    // Randarea în limba aleasă (fără handler: ENABLED de producție e doar ro).
+    const { renderInviteEmail } = loadFunction(REL)
+    const en = renderInviteEmail('en', { restaurantName: 'Bistro', invitedByName: 'Ana', roleKey: 'kitchen', acceptUrl: 'https://a/invite/t' })
+    assert.equal(en.subject, 'You’ve been invited to Bistro on Menuvia')
+    assert.ok(en.html.includes('Ana invited you as <strong style="color:#E2B472">Kitchen</strong> on Menuvia.'))
+    // Handler-ul cere limbile pentru invitator ȘI invitatul existent.
+    state.authUser = { id: OWNER_UUID }
+    scriptProfiles({ invitee: INVITEE_UUID })
+    const res = await invite('ion@x.ro')
+    assert.equal(res.statusCode, 200, res.body)
+    const q = state.fromCalls.filter((c) => c.table === 'profiles' && selectOf(c.ops).includes('ui_language'))
+    assert.equal(q.length, 1)
+    assert.equal(selectOf(q[0].ops), 'id, ui_language')
+    assert.deepEqual([...q[0].ops.find((o) => o.m === 'in').args[1]].sort(), [OWNER_UUID, INVITEE_UUID].sort())
+  })
+
+  it('INV11: bază fără mig 323 → numele rămân, emailul pleacă', async () => {
+    state.authUser = { id: OWNER_UUID }
+    scriptProfiles({ langError: { code: '42703', message: 'column profiles.ui_language does not exist' } })
+    const warn = console.warn
+    console.warn = () => {}
+    let res
+    try {
+      res = await invite('ion@x.ro')
+    } finally {
+      console.warn = warn
+    }
+    assert.equal(res.statusCode, 200, res.body)
+    assert.ok(resend[0].body.html.includes('Ana te-a invitat'), 'numele invitatorului s-a pierdut')
+    assert.ok(resend[0].body.html.includes('<strong>Bistro</strong>'))
+    assert.ok(
+      state.fromCalls.some((c) => c.table === 'profiles' && selectOf(c.ops).includes('ui_language')),
+      'controlul: interogarea de limbă nici n-a fost făcută',
+    )
+    const inviterSel = state.fromCalls.find((c) => c.table === 'profiles' && selectOf(c.ops).includes('full_name'))
+    assert.equal(selectOf(inviterSel.ops), 'full_name, email', 'numele și limba trebuie să rămână interogări separate')
+  })
+
+  it('INV12: linkul de acceptare nu primește `?lang=`', async () => {
+    state.authUser = { id: OWNER_UUID }
+    scriptProfiles({ invitee: INVITEE_UUID, langs: { [INVITEE_UUID]: 'en' } })
+    const res = await invite('ion@x.ro')
+    assert.equal(res.statusCode, 200, res.body)
+    assert.ok(resend[0].body.html.includes(`href="${LEGACY_NETLIFY_URL}/invite/tok-new"`), resend[0].body.html)
+    assert.ok(!resend[0].body.html.includes('lang='))
+    const { renderInviteEmail } = loadFunction(REL)
+    for (const l of ['ro', 'en', 'fr', 'de']) {
+      const html = renderInviteEmail(l, { restaurantName: 'B', invitedByName: 'A', roleKey: 'waiter', acceptUrl: 'https://a/invite/t' }).html
+      assert.ok(html.includes('href="https://a/invite/t"') && !html.includes('lang='), l)
+    }
+  })
+
+  it('INV13: nume lipsă → rezerva în limba emailului; româna byte-identică', async () => {
+    state.authUser = { id: OWNER_UUID }
+    scriptProfiles()
+    const base = state.fromHandlers['profiles']
+    state.fromHandlers['profiles'] = (ops) =>
+      selectOf(ops) === 'full_name, email' ? { data: null, error: null } : base(ops)
+    state.fromHandlers['restaurants'] = () => ({ data: null, error: null })
+    const res = await invite('ion@x.ro')
+    assert.equal(res.statusCode, 200, res.body)
+    const want = legacyInvite({
+      subjectRestaurantName: 'restaurantul tău',
+      safeRestaurantName: 'restaurantul tău',
+      safeInvitedBy: 'Un coleg',
+      roleLabel: 'Ospătar',
+      acceptUrl: `${LEGACY_NETLIFY_URL}/invite/tok-new`,
+    })
+    assert.equal(resend[0].body.subject, want.subject)
+    assert.equal(resend[0].body.html, want.html)
+
+    const { renderInviteEmail } = loadFunction(REL)
+    const expected = {
+      en: ['your restaurant', 'A colleague'],
+      fr: ['votre restaurant', 'Un collègue'],
+      de: ['Ihrem Restaurant', 'Ein Kollege'],
+    }
+    for (const l of Object.keys(expected)) {
+      const r = renderInviteEmail(l, { restaurantName: '', invitedByName: '', roleKey: 'waiter', acceptUrl: 'https://a/invite/t' })
+      const text = `${r.subject}\n${r.html}`
+      assert.ok(r.subject.includes(expected[l][0]) && r.html.includes(expected[l][1]), `${l}: ${text}`)
+      assert.ok(!/restaurantul|coleg\b|tău/i.test(text), `${l}: rest românesc în ${text}`)
+    }
   })
 })

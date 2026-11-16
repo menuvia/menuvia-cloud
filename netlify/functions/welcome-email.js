@@ -5,8 +5,15 @@
 // Set WEBHOOK_SECRET in both Netlify env vars AND Supabase webhook config.
 // If not set, ALL requests are rejected.
 
+// Limba (lotul L8a): `lang` din body e OPȚIONAL — limba funnel-ului în care
+// s-a făcut înscrierea; se acceptă doar pe FUNNEL_LANGS (azi ro + en), orice
+// altceva → română, deci un apelant vechi primește exact emailul de dinainte.
+// Apelantul (webhook-ul Supabase) nu e în repo — vezi docs/AUTH_EMAIL_TEMPLATES.md.
+
 const crypto = require('crypto')
 const { appLink, FROM_HELLO, LEGACY_NETLIFY_URL } = require('./lib/appUrl')
+const { funnelEmailLang } = require('./lib/emailLang')
+const { kindStrings, fill } = require('./lib/emailStrings')
 
 // Link-ul „Mergi la dashboard": cheia + fallback-ul de dinainte, EXACT
 // (VITE_APP_URL → menuvia.netlify.app). NU urmează site-ul (.ro/.com): funcția
@@ -19,6 +26,28 @@ const DASHBOARD_LINK_OPTS = { keys: ['VITE_APP_URL'], fallback: LEGACY_NETLIFY_U
 function esc(str) {
   if (!str) return ''
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+}
+
+/**
+ * Subiectul + HTML-ul emailului de bun venit în limba `lang`. `name` vine BRUT
+ * (trim-uit) și se escapează aici; în română ieșirea e byte-identică (WE1).
+ */
+function renderWelcomeEmail(lang, { name, dashboardUrl }) {
+  const s = kindStrings('signup_welcome', lang)
+  const safeName = esc(name)
+  return {
+    subject: s.subject,
+    html: `
+        <div style="font-family:'DM Sans',sans-serif;max-width:520px;margin:0 auto;background:#0F0F0F;border-radius:16px;padding:40px;color:#F0EAE0;">
+          <div style="font-family:Georgia,serif;font-size:24px;color:#C8963C;margin-bottom:24px;">Menuvia</div>
+          <h2 style="font-family:Georgia,serif;font-size:20px;color:#F0EAE0;margin-bottom:12px;">${safeName ? fill(s.hello, { name: safeName }) : s.hello_anon}</h2>
+          <p style="color:#9A9590;line-height:1.6;margin-bottom:16px;">${s.created}</p>
+          <p style="color:#9A9590;line-height:1.6;margin-bottom:24px;">${s.pitch}</p>
+          <a href="${dashboardUrl}" style="display:inline-block;background:#C8963C;color:#000;padding:14px 28px;border-radius:10px;text-decoration:none;font-weight:600;font-size:15px;margin-bottom:24px;">${s.cta}</a>
+          <p style="color:#4A4844;font-size:12px;">${s.questions}</p>
+        </div>
+      `,
+  }
 }
 
 // Comparare constant-time a secretului (anti timing attack), cu verificare de lungime.
@@ -48,12 +77,15 @@ exports.handler = async (event) => {
   try { body = JSON.parse(event.body || '{}') } catch { return { statusCode: 400, body: 'Invalid JSON' } }
 
   const email = (body.email || '').toLowerCase().trim()
-  const name  = esc((body.name || '').trim())
+  const name  = (body.name || '').trim()
+  const lang  = funnelEmailLang(body.lang)
   if (!email) return { statusCode: 400, body: 'Missing email' }
   // Validare format email (paritate cu send-invite) — evită relay cu adrese malformate.
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid email' }) }
   }
+
+  const rendered = renderWelcomeEmail(lang, { name, dashboardUrl: appLink('/dashboard', DASHBOARD_LINK_OPTS) })
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -63,19 +95,13 @@ exports.handler = async (event) => {
     body: JSON.stringify({
       from:    FROM_HELLO,
       to:      [email],
-      subject: 'Bun venit la Menuvia',
-      html: `
-        <div style="font-family:'DM Sans',sans-serif;max-width:520px;margin:0 auto;background:#0F0F0F;border-radius:16px;padding:40px;color:#F0EAE0;">
-          <div style="font-family:Georgia,serif;font-size:24px;color:#C8963C;margin-bottom:24px;">Menuvia</div>
-          <h2 style="font-family:Georgia,serif;font-size:20px;color:#F0EAE0;margin-bottom:12px;">Bun venit${name ? `, ${name}` : ''}!</h2>
-          <p style="color:#9A9590;line-height:1.6;margin-bottom:16px;">Contul tău Menuvia a fost creat cu succes.</p>
-          <p style="color:#9A9590;line-height:1.6;margin-bottom:24px;">Acum poți să-ți digitalizezi meniul, să primești comenzi de pe telefoanele clienților și să urmărești tot ce se întâmplă în restaurant în timp real.</p>
-          <a href="${appLink('/dashboard', DASHBOARD_LINK_OPTS)}" style="display:inline-block;background:#C8963C;color:#000;padding:14px 28px;border-radius:10px;text-decoration:none;font-weight:600;font-size:15px;margin-bottom:24px;">Mergi la dashboard</a>
-          <p style="color:#4A4844;font-size:12px;">Ai întrebări? Răspunde la acest email.</p>
-        </div>
-      `,
+      subject: rendered.subject,
+      html:    rendered.html,
     }),
   })
 
   return { statusCode: res.ok ? 200 : 500, body: res.ok ? 'OK' : 'Email failed' }
 }
+
+// Pentru testele din tests/functions (WE1–WE3, EL1/EL2).
+exports.renderWelcomeEmail = renderWelcomeEmail

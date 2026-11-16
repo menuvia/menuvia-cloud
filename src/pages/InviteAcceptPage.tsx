@@ -213,7 +213,9 @@ function InviteAcceptScreen({ token, navigate }: InviteAcceptProps) {
         const { data, error } = await supabase.auth.signUp({
           email: invite!.email,
           password,
-          options: { data: { full_name: name } },
+          // `ui_lang`: limba ecranului, pentru șabloanele Supabase Auth (doar
+          // emailul de confirmare; nu intră în autorizare).
+          options: { data: { full_name: name, ui_lang: uiLang } },
         })
         if (error) throw error
 

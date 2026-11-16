@@ -282,7 +282,10 @@ function AuthScreen({ onSuccess }: AuthPageProps) {
         email,
         password,
         options: {
-          data: agent.code ? { full_name: name, agent_code: agent.code } : { full_name: name },
+          // `ui_lang` = limba funnel-ului: o citesc DOAR șabloanele Supabase Auth
+          // (confirmarea contului, resetarea parolei — docs/AUTH_EMAIL_TEMPLATES.md),
+          // niciodată autorizarea. Lipsă (conturile vechi) → ramura română.
+          data: { full_name: name, ui_lang: lang, ...(agent.code ? { agent_code: agent.code } : {}) },
           // Linkul de confirmare readuce userul DIRECT în aplicație (sesiune
           // deja creată de GoTrue la click) — înainte, textul îi cerea să
           // „revină să se autentifice" și funelul se rupea exact aici.

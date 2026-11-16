@@ -9,6 +9,29 @@
 const { createClient } = require('@supabase/supabase-js')
 
 const { appUrl, FROM_HELLO, FOUNDER_EMAIL, LEGACY_NETLIFY_URL } = require('./lib/appUrl')
+const {
+  ENABLED_STAFF_LANGS,
+  DEFAULT_TZ,
+  isUuid,
+  staffEmailLang,
+  guestEmailLang,
+  emailLocale,
+  safeTimeZone,
+  fetchUiLanguages,
+  fetchRestaurantsRegional,
+} = require('./lib/emailLang')
+const {
+  RO_CTX,
+  makeCtx,
+  dateTimeLong,
+  relativeDay,
+  calendarDay,
+  periodShort,
+  lei,
+  legacyLeiRaw,
+  pctAbs,
+} = require('./lib/emailFormat')
+const { kindStrings, commonStrings, fill, RO_PLACEHOLDER_NAMES } = require('./lib/emailStrings')
 
 const FROM_EMAIL = process.env.EMAIL_FROM || FROM_HELLO
 const REPLY_TO   = process.env.EMAIL_REPLY_TO || FOUNDER_EMAIL
@@ -16,8 +39,58 @@ const REPLY_TO   = process.env.EMAIL_REPLY_TO || FOUNDER_EMAIL
 // dinainte, EXACT: doar APP_URL → menuvia.netlify.app.
 const APP_URL    = appUrl({ keys: ['APP_URL'], fallback: LEGACY_NETLIFY_URL })
 
+// ── Audiența fiecărui kind (lotul L8a) ─────────────────────────
+// Pentru FIECARE valoare din enumul email_template_kind (EL6 o leagă de
+// TEMPLATES, EK1 de enum):
+//   audience 'staff' — patronul / echipa: limba = profiles.ui_language al
+//                      email_queue.user_id, DOAR dacă e o limbă ACTIVĂ
+//                      (ENABLED_STAFF_LANGS, oglinda src/i18n/langs.ts);
+//   audience 'guest' — oaspetele: limba de bază a restaurantului (7 limbi);
+//                      limba oaspetelui stocată pe rezervare vine în L8b;
+//   audience 'ro'    — rămâne în română, cu MOTIV obligatoriu.
+//   tz 'operational' — orele pe fusul LOCALULUI (restaurants.timezone, după
+//                      template_data.restaurant_id); 'bucharest' — București.
+// Orice rezolvare care eșuează dă română + București: exact ce pleca înainte.
+const EMAIL_AUDIENCE = Object.freeze({
+  payment_failed: { audience: 'staff', tz: 'bucharest' },
+  payment_recovered: { audience: 'staff', tz: 'bucharest' },
+  milestone_first_month: { audience: 'staff', tz: 'bucharest' },
+  milestone_100_orders: { audience: 'staff', tz: 'bucharest' },
+  milestone_1000_orders: { audience: 'staff', tz: 'bucharest' },
+  // compute_*_report (mig 180) numără doar comenzile `paid` = Planul 3 =
+  // România; ziua de raportare a unui local românesc e București (mig 325).
+  weekly_report: { audience: 'staff', tz: 'bucharest' },
+  daily_report: { audience: 'staff', tz: 'bucharest' },
+  reservation_created: { audience: 'staff', tz: 'operational' },
+  reservation_cancelled: { audience: 'staff', tz: 'operational' },
+  win_back_7d: { audience: 'staff', tz: 'bucharest' },
+  win_back_30d: { audience: 'staff', tz: 'bucharest' },
+  nps_survey: { audience: 'staff', tz: 'bucharest' },
+  partner_access_requested: { audience: 'staff', tz: 'bucharest' },
+  reservation_reminder: { audience: 'guest', tz: 'operational' },
+  welcome: { audience: 'ro', tz: 'bucharest', reason: 'copy fals consemnat (RES-11): „planul Pro … casă fiscală” trimis oricui; se traduce în PR-ul care îl rescrie' },
+  trial_ending_3d: { audience: 'ro', tz: 'bucharest', reason: 'copy fals consemnat (RES-11): „actualizează cardul” pe trialul fără card; se traduce odată cu rescrierea' },
+  trial_ending_1d: { audience: 'ro', tz: 'bucharest', reason: 'copy fals consemnat (RES-11): „Continuă cu Pro →” oricui; se traduce odată cu rescrierea' },
+  subscription_cancelled: { audience: 'ro', tz: 'bucharest', reason: 'copy fals consemnat (RES-11): confirmă o anulare pe care trialul expirat n-a făcut-o' },
+  onboarding_no_products: { audience: 'ro', tz: 'bucharest', reason: 'fără producător pe main — se traduce odată cu producătorul' },
+  onboarding_no_orders: { audience: 'ro', tz: 'bucharest', reason: 'fără producător pe main — se traduce odată cu producătorul' },
+  monthly_recap: { audience: 'ro', tz: 'bucharest', reason: 'fără producător pe main — se traduce odată cu producătorul' },
+  invoice_ready: { audience: 'ro', tz: 'bucharest', reason: 'fără producător pe main — se traduce odată cu producătorul' },
+  health_score_alert: { audience: 'ro', tz: 'bucharest', reason: 'alertă INTERNĂ către fondator; consola fondatorului rămâne în română' },
+  founder_alert: { audience: 'ro', tz: 'bucharest', reason: 'destinatarul e fondatorul; consola fondatorului rămâne în română' },
+  founder_weekly_digest: { audience: 'ro', tz: 'bucharest', reason: 'destinatarul e fondatorul; consola fondatorului rămâne în română' },
+  custom: { audience: 'ro', tz: 'bucharest', reason: 'email ad-hoc al fondatorului: textul vine gata scris în template_data' },
+  agent_client_at_risk: { audience: 'ro', tz: 'bucharest', reason: 'destinatarul e agentul; pagina de afiliat e public intern, în română (HA1 îngheață cheile)' },
+  affiliate_new_client: { audience: 'ro', tz: 'bucharest', reason: 'destinatarul e agentul; pagina de afiliat e public intern, în română' },
+  affiliate_payout_statement: { audience: 'ro', tz: 'bucharest', reason: 'decont contabil românesc (autofacturare / factură către Menuvia SRL)' },
+  affiliate_payout_sent: { audience: 'ro', tz: 'bucharest', reason: 'decont contabil românesc către afiliat' },
+  affiliate_payout_blocked: { audience: 'ro', tz: 'bucharest', reason: 'decont contabil românesc către afiliat' },
+})
+
 // ── Email templates (Romanian, warm tone) ──────────────────────
 // Each renders to { subject, html } given templateData.
+// Kind-urile traduse primesc al doilea argument, contextul (limbă, locale,
+// fus, momentul trimiterii); implicit RO_CTX = exact ieșirea de dinainte.
 const TEMPLATES = {
   welcome: (d) => ({
     subject: '🎉 Bun venit la Menuvia!',
@@ -67,23 +140,26 @@ const TEMPLATES = {
     `,
   }),
 
-  payment_failed: (d) => ({
-    subject: `⚠️ Plata nu s-a putut procesa (încercarea ${d.attempt || 1})`,
-    html: `
+  payment_failed: (d, ctx = RO_CTX) => {
+    const s = kindStrings('payment_failed', ctx.lang)
+    return {
+      subject: fill(s.subject, { attempt: `${d.attempt || 1}` }),
+      html: `
       <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
-        <h1 style="font-family:Georgia,serif;color:#A93232;font-size:24px">Plata nu s-a putut procesa</h1>
-        <p style="color:#333;font-size:16px;line-height:1.55">Bună ${esc(d.owner_name || 'patron')},</p>
-        <p style="color:#333;font-size:16px;line-height:1.55">Am încercat să procesăm plata abonamentului dar n-a reușit. Cele mai comune cauze:</p>
+        <h1 style="font-family:Georgia,serif;color:#A93232;font-size:24px">${s.title}</h1>
+        <p style="color:#333;font-size:16px;line-height:1.55">${greetName(s, d.owner_name, ctx)}</p>
+        <p style="color:#333;font-size:16px;line-height:1.55">${s.intro}</p>
         <ul style="color:#333;font-size:15px;line-height:1.7">
-          <li>Card expirat sau date schimbate</li>
-          <li>Sold insuficient</li>
-          <li>Card blocat de bancă pentru tranzacții online</li>
+          <li>${s.cause_card}</li>
+          <li>${s.cause_funds}</li>
+          <li>${s.cause_blocked}</li>
         </ul>
-        <p style="color:#333;font-size:16px;line-height:1.55">Vom reîncerca automat în 3 zile. Până atunci, contul rămâne activ.</p>
-        <a href="${APP_URL}/dashboard?tab=billing" style="display:inline-block;background:#C8963C;color:#0A0908;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Actualizează metoda de plată →</a>
+        <p style="color:#333;font-size:16px;line-height:1.55">${s.retry}</p>
+        <a href="${APP_URL}/dashboard?tab=billing" style="display:inline-block;background:#C8963C;color:#0A0908;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">${s.cta}</a>
       </div>
     `,
-  }),
+    }
+  },
 
   health_score_alert: (d) => ({
     subject: `[INTERN] Health score critic: ${d.score || '?'}`,
@@ -100,100 +176,131 @@ const TEMPLATES = {
     `,
   }),
 
-  milestone_100_orders: (d) => ({
-    subject: '🎉 100 comenzi prin Menuvia!',
-    html: `
+  milestone_100_orders: (d, ctx = RO_CTX) => {
+    const s = kindStrings('milestone_100_orders', ctx.lang)
+    return {
+      subject: s.subject,
+      html: `
       <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
-        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:28px">100 comenzi! 🎉</h1>
-        <p style="color:#333;font-size:16px;line-height:1.55">Felicitări ${esc(d.owner_name || '')}! Tocmai ai depășit pragul de <b>100 comenzi procesate prin Menuvia</b>.</p>
-        <p style="color:#333;font-size:16px;line-height:1.55">Mulțumesc că ai încredere în noi. Continuă tot așa!</p>
+        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:28px">${s.title}</h1>
+        <p style="color:#333;font-size:16px;line-height:1.55">${namedOrAnon(s.intro, s.intro_anon, d.owner_name, ctx)}</p>
+        <p style="color:#333;font-size:16px;line-height:1.55">${s.thanks}</p>
       </div>
     `,
-  }),
+    }
+  },
 
-  milestone_1000_orders: (d) => ({
-    subject: '🏆 1.000 comenzi! Diploma vine prin poștă!',
-    html: `
+  milestone_1000_orders: (d, ctx = RO_CTX) => {
+    const s = kindStrings('milestone_1000_orders', ctx.lang)
+    return {
+      subject: s.subject,
+      html: `
       <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
-        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:30px">1.000 comenzi!</h1>
-        <p style="color:#333;font-size:16px;line-height:1.55">${esc(d.owner_name || '')}, ai atins un milestone important. <b>1.000 de comenzi</b> procesate prin Menuvia.</p>
-        <p style="color:#333;font-size:16px;line-height:1.55">Ca recunoștință, îți trimit prin poștă o diplomă personalizată. Dă-mi adresa pe WhatsApp.</p>
+        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:30px">${s.title}</h1>
+        <p style="color:#333;font-size:16px;line-height:1.55">${namedOrAnon(s.intro, s.intro_anon, d.owner_name, ctx)}</p>
+        <p style="color:#333;font-size:16px;line-height:1.55">${s.gift}</p>
       </div>
     `,
+    }
+  },
+
+  weekly_report: (d, ctx = RO_CTX) => ({
+    subject: fill(kindStrings('weekly_report', ctx.lang).subject, { revenue: legacyLeiRaw(d.revenue, ctx) }),
+    html: weeklyReportHtml(d, ctx),
   }),
 
-  weekly_report: (d) => ({
-    subject: `📊 Raportul săptămânal: ${d.revenue || 0} lei venit`,
-    html: weeklyReportHtml(d),
+  daily_report: (d, ctx = RO_CTX) => ({
+    subject: fill(kindStrings('daily_report', ctx.lang).subject, {
+      revenue: lei(d.revenue, ctx),
+      orders: `${d.orders || 0}`,
+      restaurant: subjectValue(d.restaurant_name || '', ctx),
+    }),
+    html: dailyReportHtml(d, ctx),
   }),
 
-  daily_report: (d) => ({
-    subject: `☀️ Ieri ${formatLei(d.revenue)} (${d.orders || 0} comenzi) — ${esc(d.restaurant_name || '')}`,
-    html: dailyReportHtml(d),
-  }),
-
-  milestone_first_month: (d) => ({
-    subject: '☕ Prima comandă! Felicitări',
-    html: `
+  milestone_first_month: (d, ctx = RO_CTX) => {
+    const s = kindStrings('milestone_first_month', ctx.lang)
+    const total = legacyLeiRaw(d.total, ctx)
+    const name = ownerName(d.owner_name, ctx)
+    return {
+      subject: s.subject,
+      html: `
       <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
-        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:26px">Prima comandă! 🎊</h1>
-        <p style="color:#333;font-size:16px;line-height:1.55">${esc(d.owner_name || 'Patron')}, tocmai s-a procesat prima comandă plătită prin Menuvia (${d.total || 0} lei). E doar începutul!</p>
-        <p style="color:#333;font-size:16px;line-height:1.55">Dacă ceva nu merge cum ar trebui, scrie-mi imediat.</p>
+        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:26px">${s.title}</h1>
+        <p style="color:#333;font-size:16px;line-height:1.55">${name ? fill(s.intro, { name: esc(name), total }) : fill(s.intro_anon, { total })}</p>
+        <p style="color:#333;font-size:16px;line-height:1.55">${s.help}</p>
         <p style="color:#666;font-size:13px;margin-top:24px">— Radu</p>
       </div>
     `,
-  }),
+    }
+  },
 
-  reservation_reminder: (d) => ({
-    subject: `Reminder: rezervarea ta la ${esc(d.restaurant_name || '')} ${formatRelativeDayRo(d.starts_at)}`,
-    html: `
+  // Singurul email către OASPETE: limba = limba de bază a restaurantului (până
+  // la L8b, care stochează limba oaspetelui), ora pe fusul LOCALULUI, iar
+  // „astăzi/mâine” se compară pe ziua localului față de momentul trimiterii.
+  reservation_reminder: (d, ctx = RO_CTX) => {
+    const s = kindStrings('reservation_reminder', ctx.lang)
+    const customer = d.customer_name || ''
+    const restaurant = esc(d.restaurant_name || '')
+    return {
+      subject: fill(s.subject, { restaurant: subjectValue(d.restaurant_name || '', ctx), when: relativeWord(d.starts_at, ctx) }),
+      html: `
       <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
         <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px;margin:0 0 16px">
-          Bună ${esc(d.customer_name || '')}!
+          ${customer ? fill(s.hello, { name: esc(customer) }) : s.hello_anon}
         </h1>
         <p style="color:#333;font-size:16px;line-height:1.55">
-          Îți reamintim de rezervarea ta la <b>${esc(d.restaurant_name || '')}</b>:
+          ${fill(s.intro, { restaurant })}
         </p>
         <div style="background:#fff;border:1px solid #E8DCC9;border-radius:12px;padding:20px;margin:16px 0">
-          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Data și ora</div>
-          <div style="color:#0A0908;font-size:18px;font-weight:600">${esc(formatDateTimeRo(d.starts_at))}</div>
-          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">Persoane</div>
+          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">${s.label_datetime}</div>
+          <div style="color:#0A0908;font-size:18px;font-weight:600">${esc(dateTimeLong(d.starts_at, ctx))}</div>
+          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">${s.label_party}</div>
           <div style="color:#0A0908;font-size:18px;font-weight:600">${esc(String(d.party_size || ''))}</div>
-          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">Cod confirmare</div>
+          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">${s.label_code}</div>
           <div style="font-family:Georgia,serif;color:#C8963C;font-size:22px;letter-spacing:0.15em">${esc(d.confirmation_code || '')}</div>
         </div>
         ${
           d.restaurant_phone
-            ? `<p style="color:#333;font-size:15px;line-height:1.55">Dacă nu mai poți veni, te rugăm să suni: <a href="tel:${esc(d.restaurant_phone)}" style="color:#C8963C">${esc(d.restaurant_phone)}</a></p>`
+            ? `<p style="color:#333;font-size:15px;line-height:1.55">${fill(s.call, { phone: `<a href="tel:${esc(d.restaurant_phone)}" style="color:#C8963C">${esc(d.restaurant_phone)}</a>` })}</p>`
             : ''
         }
-        <p style="color:#666;font-size:13px;margin-top:24px">Te așteptăm cu drag.</p>
+        <p style="color:#666;font-size:13px;margin-top:24px">${s.closing}</p>
       </div>
     `,
-  }),
+    }
+  },
 
   // Notificarea RESTAURANTULUI la rezervare nouă (mig 254/255) — închide
   // paradoxul auto-confirmării: clientul primea „confirmat", localul nu afla
   // nimic fără dashboard-ul deschis. Destinatar: owner-ul (profiles.email).
-  reservation_created: (d) => ({
-    subject: `🍽 Rezervare nouă — ${esc(d.restaurant_name || '')}: ${esc(d.customer_name || '')}, ${esc(String(d.party_size || ''))} pers.`,
-    html: `
+  // Ora e pe fusul LOCALULUI (template_data.restaurant_id, mig 327) — aceeași
+  // zi și oră pe care le arată fila Rezervări.
+  reservation_created: (d, ctx = RO_CTX) => {
+    const s = kindStrings('reservation_created', ctx.lang)
+    return {
+      subject: fill(s.subject, {
+        restaurant: subjectValue(d.restaurant_name || '', ctx),
+        customer: subjectValue(d.customer_name || '', ctx),
+        party: subjectValue(String(d.party_size || ''), ctx),
+      }),
+      html: `
       <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
         <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px;margin:0 0 16px">
-          Rezervare nouă la ${esc(d.restaurant_name || '')}
+          ${fill(s.title, { restaurant: esc(d.restaurant_name || '') })}
         </h1>
         <div style="background:#fff;border:1px solid #E8DCC9;border-radius:12px;padding:20px;margin:16px 0">
-          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Client</div>
+          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">${s.label_client}</div>
           <div style="color:#0A0908;font-size:18px;font-weight:600">${esc(d.customer_name || '')}</div>
-          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">Telefon</div>
+          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">${s.label_phone}</div>
           <div style="color:#0A0908;font-size:18px;font-weight:600"><a href="tel:${esc(d.customer_phone || '')}" style="color:#C8963C;text-decoration:none">${esc(d.customer_phone || '')}</a></div>
-          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">Data și ora</div>
-          <div style="color:#0A0908;font-size:18px;font-weight:600">${esc(formatDateTimeRo(d.starts_at))}</div>
-          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">Persoane</div>
+          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">${s.label_datetime}</div>
+          <div style="color:#0A0908;font-size:18px;font-weight:600">${esc(dateTimeLong(d.starts_at, ctx))}</div>
+          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">${s.label_party}</div>
           <div style="color:#0A0908;font-size:18px;font-weight:600">${esc(String(d.party_size || ''))}</div>
           ${
             d.special_requests
-              ? `<div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">Mențiuni</div>
+              ? `<div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">${s.label_notes}</div>
                  <div style="color:#0A0908;font-size:15px;white-space:pre-wrap">${esc(d.special_requests)}</div>`
               : ''
           }
@@ -201,94 +308,114 @@ const TEMPLATES = {
         <p style="color:#333;font-size:15px;line-height:1.55">
           ${
             d.status === 'confirmed'
-              ? 'Rezervarea e <b>confirmată automat</b> — clientul a primit deja confirmarea.'
-              : 'Rezervarea e <b>în așteptare</b> — confirm-o din dashboard ca clientul să primească răspunsul.'
+              ? s.status_confirmed
+              : s.status_pending
           }
         </p>
-        <a href="${APP_URL}/dashboard" style="display:inline-block;background:#C8963C;color:#0A0908;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Vezi în dashboard →</a>
+        <a href="${APP_URL}/dashboard" style="display:inline-block;background:#C8963C;color:#0A0908;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">${s.cta}</a>
       </div>
     `,
-  }),
+    }
+  },
 
   // Anulare PUBLICĂ pe cod de confirmare (mig 256/257) — perechea lui
-  // reservation_created: owner-ul află că masa s-a eliberat.
-  reservation_cancelled: (d) => ({
-    subject: `❌ Rezervare anulată — ${esc(d.restaurant_name || '')}: ${esc(d.customer_name || '')}, ${esc(formatDateTimeRo(d.starts_at))}`,
-    html: `
+  // reservation_created: owner-ul află că masa s-a eliberat. Ora: fusul LOCALULUI.
+  reservation_cancelled: (d, ctx = RO_CTX) => {
+    const s = kindStrings('reservation_cancelled', ctx.lang)
+    const when = esc(dateTimeLong(d.starts_at, ctx))
+    return {
+      subject: fill(s.subject, {
+        restaurant: subjectValue(d.restaurant_name || '', ctx),
+        customer: subjectValue(d.customer_name || '', ctx),
+        when: subjectValue(dateTimeLong(d.starts_at, ctx), ctx),
+      }),
+      html: `
       <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
         <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px;margin:0 0 16px">
-          Rezervare anulată de client
+          ${s.title}
         </h1>
         <div style="background:#fff;border:1px solid #E8DCC9;border-radius:12px;padding:20px;margin:16px 0">
-          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Client</div>
+          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">${s.label_client}</div>
           <div style="color:#0A0908;font-size:18px;font-weight:600">${esc(d.customer_name || '')} · <a href="tel:${esc(d.customer_phone || '')}" style="color:#C8963C;text-decoration:none">${esc(d.customer_phone || '')}</a></div>
-          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">Era pentru</div>
-          <div style="color:#0A0908;font-size:18px;font-weight:600">${esc(formatDateTimeRo(d.starts_at))} · ${esc(String(d.party_size || ''))} pers.</div>
+          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">${s.label_was_for}</div>
+          <div style="color:#0A0908;font-size:18px;font-weight:600">${fill(s.when_party, { when, party: esc(String(d.party_size || '')) })}</div>
         </div>
-        <p style="color:#333;font-size:15px;line-height:1.55">Masa s-a eliberat — o poți oferi mai departe.</p>
+        <p style="color:#333;font-size:15px;line-height:1.55">${s.freed}</p>
       </div>
     `,
-  }),
+    }
+  },
 
-  win_back_7d: (d) => ({
-    subject: `${esc(d.restaurant_name || '')} — văd că ai pauză. Pot ajuta cu ceva?`,
-    html: `
+  win_back_7d: (d, ctx = RO_CTX) => {
+    const s = kindStrings('win_back_7d', ctx.lang)
+    const restaurant = esc(d.restaurant_name || '')
+    return {
+      subject: fill(s.subject, { restaurant: subjectValue(d.restaurant_name || '', ctx) }),
+      html: `
       <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
-        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:26px;margin:0 0 16px">Bună ${esc(d.owner_name || 'Patron')},</h1>
+        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:26px;margin:0 0 16px">${greetName(s, d.owner_name, ctx)}</h1>
         <p style="color:#333;font-size:16px;line-height:1.55">
-          Am observat că ultima comandă prin Menuvia la <b>${esc(d.restaurant_name || '')}</b> a fost acum <b>${esc(String(d.days_since_last_order || ''))} zile</b>.
+          ${fill(s.noticed, { restaurant, days: esc(String(d.days_since_last_order || '')) })}
         </p>
         <p style="color:#333;font-size:16px;line-height:1.55">
-          Nu trag concluzii — patroni inteligenți au săptămâni încărcate, sezon scăzut, sau pur și simplu testează altceva. Dar vreau să întreb direct: <b>e ceva ce nu merge cu Menuvia?</b>
+          ${s.ask}
         </p>
         <p style="color:#333;font-size:16px;line-height:1.55">
-          Răspunde la acest email cu un cuvânt sau două. Dacă e un bug, îl rezolv în 24h. Dacă lipsește o feature, o pun în roadmap. Dacă e altceva — ascult.
+          ${s.reply}
         </p>
         <p style="color:#666;font-size:13px;margin-top:24px">— Radu, Menuvia</p>
       </div>
     `,
-  }),
+    }
+  },
 
-  win_back_30d: (d) => ({
-    subject: `${esc(d.restaurant_name || '')} — o lună fără comenzi. Vorbim?`,
-    html: `
+  win_back_30d: (d, ctx = RO_CTX) => {
+    const s = kindStrings('win_back_30d', ctx.lang)
+    const restaurant = esc(d.restaurant_name || '')
+    return {
+      subject: fill(s.subject, { restaurant: subjectValue(d.restaurant_name || '', ctx) }),
+      html: `
       <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
-        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:26px;margin:0 0 16px">Bună ${esc(d.owner_name || 'Patron')},</h1>
+        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:26px;margin:0 0 16px">${greetName(s, d.owner_name, ctx)}</h1>
         <p style="color:#333;font-size:16px;line-height:1.55">
-          ${esc(String(d.days_since_last_order || ''))} zile fără comenzi prin Menuvia la <b>${esc(d.restaurant_name || '')}</b>. Vreau să fiu transparent: la pragul ăsta e clar că ceva nu funcționează pentru tine.
+          ${fill(s.intro, { restaurant, days: esc(String(d.days_since_last_order || '')) })}
         </p>
         <p style="color:#333;font-size:16px;line-height:1.55">
-          Două scenarii probabile:
+          ${s.scenarios}
         </p>
         <ul style="color:#333;font-size:16px;line-height:1.55">
-          <li><b>Ai un blocker tehnic</b> pe care nu l-am identificat. Răspunde la acest email — rezolv săptămâna asta.</li>
-          <li><b>Ai trecut pe alt produs.</b> E ok. Dar înainte, dă-mi 10 minute la telefon (răspunde cu "sună-mă"). Vreau să înțeleg ce am ratat — pentru următorii ${esc(d.restaurant_name || '')}-uri.</li>
+          <li>${s.scenario_blocker}</li>
+          <li>${fill(s.scenario_switched, { restaurant })}</li>
         </ul>
         <p style="color:#333;font-size:16px;line-height:1.55">
-          Oricum ar fi: îți mulțumesc că ai dat o șansă produsului.
+          ${s.thanks}
         </p>
         <p style="color:#666;font-size:13px;margin-top:24px">— Radu</p>
       </div>
     `,
-  }),
+    }
+  },
 
-  nps_survey: (d) => {
+  nps_survey: (d, ctx = RO_CTX) => {
+    const s = kindStrings('nps_survey', ctx.lang)
     // mailto: pre-fill subject = nota + body = ID identificare.
     // Zero infra → patron click pe nota → deschide client email → trimite.
     // Înlocuiește cu URL real (route /nps) dacă vrei pagini de feedback.
+    // Identificatorii („NPS x/10 — …”, „User:”, „Restaurant:”) rămân în română:
+    // îi citește fondatorul la răspuns. Doar prompturile patronului se traduc.
     const replyEmail = FOUNDER_EMAIL
     const link = (score) =>
-      `mailto:${replyEmail}?subject=${encodeURIComponent('NPS ' + score + '/10 — ' + (d.restaurant_name || ''))}&body=${encodeURIComponent('Nota: ' + score + '/10\n\nMotiv (opțional):\n\n\n—\nUser: ' + (d.user_id || '') + '\nRestaurant: ' + (d.restaurant_name || ''))}`
+      `mailto:${replyEmail}?subject=${encodeURIComponent('NPS ' + score + '/10 — ' + (d.restaurant_name || ''))}&body=${encodeURIComponent(fill(s.mailto_score, { score: String(score) }) + '\n\n' + s.mailto_reason + '\n\n\n—\nUser: ' + (d.user_id || '') + '\nRestaurant: ' + (d.restaurant_name || ''))}`
     return {
-      subject: `${esc(d.restaurant_name || 'Menuvia')} — pe scara 0-10, ce notă dai Menuvia?`,
+      subject: fill(s.subject, { restaurant: subjectValue(d.restaurant_name || 'Menuvia', ctx) }),
       html: `
         <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
-          <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:26px;margin:0 0 16px">Bună ${esc(d.owner_name || 'Patron')},</h1>
+          <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:26px;margin:0 0 16px">${greetName(s, d.owner_name, ctx)}</h1>
           <p style="color:#333;font-size:16px;line-height:1.55">
-            Sunt 2 luni de când folosești Menuvia. O singură întrebare:
+            ${s.intro}
           </p>
           <p style="color:#0A0908;font-size:18px;font-weight:600;line-height:1.4;margin:24px 0">
-            Pe scara 0–10, cât de probabil e să recomanzi Menuvia altui patron de restaurant?
+            ${s.question}
           </p>
           <div style="text-align:center;margin:24px 0">
             ${[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
@@ -298,7 +425,7 @@ const TEMPLATES = {
               .join('')}
           </div>
           <p style="color:#666;font-size:13px;line-height:1.55">
-            Click pe notă → deschide email-ul tău cu nota pre-completată. Adaugă 1-2 fraze cu motivul (opțional). Pentru orice notă sub 7, sun personal în 48h.
+            ${s.hint}
           </p>
           <p style="color:#666;font-size:13px;margin-top:24px">— Radu</p>
         </div>
@@ -333,17 +460,20 @@ const TEMPLATES = {
     `,
   }),
 
-  payment_recovered: (d) => ({
-    subject: '✅ Plata s-a procesat cu succes',
-    html: `
+  payment_recovered: (d, ctx = RO_CTX) => {
+    const s = kindStrings('payment_recovered', ctx.lang)
+    return {
+      subject: s.subject,
+      html: `
       <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
-        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px">Plata s-a procesat cu succes</h1>
-        <p style="color:#333;font-size:16px;line-height:1.55">Bună ${esc(d.owner_name || 'patron')},</p>
-        <p style="color:#333;font-size:16px;line-height:1.55">Vestea bună: plata abonamentului a reușit, iar contul rămâne activ fără întreruperi. Mulțumesc pentru încredere.</p>
-        <a href="${APP_URL}/dashboard?tab=billing" style="display:inline-block;background:#C8963C;color:#0A0908;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Vezi detalii facturare →</a>
+        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px">${s.title}</h1>
+        <p style="color:#333;font-size:16px;line-height:1.55">${greetName(s, d.owner_name, ctx)}</p>
+        <p style="color:#333;font-size:16px;line-height:1.55">${s.body}</p>
+        <a href="${APP_URL}/dashboard?tab=billing" style="display:inline-block;background:#C8963C;color:#0A0908;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">${s.cta}</a>
       </div>
     `,
-  }),
+    }
+  },
 
   subscription_cancelled: (d) => ({
     subject: 'Abonamentul Menuvia a fost anulat',
@@ -475,17 +605,23 @@ const TEMPLATES = {
    *                                       cardul „Agentul tău Menuvia" cu cererea, din lotul R2)
    * Suprafața accesului e cea din mig 286: meniul + mesele/QR, nimic altceva.
    */
-  partner_access_requested: (d) => {
+  partner_access_requested: (d, ctx = RO_CTX) => {
+    const s = kindStrings('partner_access_requested', ctx.lang)
     const agent = str(d.agent_display_name)
     const rest = str(d.restaurant_name)
     return {
-      subject: subjectText(`${agent || 'Agentul tău Menuvia'} cere acces la meniul ${rest || 'restaurantului tău'}`),
+      subject: subjectText(
+        fill(s.subject, { agent: agent || s.subject_agent_anon, restaurant: rest || s.subject_restaurant_anon }),
+      ),
       html: emailShell(`
-        <h1 style="${H1}">Agentul tău Menuvia cere acces</h1>
-        <p style="${P}">${greeting(d.owner_name)}</p>
-        <p style="${P}">${agent ? `<b>${esc(agent)}</b>, agentul tău Menuvia,` : 'Agentul tău Menuvia'} cere acces la meniul și mesele ${rest ? `restaurantului <b>${esc(rest)}</b>` : 'restaurantului tău'}, ca să te ajute cu configurarea.</p>
-        <p style="${P}">Accesul acoperă DOAR meniul și mesele cu codurile QR — nu comenzile, încasările, rezervările sau datele fiscale. Îl poți revoca oricând. Fără aprobarea ta, agentul nu primește niciun acces; dacă nu-l cunoști, ignoră acest email.</p>
-        ${ctaButton(appLink(d.approve_url, '/dashboard'), 'Vezi cererea →')}
+        <h1 style="${H1}">${s.title}</h1>
+        <p style="${P}">${greetingFor(d.owner_name, ctx)}</p>
+        <p style="${P}">${fill(s.body, {
+          agent: agent ? fill(s.body_agent, { agent: esc(agent) }) : s.body_agent_anon,
+          restaurant: rest ? fill(s.body_restaurant, { restaurant: esc(rest) }) : s.body_restaurant_anon,
+        })}</p>
+        <p style="${P}">${s.scope}</p>
+        ${ctaButton(appLink(d.approve_url, '/dashboard'), s.cta)}
       `),
     }
   },
@@ -682,52 +818,65 @@ const TEMPLATES = {
   }),
 }
 
+// Ora + ziua în română, pe București: forma de dinainte, folosită de
+// founder_alert (rămas în română). Kind-urile traduse cheamă direct
+// dateTimeLong(iso, ctx) cu fusul și limba lor.
 function formatDateTimeRo(iso) {
-  if (!iso) return ''
-  try {
-    const d = new Date(iso)
-    const date = d.toLocaleDateString('ro-RO', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      // Aceeași zonă ca ora (audit aug 2026): fără ea, pe Netlify (TZ=UTC) o
-      // rezervare de duminică 00:30 România apărea „sâmbătă … 00:30" — zi
-      // greșită cu oră corectă, exact combinația care păcălește owner-ul.
-      timeZone: 'Europe/Bucharest',
-    })
-    const time = d.toLocaleTimeString('ro-RO', {
-      hour: '2-digit',
-      minute: '2-digit',
-      timeZone: 'Europe/Bucharest',
-    })
-    return `${date} · ${time}`
-  } catch {
-    return String(iso)
-  }
+  return dateTimeLong(iso, RO_CTX)
 }
 
-function formatRelativeDayRo(iso) {
-  if (!iso) return ''
-  try {
-    const target = new Date(iso)
-    const now = new Date()
-    const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const startTarget = new Date(target.getFullYear(), target.getMonth(), target.getDate())
-    const days = Math.round((startTarget - startToday) / (1000 * 60 * 60 * 24))
-    if (days <= 0) return 'astăzi'
-    if (days === 1) return 'mâine'
-    return 'pe ' + target.toLocaleDateString('ro-RO', { day: 'numeric', month: 'long' })
-  } catch {
-    return ''
-  }
+function formatLei(n) {
+  return lei(n, RO_CTX)
 }
 
-function weeklyReportHtml(d) {
-  const revenue = formatLei(d.revenue)
-  const prev    = formatLei(d.revenue_prev)
+/** „astăzi” / „mâine” / „pe 18 noiembrie” în limba contextului, pe ziua LOCALULUI. */
+function relativeWord(iso, ctx) {
+  const c = commonStrings(ctx.lang)
+  const r = relativeDay(iso, ctx)
+  if (r.kind === 'today') return c.relative_today
+  if (r.kind === 'tomorrow') return c.relative_tomorrow
+  if (r.kind === 'date') return fill(c.relative_on_date, { date: r.date })
+  return ''
+}
+
+/**
+ * Numele patronului pentru salut. Rezervele coapte în SQL de mig 061
+ * („Stimate patron”/„Stimate utilizator”) sunt o adresare ROMÂNEASCĂ, nu un
+ * nume: în altă limbă ar ieși „Hello Stimate patron,”, deci acolo se tratează
+ * ca „fără nume”. În română rămân exact ca înainte.
+ */
+function ownerName(raw, ctx) {
+  if (!raw) return ''
+  if (ctx.lang !== 'ro' && typeof raw === 'string' && RO_PLACEHOLDER_NAMES.includes(raw.trim())) return ''
+  return raw
+}
+
+/** `s.greet` cu numele (escapat) sau `s.greet_anon` fără nume. */
+function greetName(s, raw, ctx) {
+  const n = ownerName(raw, ctx)
+  return n ? fill(s.greet, { name: esc(n) }) : s.greet_anon
+}
+
+/** O frază cu `{name}`, sau varianta ei fără nume. */
+function namedOrAnon(tpl, anonTpl, raw, ctx) {
+  const n = ownerName(raw, ctx)
+  return n ? fill(tpl, { name: esc(n) }) : anonTpl
+}
+
+/** Salutul șabloanelor rețelei (`greeting`), în limba contextului. */
+function greetingFor(raw, ctx) {
+  if (ctx.lang === 'ro') return greeting(raw)
+  const c = commonStrings(ctx.lang)
+  const n = str(ownerName(raw, ctx))
+  return n ? fill(c.greet, { name: esc(n) }) : c.greet_anon
+}
+
+function weeklyReportHtml(d, ctx = RO_CTX) {
+  const s = kindStrings('weekly_report', ctx.lang)
+  const revenue = lei(d.revenue, ctx)
   const change  = d.revenue_change_pct
   const orders  = d.orders || 0
-  const avgT    = formatLei(d.avg_ticket)
+  const avgT    = lei(d.avg_ticket, ctx)
   const products = Array.isArray(d.top_products) ? d.top_products : []
 
   let trendIcon = '→'
@@ -739,115 +888,95 @@ function weeklyReportHtml(d) {
 
   return `
     <div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#fafaf7">
-      <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:26px;margin:0 0 6px">Raport săptămânal</h1>
-      <p style="color:#666;margin:0 0 24px">${formatPeriod(d.period_start, d.period_end)}</p>
+      <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:26px;margin:0 0 6px">${s.title}</h1>
+      <p style="color:#666;margin:0 0 24px">${periodShort(d.period_start, d.period_end, ctx)}</p>
 
       <div style="background:#fff;border:1px solid #e8e4dc;border-radius:12px;padding:20px;margin-bottom:16px">
-        <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Venit total</div>
+        <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">${s.label_revenue}</div>
         <div style="font-family:Georgia,serif;font-size:36px;font-weight:600;color:#0A0908">${revenue}</div>
-        <div style="color:${trendColor};font-size:14px;margin-top:4px">${trendIcon} ${change !== null ? Math.abs(change) + '% vs săpt. trecută' : 'date insuficiente'}</div>
+        <div style="color:${trendColor};font-size:14px;margin-top:4px">${trendIcon} ${change !== null ? fill(s.trend_vs_prev, { pct: pctAbs(change, ctx) }) : s.no_data}</div>
       </div>
 
       <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
-        <tr><td style="padding:8px 0;color:#666">Comenzi:</td><td style="text-align:right;font-weight:600">${orders}</td></tr>
-        <tr><td style="padding:8px 0;color:#666">Valoare medie bon:</td><td style="text-align:right;font-weight:600">${avgT}</td></tr>
-        <tr><td style="padding:8px 0;color:#666">Ora de vârf:</td><td style="text-align:right;font-weight:600">${d.busiest_hour != null ? d.busiest_hour + ':00 – ' + (d.busiest_hour + 1) + ':00' : '—'}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">${s.label_orders}</td><td style="text-align:right;font-weight:600">${orders}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">${s.label_avg}</td><td style="text-align:right;font-weight:600">${avgT}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">${s.label_peak}</td><td style="text-align:right;font-weight:600">${d.busiest_hour != null ? d.busiest_hour + ':00 – ' + (d.busiest_hour + 1) + ':00' : '—'}</td></tr>
       </table>
 
       ${products.length > 0 ? `
-      <h2 style="font-family:Georgia,serif;font-size:18px;color:#0A0908;margin-top:24px">Top produse</h2>
+      <h2 style="font-family:Georgia,serif;font-size:18px;color:#0A0908;margin-top:24px">${s.top_title}</h2>
       <table style="width:100%;border-collapse:collapse">
         ${products.map((p, i) => `
           <tr style="border-top:${i === 0 ? '1px solid #e8e4dc' : '1px solid #f3efe7'}">
             <td style="padding:10px 0;color:#0A0908">${i + 1}. ${esc(p.name)}</td>
-            <td style="padding:10px 0;color:#666;text-align:right">${p.units_sold} buc</td>
-            <td style="padding:10px 0;color:#0A0908;text-align:right;font-weight:600">${formatLei(p.revenue)}</td>
+            <td style="padding:10px 0;color:#666;text-align:right">${fill(s.units, { n: `${p.units_sold}` })}</td>
+            <td style="padding:10px 0;color:#0A0908;text-align:right;font-weight:600">${lei(p.revenue, ctx)}</td>
           </tr>
         `).join('')}
       </table>
       ` : ''}
 
-      <a href="${APP_URL}/dashboard?tab=analytics" style="display:inline-block;background:#C8963C;color:#0A0908;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin-top:24px">Vezi raport detaliat →</a>
+      <a href="${APP_URL}/dashboard?tab=analytics" style="display:inline-block;background:#C8963C;color:#0A0908;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin-top:24px">${s.cta}</a>
 
-      <p style="color:#999;font-size:12px;margin-top:32px;border-top:1px solid #e8e4dc;padding-top:16px">Primești acest raport săptămânal pentru că ai un cont Menuvia activ. Poți dezactiva în setări.</p>
+      <p style="color:#999;font-size:12px;margin-top:32px;border-top:1px solid #e8e4dc;padding-top:16px">${s.footer}</p>
     </div>
   `
 }
 
-function dailyReportHtml(d) {
-  const revenue = formatLei(d.revenue)
+function dailyReportHtml(d, ctx = RO_CTX) {
+  const s = kindStrings('daily_report', ctx.lang)
+  const revenue = lei(d.revenue, ctx)
   const orders  = d.orders || 0
-  const avgT    = formatLei(d.avg_ticket)
+  const avgT    = lei(d.avg_ticket, ctx)
   const change  = d.revenue_change_pct
   const products = Array.isArray(d.top_products) ? d.top_products : []
-  const dayLabel = formatRoDay(d.day)
+  // `day` e o DATĂ (compute_daily_report), nu un instant: aceeași zi pe orice gazdă.
+  const dayLabel = calendarDay(d.day, ctx)
 
   let trendIcon = '→'
   let trendColor = '#666'
-  let trendLabel = 'date insuficiente'
+  let trendLabel = s.no_data
   if (change !== null && change !== undefined) {
     if (change > 5)  { trendIcon = '↗'; trendColor = '#2C7A2C' }
     if (change < -5) { trendIcon = '↘'; trendColor = '#A93232' }
-    trendLabel = `${Math.abs(change)}% vs ziua precedentă`
+    trendLabel = fill(s.trend_vs_prev, { pct: pctAbs(change, ctx) })
   }
 
   return `
     <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
-      <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px;margin:0 0 4px">Raport zilnic</h1>
+      <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px;margin:0 0 4px">${s.title}</h1>
       <p style="color:#666;margin:0 0 20px">${esc(dayLabel)} · ${esc(d.restaurant_name || '')}</p>
 
       <div style="background:#fff;border:1px solid #e8e4dc;border-radius:12px;padding:18px;margin-bottom:14px">
-        <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Venit ieri</div>
+        <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">${s.label_revenue}</div>
         <div style="font-family:Georgia,serif;font-size:32px;font-weight:600;color:#0A0908">${revenue}</div>
         <div style="color:${trendColor};font-size:14px;margin-top:4px">${trendIcon} ${trendLabel}</div>
       </div>
 
       <table style="width:100%;border-collapse:collapse;margin-bottom:14px">
-        <tr><td style="padding:6px 0;color:#666">Comenzi:</td><td style="text-align:right;font-weight:600">${orders}</td></tr>
-        <tr><td style="padding:6px 0;color:#666">Valoare medie bon:</td><td style="text-align:right;font-weight:600">${avgT}</td></tr>
-        <tr><td style="padding:6px 0;color:#666">Ora de vârf:</td><td style="text-align:right;font-weight:600">${d.busiest_hour != null ? d.busiest_hour + ':00 – ' + (d.busiest_hour + 1) + ':00' : '—'}</td></tr>
+        <tr><td style="padding:6px 0;color:#666">${s.label_orders}</td><td style="text-align:right;font-weight:600">${orders}</td></tr>
+        <tr><td style="padding:6px 0;color:#666">${s.label_avg}</td><td style="text-align:right;font-weight:600">${avgT}</td></tr>
+        <tr><td style="padding:6px 0;color:#666">${s.label_peak}</td><td style="text-align:right;font-weight:600">${d.busiest_hour != null ? d.busiest_hour + ':00 – ' + (d.busiest_hour + 1) + ':00' : '—'}</td></tr>
       </table>
 
       ${products.length > 0 ? `
-      <h2 style="font-family:Georgia,serif;font-size:16px;color:#0A0908;margin:18px 0 8px">Top produse</h2>
+      <h2 style="font-family:Georgia,serif;font-size:16px;color:#0A0908;margin:18px 0 8px">${s.top_title}</h2>
       <table style="width:100%;border-collapse:collapse">
         ${products.map((p, i) => `
           <tr style="border-top:${i === 0 ? '1px solid #e8e4dc' : '1px solid #f3efe7'}">
             <td style="padding:8px 0;color:#0A0908">${i + 1}. ${esc(p.name)}</td>
-            <td style="padding:8px 0;color:#666;text-align:right">${p.units_sold} buc</td>
-            <td style="padding:8px 0;color:#0A0908;text-align:right;font-weight:600">${formatLei(p.revenue)}</td>
+            <td style="padding:8px 0;color:#666;text-align:right">${fill(s.units, { n: `${p.units_sold}` })}</td>
+            <td style="padding:8px 0;color:#0A0908;text-align:right;font-weight:600">${lei(p.revenue, ctx)}</td>
           </tr>
         `).join('')}
       </table>
       ` : ''}
 
-      <a href="${APP_URL}/dashboard?tab=analytics" style="display:inline-block;background:#C8963C;color:#0A0908;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600;margin-top:20px">Vezi dashboard →</a>
+      <a href="${APP_URL}/dashboard?tab=analytics" style="display:inline-block;background:#C8963C;color:#0A0908;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600;margin-top:20px">${s.cta}</a>
 
-      <p style="color:#999;font-size:12px;margin-top:28px;border-top:1px solid #e8e4dc;padding-top:14px">Primești acest raport zilnic pentru că ai un cont Menuvia activ. Răspunde la acest email cu „stop daily" și îl oprim.</p>
+      <p style="color:#999;font-size:12px;margin-top:28px;border-top:1px solid #e8e4dc;padding-top:14px">${s.footer}</p>
     </div>
   `
-}
-
-function formatRoDay(day) {
-  if (!day) return ''
-  try {
-    const d = new Date(day)
-    return d.toLocaleDateString('ro-RO', { weekday: 'long', day: 'numeric', month: 'long' })
-  } catch { return String(day) }
-}
-
-function formatLei(n) {
-  if (n == null) return '—'
-  return new Intl.NumberFormat('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n) + ' lei'
-}
-
-function formatPeriod(start, end) {
-  try {
-    const s = new Date(start)
-    const e = new Date(end)
-    const fmt = (d) => d.toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' })
-    return `${fmt(s)} – ${fmt(new Date(e.getTime() - 1))}`
-  } catch { return '' }
 }
 
 function esc(s) {
@@ -909,6 +1038,16 @@ function subjectText(s) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 150)
+}
+
+/**
+ * O valoare interpolată într-un SUBIECT. Pe 'ro' rămâne esc(): oracolul EO
+ * îngheață octeții de azi (reziduu consemnat — un nume cu apostrof apare
+ * „&#39;” în inbox-ul românesc, ca înainte de L8a). În celelalte limbi
+ * subiectul e text simplu, ca la invitație (EL8): esc() ar arăta entitățile.
+ */
+function subjectValue(raw, ctx) {
+  return ctx && ctx.lang !== 'ro' ? subjectText(raw) : esc(raw)
 }
 
 /**
@@ -1177,6 +1316,48 @@ async function postEmailAlert(message) {
   }
 }
 
+// ── Limba și fusul fiecărui email din lot (lotul L8a) ─────────
+// O interogare pe `profiles` (doar `user_id`-urile kind-urilor de personal) și
+// una pe `restaurants` (doar `template_data.restaurant_id` al kind-urilor cu
+// fus operațional / ale oaspetelui), indiferent de mărimea lotului. Tolerant
+// pe tot drumul: orice eșec → RO_CTX (română, București), adică exact ce
+// pleca înainte; nu aruncă niciodată.
+async function resolveEmailContexts(supabase, rows, { now = Date.now(), enabled = ENABLED_STAFF_LANGS } = {}) {
+  const out = new Map()
+  try {
+    const list = Array.isArray(rows) ? rows : []
+    const userIds = []
+    const restaurantIds = []
+    for (const row of list) {
+      const a = row && EMAIL_AUDIENCE[row.template_kind]
+      if (!a) continue
+      if (a.audience === 'staff' && isUuid(row.user_id)) userIds.push(row.user_id)
+      const rid = row.template_data && row.template_data.restaurant_id
+      if ((a.tz === 'operational' || a.audience === 'guest') && isUuid(rid)) restaurantIds.push(rid)
+    }
+    const [langs, restaurants] = await Promise.all([
+      fetchUiLanguages(supabase, userIds),
+      fetchRestaurantsRegional(supabase, restaurantIds),
+    ])
+    for (const row of list) {
+      if (!row) continue
+      const a = EMAIL_AUDIENCE[row.template_kind]
+      if (!a) continue
+      const rid = row.template_data && row.template_data.restaurant_id
+      const rest = isUuid(rid) ? restaurants.get(rid) : undefined
+      let lang = 'ro'
+      if (a.audience === 'staff') lang = staffEmailLang(langs.get(row.user_id), enabled)
+      else if (a.audience === 'guest') lang = guestEmailLang(rest && rest.language)
+      const timeZone = a.tz === 'operational' && rest ? safeTimeZone(rest.timezone) : DEFAULT_TZ
+      out.set(row.id, makeCtx({ lang, locale: emailLocale(lang, rest && rest.country), timeZone, now }))
+    }
+  } catch (e) {
+    console.warn('[process-email-queue] contextul de limbă/fus a eșuat, lotul pleacă în română:', e && e.message)
+    out.clear()
+  }
+  return out
+}
+
 // ── Main handler ──────────────────────────────────────────────
 exports.handler = async () => {
   const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
@@ -1191,6 +1372,9 @@ exports.handler = async () => {
   }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+  // Momentul trimiterii, O dată per rulare: „astăzi/mâine” din reminder se
+  // judecă față de el, pe ziua localului.
+  const now = Date.now()
 
   // Claim atomic până la 30 emailuri (UPDATE ... FOR UPDATE SKIP LOCKED via RPC) — rândurile
   // sunt deja marcate 'sending' de RPC, deci două rulări suprapuse NU pot prinde același rând
@@ -1205,6 +1389,10 @@ exports.handler = async () => {
   if (!pending || pending.length === 0) {
     return { statusCode: 200, body: 'No pending emails' }
   }
+
+  // Limba destinatarului + fusul localului, rezolvate pe LOT (2 interogări
+  // maximum, tolerante). Un rând fără context → RO_CTX = ieșirea de dinainte.
+  const ctxs = await resolveEmailContexts(supabase, pending, { now })
 
   let sent = 0, failed = 0
   // Eșecuri de autentificare Resend (401/403) = problemă de CONFIG (cheie
@@ -1259,7 +1447,7 @@ exports.handler = async () => {
 
     let rendered
     try {
-      rendered = template(email.template_data || {})
+      rendered = template(email.template_data || {}, ctxs.get(email.id) || RO_CTX)
     } catch (err) {
       await supabase.from('email_queue').update({
         status: 'failed',
@@ -1395,3 +1583,8 @@ exports.handler = async () => {
 // Pentru testele din tests/functions (EK1–EK7): fiecare valoare din enumul
 // email_template_kind trebuie să aibă șablon, iar șabloanele se randează pur.
 exports.TEMPLATES = TEMPLATES
+// Lotul L8a: registrul de audiență (EL6), rezolvarea contextului (EW) și
+// randarea pură cu un context dat (EO/EL).
+exports.EMAIL_AUDIENCE = EMAIL_AUDIENCE
+exports.resolveEmailContexts = resolveEmailContexts
+exports.renderEmail = (kind, data, ctx) => TEMPLATES[kind](data || {}, ctx || RO_CTX)

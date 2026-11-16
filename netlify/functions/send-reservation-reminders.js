@@ -99,6 +99,10 @@ exports.handler = async () => {
             starts_at: r.starts_at,
             party_size: r.party_size,
             confirmation_code: r.confirmation_code,
+            // Lotul L8a: worker-ul de email citește fusul și limba de bază ale
+            // LOCALULUI după această cheie (o ignoră un worker vechi). Doar
+            // emailul: SMS-ul de mai jos rămâne neatins până la L8b (SR2).
+            restaurant_id: r.restaurant_id,
           },
           p_recipient_name: r.customer_name,
           p_dedup_key: 'reservation_reminder:' + r.id,
