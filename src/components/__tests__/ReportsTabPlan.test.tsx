@@ -10,12 +10,20 @@
 //        nota despre raportul Z necondiționată.
 //   RP2  control pozitiv pe Planul 3: coloanele de sume și nota despre raportul
 //        Z apar.
-import { describe, it, expect, vi } from 'vitest'
+//   RP3  lotul G2b: prop-ul `timeZone` decide granițele zilei cerute serverului.
+//        Acum = 15 nov 03:30Z = 14 nov 22:30 la New York; pe „Azi” comenzile se
+//        cer pe [14 nov 05:00Z, 15 nov 04:59:59.999Z] (ziua New York-ului).
+//        Control: fără prop (București) aceeași clipă e 15 nov → de la 14 nov
+//        22:00Z. Mutația care pică: prop-ul ignorat (`zonedDayRange(…,
+//        DEFAULT_RESTAURANT_TZ)`) sau scos din DashboardPage (ZT5).
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
-const { rows } = vi.hoisted(() => {
+const { rows, filters } = vi.hoisted(() => {
   const now = new Date().toISOString()
   return {
+    // Filtrele de interval cerute pe fiecare tabelă: [tabelă, metodă, coloană, valoare].
+    filters: [] as [string, string, string, unknown][],
     rows: {
       orders: [
         {
@@ -41,8 +49,14 @@ const { rows } = vi.hoisted(() => {
 vi.mock('../../lib/supabase', () => {
   function chain(table: string) {
     const b: Record<string, unknown> = {}
-    for (const m of ['select', 'eq', 'neq', 'gte', 'lte', 'order', 'range', 'in']) {
+    for (const m of ['select', 'eq', 'neq', 'order', 'range', 'in']) {
       b[m] = vi.fn(() => b)
+    }
+    for (const m of ['gte', 'lte']) {
+      b[m] = vi.fn((col: string, val: unknown) => {
+        filters.push([table, m, col, val])
+        return b
+      })
     }
     b.then = (
       onFulfilled: (v: { data: unknown[]; error: null }) => unknown,
@@ -99,4 +113,27 @@ describe('ReportsTab — sumele doar pe planul cu bon', () => {
     expect(screen.getAllByText('Venituri').length).toBeGreaterThanOrEqual(1)
     expect(container.textContent ?? '').toMatch(/raportul Z fiscal/)
   })
+
+  it('RP3: granițele zilei urmează prop-ul timeZone (New York vs București)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-15T03:30:00Z'))
+    filters.length = 0
+    const ny = render(<ReportsTab restaurantId="r1" fiscalReports={false} timeZone="America/New_York" />)
+    expect(await screen.findByText('Supă de roșii')).toBeInTheDocument()
+    const orders = filters.filter(([t, , c]) => t === 'orders' && c === 'created_at')
+    expect(orders).toContainEqual(['orders', 'gte', 'created_at', '2026-11-14T05:00:00.000Z'])
+    expect(orders).toContainEqual(['orders', 'lte', 'created_at', '2026-11-15T04:59:59.999Z'])
+    ny.unmount()
+
+    filters.length = 0
+    render(<ReportsTab restaurantId="r1" fiscalReports={false} />)
+    expect(await screen.findByText('Supă de roșii')).toBeInTheDocument()
+    const ro = filters.filter(([t, , c]) => t === 'orders' && c === 'created_at')
+    expect(ro).toContainEqual(['orders', 'gte', 'created_at', '2026-11-14T22:00:00.000Z'])
+    expect(ro).toContainEqual(['orders', 'lte', 'created_at', '2026-11-15T21:59:59.999Z'])
+  })
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })

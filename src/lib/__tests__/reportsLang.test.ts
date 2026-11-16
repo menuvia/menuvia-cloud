@@ -30,6 +30,25 @@
 //        de „15.11.”), fusul rămâne Europe/Bucharest (o comandă la 23:30 UTC pe
 //        14 noiembrie e ziua de 15 în orice limbă). Mutația care pică:
 //        `chartDayLabel` fără `timeZone`.
+//   YA12 lotul G2b: `reportPeriodRange` pe București = `periodRange` VECHI din
+//        ReportsTab (copiat verbatim mai jos, cu `setDate` pe fusul gazdei —
+//        UTC în CI) pe instante fixe, inclusiv 24 oct 22:30Z (01:30 pe 25 oct,
+//        zi de 25 h). Excepția consemnată: 25 oct 21:30Z (23:30, ziua de 25 h),
+//        unde vechiul „ultimele 7 zile” pornea pe 20 oct — 6 zile calendaristice
+//        — pe orice browser al cărui fus nu e al României (UTC în CI: `setDate`
+//        scădea 6 × 24 h, iar ziua de 25 h „lungea” fereastra); aritmetica pe
+//        șir dă 19 oct oriunde. Valoarea VECHE din acel caz depinde de gazdă
+//        (20 pe UTC, 19 pe București), deci testul aserteză doar valoarea nouă.
+//        Oracolul de etichetă (`oldPeriodLabel`) formatează pe UTC: codul vechi
+//        folosea fusul gazdei, la fel de dependent de gazdă (vezi oracolul).
+//   YA13 New York, acum = 13 nov 04:30Z (23:30 pe 12): azi = 12, săptămâna de
+//        la 6, luna de la 14 oct. Mutația care pică: ziua României (13/7/15).
+//   YA14 ziua de pe grafic în fusul dat: 14 nov 23:30Z pe New York = „14.11”
+//        (implicitul București, YA10, dă „15.11”; un fus invalid tot „15.11”,
+//        fără RangeError — mutația care pică: `safeTimeZone` scos din
+//        `chartDayLabel`); structural, `periodLabelT`
+//        formatează capetele cu `formatYmd`, nu `new Date(from)` (ziua de
+//        dinainte la vest de UTC).
 //   YA11 clichet STRUCTURAL: ReportsTab cere SUS, înaintea primului `return`,
 //        `reports` + `common` și niciun alt namespace; nu mai cheamă
 //        `toUserMessage(` direct (doar prin `describeStaffError`); fila rămâne
@@ -47,10 +66,12 @@ import reportsEn from '../../i18n/ns/reports/en'
 import reportsFr from '../../i18n/ns/reports/fr'
 import reportsDe from '../../i18n/ns/reports/de'
 import { toCsv } from '../reports'
+import { toRomaniaYMD } from '../dates'
 import {
   buildReportCsv,
   chartDayLabel,
   periodLabelT,
+  reportPeriodRange,
   reportPdfFilename,
   reportPdfText,
   type ReportExportData,
@@ -99,6 +120,12 @@ const DATA: ReportExportData = {
 
 // ─── ORACOLUL: codul de dinainte din ReportsTab, copiat VERBATIM ─────────────
 // (doar parametrizat: variabilele din componentă au devenit argumente).
+// Singura abatere de la verbatim: `timeZone: 'UTC'`. Codul vechi formata
+// `new Date('YYYY-MM-DD')` (miezul nopții UTC) pe fusul GAZDEI, deci era el
+// însuși dependent de gazdă — la vest de UTC arăta ziua de DINAINTE (defectul
+// reparat de `formatYmd`). Pe gazdele UTC și la est de UTC (inclusiv România)
+// oracolul dă exact ce dădea codul vechi; fără fus fix YA7 pica pe o gazdă din
+// America.
 function oldPeriodLabel(p: ReportPeriod, from: string, to: string) {
   if (p === 'today') return 'Azi'
   if (p === 'week') return 'Ultimele 7 zile'
@@ -108,8 +135,9 @@ function oldPeriodLabel(p: ReportPeriod, from: string, to: string) {
       day: '2-digit',
       month: 'long',
       year: 'numeric',
+      timeZone: 'UTC',
     })
-  return `${new Date(from).toLocaleDateString('ro-RO', { day: '2-digit', month: 'short' })} – ${new Date(to).toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', year: 'numeric' })}`
+  return `${new Date(from).toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', timeZone: 'UTC' })} – ${new Date(to).toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })}`
 }
 function oldCsv(period: ReportPeriod, range: { from: string; to: string }, d: ReportExportData) {
   const { totalOrders, revenue, avgTicket, cashRev, cardRev, voucherRev, onlineRev, otherRev, qrOrders, waiterOrders } =
@@ -367,6 +395,68 @@ describe('perioada și ziua de pe grafic', () => {
     expect(chartDayLabel('en-GB', late)).toBe('15/11')
     expect(chartDayLabel('fr-FR', late)).toBe('15/11')
     expect(chartDayLabel('de-DE', late)).toBe('15.11.')
+  })
+})
+
+// ORACOLUL perioadei: `addDays` + `periodRange` de dinainte din ReportsTab,
+// VERBATIM (doar „azi” devenit parametru).
+function oldAddDays(d: Date, n: number) {
+  const r = new Date(d)
+  r.setDate(r.getDate() + n)
+  return r
+}
+function oldPeriodRange(p: ReportPeriod, custom: { from: string; to: string }, today: Date) {
+  const todayYMD = toRomaniaYMD(today)
+  if (p === 'today') return { from: todayYMD, to: todayYMD }
+  if (p === 'week') return { from: toRomaniaYMD(oldAddDays(today, -6)), to: todayYMD }
+  if (p === 'month') return { from: toRomaniaYMD(oldAddDays(today, -29)), to: todayYMD }
+  return custom
+}
+
+describe('perioada pe fusul zilei de raportare (lotul G2b)', () => {
+  const custom = { from: '2026-03-02', to: '2026-03-09' }
+  it('YA12: pe București = perioada de dinainte (cu excepția consemnată)', () => {
+    const instants = [
+      '2026-11-15T10:00:00Z',
+      '2026-11-14T22:30:00Z', // 00:30 pe 15 nov la București
+      '2026-10-24T22:30:00Z', // 01:30 pe 25 oct (zi de 25 h)
+      '2026-03-28T22:30:00Z', // 00:30 pe 29 mar (zi de 23 h)
+      '2026-01-01T21:59:00Z',
+    ]
+    for (const iso of instants)
+      for (const p of ['today', 'week', 'month', 'custom'] as const)
+        expect(reportPeriodRange(p, custom, 'Europe/Bucharest', new Date(iso)), `${iso} ${p}`).toEqual(
+          oldPeriodRange(p, custom, new Date(iso)),
+        )
+    // 23:30 pe 25 oct (ziua de 25 h): vechiul `setDate` pe fusul gazdei scădea,
+    // pe o gazdă UTC (CI), 6 × 24 h și ajungea pe 20 oct — o săptămână de 6
+    // zile; pe o gazdă din România dădea 19 oct. Valoarea veche depinde deci de
+    // gazdă și NU se aserteză; cea nouă e 7 zile calendaristice pe orice gazdă.
+    const late = new Date('2026-10-25T21:30:00Z')
+    expect(reportPeriodRange('week', custom, 'Europe/Bucharest', late)).toEqual({ from: '2026-10-19', to: '2026-10-25' })
+  })
+
+  it('YA13: pe fusul localului (New York)', () => {
+    const now = new Date('2026-11-13T04:30:00Z')
+    const tz = 'America/New_York'
+    expect(reportPeriodRange('today', custom, tz, now)).toEqual({ from: '2026-11-12', to: '2026-11-12' })
+    expect(reportPeriodRange('week', custom, tz, now)).toEqual({ from: '2026-11-06', to: '2026-11-12' })
+    expect(reportPeriodRange('month', custom, tz, now)).toEqual({ from: '2026-10-14', to: '2026-11-12' })
+    expect(reportPeriodRange('custom', custom, tz, now)).toEqual(custom)
+  })
+
+  it('YA14: ziua de pe grafic în fusul dat; eticheta perioadei pe DATE', () => {
+    const late = '2026-11-14T23:30:00Z'
+    expect(chartDayLabel('ro-RO', late, 'America/New_York')).toBe('14.11')
+    expect(chartDayLabel('ro-RO', late)).toBe('15.11')
+    expect(chartDayLabel('en-GB', late, 'America/New_York')).toBe('14/11')
+    // Fus invalid → București, nu RangeError în randarea graficului.
+    expect(chartDayLabel('ro-RO', late, 'Mars/Olympus')).toBe('15.11')
+    const helper = read('src/lib/reportsExport.ts')
+    const body = helper.slice(helper.indexOf('export function periodLabelT('))
+    const fn = body.slice(0, body.indexOf('\n}\n'))
+    expect(fn).toContain('formatYmd(from')
+    expect(fn).not.toMatch(/new Date\((from|to)\)/)
   })
 })
 

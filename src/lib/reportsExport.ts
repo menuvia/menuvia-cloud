@@ -11,6 +11,7 @@
 import type { Translator } from '../i18n/core'
 import type reportsRo from '../i18n/ns/reports/ro'
 import { toCsv, type CategorySalesRow, type HourlySalesRow, type WaiterSalesRow } from './reports'
+import { DEFAULT_RESTAURANT_TZ, addDaysYmd, formatYmd, safeTimeZone, toZonedYMD } from './dates'
 
 export type ReportsT = Translator<typeof reportsRo>
 export type ReportPeriod = 'today' | 'week' | 'month' | 'custom'
@@ -35,8 +36,30 @@ export interface ReportTopProduct {
   emoji: string
 }
 
+/**
+ * Intervalul de zile (YYYY-MM-DD, capete incluse) al unei perioade, în fusul
+ * zilei de raportare (`reportTimeZone`, lotul G2b): azi, ultimele 7 zile,
+ * ultimele 30 de zile sau intervalul ales. Aritmetica e pe ȘIR (`addDaysYmd`),
+ * nu `setDate` pe fusul browserului — acela amesteca ziua telefonului cu ziua
+ * localului lângă miezul nopții și peste schimbarea orei.
+ */
+export function reportPeriodRange(
+  p: ReportPeriod,
+  custom: { from: string; to: string },
+  timeZone: string,
+  now: Date = new Date(),
+): { from: string; to: string } {
+  const today = toZonedYMD(now, timeZone)
+  if (p === 'today') return { from: today, to: today }
+  if (p === 'week') return { from: addDaysYmd(today, -6), to: today }
+  if (p === 'month') return { from: addDaysYmd(today, -29), to: today }
+  return custom
+}
+
 /** Eticheta perioadei (antetul filei, titlul CSV, linia a doua din PDF).
- *  `locale` = `staffLocale(limbă)` — în română „ro-RO”, ca înainte. */
+ *  `locale` = `staffLocale(limbă)` — în română „ro-RO”, ca înainte. Capetele
+ *  sunt DATE fără oră: `formatYmd`, nu `new Date(șir)` formatat pe fusul
+ *  gazdei (care arăta ziua de dinainte pe un browser la vest de UTC). */
 export function periodLabelT(
   tr: ReportsT,
   locale: string,
@@ -47,27 +70,27 @@ export function periodLabelT(
   if (p === 'today') return tr.t('period_today')
   if (p === 'week') return tr.t('period_week')
   if (p === 'month') return tr.t('period_month')
-  if (from === to)
-    return new Date(from).toLocaleDateString(locale, {
-      day: '2-digit',
-      month: 'long',
-      year: 'numeric',
-    })
+  if (from === to) return formatYmd(from, locale, { day: '2-digit', month: 'long', year: 'numeric' })
   return tr.t('period_range', {
-    from: new Date(from).toLocaleDateString(locale, { day: '2-digit', month: 'short' }),
-    to: new Date(to).toLocaleDateString(locale, { day: '2-digit', month: 'short', year: 'numeric' }),
+    from: formatYmd(from, locale, { day: '2-digit', month: 'short' }),
+    to: formatYmd(to, locale, { day: '2-digit', month: 'short', year: 'numeric' }),
   })
 }
 
-// Ziua de pe axa graficului (în română „15.11”, ca înainte). Fusul rămâne
-// Europe/Bucharest în orice limbă (fusul e lotul G2). Un formatter per limbă,
-// construit o singură dată (OPT-R2: nu per comandă în buclă).
+// Ziua de pe axa graficului (în română „15.11”, ca înainte), în fusul zilei de
+// raportare a ecranului (implicit București — singurul fus pe care îl are
+// suprafața fiscală, unde graficul de venituri e vizibil). Un formatter per
+// (limbă, fus), construit o singură dată (OPT-R2: nu per comandă în buclă).
+// Fusul trece prin `safeTimeZone`, ca restul helperilor zonați: un fus invalid
+// dă București, nu RangeError în randarea graficului.
 const dayFormatters = new Map<string, Intl.DateTimeFormat>()
-export function chartDayLabel(locale: string, iso: string): string {
-  let f = dayFormatters.get(locale)
+export function chartDayLabel(locale: string, iso: string, timeZone: string = DEFAULT_RESTAURANT_TZ): string {
+  const tz = safeTimeZone(timeZone)
+  const key = `${locale}|${tz}`
+  let f = dayFormatters.get(key)
   if (!f) {
-    f = new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', timeZone: 'Europe/Bucharest' })
-    dayFormatters.set(locale, f)
+    f = new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', timeZone: tz })
+    dayFormatters.set(key, f)
   }
   return f.format(new Date(iso))
 }

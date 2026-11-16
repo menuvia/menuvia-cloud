@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, Suspense, lazy } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { useFeatures } from '../hooks/useFeatures'
-import { productLimitReason, surfaceTiers } from '../lib/features'
+import { countryScopedFeatures, hasFeature, productLimitReason, surfaceTiers } from '../lib/features'
 import { planSurface, planUpsellTarget } from '../lib/planSurface'
 import { browserSite } from '../lib/domain'
 import {
@@ -11,6 +11,7 @@ import {
   storePendingRegional,
 } from '../lib/pendingCountry'
 import { regionalPatchFrom } from '../lib/countries'
+import { reportTimeZone, restaurantTimeZone } from '../lib/dates'
 import { getPlan as getCommercialPlan } from '../lib/plans'
 import { useRestaurantModules } from '../hooks/useRestaurantModules'
 import { useAuth } from '../contexts/AuthContext'
@@ -500,6 +501,9 @@ export default function DashboardPage({
   // regionale salvate de om sunt autoritatea, deci o intenție de copiere
   // rămasă de la crearea locației nu mai are voie să le suprascrie la
   // următoarea încărcare — se șterge pe orice salvare reușită care le atinge.
+  // `useFeatures` e declarat mai jos (are nevoie de restaurantul activ), deci
+  // salvarea ajunge la `reload` printr-un ref.
+  const featuresReloadRef = useRef<(() => Promise<void>) | null>(null)
   const updateFromSettings = useCallback(
     async (id: string, fields: Parameters<typeof updateRestaurant>[1]) => {
       const res = await updateRestaurant(id, fields)
@@ -508,6 +512,12 @@ export default function DashboardPage({
         ('country' in fields || 'currency' in fields || 'timezone' in fields || 'language' in fields)
       )
         clearPendingRegional(id)
+      // Țara decide gate-urile pe bani (`feature_requires_ro`, mig 296) ȘI ziua
+      // de raportare (`reportTimeZone`): după o schimbare reușită, features-urile
+      // din cache s-ar fi contrazis cu noul fus (Rapoartele ar fi cerut banii pe
+      // ziua noului fus, cu defalcarea pe ziua românească) până la reîncărcare —
+      // recenzia CodeRabbit pe #377. Revalidare forțată, doar la schimbarea țării.
+      if (!res.error && 'country' in fields) void featuresReloadRef.current?.()
       return res
     },
     [updateRestaurant],
@@ -783,6 +793,7 @@ export default function DashboardPage({
     })
   }
   const features = useFeatures(restaurant?.id ?? null)
+  featuresReloadRef.current = features.reload
   const modulesState = useRestaurantModules(restaurant?.id ?? null)
 
   // Țara aleasă la onboarding (.com) al cărei UPDATE a picat: o reîncercăm O
@@ -796,6 +807,14 @@ export default function DashboardPage({
   const restaurantCurrency = restaurant?.currency ?? null
   const restaurantTimezone = restaurant?.timezone ?? null
   const restaurantLanguage = restaurant?.language ?? null
+  // Lotul G2b: cele DOUĂ fusuri ale panoului, calculate O dată per restaurant
+  // (lib/dates.ts; tab-urile nu-și derivă singure fusul). Ziua de RAPORTARE
+  // (Acasă, Rapoarte, Stocuri/NIR): România → București, ca banii; altfel fusul
+  // localului. Fusul OPERAȚIONAL (Rezervări, harta): fusul localului oricare ar
+  // fi țara, ca serverul (mig 298). AnalyticsTab și VatReportTab sunt fiscale
+  // (ziua românească), deci nu primesc fus.
+  const reportTz = reportTimeZone(restaurant)
+  const localTz = restaurantTimeZone(restaurant)
   const isRealOwner =
     activeRole === 'owner' && !inFounderView && restaurant != null && restaurant.owner_id === user?.id
   useEffect(() => {
@@ -852,20 +871,28 @@ export default function DashboardPage({
   // separat „știm planul" de „planul e free" — banda „Demo gratuit", eticheta
   // planului și upsell-ul de pe Acasă apar DOAR pe un plan cunoscut, altfel un
   // plătitor vedea „Plan Gratuit 0/15" la fiecare încărcare sau blip de RPC.
-  const plan = features.features?.plan ?? 'free'
-  const planKnown = features.features != null
+  // Gate-urile pe bani urmează ȚARA de acum, nu doar cache-ul (oglinda
+  // `feature_requires_ro`, mig 296): după o mutare din România, ziua de
+  // raportare și suprafețele fiscale se schimbă ÎMPREUNĂ, chiar înainte de
+  // revalidare sau dacă revalidarea pică (recenzia CodeRabbit pe #377, FC2).
+  const scopedFeatures = useMemo(
+    () => countryScopedFeatures(features.features, restaurantCountry),
+    [features.features, restaurantCountry],
+  )
+  const plan = scopedFeatures?.plan ?? 'free'
+  const planKnown = scopedFeatures != null
 
   // DOUĂ tier-uri (surfaceTiers, lib/features.ts): `tier` = planul (gating
   // general, inclusiv feature-urile NEfiscale de Plan 3: harta sălii,
   // statistici, program echipă); `money` = moneyTier, DOAR pe suprafețele de
   // bani/bon (plăți, bonuri, casă, facturi, încasări, TVA) — coborât sub 3
   // pentru un restaurant din afara României (mig 296). Pe RO sunt identice.
-  const { general: tier, money } = surfaceTiers(features.features)
+  const { general: tier, money } = surfaceTiers(scopedFeatures)
   // CE VEDE planul în tab-uri (lib/planSurface.ts, lotul P): planurile
   // inferioare nu văd nimic din cele superioare. `tier`/`money` de mai sus
   // rămân DOAR pentru filtrul NAV_GROUPS (minTier, lib/dashboardNav.ts).
   // `null` = planul nu e cunoscut: nici funcția, nici upsell-ul.
-  const surface = planSurface(features.features)
+  const surface = planSurface(scopedFeatures)
   const fiscalSurface = surface?.fiscal === true
   // Upsell-ul unic de pe Acasă. Plata la masă și bonul există doar pentru un
   // restaurant din România, pe site-ul .ro (mig 296, lib/siteMarket.ts).
@@ -883,7 +910,7 @@ export default function DashboardPage({
   // pâlpâirea nav-ului la fiecare încărcare. Sursa unică: `pickupOnlyMode`,
   // citit și de Mese (TablesManager) pentru empty state.
   const pickupOnly =
-    pickupOnlyMode(restaurant?.pickup_settings, pickupFeatureState(features.features)) === 'on'
+    pickupOnlyMode(restaurant?.pickup_settings, pickupFeatureState(scopedFeatures)) === 'on'
 
   // Grupurile vizibile pe rol + tier + module (Gate D), cu etichetele planului
   // (lib/dashboardNav.ts). Un grup fără niciun sub-tab vizibil dispare complet.
@@ -1698,6 +1725,7 @@ export default function DashboardPage({
                         'noopener',
                       )
                     }
+                    timeZone={reportTz}
                   />
                 </Suspense>
               )}
@@ -1794,13 +1822,13 @@ export default function DashboardPage({
                   <AnalyticsTab
                     restaurantId={restaurant.id}
                     plan={plan}
-                    fiscalEnabled={features.features?.features?.fiscal_receipt?.enabled ?? null}
+                    fiscalEnabled={scopedFeatures?.features?.fiscal_receipt?.enabled ?? null}
                   />
                 </Suspense>
               )}
               {tab === 'raport' && (
                 <Suspense fallback={<InlineSpinner label={t('loading_report')} />}>
-                  <ReportsTab restaurantId={restaurant.id} fiscalReports={fiscalSurface} />
+                  <ReportsTab restaurantId={restaurant.id} fiscalReports={fiscalSurface} timeZone={reportTz} />
                 </Suspense>
               )}
               {tab === 'arhitectura' && (
@@ -1816,6 +1844,7 @@ export default function DashboardPage({
                         floor_layout: layout as unknown as Record<string, unknown>,
                       })
                     }
+                    timeZone={localTz}
                   />
                 </Suspense>
               )}
@@ -1839,15 +1868,15 @@ export default function DashboardPage({
                   rămâne goală, nu promite alt plan. */}
               {tab === 'gestiune' && surface?.stocks === true && (
                 <Suspense fallback={<InlineSpinner label={t('loading_stock')} />}>
-                  <StocksTab restaurantId={restaurant.id} showVat={surface.vat} />
+                  <StocksTab restaurantId={restaurant.id} showVat={surface.vat} timeZone={reportTz} />
                 </Suspense>
               )}
-              {tab === 'tva' && features.has('reports_vat') && (
+              {tab === 'tva' && hasFeature(scopedFeatures, 'reports_vat') && (
                 <Suspense fallback={<InlineSpinner label={t('loading_vatReport')} />}>
                   <VatReportTab restaurantId={restaurant.id} />
                 </Suspense>
               )}
-              {tab === 'casa-tura' && features.has('shifts') && (
+              {tab === 'casa-tura' && hasFeature(scopedFeatures, 'shifts') && (
                 <Suspense fallback={<InlineSpinner label={t('loading_generic')} />}>
                   <CashRegisterTab restaurantId={restaurant.id} />
                 </Suspense>
@@ -1865,7 +1894,7 @@ export default function DashboardPage({
               {tab === 'reservations' &&
                 (reservationsModuleOn ? (
                   <Suspense fallback={<InlineSpinner label={t('loading_reservations')} />}>
-                    <ReservationsTab restaurantId={restaurant.id} />
+                    <ReservationsTab restaurantId={restaurant.id} timeZone={localTz} />
                   </Suspense>
                 ) : (
                   <EmptyState

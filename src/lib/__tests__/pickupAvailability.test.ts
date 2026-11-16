@@ -135,7 +135,7 @@ describe('PX3: modul „doar ridicare” se citește doar prin pickupOnlyMode', 
     const norm = (f: string) => readFileSync(resolve(ROOT, f), 'utf8').replace(/\s+/g, ' ')
     const dash = norm('src/pages/DashboardPage.tsx')
     expect(dash).toContain(
-      "pickupOnlyMode(restaurant?.pickup_settings, pickupFeatureState(features.features)) === 'on'",
+      "pickupOnlyMode(restaurant?.pickup_settings, pickupFeatureState(scopedFeatures)) === 'on'",
     )
     // Valoarea efectivă ajunge în nav ȘI pe Acasă. Din lotul R2 (#335) filtrul
     // nav-ului stă în lib/dashboardNav.ts; DashboardPage îi dă `pickupOnly`.

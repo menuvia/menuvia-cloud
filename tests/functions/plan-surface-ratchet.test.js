@@ -69,7 +69,7 @@ function violations(line) {
 const ALLOWED = [
   {
     file: 'src/pages/DashboardPage.tsx',
-    contains: 'const { general: tier, money } = surfaceTiers(features.features)',
+    contains: 'const { general: tier, money } = surfaceTiers(scopedFeatures)',
     reason:
       'tier-urile filtrului NAV_GROUPS (minTier/money pe sub-tab-uri, lib/dashboardNav.ts — lotul R2); tab-urile citesc planSurface',
   },

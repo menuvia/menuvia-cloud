@@ -10,8 +10,8 @@ import { supabase } from '../lib/supabase'
 import { InlineSpinner } from './PageLoader'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
-import { toRomaniaYMD } from '../lib/dates'
-import { aggregateVatReport } from '../lib/vat'
+import { formatYmd, toRomaniaYMD } from '../lib/dates'
+import { aggregateVatReport, vatPresetRange, type VatPreset } from '../lib/vat'
 import { toUserMessage } from '../lib/userMessages'
 
 interface VatRow {
@@ -36,11 +36,15 @@ function fmt(n: number): string {
 }
 
 export default function VatReportTab({ restaurantId }: Props) {
-  const today = new Date()
-  const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
-
-  const [from, setFrom] = useState<string>(toRomaniaYMD(firstOfMonth))
-  const [to, setTo] = useState<string>(toRomaniaYMD(today))
+  // Raport FISCAL: rămâne pe ziua românească (lotul G2b), dar presetările nu mai
+  // trec prin calendarul browserului (`vatPresetRange`, aritmetică pe șir).
+  const [from, setFrom] = useState<string>(() => vatPresetRange('this_month', toRomaniaYMD(new Date())).from)
+  const [to, setTo] = useState<string>(() => toRomaniaYMD(new Date()))
+  const applyPreset = (kind: VatPreset): void => {
+    const r = vatPresetRange(kind, toRomaniaYMD(new Date()))
+    setFrom(r.from)
+    setTo(r.to)
+  }
   const [rows, setRows] = useState<VatRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -239,35 +243,19 @@ export default function VatReportTab({ restaurantId }: Props) {
         <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
           {/* Quick range presets */}
           <button
-            onClick={() => {
-              const t = new Date()
-              const f = new Date(t.getFullYear(), t.getMonth(), 1)
-              setFrom(toRomaniaYMD(f))
-              setTo(toRomaniaYMD(t))
-            }}
+            onClick={() => applyPreset('this_month')}
             style={presetBtn}
           >
             Luna asta
           </button>
           <button
-            onClick={() => {
-              const t = new Date()
-              const f = new Date(t.getFullYear(), t.getMonth() - 1, 1)
-              const l = new Date(t.getFullYear(), t.getMonth(), 0)
-              setFrom(toRomaniaYMD(f))
-              setTo(toRomaniaYMD(l))
-            }}
+            onClick={() => applyPreset('last_month')}
             style={presetBtn}
           >
             Luna trecută
           </button>
           <button
-            onClick={() => {
-              const t = new Date()
-              const f = new Date(t.getFullYear(), 0, 1)
-              setFrom(toRomaniaYMD(f))
-              setTo(toRomaniaYMD(t))
-            }}
+            onClick={() => applyPreset('this_year')}
             style={presetBtn}
           >
             Anul ăsta
@@ -462,7 +450,7 @@ export default function VatReportTab({ restaurantId }: Props) {
                       }}
                     >
                       <td style={{ padding: '10px 14px', color: D.t1, fontWeight: 500 }}>
-                        {new Date(r.report_date).toLocaleDateString('ro-RO', {
+                        {formatYmd(r.report_date, 'ro-RO', {
                           day: '2-digit',
                           month: 'short',
                           year: 'numeric',

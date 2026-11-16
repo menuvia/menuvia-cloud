@@ -154,6 +154,9 @@ export default function LocationsTab({
     )
   }
 
+  // Un singur „acum” per randare: „azi”/„ieri” se judecă în fusul zilei de la
+  // server pe FIECARE card (`loc.dayTimeZone`, mig 325).
+  const now = new Date()
   return (
     <div>
       {intro}
@@ -217,7 +220,7 @@ export default function LocationsTab({
                   {loc.revenueToday != null && (
                     <Stat label={tr.t('stat_revenue')} value={fmtPrice(loc.revenueToday, 'RON')} />
                   )}
-                  <Stat label={tr.t('stat_last')} value={formatLastOrderT(tr, uiLang, loc.lastOrderAt)} />
+                  <Stat label={tr.t('stat_last')} value={formatLastOrderT(tr, uiLang, loc.lastOrderAt, now, loc.dayTimeZone)} />
                 </div>
                 {!isCurrent && (
                   <Button

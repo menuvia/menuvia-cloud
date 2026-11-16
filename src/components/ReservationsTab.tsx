@@ -9,8 +9,6 @@ import {
   useStaleReservations,
   useReservationSettings,
   useDateRange,
-  dayRange,
-  weekRange,
   type Reservation,
   type ReservationStatus,
   type ReservationSettings,
@@ -33,6 +31,8 @@ import {
   reservationCountT,
   reservationStatusLabelT,
 } from '../lib/reservationsLang'
+import { activeRangePreset } from '../lib/reservationRanges'
+import { DEFAULT_RESTAURANT_TZ, isoToZonedYMD } from '../lib/dates'
 
 // Cheia de telefon pentru badge-ul de recidivist — ACEEAȘI normalizare ca
 // get_reservation_no_show_counts (mig 234) și rate-limit-ul din mig 115/129:
@@ -60,21 +60,22 @@ const STATUS_COLOR: Record<ReservationStatus, { bg: string; fg: string }> = {
 // limba dicționarului servit, care cade pe română la o încărcare eșuată
 // (recenzie CodeRabbit pe #373) — aceeași regulă ca `fmt` din `useT`.
 
-// Cheia de zi pe data LOCALĂ, nu felia UTC din ISO — o rezervare la 00:30 ora
-// României are data UTC din ziua precedentă și ar ateriza sub headerul greșit
-// (headerul formatează local prin formatReservationDay; cheia trebuie să fie consistentă).
-function localDayKey(iso: string): string {
-  const d = new Date(iso)
-  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`
+// Cheia de zi = ziua în fusul LOCALULUI (lotul G2b), nu felia UTC din ISO și nu
+// calendarul dispozitivului — o rezervare la 00:30 ora localului are data UTC din
+// ziua precedentă și ar ateriza sub antetul greșit. Antetul formatează în
+// ACELAȘI fus (`formatReservationDay(…, timeZone)`), deci cheia și antetul nu se
+// pot contrazice.
+function localDayKey(iso: string, timeZone: string): string {
+  return isoToZonedYMD(iso, timeZone) ?? iso
 }
 
 // Pluralul românesc („1 rezervare", „2 rezervări", „21 de rezervări") e
 // `reservationCountT` (lib/reservationsLang.ts): în română regula de dinainte.
 
-function groupByDay(reservations: Reservation[]): Map<string, Reservation[]> {
+function groupByDay(reservations: Reservation[], timeZone: string): Map<string, Reservation[]> {
   const map = new Map<string, Reservation[]>()
   for (const r of reservations) {
-    const key = localDayKey(r.starts_at)
+    const key = localDayKey(r.starts_at, timeZone)
     const list = map.get(key)
     if (list) list.push(r)
     else map.set(key, [r])
@@ -84,17 +85,19 @@ function groupByDay(reservations: Reservation[]): Map<string, Reservation[]> {
 
 interface Props {
   restaurantId: string
+  // Fusul OPERAȚIONAL al localului (`restaurantTimeZone`, lotul G2b), calculat
+  // în DashboardPage: zilele listei, antetele și orele se judecă în el —
+  // aceeași zi în care serverul a validat rezervarea (mig 298). Implicit București.
+  timeZone?: string
 }
 
-export default function ReservationsTab({ restaurantId }: Props) {
+export default function ReservationsTab({ restaurantId, timeZone = DEFAULT_RESTAURANT_TZ }: Props) {
   // Sus, înaintea oricărui return: ambele namespace-uri ale filei, ca nicio
   // subcomponentă montată mai târziu să nu suspende fila.
   const rv = useT(reservationsNs)
   const tc = useT(commonNs)
   const { lang: uiLang } = useUiLang()
-  const { range, setToday, setTomorrow, setWeek, setSpecificDate } = useDateRange(
-    dayRange(new Date()),
-  )
+  const { range, setToday, setTomorrow, setWeek, setSpecificDate } = useDateRange(timeZone)
   const [pendingOnly, setPendingOnly] = useState(false)
   const { reservations, loading, error, refetch, updateStatus } = useReservations(
     restaurantId,
@@ -135,33 +138,23 @@ export default function ReservationsTab({ restaurantId }: Props) {
 
   // Care preset de interval e activ acum — ca să evidențiem chip-ul corect
   // (patronul trebuie să vadă ce filtru e aplicat, nu doar să apese orbește).
-  const activeRangeKey = useMemo<'today' | 'tomorrow' | 'week' | 'custom'>(() => {
-    const now = new Date()
-    const tomorrow = new Date(now.getTime() + 86400000)
-    const today = dayRange(now)
-    const tmr = dayRange(tomorrow)
-    const wk = weekRange(now)
-    if (range.from === today.from && range.to === today.to) return 'today'
-    if (range.from === tmr.from && range.to === tmr.to) return 'tomorrow'
-    if (range.from === wk.from && range.to === wk.to) return 'week'
-    return 'custom'
-  }, [range])
+  // Presetările se compară în fusul localului (lib/reservationRanges).
+  const activeRangeKey = useMemo(() => activeRangePreset(range, timeZone, new Date()), [range, timeZone])
 
   // Valoarea inputului de dată e legată de range: pe preseturi (Azi/Mâine/Săptămâna)
   // se golește, ca să nu sugereze vizual că două filtre de dată sunt active simultan.
+  // Ziua aleasă e ziua LOCALULUI în care începe intervalul.
   const customDateValue = useMemo(() => {
     if (activeRangeKey !== 'custom') return ''
-    const d = new Date(range.from)
-    const pad = (x: number) => String(x).padStart(2, '0')
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-  }, [activeRangeKey, range.from])
+    return isoToZonedYMD(range.from, timeZone) ?? ''
+  }, [activeRangeKey, range.from, timeZone])
 
   const filtered = useMemo(() => {
     if (!pendingOnly) return reservations
     return reservations.filter((r) => r.status === 'pending')
   }, [reservations, pendingOnly])
 
-  const grouped = useMemo(() => groupByDay(filtered), [filtered])
+  const grouped = useMemo(() => groupByDay(filtered, timeZone), [filtered, timeZone])
 
   const handleStatus = useCallback(
     async (id: string, status: ReservationStatus, label: string) => {
@@ -261,6 +254,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
                   r={r}
                   noShowCount={0}
                   showDate
+                  timeZone={timeZone}
                   onConfirm={() => handleStaleStatus(r.id, 'confirmed', rv.t('done_confirmed'))}
                   onSeated={() => handleStaleStatus(r.id, 'seated', rv.t('done_seated'))}
                   onCancel={() => handleStaleStatus(r.id, 'cancelled', rv.t('done_cancelled'))}
@@ -288,10 +282,9 @@ export default function ReservationsTab({ restaurantId }: Props) {
           aria-label={rv.t('filter_dateAria')}
           value={customDateValue}
           onChange={(e) => {
-            if (e.target.value) {
-              const [y, mo, d] = e.target.value.split('-').map(Number)
-              setSpecificDate(new Date(y!, mo! - 1, d!))
-            }
+            // Inputul dă ziua ca șir YYYY-MM-DD: intervalul ei se ia în fusul
+            // localului (nu miezul nopții pe calendarul dispozitivului).
+            if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) setSpecificDate(e.target.value)
           }}
           style={{
             // Țintă tactilă ≥44px, aliniat cu chip-urile și butoanele.
@@ -421,7 +414,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
                   margin: '0 0 10px',
                 }}
               >
-                {formatReservationDay(list[0]!.starts_at, uiLang)}
+                {formatReservationDay(list[0]!.starts_at, uiLang, timeZone)}
               </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {list.map((r) => (
@@ -432,6 +425,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
                       const k = phoneKey(r.customer_phone)
                       return k ? (noShowCounts[k] ?? 0) : 0
                     })()}
+                    timeZone={timeZone}
                     onConfirm={() => handleStatus(r.id, 'confirmed', rv.t('done_confirmed'))}
                     onSeated={() => handleStatus(r.id, 'seated', rv.t('done_seated'))}
                     onCancel={() => handleStatus(r.id, 'cancelled', rv.t('done_cancelled'))}
@@ -606,6 +600,8 @@ interface CardProps {
   noShowCount: number
   /** Afișează și ziua (secțiunea de nerezolvate nu are antet pe zile). */
   showDate?: boolean
+  /** Fusul operațional al localului — ora și ziua rezervării se afișează în el. */
+  timeZone: string
   onConfirm: () => void
   onSeated: () => void
   onCancel: () => void
@@ -617,6 +613,7 @@ function ReservationCard({
   r,
   noShowCount,
   showDate = false,
+  timeZone,
   onConfirm,
   onSeated,
   onCancel,
@@ -654,10 +651,10 @@ function ReservationCard({
             fontVariantNumeric: 'tabular-nums',
           }}
         >
-          {formatReservationTime(r.starts_at, uiLang)}
+          {formatReservationTime(r.starts_at, uiLang, timeZone)}
         </div>
         {showDate && (
-          <div style={{ fontSize: 12, color: D.t2 }}>{formatReservationDay(r.starts_at, uiLang)}</div>
+          <div style={{ fontSize: 12, color: D.t2 }}>{formatReservationDay(r.starts_at, uiLang, timeZone)}</div>
         )}
         <div style={{ fontSize: 14, color: D.t1, fontWeight: 500 }}>{r.customer_name}</div>
         {/* Badge de risc (mig 234): clientul are no-show-uri în istoric — staff-ul

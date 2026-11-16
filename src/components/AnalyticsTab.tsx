@@ -7,6 +7,7 @@ import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { analyticsAccess } from '../lib/features'
+import { formatYmd, lastDaysStartYmd, toRomaniaYMD } from '../lib/dates'
 import {
   LineChart,
   Line,
@@ -264,14 +265,18 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
     setLoading(true)
     setError(null)
     try {
-      const since = new Date()
-      since.setDate(since.getDate() - days)
+      // Fereastra pe ziua ROMÂNEASCĂ (`day` din v_daily_orders e ziua românească
+      // a comenzii, mig 267), ca șir YYYY-MM-DD comparat cu o coloană `date` —
+      // înainte era ziua UTC a unui instant al browserului, deci între 00:00 și
+      // 02:00/03:00 ora României fereastra pornea cu o zi mai devreme.
+      // „Ultimele N zile” = N date, inclusiv azi (`gte` e inclusiv).
+      const since = lastDaysStartYmd(toRomaniaYMD(new Date()), days)
       const [d, p, w, h, m] = await Promise.all([
         supabase
           .from('v_daily_orders')
           .select('*')
           .eq('restaurant_id', restaurantId)
-          .gte('day', since.toISOString())
+          .gte('day', since)
           .order('day', { ascending: true }),
         supabase
           .from('v_product_performance')
@@ -375,11 +380,13 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
   const otherRev = daily.reduce((s, d) => s + Number(d.other_revenue || 0), 0)
 
   // Ziua de pe axă în limba personalului (`staffLocale`: în română EXACT
-  // „ro-RO”, ca înainte); fusul rămâne cel de azi (al browserului — G2).
+  // „ro-RO”, ca înainte). `day` e o DATĂ fără oră (ziua românească, mig 267),
+  // deci se formatează ca dată (`formatYmd`), nu ca instant pe fusul
+  // browserului — acolo, la vest de UTC, ieșea ziua de DINAINTE (lotul G2b).
   // Cheile seriilor (`day`/`orders`) sunt interne recharts, nu text.
   const dayLocale = staffLocale(uiLang)
   const chartData = daily.map((d) => ({
-    day: new Date(d.day as string).toLocaleDateString(dayLocale, { day: '2-digit', month: '2-digit' }),
+    day: formatYmd(String(d.day), dayLocale, { day: '2-digit', month: '2-digit' }),
     orders: Number(d.total_orders || 0),
     revenue: Number(d.revenue || 0),
   }))

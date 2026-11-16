@@ -41,6 +41,11 @@
 //        („3 rezervări în interval”) dovedește că s-a căzut pe română. Mutația
 //        care pică: `formatReservationDay(..., rv.lang)` readus (ar ieși
 //        „ro-RO”).
+//   RV14 lotul G2b: cu `timeZone` = America/New_York, rezervările de la 13 nov
+//        03:30Z (22:30 pe 12 la New York) și 12 nov 15:00Z (10:00) stau sub UN
+//        SINGUR antet „joi, 12 noiembrie”, cu orele locale „22:30” / „10:00” —
+//        șiruri LITERALE. Mutația care pică: cheia de zi pe calendarul
+//        dispozitivului (în CI, UTC: două antete) sau fusul ignorat la oră.
 import { Suspense, type ReactNode } from 'react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
@@ -147,8 +152,11 @@ beforeAll(async () => {
 })
 
 const ISO = '2026-11-12T18:30:00.000Z'
-const DAY_OPTS = { weekday: 'long', day: 'numeric', month: 'long' } as const
-const TIME_OPTS = { hour: '2-digit', minute: '2-digit' } as const
+// Lotul G2b: fila formatează în fusul OPERAȚIONAL al localului (prop
+// `timeZone`, implicit București) — oracolele îl numesc explicit; fără el, în CI
+// (UTC) 18:30Z ar ieși „18:30”, deci testele pică dacă implicitul nu e București.
+const DAY_OPTS = { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Bucharest' } as const
+const TIME_OPTS = { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Bucharest' } as const
 
 function resv(over: Partial<Reservation>): Reservation {
   return {
@@ -493,6 +501,19 @@ describe('fila Rezervări în limba personalului', () => {
     await user.click(screen.getByRole('button', { name: 'Salvează setări' }))
     await waitFor(() => expect(h.toast.error).toHaveLength(2))
     expect(h.toast.error[1]).toBe(toUserMessage(h.saveError, 'Rezervarea nu a putut fi salvată.'))
+  })
+
+  it('RV14: zilele și orele în fusul localului (America/New_York)', () => {
+    h.reservations = [
+      resv({ id: 'n1', starts_at: '2026-11-13T03:30:00.000Z', customer_name: 'Noaptea' }),
+      resv({ id: 'n2', starts_at: '2026-11-12T15:00:00.000Z', customer_name: 'Ziua', status: 'confirmed' }),
+    ]
+    h.stale = []
+    inLang(null, <ReservationsTab restaurantId="rest-1" timeZone="America/New_York" />)
+    expect(screen.getAllByText('joi, 12 noiembrie')).toHaveLength(1)
+    expect(screen.queryByText('vineri, 13 noiembrie')).not.toBeInTheDocument()
+    expect(screen.getByText('22:30')).toBeInTheDocument()
+    expect(screen.getByText('10:00')).toBeInTheDocument()
   })
 
   // Ultimul în fișier: înlocuiește temporar încărcătorul englez și golește

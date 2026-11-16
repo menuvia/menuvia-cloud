@@ -24,7 +24,7 @@ import { InlineSpinner } from './PageLoader'
 import { Icon, type IconName } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { fetchVatRates, getVatRate, type VatRate } from '../lib/vat'
-import { toRomaniaYMD } from '../lib/dates'
+import { DEFAULT_RESTAURANT_TZ, toZonedYMD } from '../lib/dates'
 import {
   fetchIngredients,
   createIngredient,
@@ -62,6 +62,10 @@ interface Props {
   // Cotele TVA (ingredient, NIR) doar pe planul cu bon — planSurface.vat, lotul
   // P. Pe Planul 2 ingredientele n-au câmp de cotă, iar NIR-ul e simplificat.
   showVat: boolean
+  // Fusul ZILEI DE RAPORTARE (`reportTimeZone`, lotul G2b) pentru data
+  // implicită a NIR-ului (document contabil): pe un local românesc București,
+  // ca înainte; altfel ziua localului. Implicit București.
+  timeZone?: string
 }
 
 type SubTab = 'ingredients' | 'suppliers' | 'purchases' | 'profitability'
@@ -113,7 +117,7 @@ function useEscapeClose(active: boolean, onClose: () => void) {
   }, [active, onClose])
 }
 
-export default function StocksTab({ restaurantId, showVat }: Props) {
+export default function StocksTab({ restaurantId, showVat, timeZone = DEFAULT_RESTAURANT_TZ }: Props) {
   const { t, tp } = useT(stocksNs)
   const tc = useT(commonNs)
   const [subTab, setSubTab] = useState<SubTab>('ingredients')
@@ -427,7 +431,7 @@ export default function StocksTab({ restaurantId, showVat }: Props) {
         )}
         {subTab === 'suppliers' && <SuppliersSection restaurantId={restaurantId} />}
         {subTab === 'purchases' && (
-          <PurchasesSection restaurantId={restaurantId} showVat={showVat} />
+          <PurchasesSection restaurantId={restaurantId} showVat={showVat} timeZone={timeZone} />
         )}
         {subTab === 'profitability' && <ProfitabilitySection restaurantId={restaurantId} />}
       </div>
@@ -1342,9 +1346,11 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
 function PurchasesSection({
   restaurantId,
   showVat,
+  timeZone,
 }: {
   restaurantId: string
   showVat: boolean
+  timeZone: string
 }) {
   const { t, tp } = useT(stocksNs)
   const tc = useT(commonNs)
@@ -1482,7 +1488,7 @@ function PurchasesSection({
                         altfel lista amestecă două formate de dată. Locale-ul personalului
                         (`staffLocale`: în română EXACT „ro-RO” de dinainte); data
                         calendaristică în UTC, momentul de rezervă în fusul local. */}
-                    {nirDateLabel(po.invoice_date, po.created_at, staffLocale(uiLang))}
+                    {nirDateLabel(po.invoice_date, po.created_at, staffLocale(uiLang), timeZone)}
                   </div>
                 </div>
                 <div
@@ -1554,6 +1560,7 @@ function PurchasesSection({
           restaurantId={restaurantId}
           vatRates={vatRates}
           showVat={showVat}
+          timeZone={timeZone}
           suppliers={suppliers}
           ingredients={ingredients}
           onClose={() => setShowAdd(false)}
@@ -1579,6 +1586,7 @@ function NirCreateModal({
   restaurantId,
   vatRates,
   showVat,
+  timeZone,
   suppliers,
   ingredients,
   onClose,
@@ -1590,6 +1598,8 @@ function NirCreateModal({
   // defalcare — fiecare linie se salvează cu cota 0, deci totalul e exact ce a
   // tastat omul (cantitate × preț). Pe Planul 3 nimic nu se schimbă.
   showVat: boolean
+  // Fusul zilei de raportare — data implicită a NIR-ului.
+  timeZone: string
   suppliers: Supplier[]
   ingredients: Ingredient[]
   onClose: () => void
@@ -1604,10 +1614,11 @@ function NirCreateModal({
   const [supplierId, setSupplierId] = useState<string>('')
   const [supplierName, setSupplierName] = useState<string>('') // pentru autocomplete
   const [invoiceNumber, setInvoiceNumber] = useState('')
-  // Ziua României, nu UTC: după miezul nopții (00:00–02:00 iarna / 03:00 vara)
-  // data UTC arată încă ziua de IERI, iar un NIR introdus după închidere se
-  // salva cu data precedentă (`invoice_date` e `date`, mig 026/066).
-  const [invoiceDate, setInvoiceDate] = useState<string>(() => toRomaniaYMD(new Date()))
+  // Ziua de raportare a localului (București pe un local românesc), nu UTC:
+  // după miezul nopții (00:00–02:00 iarna / 03:00 vara) data UTC arată încă
+  // ziua de IERI, iar un NIR introdus după închidere se salva cu data
+  // precedentă (`invoice_date` e `date`, mig 026/066).
+  const [invoiceDate, setInvoiceDate] = useState<string>(() => toZonedYMD(new Date(), timeZone))
   const [notes, setNotes] = useState('')
   const isMobile = useIsMobile()
   const [items, setItems] = useState<NirItem[]>([

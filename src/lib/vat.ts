@@ -123,3 +123,31 @@ export function aggregateVatReport(rows: readonly VatReportRow[]): VatReportSumm
   const byRate = [...map.values()].sort((a, b) => a.rate - b.rate || a.vat_group - b.vat_group)
   return { byRate, totalGross, totalVat, totalNet }
 }
+
+export type VatPreset = 'this_month' | 'last_month' | 'this_year'
+
+const vatPad2 = (n: number): string => String(n).padStart(2, '0')
+
+/**
+ * Presetările de interval ale raportului TVA, din ziua de AZI dată ca șir
+ * (`YYYY-MM-DD`, ziua ROMÂNEASCĂ — raportul e fiscal, pe ziua încasării, mig
+ * 272). Aritmetică pe șir / `Date.UTC`, fără niciun fus: înainte „1 a lunii”
+ * era miezul nopții LOCAL al browserului, convertit apoi în ziua României, deci
+ * pe un dispozitiv la est de România presetarea începea cu ultima zi a lunii
+ * PRECEDENTE (lotul G2b). „Luna trecută” = [1 a lunii precedente, ziua 0 a
+ * lunii curente] (anii bisecți ies corect din `Date.UTC`). Șir invalid → același
+ * șir pe ambele capete.
+ */
+export function vatPresetRange(kind: VatPreset, todayYmd: string): { from: string; to: string } {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(todayYmd)
+  if (!m) return { from: todayYmd, to: todayYmd }
+  const y = Number(m[1])
+  const mo = Number(m[2])
+  const ymd = (t: number): string => {
+    const d = new Date(t)
+    return `${d.getUTCFullYear()}-${vatPad2(d.getUTCMonth() + 1)}-${vatPad2(d.getUTCDate())}`
+  }
+  if (kind === 'this_month') return { from: `${m[1]}-${m[2]}-01`, to: todayYmd }
+  if (kind === 'this_year') return { from: `${m[1]}-01-01`, to: todayYmd }
+  return { from: ymd(Date.UTC(y, mo - 2, 1)), to: ymd(Date.UTC(y, mo - 1, 0)) }
+}

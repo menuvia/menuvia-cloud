@@ -10,6 +10,11 @@
 //        HH:mm a României și data în formatul limbii. Mutația care pică:
 //        `last_today` cu „azi ” (spațiu în plus) în ro, sau ziua calculată în
 //        UTC.
+//   LN8c lotul G2b: `formatLastOrderT` pe fusul dat (New York, acum 03:30Z pe
+//        5 sept = 23:30 pe 4): „azi, 23:00”, „ieri, 23:30”, „01.09.2026, 12:05”;
+//        control pe București „azi, 06:00”. Mutația care pică: oricare dintre
+//        `isoToZonedYMD` / `formatTimeInZone` / `toZonedYMD` pe fusul implicit
+//        în loc de `timeZone` (LC10 testează doar oracolul `formatLastOrder`).
 //   LN8b dicționarul SERVIT căzut pe română (engleza n-a putut fi încărcată) cu
 //        limba utilizatorului `en`: textul rămâne românesc („azi, …”,
 //        controlul pozitiv că traducătorul e cel românesc), data e „31/10/2026”
@@ -120,6 +125,20 @@ describe('„Ultima comandă” și refuzul locației noi', () => {
         expect(text).not.toMatch(/\{\w+\}/)
       }
     }
+  })
+
+  it('LN8c: formatLastOrderT pe fusul dat (lotul G2b)', () => {
+    // 03:30Z pe 5 sept = 23:30 pe 4 sept la New York.
+    const now = new Date('2026-09-05T03:30:00Z')
+    const ny = 'America/New_York'
+    const ro = makeTranslator(locRo, 'ro')
+    expect(formatLastOrderT(ro, 'ro', '2026-09-05T03:00:00Z', now, ny)).toBe('azi, 23:00')
+    expect(formatLastOrderT(ro, 'ro', '2026-09-04T03:30:00Z', now, ny)).toBe('ieri, 23:30')
+    expect(formatLastOrderT(ro, 'ro', '2026-09-01T16:05:00Z', now, ny)).toBe('01.09.2026, 12:05')
+    // Control: fără fus (București) același moment e „azi, 06:00”.
+    expect(formatLastOrderT(ro, 'ro', '2026-09-05T03:00:00Z', now)).toBe('azi, 06:00')
+    const en = makeTranslator(locEn, 'en')
+    expect(formatLastOrderT(en, 'en', '2026-09-04T03:30:00Z', now, ny)).toBe('yesterday, 23:30')
   })
 
   it('LN8b: dicționar căzut pe română + limba aleasă en → text românesc, dată en-GB', () => {

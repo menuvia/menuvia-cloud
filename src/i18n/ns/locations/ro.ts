@@ -8,7 +8,8 @@
 // BYTE-identică cu textele de dinainte.
 // NU e aici (din `common`): „Reîncearcă”.
 // NU se traduc (date): numele locațiilor, cifrele, suma încasărilor (bani,
-// `fmtPrice` în RON ca azi), ora (fusul României — G2 e în afara lotului).
+// `fmtPrice` în RON ca azi), ora (în fusul în care serverul a judecat „azi”,
+// `day_time_zone` — lotul G2b).
 const ro = {
   intro:
     'Ziua de azi în fiecare locație pe care o administrezi. Cifrele se calculează la deschiderea ' +
