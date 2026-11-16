@@ -138,17 +138,23 @@ export function buildReservationSlots(
 /**
  * „Azi", „Mâine" și ultima zi rezervabilă, pe ziua LOCALULUI: `max` e ziua
  * locală a instantului pe care îl compară serverul (`now + N × 24 h`).
+ * `pickerMin` = ziua de DINAINTE (recenzia CodeRabbit pe #380): la 00:30, pe un
+ * program peste miezul nopții, ultimele sloturi ale serviciului de aseară (01:00,
+ * 01:30) aparțin zilei de serviciu de IERI — fără ea, oaspetele nu le putea alege
+ * deloc. `buildReservationSlots` taie oricum sloturile trecute (min_advance),
+ * deci ziua de ieri oferă doar ce mai e în viitor; „Azi"/„Mâine" rămân neschimbate.
  */
 export function reservationDayBounds(
   nowMs: number,
   maxAdvanceDays: number,
   timeZone: string | null | undefined,
-): { today: string; tomorrow: string; max: string } {
+): { today: string; tomorrow: string; pickerMin: string; max: string } {
   const tz = safeTimeZone(timeZone)
   const today = toZonedYMD(new Date(nowMs), tz)
   return {
     today,
     tomorrow: addDaysYmd(today, 1),
+    pickerMin: addDaysYmd(today, -1),
     max: toZonedYMD(new Date(nowMs + maxAdvanceDays * DAY_MS), tz),
   }
 }

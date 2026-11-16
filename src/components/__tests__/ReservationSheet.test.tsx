@@ -328,8 +328,9 @@ describe('ReservationSheet — selecție și eroare accesibile', () => {
 // telefonului oaspetelui. Ceasul e FALS doar pe `Date` (userEvent merge), iar
 // fusul e al restaurantului (proiecția publică), dat ca date — un test pe
 // `process.env.TZ` ar fi vacuu.
-//   RS-M Auckland la 12:20Z pe 15 nov (01:20 pe 16): min 16 nov, max 16 dec.
-//   RS-N New York la 02:50Z pe 15 nov (21:50 pe 14): min 14 nov, max 14 dec.
+//   RS-M Auckland la 12:20Z pe 15 nov (01:20 pe 16): min 15 nov (ziua dinainte —
+//        ultimele sloturi ale serviciului de peste miezul nopții), max 16 dec.
+//   RS-N New York la 02:50Z pe 15 nov (21:50 pe 14): min 13 nov, max 14 dec.
 //        RS-M + RS-N: o gazdă coincide cu cel mult unul dintre fusuri, deci
 //        mutația „calendarul dispozitivului” pică pe ORICE gazdă.
 //   RS-O Auckland, „Astăzi”, primul slot → 01:30 NZDT = 12:30Z trimis.
@@ -338,6 +339,9 @@ describe('ReservationSheet — selecție și eroare accesibile', () => {
 //   RS-R fus invalid: foaia se randează și confirmarea arată ora Bucureștiului
 //        (înainte, Intl arunca RangeError la randare); confirmarea pe New York
 //        arată ziua și ora LOCALULUI.
+//   RS-S trecerea miezului nopții cu foaia deschisă golește ora aleasă (aceeași
+//        etichetă ar fi alt instant); control: o randare în aceeași zi o păstrează.
+//        Mutația care pică: efectul pe `bounds.today` scos (recenzia #380).
 describe('ReservationSheet — fusul localului (G2c)', () => {
   const sentStartsAt = () =>
     (h.createMock.mock.calls[0]?.[0] as { p_starts_at?: string } | undefined)?.p_starts_at
@@ -387,7 +391,7 @@ describe('ReservationSheet — fusul localului (G2c)', () => {
     vi.setSystemTime(new Date('2026-11-15T12:20:00Z'))
     const { container } = renderIn('Pacific/Auckland')
     const input = await dateInput(container)
-    expect(input).toHaveAttribute('min', '2026-11-16')
+    expect(input).toHaveAttribute('min', '2026-11-15')
     expect(input).toHaveAttribute('max', '2026-12-16')
   })
 
@@ -395,7 +399,7 @@ describe('ReservationSheet — fusul localului (G2c)', () => {
     vi.setSystemTime(new Date('2026-11-15T02:50:00Z'))
     const { container } = renderIn('America/New_York')
     const input = await dateInput(container)
-    expect(input).toHaveAttribute('min', '2026-11-14')
+    expect(input).toHaveAttribute('min', '2026-11-13')
     expect(input).toHaveAttribute('max', '2026-12-14')
   })
 
@@ -436,5 +440,25 @@ describe('ReservationSheet — fusul localului (G2c)', () => {
     renderIn('America/New_York')
     await submitToday()
     await waitFor(() => expect(screen.getAllByText(/15 noiembrie · 19:30/).length).toBeGreaterThan(0))
+  })
+
+  it('RS-S miezul nopții cu foaia deschisă golește ora aleasă; aceeași zi o păstrează', async () => {
+    vi.setSystemTime(new Date('2026-11-15T10:20:00Z'))
+    renderIn(null)
+    const pressed = () =>
+      within(screen.getByTestId('time-slot-row'))
+        .getAllByRole('button')
+        .filter((b) => b.getAttribute('aria-pressed') === 'true')
+    const row = await screen.findByTestId('time-slot-row')
+    const slot = within(row).getAllByRole('button')[0]
+    if (!slot) throw new Error('niciun slot randat')
+    await userEvent.click(slot)
+    // Control: o randare nouă în ACEEAȘI zi păstrează alegerea.
+    await userEvent.type(screen.getByPlaceholderText(/^Nume$/), 'A')
+    expect(pressed()).toHaveLength(1)
+    // A doua zi, la aceeași oră: eticheta există și în lista nouă, dar alegerea se golește.
+    vi.setSystemTime(new Date('2026-11-16T10:20:00Z'))
+    await userEvent.type(screen.getByPlaceholderText(/^Nume$/), 'B')
+    await waitFor(() => expect(pressed()).toHaveLength(0))
   })
 })

@@ -207,6 +207,18 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     return customDate
   }, [dateChoice, customDate, bounds.today, bounds.tomorrow])
 
+  // Trecerea miezului nopții (foaie lăsată deschisă) mută „Azi"/„Mâine" pe alte
+  // zile, iar aceeași etichetă de oră ar însemna ALT instant — pe un slot de după
+  // miezul nopții, efectul de mai jos o păstrează fiindcă eticheta există și în
+  // lista nouă. Ora aleasă se golește, ca oaspetele s-o aleagă din nou
+  // (recenzia CodeRabbit pe #380, RS-S).
+  const lastTodayRef = useRef(bounds.today)
+  useEffect(() => {
+    if (lastTodayRef.current === bounds.today) return
+    lastTodayRef.current = bounds.today
+    setTimeSlot('')
+  }, [bounds.today])
+
   const slots = useMemo(() => {
     if (!settings || !chosenDateYmd) return []
     return buildReservationSlots(chosenDateYmd, settings, Date.now(), tz)
@@ -760,7 +772,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
           <input
             type="date"
             value={customDate}
-            min={bounds.today}
+            min={bounds.pickerMin}
             // Nu lăsăm clientul să aleagă o dată dincolo de fereastra permisă
             // (RPC-ul o respinge oricum). Fallback 30 zile dacă settings n-a venit.
             max={bounds.max}

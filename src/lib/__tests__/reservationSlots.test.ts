@@ -19,10 +19,13 @@
 //        apar o singură dată.
 //   RSL8 fus invalid → identic cu Bucureștiul, fără excepție.
 //   RSL9 `min_advance` pe INSTANT: același moment dă alt prim slot pe alt fus.
+//   RSL10 ziua DINAINTE în calendar (recenzia CodeRabbit pe #380): la 00:40 marți,
+//        un serviciu doar-luni 18:00–02:00 mai are 01:00 și 01:30 — „azi" (marți)
+//        nu oferă nimic, iar `pickerMin` = luni le face alegibile.
 // Mutațiile care pică: ziua dispozitivului în loc de `toZonedYMD` (RSL2/RSL3);
 // trucul `toLocaleString` readus (RSL8: UTC brut); filtrul `open_days` scos
 // (RSL5); filtrul `max` scos (RSL6); garda DST scoasă (RSL7); `max = now + N
-// zile` pe ziua dispozitivului (RSL2/RSL3).
+// zile` pe ziua dispozitivului (RSL2/RSL3); `pickerMin` = azi (RSL10).
 import { describe, it, expect } from 'vitest'
 import {
   buildReservationSlots,
@@ -76,6 +79,7 @@ describe('lib/reservationSlots — fusul localului, paritate cu serverul', () =>
     expect(reservationDayBounds(Date.parse('2026-11-15T10:20:00Z'), 30, BUC)).toEqual({
       today: '2026-11-15',
       tomorrow: '2026-11-16',
+      pickerMin: '2026-11-14',
       max: '2026-12-15',
     })
   })
@@ -85,6 +89,7 @@ describe('lib/reservationSlots — fusul localului, paritate cu serverul', () =>
     expect(reservationDayBounds(now, 30, NY)).toEqual({
       today: '2026-11-14',
       tomorrow: '2026-11-15',
+      pickerMin: '2026-11-13',
       max: '2026-12-14',
     })
     expect(buildReservationSlots('2026-11-14', ALL_DAY, now, NY)[0]).toBe('22:00')
@@ -96,6 +101,7 @@ describe('lib/reservationSlots — fusul localului, paritate cu serverul', () =>
     expect(reservationDayBounds(now, 30, AKL)).toEqual({
       today: '2026-11-16',
       tomorrow: '2026-11-17',
+      pickerMin: '2026-11-15',
       max: '2026-12-16',
     })
     expect(buildReservationSlots('2026-11-16', ALL_DAY, now, AKL).slice(0, 2)).toEqual(['01:30', '02:00'])
@@ -166,5 +172,22 @@ describe('lib/reservationSlots — fusul localului, paritate cu serverul', () =>
     expect(buildReservationSlots('', s, now, BUC)).toEqual([])
     expect(buildReservationSlots('2026-07-20', { ...s, slot_interval: 0 }, now, BUC)).toEqual([])
     expect(reservationSlotInstantIso('nu-e-data', '19:00', s, BUC)).toBeNull()
+  })
+
+  it('RSL10 pickerMin = ieri: ultimele sloturi ale serviciului de peste miezul nopții rămân alegibile', () => {
+    const MONDAY_NIGHT: ReservationSlotSettings = {
+      ...ALL_DAY,
+      open_days: [1],
+      open_time: '18:00',
+      close_time: '02:00',
+    }
+    const now = Date.parse('2026-11-16T22:40:00Z') // marți 17 nov, 00:40 la București
+    const b = reservationDayBounds(now, 30, BUC)
+    expect(b.today).toBe('2026-11-17')
+    expect(b.pickerMin).toBe('2026-11-16')
+    // „Azi" (marți) nu e zi de serviciu; doar luni, aleasă din calendar, mai are sloturi.
+    expect(buildReservationSlots(b.today, MONDAY_NIGHT, now, BUC)).toEqual([])
+    expect(buildReservationSlots(b.pickerMin, MONDAY_NIGHT, now, BUC)).toEqual(['01:00', '01:30'])
+    expect(reservationSlotInstantIso(b.pickerMin, '01:00', MONDAY_NIGHT, BUC)).toBe('2026-11-16T23:00:00.000Z')
   })
 })
