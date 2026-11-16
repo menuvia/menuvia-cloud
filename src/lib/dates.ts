@@ -91,10 +91,12 @@ export function isoToRomaniaYMD(iso: string): string | null {
 // Ora de PERETE într-un fus arbitrar (pickup: sloturi + afișare).
 // ─────────────────────────────────────────────────────────────
 // Fusul implicit al platformei: fus lipsă sau invalid → acesta (aceeași regulă
-// ca `safe_time_zone`, mig 298, și `report_time_zone`, mig 325). Panoul citește
-// `restaurants.timezone` prin `reportTimeZone`/`restaurantTimeZone` (lotul G2b);
-// paginile de ospătar/bucătărie și fluxul oaspetelui încă nu (G2c), deci acolo
-// default-ul e ce se afișează — aceeași valoare ca în `lib/qr.ts` (isOpenNow).
+// ca `safe_time_zone`, mig 298, și `report_time_zone`, mig 325). Se afișează
+// DOAR când fusul lipsește sau e invalid (bază fără mig 326 pe /q, prop
+// `timeZone` omis pe un card): panoul citește `restaurants.timezone` prin
+// `reportTimeZone`/`restaurantTimeZone` (lotul G2b), paginile de personal din
+// RestaurantContext (`activeRestaurant`, lotul G2c), oaspetele din proiecțiile
+// publice, iar pastila „Deschis/Închis” din `lib/openHours.ts`.
 export const DEFAULT_RESTAURANT_TZ = 'Europe/Bucharest'
 
 // Formatter-ele Intl sunt scumpe — unul per fus, refolosit.

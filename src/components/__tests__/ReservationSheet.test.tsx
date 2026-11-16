@@ -322,3 +322,119 @@ describe('ReservationSheet — selecție și eroare accesibile', () => {
     expect(alert).not.toHaveStyle({ color: '#E05555' })
   })
 })
+
+// Lotul G2c: „azi/mâine/min/max”, instantul trimis și confirmarea sunt pe fusul
+// LOCALULUI (paritate cu `create_reservation_public`, mig 298), nu pe al
+// telefonului oaspetelui. Ceasul e FALS doar pe `Date` (userEvent merge), iar
+// fusul e al restaurantului (proiecția publică), dat ca date — un test pe
+// `process.env.TZ` ar fi vacuu.
+//   RS-M Auckland la 12:20Z pe 15 nov (01:20 pe 16): min 16 nov, max 16 dec.
+//   RS-N New York la 02:50Z pe 15 nov (21:50 pe 14): min 14 nov, max 14 dec.
+//        RS-M + RS-N: o gazdă coincide cu cel mult unul dintre fusuri, deci
+//        mutația „calendarul dispozitivului” pică pe ORICE gazdă.
+//   RS-O Auckland, „Astăzi”, primul slot → 01:30 NZDT = 12:30Z trimis.
+//   RS-P New York, „Astăzi”, primul slot → 22:00 EST = 03:00Z trimis.
+//   RS-Q control RO (restaurant fără fus) la 10:20Z → 12:30 = 10:30Z trimis.
+//   RS-R fus invalid: foaia se randează și confirmarea arată ora Bucureștiului
+//        (înainte, Intl arunca RangeError la randare); confirmarea pe New York
+//        arată ziua și ora LOCALULUI.
+describe('ReservationSheet — fusul localului (G2c)', () => {
+  const sentStartsAt = () =>
+    (h.createMock.mock.calls[0]?.[0] as { p_starts_at?: string } | undefined)?.p_starts_at
+
+  function renderIn(timezone: string | null) {
+    return render(
+      <ReservationSheet
+        restaurant={makeRestaurant({ slug: 'demo', timezone })}
+        theme={getTheme('cafe')}
+        accent="#c8102e"
+        PUB={PUB}
+        lang="ro"
+        onClose={() => {}}
+      />,
+    )
+  }
+
+  // „Astăzi” e alegerea implicită: completează și trimite pe primul slot oferit.
+  async function submitToday(): Promise<void> {
+    await userEvent.type(screen.getByPlaceholderText(/^Nume$/), 'Ana Pop')
+    await userEvent.type(screen.getByPlaceholderText(/^Telefon$/), '0722000111')
+    const row = await screen.findByTestId('time-slot-row')
+    const slot = within(row).getAllByRole('button')[0]
+    if (!slot) throw new Error('niciun slot randat')
+    await userEvent.click(slot)
+    await userEvent.click(byText('button', /^Rezervă$/))
+  }
+
+  async function dateInput(container: HTMLElement): Promise<HTMLInputElement> {
+    await userEvent.click(byText('button', /Altă dată$/))
+    const el = container.querySelector('input[type="date"]')
+    if (!(el instanceof HTMLInputElement)) throw new Error('lipsește câmpul de dată')
+    return el
+  }
+
+  beforeEach(() => {
+    h.createMock.mockReset()
+    h.createMock.mockResolvedValue(reservationRow('confirmed'))
+    sessionStorage.clear()
+    vi.useFakeTimers({ toFake: ['Date'] })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('RS-M Auckland: min/max pe ziua locală (deja 16 nov acolo)', async () => {
+    vi.setSystemTime(new Date('2026-11-15T12:20:00Z'))
+    const { container } = renderIn('Pacific/Auckland')
+    const input = await dateInput(container)
+    expect(input).toHaveAttribute('min', '2026-11-16')
+    expect(input).toHaveAttribute('max', '2026-12-16')
+  })
+
+  it('RS-N New York: min/max pe ziua locală (încă 14 nov acolo)', async () => {
+    vi.setSystemTime(new Date('2026-11-15T02:50:00Z'))
+    const { container } = renderIn('America/New_York')
+    const input = await dateInput(container)
+    expect(input).toHaveAttribute('min', '2026-11-14')
+    expect(input).toHaveAttribute('max', '2026-12-14')
+  })
+
+  it('RS-O Auckland: „Astăzi” trimite instantul serviciului de azi al localului', async () => {
+    vi.setSystemTime(new Date('2026-11-15T12:20:00Z'))
+    renderIn('Pacific/Auckland')
+    await submitToday()
+    await waitFor(() => expect(h.createMock).toHaveBeenCalledTimes(1))
+    expect(sentStartsAt()).toBe('2026-11-15T12:30:00.000Z')
+  })
+
+  it('RS-P New York: „Astăzi” trimite 22:00 EST', async () => {
+    vi.setSystemTime(new Date('2026-11-15T02:50:00Z'))
+    renderIn('America/New_York')
+    await submitToday()
+    await waitFor(() => expect(h.createMock).toHaveBeenCalledTimes(1))
+    expect(sentStartsAt()).toBe('2026-11-15T03:00:00.000Z')
+  })
+
+  it('RS-Q control RO: restaurant fără fus → București, ca înainte', async () => {
+    vi.setSystemTime(new Date('2026-11-15T10:20:00Z'))
+    renderIn(null)
+    await submitToday()
+    await waitFor(() => expect(h.createMock).toHaveBeenCalledTimes(1))
+    expect(sentStartsAt()).toBe('2026-11-15T10:30:00.000Z')
+  })
+
+  it('RS-R fus invalid → foaia și confirmarea pe București; New York → ziua și ora localului', async () => {
+    vi.setSystemTime(new Date('2026-11-15T10:20:00Z'))
+    h.createMock.mockResolvedValue({ ...reservationRow('confirmed'), starts_at: '2026-11-16T17:00:00Z' })
+    const bad = renderIn('Mars/Olympus')
+    await submitToday()
+    await waitFor(() => expect(screen.getAllByText(/16 noiembrie · 19:00/).length).toBeGreaterThan(0))
+    bad.unmount()
+
+    h.createMock.mockReset()
+    h.createMock.mockResolvedValue({ ...reservationRow('confirmed'), starts_at: '2026-11-16T00:30:00Z' })
+    renderIn('America/New_York')
+    await submitToday()
+    await waitFor(() => expect(screen.getAllByText(/15 noiembrie · 19:30/).length).toBeGreaterThan(0))
+  })
+})

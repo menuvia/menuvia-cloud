@@ -17,6 +17,7 @@ import { thumbUrlFor } from '../lib/images'
 import { T } from '../lib/publicMenuStrings'
 import { Tf } from '../lib/guestI18n'
 import { legibleOn, readableTextOn } from '../lib/themes'
+import { formatTimeInZone } from '../lib/dates'
 
 interface PUBColors {
   bg: string
@@ -69,6 +70,9 @@ export interface QrCartSheetProps {
   lang?: string
   /** Limba în care scrie localul (mesajul lui de sugestie e în ea). */
   baseLang?: string
+  /** Fusul localului, BRUT din proiecția QR (mig 326) — ora comenzilor trimise.
+   *  Lipsă (bază fără 326) sau invalid → București (`formatTimeInZone`). */
+  timeZone?: string
 }
 
 // Eyebrow mic, all-caps, cu tracking — etichetă de secțiune.
@@ -111,6 +115,7 @@ export default function QrCartSheet({
   onPaySplit,
   lang = 'ro',
   baseLang = 'ro',
+  timeZone,
 }: QrCartSheetProps) {
   const hasSent = (sentOrders?.length ?? 0) > 0
   // Index produs → pentru thumbnail-uri în rândurile de coș.
@@ -400,10 +405,7 @@ export default function QrCartSheet({
                     }}
                   >
                     #{o.short_id} ·{' '}
-                    {new Date(o.created_at).toLocaleTimeString('ro-RO', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+                    {formatTimeInZone(o.created_at, timeZone)}
                   </span>
                   <span style={{ fontSize: 12, color: PUB.text3, fontStyle: 'italic' }}>
                     {T(lang, 'qc_sent_to_kitchen')}

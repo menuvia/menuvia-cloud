@@ -22,9 +22,8 @@ import {
   fetchMenuForRestaurant,
   fetchActiveHappyHour,
   happyHourPercentForProduct,
-  computeIsOpen,
-  todayHoursLabel,
 } from '../lib/qr'
+import { computeIsOpen, todayHoursLabel } from '../lib/openHours'
 import type { HappyHourRule } from '../lib/qr'
 import type { Restaurant, Category, Product } from '../lib/qr'
 import {

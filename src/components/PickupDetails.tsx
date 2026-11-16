@@ -15,13 +15,18 @@ interface PickupDetailsProps {
   order: Pick<Order, 'source' | 'pickup_time' | 'created_at' | 'customer_name' | 'customer_phone'>
   // Suprascris în teste; implicit ceasul real (re-randarea vine de la părinte).
   now?: number
+  // Fusul OPERAȚIONAL al localului (lotul G2c), dat de pagină prin card — ca
+  // ecranul de confirmare al oaspetelui, care formatează aceeași coloană pe
+  // același fus. Omis → implicitul din `pickupTimeLabel` (București). Componenta
+  // NU citește contextul: se randează și fără provider.
+  timeZone?: string
 }
 
-export default function PickupDetails({ order, now }: PickupDetailsProps) {
+export default function PickupDetails({ order, now, timeZone }: PickupDetailsProps) {
   // Necondiționat, înaintea oricărui return (rules-of-hooks).
   const { t } = useT(ordersNs)
   if (order.source !== 'pickup') return null
-  const time = pickupTimeLabel(order)
+  const time = pickupTimeLabel(order, timeZone)
   const name = order.customer_name?.trim() || null
   const phone = order.customer_phone?.trim() || null
   if (time == null && name == null && phone == null) return null

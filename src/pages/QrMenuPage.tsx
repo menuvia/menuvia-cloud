@@ -1879,6 +1879,9 @@ export default function QrMenuPage({ token }: Props) {
             currency={menuCurrency}
             lang={lang}
             baseLang={baseLang}
+            // Fusul localului, BRUT (mig 326): foaia îl validează în chunk-ul ei
+            // leneș — pagina nu importă lib/dates (ZT8).
+            timeZone={ctx?.restaurant.timezone ?? undefined}
             onSubmit={(v) => {
               // Sursa de adevăr rămâne părintele (nota supraviețuiește
               // re-deschiderii sheet-ului); submit-ul primește valoarea ca

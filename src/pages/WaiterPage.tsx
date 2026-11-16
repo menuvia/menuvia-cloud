@@ -12,7 +12,8 @@ import { useOrders } from '../hooks/useOrders'
 import { useFeatures } from '../hooks/useFeatures'
 import { hasFeature } from '../lib/features'
 import { useBridgeConnected } from '../hooks/useBridgeConnected'
-import { useRomaniaTodayRange } from '../hooks/useRomaniaTodayRange'
+import { useZonedTodayRange } from '../hooks/useZonedTodayRange'
+import { formatTimeInZone, restaurantTimeZone } from '../lib/dates'
 import { BridgeOfflineBanner } from '../components/BridgeOfflineBanner'
 import { planSurface } from '../lib/planSurface'
 import { useReservations } from '../hooks/useReservations'
@@ -155,8 +156,13 @@ export default function WaiterPage() {
     activeRole,
     memberships,
     setActive,
+    activeRestaurant,
   } = useRestaurantCtx()
   const isAdminRole = activeRole === 'owner' || activeRole === 'manager'
+  // Fusul OPERAȚIONAL al localului (lotul G2c): orele rezervărilor, ale
+  // apelurilor și ale comenzilor, plus „azi" — pe ceasul localului, nu al
+  // tabletei. Restaurant necunoscut / fus invalid → București.
+  const localTz = restaurantTimeZone(activeRestaurant)
 
   // Regula de aur: bani + bon = Plan 3, fără excepții. Planul vine de la
   // RESTAURANT (get_restaurant_features), nu de la profilul ospătarului.
@@ -425,9 +431,9 @@ export default function WaiterPage() {
   // listă pe loc, iar cardul de dedesubt urcă sub deget (lib/tapGuard.ts).
   const tapGuard = useMemo(() => createTapGuard(), [])
 
-  // Rezervări azi — ziua ROMÂNEASCĂ, recalculată la trecerea miezului nopții
+  // Rezervări azi — ziua LOCALULUI, recalculată la trecerea miezului nopții
   // (tableta lăsată deschisă peste noapte rămânea pe ziua de ieri).
-  const todayRange = useRomaniaTodayRange()
+  const todayRange = useZonedTodayRange(localTz)
   const {
     reservations,
     updateStatus: updateReservationStatus,
@@ -1214,10 +1220,7 @@ export default function WaiterPage() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {activeReservations.map((r) => {
-                const t = new Date(r.starts_at).toLocaleTimeString('ro-RO', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })
+                const t = formatTimeInZone(r.starts_at, localTz)
                 return (
                   <div
                     key={r.id}
@@ -1490,10 +1493,7 @@ export default function WaiterPage() {
                       )}
                     </div>
                     <div style={{ fontSize: 12, color: D.t2, marginTop: 2 }}>
-                      {new Date(call.created_at).toLocaleTimeString('ro-RO', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
+                      {formatTimeInZone(call.created_at, localTz)}
                     </div>
                   </div>
                   <Button
@@ -1560,6 +1560,7 @@ export default function WaiterPage() {
                     <OrderCard
                       key={order.id}
                       order={order}
+                      timeZone={localTz}
                       onPayOpen={handlePayOpen}
                       onSplitOpen={handleSplitOpen}
                       onEdit={setEditOrder}
@@ -1599,6 +1600,7 @@ export default function WaiterPage() {
             renderOrderCard={(order) => (
               <OrderCard
                 order={order}
+                timeZone={localTz}
                 onPayOpen={handlePayOpen}
                 onSplitOpen={handleSplitOpen}
                 onEdit={setEditOrder}
@@ -1932,6 +1934,7 @@ export default function WaiterPage() {
         <OrderAuditSheet
           orderId={auditOrder.id}
           orderShortId={auditOrder.id.slice(-6).toUpperCase()}
+          timeZone={localTz}
           onClose={() => setAuditOrder(null)}
         />
       )}

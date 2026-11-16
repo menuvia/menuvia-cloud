@@ -22,9 +22,20 @@
 //        pe plata parțială (`insufficient_role`, mig 291) au textul lor, nu
 //        „Bitte erneut versuchen” — un retry pe care serverul îl respinge din
 //        nou. Mutația care pică: `hints` scos din `describeStaffError`.
+//   WZ1 fusul LOCALULUI (lotul G2c): cu `activeRestaurant` pe New York și ceasul
+//       fals la 02:00Z pe 21 iulie (22:00 pe 20 la NY), „azi” e ziua NY
+//       (`useReservations` primește intervalul ei), rezervarea de la 18:00Z se
+//       afișează 14:00, iar apelul de la 09:10Z — 05:10.
+//   WZ2 control RO: fără `activeRestaurant` (contextul de dinainte) → ziua
+//       Bucureștiului, 21:00 și 12:10 — identic cu codul vechi pe un browser din
+//       București. WZ1 + WZ2 sunt PERECHE: o gazdă coincide cu cel mult unul
+//       dintre fusuri, deci mutația „ora pe fusul tabletei” pică pe ORICE gazdă.
+//   WZ3 fus invalid = WZ2 (fără RangeError).
+//       Mutațiile care pică: hook-ul chemat cu fusul implicit (WZ1); orele cu
+//       `toLocaleTimeString` (WZ1/WZ2).
 // Hook-urile de date sunt mock-uite, ca în WaiterPage.quickActions.test.tsx.
 import { Suspense, type ReactNode } from 'react'
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Order, WaiterCall } from '../../lib/orders'
@@ -361,5 +372,57 @@ describe('pagina ospătarului în limba personalului', () => {
       expect(h.toast.error).toHaveBeenLastCalledWith('Ihre Rolle erlaubt das Erfassen von Zahlungen nicht.'),
     )
     expect(h.toast.error).not.toHaveBeenCalledWith(expect.stringContaining('erneut versuchen'))
+  })
+})
+
+describe('pagina ospătarului pe fusul localului (G2c)', () => {
+  const ctx = (activeRestaurant: unknown) => ({
+    activeId: 'r1',
+    activeName: 'Bistro',
+    activeRole: 'waiter',
+    memberships: [],
+    setActive: vi.fn(),
+    activeRestaurant,
+  })
+  const lastCall = (): unknown[] | undefined => h.useReservations.mock.calls[h.useReservations.mock.calls.length - 1]
+  const rangeArg = () => lastCall()?.[1] as { from: string; to: string } | undefined
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-07-21T02:00:00Z'))
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('WZ1 New York: „azi”, ora rezervării și ora apelului sunt pe ceasul localului', async () => {
+    setup(busyRestaurant())
+    h.useRestaurantCtx.mockReturnValue(
+      ctx({ id: 'r1', name: 'Bistro', slug: 'bistro', timezone: 'America/New_York', country: 'US' }),
+    )
+    inLang(null, <WaiterPage />)
+    expect(await screen.findByText('05:10')).toBeInTheDocument()
+    expect(screen.getByText('14:00')).toBeInTheDocument()
+    expect(lastCall()?.[0]).toBe('r1')
+    expect(rangeArg()).toEqual({ from: '2026-07-20T04:00:00.000Z', to: '2026-07-21T03:59:59.999Z' })
+  })
+
+  it('WZ2 control RO: fără restaurant activ în context → București, ca înainte', async () => {
+    setup(busyRestaurant())
+    inLang(null, <WaiterPage />)
+    expect(await screen.findByText('12:10')).toBeInTheDocument()
+    expect(screen.getByText('21:00')).toBeInTheDocument()
+    expect(rangeArg()).toEqual({ from: '2026-07-20T21:00:00.000Z', to: '2026-07-21T20:59:59.999Z' })
+  })
+
+  it('WZ3 fus invalid → București, fără RangeError', async () => {
+    setup(busyRestaurant())
+    h.useRestaurantCtx.mockReturnValue(
+      ctx({ id: 'r1', name: 'Bistro', slug: 'bistro', timezone: 'Mars/Olympus', country: 'US' }),
+    )
+    inLang(null, <WaiterPage />)
+    expect(await screen.findByText('12:10')).toBeInTheDocument()
+    expect(screen.getByText('21:00')).toBeInTheDocument()
+    expect(rangeArg()).toEqual({ from: '2026-07-20T21:00:00.000Z', to: '2026-07-21T20:59:59.999Z' })
   })
 })

@@ -4,10 +4,10 @@
 // ambele din src/lib/dates.ts — nu în fusul Bucureștiului scris de mână și nu în
 // calendarul DISPOZITIVULUI. Tiparele care ocolesc regula apar DOAR în fișierele
 // din registru, fiecare cu MOTIV: (b) suprafață fiscală / doar-România (ziua
-// românească a încasării), (c) platformă, date de referință, anul de copyright,
-// sau „G2c” (lotul următor: paginile de personal prin RestaurantContext și
-// fluxul oaspetelui). Registrul doar SCADE: o intrare care nu mai e găsită pică
-// (ZT3), deci G2c își șterge intrările.
+// românească a încasării), (c) platformă, date de referință sau anul de
+// copyright. Registrul doar SCADE: o intrare care nu mai e găsită pică (ZT3) —
+// lotul G2c și-a șters cele șase intrări (paginile de personal prin
+// RestaurantContext, fluxul oaspetelui) și n-a adăugat niciuna.
 // ATENȚIE: potrivește și COMENTARIILE (ca utcDayPrefix.test.ts) — nu scrie
 // tiparele literal în explicațiile din fișierele ne-înregistrate.
 //   ZT1 anti-vacuitate: scanarea vede sursa (> 100 de fișiere) și găsește
@@ -29,11 +29,31 @@
 //       (recenzia CodeRabbit pe #377): țara decide gate-urile pe bani ȘI ziua de
 //       raportare, deci un cache vechi ar fi pus Rapoartele pe noul fus cu
 //       defalcarea pe ziua românească. Mutația care pică: apelul scos.
+//   ZT7 cablajul paginilor de SERVICIU și al OASPETELUI (lotul G2c), STRUCTURAL:
+//       Ospătar și Bucătărie calculează `localTz` din `activeRestaurant`, iar
+//       FIECARE `<OrderCard` (și `<OrderAuditSheet`) primește exact
+//       `timeZone={localTz}`; „azi" al ospătarului e `useZonedTodayRange(localTz)`;
+//       QrMenuPage dă foii „Masa ta” fusul din proiecția QR; ReservationSheet ia
+//       fusul prin `restaurantTimeZone`; nicio oră formatată pe fusul
+//       dispozitivului (`toLocaleTimeString(`) în paginile/foile mutate, iar
+//       istoricul comenzii formatează cu `timeZone:`. Testele DOM ale cardurilor
+//       dau prop-ul direct, deci nu văd un prop scos în pagină. Mutațiile care
+//       pică: `timeZone={localTz}` scos de pe un `<OrderCard`; hook-ul chemat cu
+//       fusul implicit; `toLocaleTimeString` readus în WaiterPage/QrCartSheet.
+//   ZT8 INTRAREA și graful meniului QR NU ajung la `lib/dates` (PR #293: entry-ul
+//       oaspetelui e ținut mic, iar `lib/dates` evaluează formatter-e Intl la
+//       încărcare). Graful e cel STATIC (importurile de valoare, transitiv; cele
+//       `import type` și `import()` leneșe nu contează), pornit din main.tsx și
+//       din QrMenuPage. Control POZITIV: graful lui PublicMenuPage și al lui
+//       WaiterPage chiar ajunge la `lib/dates`, iar parserul prinde un import de
+//       valoare și sare unul `import type`. Mutațiile care pică:
+//       `restaurantTimeZone` importat în RestaurantContext; `safeTimeZone`
+//       importat în lib/qr.ts (pastila lăsată acolo).
 // Mutațiile care pică: calendarul dispozitivului readus în ReservationsTab, API-ul
 // zilei românești readus în HomeTab, fusul scris de mână readus în ReportsTab
 // (ZT2); tiparul constructorului local slăbit până prinde `Date.UTC(` (ZT4).
-import { readFileSync, readdirSync } from 'node:fs'
-import { join, relative, resolve, sep } from 'node:path'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 // Din process.cwd(), NU din import.meta.url (capcana din qr-scan.test.ts, #269).
@@ -74,12 +94,6 @@ const ALLOWED: ReadonlyArray<{ hit: string; reason: string }> = [
   { hit: 'src/components/LegalFooter.tsx P3 calendarul dispozitivului', reason: 'anul de copyright, cosmetic' },
   { hit: 'src/components/marketing/MarketingFooter.tsx P3 calendarul dispozitivului', reason: 'anul de copyright, cosmetic' },
   { hit: 'src/pages/LandingPageEn.tsx P3 calendarul dispozitivului', reason: 'anul de copyright, cosmetic' },
-  { hit: 'src/hooks/useRomaniaTodayRange.ts P1 ziua românească', reason: 'G2c — „azi” al ospătarului, generalizat odată cu fusul din RestaurantContext' },
-  { hit: 'src/pages/WaiterPage.tsx P1 ziua românească', reason: 'G2c — fusul prin RestaurantContext' },
-  { hit: 'src/components/ReservationSheet.tsx P2 fus fix', reason: 'G2c — oaspetele: safeTimeZone + zonedWallToInstant' },
-  { hit: 'src/components/ReservationSheet.tsx P3 calendarul dispozitivului', reason: 'G2c — oaspetele: zilele pe fusul localului' },
-  { hit: 'src/components/ReservationSheet.tsx P4 constructor local', reason: 'G2c — oaspetele: zilele pe fusul localului' },
-  { hit: 'src/lib/qr.ts P2 fus fix', reason: 'G2c — computeIsOpen / todayHoursLabel: safeTimeZone + hourCycle h23' },
 ]
 
 function sourceFiles(dir: string): string[] {
@@ -209,5 +223,119 @@ describe('clichet: ziua se judecă pe fusul restaurantului', () => {
     const dash = readFileSync(join(SRC, 'pages', 'DashboardPage.tsx'), 'utf8')
     expect(dash).toMatch(/featuresReloadRef\.current = features\.reload/)
     expect(dash).toMatch(/!res\.error && 'country' in fields\) void featuresReloadRef\.current\?\.\(\)/)
+  })
+
+  // Atributele unui element = textul de la `<Nume` până la primul `/>`.
+  const propsIn = (source: string, name: string): string[] => {
+    const out: string[] = []
+    const re = new RegExp(`<${name}\\b`, 'g')
+    for (let m = re.exec(source); m; m = re.exec(source)) {
+      const end = source.indexOf('/>', m.index)
+      out.push(source.slice(m.index, end < 0 ? undefined : end))
+    }
+    return out
+  }
+
+  it('ZT7 paginile de serviciu și foile oaspetelui primesc fusul localului', () => {
+    const read = (f: string): string => readFileSync(join(SRC, f), 'utf8')
+    const waiter = read('pages/WaiterPage.tsx')
+    const kitchen = read('pages/KitchenPage.tsx')
+    const qrPage = read('pages/QrMenuPage.tsx')
+    const resv = read('components/ReservationSheet.tsx')
+    const cart = read('components/QrCartSheet.tsx')
+    const audit = read('components/OrderAuditSheet.tsx')
+
+    for (const [file, src] of [['WaiterPage', waiter], ['KitchenPage', kitchen]] as const) {
+      expect(src, file).toMatch(/const localTz = restaurantTimeZone\(activeRestaurant\)/)
+      const cards = propsIn(src, 'OrderCard')
+      expect(cards.length, `${file} <OrderCard`).toBeGreaterThanOrEqual(1)
+      for (const c of cards) expect(c.match(/timeZone=\{[^}]*\}/g) ?? [], file).toEqual(['timeZone={localTz}'])
+    }
+    expect(propsIn(waiter, 'OrderCard').length).toBeGreaterThanOrEqual(2) // lista + „Stadiu mese”
+    const audits = propsIn(waiter, 'OrderAuditSheet')
+    expect(audits.length).toBe(1)
+    for (const a of audits) expect(a.match(/timeZone=\{[^}]*\}/g) ?? []).toEqual(['timeZone={localTz}'])
+    expect(waiter).toMatch(/useZonedTodayRange\(localTz\)/)
+
+    const carts = propsIn(qrPage, 'QrCartSheet')
+    expect(carts.length).toBe(1)
+    for (const c of carts) expect(c).toMatch(/timeZone=\{ctx\?\.restaurant\.timezone\b/)
+    expect(resv).toMatch(/const tz = restaurantTimeZone\(restaurant\)/)
+
+    for (const [file, src] of [['WaiterPage', waiter], ['ReservationSheet', resv], ['QrCartSheet', cart], ['OrderAuditSheet', audit]] as const) {
+      expect(src.includes('toLocaleTimeString('), file).toBe(false)
+    }
+    expect(resv.includes('toLocaleString('), 'ReservationSheet').toBe(false)
+    expect(audit).toMatch(/timeZone: safeTimeZone\(timeZone\)/)
+  })
+
+  // Graful STATIC al importurilor de valoare (relative), transitiv. `import type`
+  // (și un `{ type A, type B }` numai cu tipuri) nu aduce cod; `import()` leneș nu
+  // e în graf. Re-exporturile (`export … from`) contează. Întoarce fișierele
+  // atinse, relativ la ROOT.
+  const IMPORT_RE =
+    /^\s*(?:import|export(?=\s+(?:type\s+)?[*{]))\s+(type\s+)?((?:(?!\n\s*(?:import|export)\s)[\s\S])*?)\s*from\s+['"]([^'"]+)['"]|^\s*import\s+['"]([^'"]+)['"]/gm
+  /** Specificatorii importurilor de VALOARE dintr-o sursă. */
+  function valueImports(source: string): string[] {
+    const out: string[] = []
+    for (const m of source.matchAll(IMPORT_RE)) {
+      if (m[4]) {
+        out.push(m[4])
+        continue
+      }
+      if (m[1]) continue // import type …
+      const clause = (m[2] ?? '').trim()
+      if (clause.startsWith('{') && clause.endsWith('}')) {
+        const names = clause.slice(1, -1).split(',').map((x) => x.trim()).filter(Boolean)
+        if (names.length > 0 && names.every((x) => x.startsWith('type '))) continue
+      }
+      if (m[3]) out.push(m[3])
+    }
+    return out
+  }
+  function staticGraph(entry: string): Set<string> {
+    const seen = new Set<string>()
+    const stack = [resolve(ROOT, entry)]
+    while (stack.length > 0) {
+      const file = stack.pop() as string
+      const rel = relative(ROOT, file).split(sep).join('/')
+      if (seen.has(rel)) continue
+      seen.add(rel)
+      if (!/\.tsx?$/.test(file)) continue
+      for (const spec of valueImports(readFileSync(file, 'utf8'))) {
+        if (!spec.startsWith('.')) continue
+        const base = resolve(dirname(file), spec)
+        const hit = [base, `${base}.ts`, `${base}.tsx`, join(base, 'index.ts'), join(base, 'index.tsx')].find(
+          (c) => existsSync(c) && statSync(c).isFile(),
+        )
+        if (hit) stack.push(hit)
+      }
+    }
+    return seen
+  }
+
+  it('ZT8 intrarea și graful meniului QR nu ajung la lib/dates (control pozitiv pe /m și Ospătar)', () => {
+    // Parserul: valoare prinsă, tip sărit, import multilinie prins.
+    expect(valueImports("import { restaurantTimeZone } from '../lib/dates'")).toEqual(['../lib/dates'])
+    expect(valueImports("import type { RegionalFields } from './dates'")).toEqual([])
+    expect(valueImports("import { type WallTime } from './dates'")).toEqual([])
+    expect(valueImports("export { safeTimeZone } from './dates'")).toEqual(['./dates'])
+    expect(valueImports("export const X = 1\n// citit din './dates'")).toEqual([])
+    expect(valueImports("import {\n  safeTimeZone,\n  type WallTime,\n} from './dates'\nimport x from './y'")).toEqual([
+      './dates',
+      './y',
+    ])
+
+    const DATES = 'src/lib/dates.ts'
+    const entry = staticGraph('src/main.tsx')
+    const qr = staticGraph('src/pages/QrMenuPage.tsx')
+    expect(entry.size).toBeGreaterThan(20) // anti-vacuitate: graful chiar se parcurge
+    expect(entry.has('src/contexts/RestaurantContext.tsx')).toBe(true)
+    expect(entry.has('src/lib/memberships.ts')).toBe(true)
+    expect(qr.has('src/lib/qr.ts')).toBe(true)
+    expect(entry.has(DATES), 'intrarea (main.tsx) ajunge la lib/dates').toBe(false)
+    expect(qr.has(DATES), 'graful QrMenuPage ajunge la lib/dates').toBe(false)
+    expect(staticGraph('src/pages/PublicMenuPage.tsx').has(DATES)).toBe(true)
+    expect(staticGraph('src/pages/WaiterPage.tsx').has(DATES)).toBe(true)
   })
 })

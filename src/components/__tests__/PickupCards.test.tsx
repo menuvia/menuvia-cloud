@@ -110,3 +110,47 @@ describe('cardurile de staff', () => {
     expect(screen.getByText('15m')).toBeInTheDocument() // nu „20m" de la plasare
   })
 })
+
+// Lotul G2c: paginile de personal dau cardurilor fusul LOCALULUI (din
+// RestaurantContext), iar ora de ridicare urmează acel fus — ca ecranul de
+// confirmare al oaspetelui, care formatează aceeași coloană pe același fus.
+// PK1–PK9 rămân pe implicitul București (prop omis).
+//   PK10 helperul: 16:00Z pe fusul New York = 12:00.
+//   PK11 PickupDetails cu `timeZone` → 12:00 (fără provider: componenta nu
+//        citește contextul).
+//   PK12 cardurile Ospătar + Bucătărie propagă prop-ul: New York 12:00,
+//        Kolkata 21:30. Mutația care pică: prop-ul nepropagat în card.
+describe('ora de ridicare pe fusul localului (G2c)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('PK10 helperul formatează pe fusul dat', () => {
+    expect(pickupTimeLabel(pickup, 'America/New_York')).toBe('12:00')
+    expect(pickupTimeLabel(pickup, 'Asia/Kolkata')).toBe('21:30')
+    expect(pickupTimeLabel(pickup)).toBe('19:00') // control: implicitul București
+  })
+
+  it('PK11 PickupDetails primește fusul ca prop', () => {
+    render(<PickupDetails order={pickup} now={NOW.getTime()} timeZone="America/New_York" />)
+    expect(screen.getByText('12:00')).toBeInTheDocument()
+    expect(screen.queryByText('19:00')).toBeNull()
+  })
+
+  it('PK12 cardurile de Ospătar și Bucătărie propagă fusul', () => {
+    const { unmount } = render(
+      <WaiterOrderCard order={pickup} onPayOpen={vi.fn()} onSplitOpen={vi.fn()} timeZone="America/New_York" />,
+    )
+    expect(screen.getByText('12:00')).toBeInTheDocument()
+    unmount()
+    const k = render(<KitchenOrderCard order={pickup} onAdvance={vi.fn()} timeZone="America/New_York" />)
+    expect(screen.getByText('12:00')).toBeInTheDocument()
+    k.unmount()
+    render(<KitchenOrderCard order={pickup} onAdvance={vi.fn()} timeZone="Asia/Kolkata" />)
+    expect(screen.getByText('21:30')).toBeInTheDocument()
+  })
+})

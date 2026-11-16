@@ -44,6 +44,7 @@ import { ActionErrorNote } from '../components/ActionErrorNote'
 import { SignOutButton } from '../components/SignOutButton'
 import { UiLanguageSelect } from '../components/UiLanguageSelect'
 import { isScheduledPickupAhead, sortByDue, urgencyAnchor } from '../lib/pickupOrders'
+import { restaurantTimeZone } from '../lib/dates'
 import { useT } from '../i18n/useT'
 import { kitchenNs } from '../i18n/ns/kitchen'
 import { ordersNs } from '../i18n/ns/orders'
@@ -181,6 +182,8 @@ interface OrderCardProps {
   // (nu sus, în pagină) — lotul L4c.
   actionError?: StaffActionFailure | null
   onDismissError?: (id: string) => void
+  // Fusul OPERAȚIONAL al localului (lotul G2c) — ora de ridicare. Omis → București.
+  timeZone?: string
 }
 const OrderCard = memo(function OrderCard({
   order,
@@ -188,6 +191,7 @@ const OrderCard = memo(function OrderCard({
   pending = false,
   actionError = null,
   onDismissError,
+  timeZone,
 }: OrderCardProps) {
   const { t } = useT(kitchenNs)
   const to = useT(ordersNs)
@@ -279,7 +283,7 @@ const OrderCard = memo(function OrderCard({
         </div>
         {!pickupAhead && <ElapsedTimer createdAt={anchor} />}
       </div>
-      <PickupDetails order={order} />
+      <PickupDetails order={order} timeZone={timeZone} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {order.order_items.map((item) => (
           <div key={item.id}>
@@ -391,7 +395,10 @@ export default function KitchenPage() {
     memberships,
     setActive,
     loading: ctxLoading,
+    activeRestaurant,
   } = useRestaurantCtx()
+  // Fusul OPERAȚIONAL al localului (lotul G2c): ora de ridicare de pe carduri.
+  const localTz = restaurantTimeZone(activeRestaurant)
   // Toate trei SUS, înaintea oricărui return timpuriu (vezi antetul fișierului).
   const { t } = useT(kitchenNs)
   useT(ordersNs)
@@ -844,6 +851,7 @@ export default function KitchenPage() {
                   <RevealItem key={order.id} delay={Math.min(i, 4) * 40}>
                     <OrderCard
                       order={order}
+                      timeZone={localTz}
                       onAdvance={handleAdvance}
                       pending={pendingIds.has(order.id)}
                       actionError={actionErrors[order.id] ?? null}

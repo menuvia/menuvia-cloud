@@ -29,6 +29,12 @@ import {
 } from '../lib/reservations'
 import PhoneInput from './PhoneInput'
 import { DEFAULT_CALLING_CODE, toE164 } from '../lib/phone'
+import {
+  buildReservationSlots,
+  reservationDayBounds,
+  reservationSlotInstantIso,
+} from '../lib/reservationSlots'
+import { formatTimeInZone, formatYmd, isoToZonedYMD, restaurantTimeZone } from '../lib/dates'
 
 interface PubColors {
   bg: string
@@ -71,144 +77,24 @@ interface CreateResult {
   party_size: number
 }
 
-function pad2(n: number): string {
-  return n < 10 ? '0' + n : '' + n
-}
-
-function ymd(d: Date): string {
-  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())
-}
-
-function parseTime(hhmm: string): { h: number; m: number } {
-  const parts = hhmm.split(':')
-  return { h: Number(parts[0] ?? 0), m: Number(parts[1] ?? 0) }
-}
-
-function minutesOfDay(hhmm: string): number {
-  const t = parseTime(hhmm)
-  return t.h * 60 + t.m
-}
-
-// Adaugă `n` zile la o dată YYYY-MM-DD (fus local — folosită doar pentru a muta
-// data unui slot de după miezul nopții pe ziua următoare).
-function addDaysYmd(dateYmd: string, n: number): string {
-  const [y, mo, d] = dateYmd.split('-').map(Number)
-  return ymd(new Date(y!, mo! - 1, d! + n))
-}
-
-// Data reală a unui slot. Pentru un restaurant deschis PESTE miezul nopții
-// (close <= open), sloturile cu ora sub ora de deschidere aparțin zilei
-// următoare (ex. program 18:00–02:00: slotul „01:00" ales „azi" e de fapt mâine
-// la 01:00). Astfel disponibilitatea și submit-ul folosesc instantul corect.
-function effectiveSlotYmd(dateYmd: string, timeSlot: string, settings: PublicSettings): string {
-  const openMin = minutesOfDay(settings.open_time)
-  const closeMin = minutesOfDay(settings.close_time)
-  const wrap = closeMin <= openMin
-  if (wrap && minutesOfDay(timeSlot) < openMin) return addDaysYmd(dateYmd, 1)
-  return dateYmd
-}
-
-function buildSlots(
-  dateYmd: string,
-  settings: PublicSettings,
-  minAdvanceMs: number,
-  timeZone: string,
-): string[] {
-  const open = parseTime(settings.open_time)
-  const close = parseTime(settings.close_time)
-  const interval = settings.slot_interval
-  if (!dateYmd || interval <= 0) return []
-
-  // Etichetele de oră sunt ore de PERETE ale restaurantului (independente de
-  // fus). Filtrarea min_advance se face însă pe instantul REAL (UTC) al fiecărui
-  // slot în fusul RESTAURANTULUI, nu în fusul browserului — altfel un client din
-  // diaspora vedea sloturi care erau de fapt în trecut (sau invers).
-  const minEpoch = Date.now() + minAdvanceMs
-  const openMin = open.h * 60 + open.m
-  const closeMin = close.h * 60 + close.m
-  // Restaurant deschis peste miezul nopții (close <= open): iterăm până la
-  // close+24h și etichetăm sloturile de după miezul nopții cu ora de perete
-  // (mins % 1440). Data reală a fiecărui slot (azi vs. mâine) se ia din
-  // `effectiveSlotYmd`, ca filtrul min_advance să compare instantul corect.
-  const endMin = closeMin <= openMin ? closeMin + 24 * 60 : closeMin
-  const slots: string[] = []
-  for (let mins = openMin; mins < endMin; mins += interval) {
-    const wall = mins % (24 * 60)
-    const label = pad2(Math.floor(wall / 60)) + ':' + pad2(wall % 60)
-    const slotYmd = effectiveSlotYmd(dateYmd, label, settings)
-    const slotEpoch = new Date(isoForLocalDateTime(slotYmd, label, timeZone)).getTime()
-    if (Number.isFinite(slotEpoch) && slotEpoch >= minEpoch) slots.push(label)
-  }
-  return slots
-}
-
-// Convertește ora aleasă (oră de perete) în UTC ISO, interpretată ÎN fusul
-// restaurantului — NU în fusul browserului vizitatorului. Fără asta, un client
-// din diaspora care alege 19:00 pentru un restaurant din București trimitea o
-// oră greșită (interpretată în fusul lui). Trucul standard fără librării:
-// calculează offset-ul fusului la acel instant și aplică-l.
-function isoForLocalDateTime(dateYmd: string, hhmm: string, timeZone: string): string {
-  const [y, mo, d] = dateYmd.split('-').map(Number)
-  const t = parseTime(hhmm)
-  const asUtc = Date.UTC(y!, mo! - 1, d!, t.h, t.m, 0, 0)
-  try {
-    // Offset-ul fusului = diferența dintre cum arată ACELAȘI instant redat în
-    // `timeZone` vs. în UTC. Redăm în AMBELE și le parsăm identic (în fusul
-    // browserului) → offset-ul browserului se anulează, rămâne doar offset-ul
-    // restaurantului. Fără asta, un client care NU e în UTC primea o oră greșită
-    // (ex. Bucureștean 19:00 → 19:00Z în loc de 16:00Z).
-    const utcWall = new Date(new Date(asUtc).toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
-    const tzWall = new Date(new Date(asUtc).toLocaleString('en-US', { timeZone })).getTime()
-    if (Number.isFinite(utcWall) && Number.isFinite(tzWall)) {
-      return new Date(asUtc - (tzWall - utcWall)).toISOString()
-    }
-  } catch {
-    /* fus invalid → fallback la UTC brut (comportamentul vechi) */
-  }
-  return new Date(asUtc).toISOString()
-}
-
+// Logica sloturilor (zilele, instantul, filtrele) stă PURĂ în
+// lib/reservationSlots.ts, pe fusul LOCALULUI (lotul G2c) — paritate cu
+// validarea serverului din `create_reservation_public` (mig 298).
+//
 // Ce se AFIȘEAZĂ pe confirmare vine din RÂNDUL serverului, nu din starea
 // formularului. Cât timp fiecare apel crea o rezervare nouă, cele două coincideau
 // mereu; cu idempotență (mig 273) NU mai coincid — dacă răspunsul primei cereri
 // s-a pierdut pe drum și clientul schimbă ora și retrimite, serverul întoarce
 // corect rezervarea DEJA existentă, cu intervalul ei. Un ecran care ar arăta ora
-// tastată acum ar minți despre o rezervare reală.
-// Formatarea e în fusul LOCALULUI, nu în UTC — aceeași regulă ca mig 269 la data
-// livrării: `sv-SE` produce nativ YYYY-MM-DD și HH:MM.
-function instantParts(iso: string, timeZone: string): { ymd: string; hm: string } {
-  const d = new Date(iso)
-  return {
-    ymd: new Intl.DateTimeFormat('sv-SE', {
-      timeZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(d),
-    hm: new Intl.DateTimeFormat('sv-SE', {
-      timeZone,
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).format(d),
-  }
-}
-
-function formatDateRo(dateYmd: string, lang: string): string {
-  const [y, mo, d] = dateYmd.split('-').map(Number)
-  const dt = new Date(y!, mo! - 1, d!)
-  return dt.toLocaleDateString(guestLocale(lang), {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  })
-}
+// tastată acum ar minți despre o rezervare reală. Data și ora se formatează în
+// fusul LOCALULUI (`isoToZonedYMD` + `formatYmd`, `formatTimeInZone`), cu fus
+// invalid → București (înainte, un fus invalid arunca RangeError la randare).
 
 export default function ReservationSheet({ restaurant, theme, accent, PUB, lang, onClose }: Props) {
   useBodyScrollLock(true)
-  // Fusul restaurantului (fallback București) — folosit la construirea sloturilor
-  // și la conversia orei de perete în instant UTC.
-  const tz = restaurant.timezone || 'Europe/Bucharest'
+  // Fusul OPERAȚIONAL al localului (fus lipsă sau invalid → București, ca
+  // `safe_time_zone` pe server) — sloturile, „azi/mâine/max" și confirmarea.
+  const tz = restaurantTimeZone(restaurant)
   const [settings, setSettings] = useState<PublicSettings | null>(null)
   const [zones, setZones] = useState<string[]>([])
   const [partySize, setPartySize] = useState<number>(2)
@@ -309,20 +195,21 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     }
   }, [restaurant.id, lang])
 
+  // „Azi", „Mâine" și ultima zi rezervabilă, pe ziua LOCALULUI (nu a
+  // telefonului): un oaspete din alt fus vedea „azi" ziua lui. Se calculează la
+  // randare — o foaie lăsată deschisă peste miezul nopții se actualizează la
+  // următoarea interacțiune.
+  const bounds = reservationDayBounds(Date.now(), settings?.max_advance_days ?? 30, tz)
+
   const chosenDateYmd = useMemo(() => {
-    if (dateChoice === 'today') return ymd(new Date())
-    if (dateChoice === 'tomorrow') {
-      const d = new Date()
-      d.setDate(d.getDate() + 1)
-      return ymd(d)
-    }
+    if (dateChoice === 'today') return bounds.today
+    if (dateChoice === 'tomorrow') return bounds.tomorrow
     return customDate
-  }, [dateChoice, customDate])
+  }, [dateChoice, customDate, bounds.today, bounds.tomorrow])
 
   const slots = useMemo(() => {
     if (!settings || !chosenDateYmd) return []
-    const minAdvanceMs = settings.min_advance_hours * 3_600_000
-    return buildSlots(chosenDateYmd, settings, minAdvanceMs, tz)
+    return buildReservationSlots(chosenDateYmd, settings, Date.now(), tz)
   }, [settings, chosenDateYmd, tz])
 
   // Auto-reset time if no longer valid
@@ -337,11 +224,8 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
   const slot = useMemo(() => {
     if (!settings || !chosenDateYmd || !timeSlot) return null
     // Data reală a slotului (ziua următoare pentru sloturile de după miezul nopții).
-    const startsAt = isoForLocalDateTime(
-      effectiveSlotYmd(chosenDateYmd, timeSlot, settings),
-      timeSlot,
-      tz,
-    )
+    const startsAt = reservationSlotInstantIso(chosenDateYmd, timeSlot, settings, tz)
+    if (startsAt == null) return null
     const endsAt = new Date(
       new Date(startsAt).getTime() + settings.reservation_duration * 60_000,
     ).toISOString()
@@ -466,13 +350,13 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
       setError(T(lang, 'rs_unavailable_here'))
       return
     }
-    setSubmitting(true)
     // Data reală a slotului (mâine pentru sloturile de după miezul nopții).
-    const startsAt = isoForLocalDateTime(
-      effectiveSlotYmd(chosenDateYmd, timeSlot, settings),
-      timeSlot,
-      tz,
-    )
+    const startsAt = reservationSlotInstantIso(chosenDateYmd, timeSlot, settings, tz)
+    if (startsAt == null) {
+      setError(T(lang, 'rs_choose_time'))
+      return
+    }
+    setSubmitting(true)
     // Cheia de idempotență (mig 273): dublu-tap, revenire cu Back sau retrimitere
     // după un răspuns pierdut pe rețea trebuie să întoarcă ACEEAȘI rezervare, nu
     // să creeze a doua. Se rotește DOAR pe succes, mai jos.
@@ -670,8 +554,12 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
               {result.confirmation_code}
             </div>
             <div style={{ fontSize: 14, color: PUB.text, marginBottom: 4 }}>
-              {formatDateRo(instantParts(result.starts_at, tz).ymd, lang)}{' '}
-              · {instantParts(result.starts_at, tz).hm}
+              {formatYmd(isoToZonedYMD(result.starts_at, tz) ?? '', guestLocale(lang), {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+              })}{' '}
+              · {formatTimeInZone(result.starts_at, tz)}
             </div>
             <div style={{ fontSize: 13, color: PUB.text2 }}>
               {result.party_size}{' '}
@@ -872,10 +760,10 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
           <input
             type="date"
             value={customDate}
-            min={ymd(new Date())}
+            min={bounds.today}
             // Nu lăsăm clientul să aleagă o dată dincolo de fereastra permisă
             // (RPC-ul o respinge oricum). Fallback 30 zile dacă settings n-a venit.
-            max={ymd(new Date(Date.now() + (settings?.max_advance_days ?? 30) * 86_400_000))}
+            max={bounds.max}
             onChange={(e) => setCustomDate(e.target.value)}
             style={{ ...inputStyle, marginTop: 10 }}
           />
