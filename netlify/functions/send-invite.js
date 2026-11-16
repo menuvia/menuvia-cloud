@@ -14,9 +14,18 @@
 //      șterg CELELALTE invitații în așteptare (`neq token`); la un refuz clar al
 //      lui Resend se șterge doar invitația NOUĂ, cele vechi rămân valabile.
 // Erorile sunt `{ error: <română>, code }` — TeamManager afișează `error`.
+//
+// Limba emailului (lotul L8a): alegerea INVITATULUI, dacă are deja cont
+// (`profiles.ui_language`), apoi a invitatorului, apoi româna — toate doar pe
+// limbile ACTIVE pentru personal. Nimic din body (anti-relay, SEC-06). Linkul
+// NU primește `?lang=`: pe pagina de acceptare `?lang=` devine preferința
+// DISPOZITIVULUI invitatului, iar un patron englez ar muta pe engleză
+// telefonul unui ospătar român; pagina își rezolvă singură limba.
 
 const { createClient } = require('@supabase/supabase-js')
 const { siteAppUrl, FROM_HELLO, LEGACY_NETLIFY_URL } = require('./lib/appUrl')
+const { fetchUiLanguages, resolveInviteLang } = require('./lib/emailLang')
+const { kindStrings, fill } = require('./lib/emailStrings')
 
 function fail(statusCode, code, error) {
   return { statusCode, body: JSON.stringify({ error, code }) }
@@ -37,6 +46,46 @@ function escapeHtml(s) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
+}
+
+/**
+ * Subiectul + HTML-ul invitației în limba `lang`. Numele vin BRUTE și se
+ * escapează aici; în română ieșirea e byte-identică cu cea de dinainte
+ * (INV9). Subiectul e text simplu (antet): doar fără CR/LF, fără escapare.
+ */
+function renderInviteEmail(lang, { restaurantName, invitedByName, roleKey, acceptUrl }) {
+  const s = kindStrings('team_invite', lang)
+  // Nume lipsă (lookup null) → rezerva în LIMBA emailului; pe română rămâne
+  // EXACT „restaurantul tău” / „Un coleg”, ca înainte.
+  const rName = restaurantName ? String(restaurantName) : s.restaurant_anon
+  const iName = invitedByName ? String(invitedByName) : s.inviter_anon
+  const safeRestaurantName = escapeHtml(rName)
+  const safeInvitedBy = escapeHtml(iName)
+  const subjectRestaurantName = rName.replace(/[\r\n]+/g, ' ').trim()
+  const roleLabel = s[`role_${roleKey}`] || roleKey
+  return {
+    subject: fill(s.subject, { restaurant: subjectRestaurantName }),
+    html: `
+        <div style="font-family:'DM Sans',sans-serif;max-width:520px;margin:0 auto;background:#0F0F0F;border-radius:16px;padding:40px;color:#F0EAE0;">
+          <div style="font-family:Georgia,serif;font-size:24px;color:#C8963C;margin-bottom:24px;">Menuvia</div>
+          <h2 style="font-family:Georgia,serif;font-size:20px;color:#F0EAE0;margin-bottom:12px;">
+            ${fill(s.title, { restaurant: safeRestaurantName })}
+          </h2>
+          <p style="color:#9A9590;line-height:1.6;margin-bottom:8px;">
+            ${fill(s.invited_by, { inviter: safeInvitedBy, role: `<strong style="color:#E2B472">${roleLabel}</strong>` })}
+          </p>
+          <p style="color:#9A9590;line-height:1.6;margin-bottom:28px;">
+            ${s.accept_hint}
+          </p>
+          <a href="${acceptUrl}" style="display:inline-block;background:#C8963C;color:#000;padding:14px 28px;border-radius:10px;text-decoration:none;font-weight:600;font-size:15px;margin-bottom:24px;">
+            ${s.cta}
+          </a>
+          <p style="color:#4A4844;font-size:12px;line-height:1.5;margin-top:24px;">
+            ${s.expires}
+          </p>
+        </div>
+      `,
+  }
 }
 
 exports.handler = async (event) => {
@@ -121,14 +170,12 @@ exports.handler = async (event) => {
     supabase.from('restaurants').select('name').eq('id', restaurant_id).maybeSingle(),
     supabase.from('profiles').select('full_name, email').eq('id', user.id).maybeSingle(),
   ])
-  const restaurantName = String(restRow?.name || 'restaurantul tău')
-  const invitedByName = String(inviterRow?.full_name || inviterRow?.email || 'Un coleg')
-  // Conținut escapat pentru interpolarea în HTML-ul emailului.
-  const safeRestaurantName = escapeHtml(restaurantName)
-  const safeInvitedBy = escapeHtml(invitedByName)
-  // Subiectul e text simplu (header), NU HTML — escaparea l-ar strica ("Fish & Chips"
-  // → "Fish &amp; Chips"). Doar curățăm newline-urile (anti header-injection).
-  const subjectRestaurantName = restaurantName.replace(/[\r\n]+/g, ' ').trim()
+  // Gol = necunoscut: renderInviteEmail pune rezerva în limba emailului.
+  const restaurantName = String(restRow?.name || '')
+  const invitedByName = String(inviterRow?.full_name || inviterRow?.email || '')
+  // Conținutul se escapează în renderInviteEmail; subiectul e text simplu
+  // (header), NU HTML — escaparea l-ar strica ("Fish & Chips" → "Fish &amp;
+  // Chips"). Acolo doar se curăță newline-urile (anti header-injection).
 
   // ── SEC-004: Rate limit anti-spam ──────────────────────────────
   // Max 20 invite emails / 24h per inviter. Prevents Resend domain suspension.
@@ -175,6 +222,15 @@ exports.handler = async (event) => {
     }
   }
 
+  // Limba emailului: interogare SEPARATĂ de `full_name, email` — pe o bază
+  // fără mig 323 coloana lipsește (42703), iar un select comun ar fi pierdut
+  // și numele invitatorului. Orice eroare → română (INV11).
+  const langs = await fetchUiLanguages(supabase, [user.id, existingProfile && existingProfile.id])
+  const emailLang = resolveInviteLang({
+    invitee: existingProfile ? langs.get(existingProfile.id) : null,
+    inviter: langs.get(user.id),
+  })
+
   // Create invite token — ÎNAINTE de a atinge invitațiile vechi (vezi antetul).
   const { data: invite, error: inviteErr } = await supabase
     .from('invite_tokens')
@@ -197,8 +253,7 @@ exports.handler = async (event) => {
   // Linkul NU pleacă niciodată spre domeniul .com (nu ne aparține — D3).
   const appUrl   = siteAppUrl(site, { keys: ['VITE_APP_URL'], fallback: LEGACY_NETLIFY_URL })
   const acceptUrl = `${appUrl}/invite/${invite.token}`
-
-  const ROLE_LABELS = { manager: 'Manager', waiter: 'Ospătar', kitchen: 'Bucătărie' }
+  const rendered = renderInviteEmail(emailLang, { restaurantName, invitedByName, roleKey: role, acceptUrl })
 
   // Send email via Resend
   let res
@@ -214,27 +269,8 @@ exports.handler = async (event) => {
     body: JSON.stringify({
       from:    FROM_HELLO,
       to:      [cleanEmail],
-      subject: `Ai fost invitat la ${subjectRestaurantName} pe Menuvia`,
-      html: `
-        <div style="font-family:'DM Sans',sans-serif;max-width:520px;margin:0 auto;background:#0F0F0F;border-radius:16px;padding:40px;color:#F0EAE0;">
-          <div style="font-family:Georgia,serif;font-size:24px;color:#C8963C;margin-bottom:24px;">Menuvia</div>
-          <h2 style="font-family:Georgia,serif;font-size:20px;color:#F0EAE0;margin-bottom:12px;">
-            Ai fost invitat la <strong>${safeRestaurantName}</strong>
-          </h2>
-          <p style="color:#9A9590;line-height:1.6;margin-bottom:8px;">
-            ${safeInvitedBy} te-a invitat ca <strong style="color:#E2B472">${ROLE_LABELS[role] || role}</strong> pe Menuvia.
-          </p>
-          <p style="color:#9A9590;line-height:1.6;margin-bottom:28px;">
-            Acceptă invitația pentru a accesa dashboardul restaurantului.
-          </p>
-          <a href="${acceptUrl}" style="display:inline-block;background:#C8963C;color:#000;padding:14px 28px;border-radius:10px;text-decoration:none;font-weight:600;font-size:15px;margin-bottom:24px;">
-            Acceptă invitația
-          </a>
-          <p style="color:#4A4844;font-size:12px;line-height:1.5;margin-top:24px;">
-            Linkul expiră în 7 zile. Dacă nu ai solicitat această invitație, ignoră acest email.
-          </p>
-        </div>
-      `,
+      subject: rendered.subject,
+      html: rendered.html,
     }),
     })
   } catch (e) {
@@ -280,3 +316,6 @@ exports.handler = async (event) => {
     body: JSON.stringify({ ok: true }),
   }
 }
+
+// Pentru testele din tests/functions (INV9, EL1/EL2/EL8).
+exports.renderInviteEmail = renderInviteEmail

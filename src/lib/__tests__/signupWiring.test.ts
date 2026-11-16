@@ -21,6 +21,10 @@
 //        bază: clientul nu cheamă niciun RPC de atribuire la signup
 //   SW8  linkul de confirmare (signUp ȘI „Retrimite") poartă `next` curent, validat:
 //        confirmarea din email se deschide în ALT tab, fără `?next=` al tab-ului inițial
+//   SW9  (lotul L8a) ambele înscrieri (AuthPage + InviteAcceptPage) pun limba ecranului
+//        în `user_metadata.ui_lang` — singura sursă pentru limba șabloanelor Supabase
+//        Auth (docs/AUTH_EMAIL_TEMPLATES.md). Mutația care pică: cheia scoasă din
+//        oricare pagină.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
@@ -31,6 +35,7 @@ const read = (f: string) => readFileSync(resolve(process.cwd(), f), 'utf8')
 const AUTH = read('src/pages/AuthPage.tsx')
 const APP = read('src/App.tsx')
 const CONFIRM = read('src/components/auth/ConfirmEmailCodeStep.tsx')
+const INVITE = read('src/pages/InviteAcceptPage.tsx')
 
 describe('înscrierea — cablaj', () => {
   it('SW1 agent_code intră în metadata la signUp, după decizia resolveForSubmit', () => {
@@ -110,5 +115,19 @@ describe('înscrierea — cablaj', () => {
     // ambele drumuri spre email folosesc ACELAȘI URL
     expect(AUTH).toContain('emailRedirectTo: confirmRedirectUrl()')
     expect(AUTH).toContain('redirectTo={confirmRedirectUrl()}')
+  })
+
+  it('SW9 limba ecranului ajunge în user_metadata.ui_lang la ambele înscrieri', () => {
+    // Fereastra apelului: de la `supabase.auth.signUp(` până la `emailRedirectTo`
+    // (AuthPage) / sfârșitul obiectului de opțiuni (InviteAcceptPage).
+    const authAt = AUTH.indexOf('supabase.auth.signUp(')
+    const authCall = AUTH.slice(authAt, AUTH.indexOf('emailRedirectTo:', authAt))
+    expect(authCall).toMatch(/data:\s*\{[^}]*ui_lang:\s*lang\b/)
+    expect(AUTH).toMatch(/const \{ t, lang \} = useT\(authNs\)/)
+    const invAt = INVITE.indexOf('supabase.auth.signUp(')
+    expect(invAt, 'signUp lipsește din InviteAcceptPage').toBeGreaterThan(-1)
+    const invCall = INVITE.slice(invAt, INVITE.indexOf('})', invAt))
+    expect(invCall).toMatch(/data:\s*\{[^}]*ui_lang:\s*uiLang\b/)
+    expect(INVITE).toMatch(/const \{ lang: uiLang \} = useUiLang\(\)/)
   })
 })
