@@ -237,3 +237,28 @@ describe('QrCartSheet — reîncercarea respectă garda de trimitere', () => {
     expect(screen.getByRole('button', { name: 'Reîncearcă' })).toBeDisabled()
   })
 })
+
+// Lotul G2c: ora comenzilor deja trimise („La bucătărie”) e pe fusul LOCALULUI,
+// adus brut de proiecția QR (mig 326) — nu pe fusul telefonului oaspetelui.
+//   QCZ1 fusul New York → 09:10Z se afișează 05:10.
+//   QCZ2 fără prop (bază fără 326) și cu fus invalid → București, 12:10.
+// QCZ1 + QCZ2 sunt PERECHE: o gazdă coincide cu cel mult unul dintre cele două
+// fusuri, deci mutația „`toLocaleTimeString` păstrat” pică pe ORICE gazdă.
+describe('QrCartSheet — ora comenzilor trimise pe fusul localului (G2c)', () => {
+  const sent = [{ id: 'o1', short_id: 'A1B2', status: 'new' as const, total: 10, created_at: '2026-07-20T09:10:00Z' }]
+
+  it('QCZ1 fusul New York', () => {
+    renderSheet({ sentOrders: sent, timeZone: 'America/New_York' })
+    expect(screen.getByText(/#A1B2 · 05:10/)).toBeInTheDocument()
+  })
+
+  it('QCZ2 fără fus (bază fără mig 326) → București', () => {
+    renderSheet({ sentOrders: sent })
+    expect(screen.getByText(/#A1B2 · 12:10/)).toBeInTheDocument()
+  })
+
+  it('QCZ2b fus invalid → București, fără RangeError', () => {
+    renderSheet({ sentOrders: sent, timeZone: 'Mars/Olympus' })
+    expect(screen.getByText(/#A1B2 · 12:10/)).toBeInTheDocument()
+  })
+})

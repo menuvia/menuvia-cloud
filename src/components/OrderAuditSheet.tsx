@@ -11,26 +11,33 @@ import { useT } from '../i18n/useT'
 import { ordersNs } from '../i18n/ns/orders'
 import { commonNs } from '../i18n/ns/common'
 import { describeStaffError } from '../i18n/staffErrors'
+import { safeTimeZone } from '../lib/dates'
 
 interface Props {
   orderId: string
   orderShortId: string
   onClose: () => void
+  // Fusul OPERAȚIONAL al localului (lotul G2c), dat de pagină din
+  // RestaurantContext. Omis / invalid → București.
+  timeZone?: string
 }
 
 // Ora rămâne formatată EXACT ca înainte ('ro-RO'): formatarea pe limba
-// personalului e un lot separat (regula L3a).
-function formatTime(iso: string): string {
+// personalului e un lot separat (regula L3a). Se schimbă doar FUSUL: istoricul
+// unei comenzi e pe ceasul localului, nu al dispozitivului. `safeTimeZone`, fiindcă
+// un fus invalid face Intl să arunce RangeError într-o randare.
+function formatTime(iso: string, timeZone: string | undefined): string {
   return new Date(iso).toLocaleString('ro-RO', {
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
+    timeZone: safeTimeZone(timeZone),
   })
 }
 
-export default function OrderAuditSheet({ orderId, orderShortId, onClose }: Props) {
+export default function OrderAuditSheet({ orderId, orderShortId, onClose, timeZone }: Props) {
   const tr = useT(ordersNs)
   const { t } = tr
   const tc = useT(commonNs)
@@ -166,7 +173,7 @@ export default function OrderAuditSheet({ orderId, orderShortId, onClose }: Prop
                       {describeAuditEntry(e, tr)}
                     </span>
                     <span style={{ fontSize: 10, color: D.t3, whiteSpace: 'nowrap' }}>
-                      {formatTime(e.created_at)}
+                      {formatTime(e.created_at, timeZone)}
                     </span>
                   </div>
                   <div style={{ fontSize: 11, color: D.t2, marginTop: 3 }}>

@@ -2,26 +2,31 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef } f
 import { supabase } from '../lib/supabase'
 import { useAuth } from './AuthContext'
 import { getFounderView, clearFounderView } from '../lib/founder'
-import type { MemberRole } from '../lib/constants'
 import { resolveVisitRole, type UiRole } from '../lib/partnerAccess'
 import { defaultActiveRestaurantId } from '../lib/roleRouting'
+import {
+  MEMBERSHIP_SELECT,
+  RESTAURANT_CTX_COLUMNS,
+  mapMembershipRows,
+  mapRestaurantRow,
+  type MembershipRestaurant,
+  type MembershipRow,
+} from '../lib/memberships'
 
-export interface RestaurantMembership {
-  restaurant_id: string
-  // MemberRole din DB + „partner" (vizită de afiliat, mig 286 — doar în UI).
-  role: UiRole
-  restaurant: {
-    id: string
-    name: string
-    slug: string
-  }
-}
+// Forma unui membership din context (lib/memberships.ts — o singură listă de
+// coloane pentru membership-uri ȘI vizita fondatorului/partenerului).
+export type RestaurantMembership = MembershipRow
 
 interface RestaurantCtxValue {
   memberships: RestaurantMembership[]
   activeId: string | null
   activeName: string
   activeRole: UiRole | null
+  // Restaurantul activ (id, nume, slug, fus, țară) — sursa fusului pentru
+  // paginile de personal (lotul G2c): `restaurantTimeZone(activeRestaurant)`.
+  // Contextul NU calculează fusul: e în intrare, iar `lib/dates` nu are voie
+  // să intre în graful fiecărei scanări QR (ZT8).
+  activeRestaurant: MembershipRestaurant | null
   setActive: (id: string) => void
   loading: boolean
   // true când încărcarea membership-urilor a eșuat tranzient (blip de rețea /
@@ -43,29 +48,6 @@ interface RestaurantCtxValue {
 const RestaurantCtx = createContext<RestaurantCtxValue | null>(null)
 
 const STORAGE_KEY = 'menuvia_active_restaurant'
-
-const MEMBERSHIP_SELECT = 'restaurant_id, role, restaurant:restaurants(id, name, slug)'
-
-// Rândurile `restaurant_memberships` (cu restaurantul încorporat) → forma din
-// context. Folosită de încărcarea inițială ȘI de `reloadMemberships`.
-function mapMembershipRows(data: unknown[] | null): RestaurantMembership[] {
-  return (data ?? []).map((m) => {
-    const raw = m as {
-      restaurant_id: string
-      role: string
-      restaurant:
-        | { id: string; name: string; slug: string }
-        | { id: string; name: string; slug: string }[]
-        | null
-    }
-    const rest = Array.isArray(raw.restaurant) ? raw.restaurant[0] : raw.restaurant
-    return {
-      restaurant_id: raw.restaurant_id,
-      role: raw.role as MemberRole,
-      restaurant: rest ?? { id: '', name: '', slug: '' },
-    }
-  })
-}
 
 export function RestaurantProvider({ children }: { children: React.ReactNode }) {
   const { user, loading: authLoading } = useAuth()
@@ -164,30 +146,33 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
         const fv = getFounderView(user!.id)
         let fvActive: string | null = null
         if (fv && !rows.some((m) => m.restaurant_id === fv)) {
+          // Aceleași coloane ca membership-urile (RESTAURANT_CTX_COLUMNS): fără
+          // ele, ospătarul vizitat de fondator ar vedea orele pe București.
           const { data: fvRest, error: fvErr } = await supabase
             .from('restaurants')
-            .select('id, name, slug')
+            .select(RESTAURANT_CTX_COLUMNS)
             .eq('id', fv)
             .maybeSingle()
           if (cancelled) return
           if (fvRest) {
+            const visited = mapRestaurantRow(fvRest)
             // Rolul vizitei: fondatorul (is_platform_admin) = manager virtual,
             // partenerul (mig 286) = „partner" — SELECT-ul pe restaurants a trecut
             // pentru el prin politica dedicată, dar my_role() întoarce null, iar
             // dashboard-ul îi arată doar meniul + mesele/QR.
             const { data: visitRole, error: roleErr } = await supabase.rpc('my_role', {
-              p_restaurant_id: fvRest.id,
+              p_restaurant_id: visited.id,
             })
             if (cancelled) return
             rows.push({
-              restaurant_id: fvRest.id,
+              restaurant_id: visited.id,
               role: resolveVisitRole(
                 typeof visitRole === 'string' ? visitRole : null,
                 roleErr != null,
               ),
-              restaurant: fvRest,
+              restaurant: visited,
             })
-            fvActive = fvRest.id
+            fvActive = visited.id
           } else if (!fvErr) {
             // Răspuns valid cu zero rânduri = chiar nu ai acces (cheie stale).
             // Pe eroare tranzientă păstrăm cheia — altfel un blip de rețea la
@@ -274,6 +259,7 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
         activeId,
         activeName: active?.restaurant?.name ?? '',
         activeRole: active?.role ?? null,
+        activeRestaurant: active?.restaurant ?? null,
         setActive,
         loading,
         error,

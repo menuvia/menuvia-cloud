@@ -670,6 +670,9 @@ interface OrderCardProps {
   // Refuzul ultimei acțiuni rapide (date, tradus de nota de pe card — L4c).
   actionError?: StaffActionFailure | null
   onDismissError?: (id: string) => void
+  // Fusul OPERAȚIONAL al localului (lotul G2c) — ora de ridicare. Vine de la
+  // pagină (`restaurantTimeZone(activeRestaurant)`); omis → București.
+  timeZone?: string
 }
 
 function OrderCardInner({
@@ -689,6 +692,7 @@ function OrderCardInner({
   pending = false,
   actionError = null,
   onDismissError,
+  timeZone,
 }: OrderCardProps) {
   const { t, tp } = useT(ordersNs)
   const tc = useT(commonNs)
@@ -854,7 +858,7 @@ function OrderCardInner({
       </div>
 
       {/* Pickup: ora de ridicare + clientul (null pe celelalte surse). */}
-      <PickupDetails order={order} />
+      <PickupDetails order={order} timeZone={timeZone} />
 
       {/* Câte un rând pe linie, cu opțiunile, extra-urile și nota (lotul O2a):
           înainte cardul spunea doar „Pizza ×1, Pizza ×1", deci ospătarul nu

@@ -52,8 +52,9 @@ export function sortByDue<T extends PickupFields>(orders: readonly T[]): T[] {
     .map((x) => x.o)
 }
 
-// „HH:mm" al orei de ridicare în fusul restaurantului (deocamdată implicit
-// Europe/Bucharest — paginile de staff nu citesc încă `restaurants.timezone`).
+// „HH:mm" al orei de ridicare în fusul restaurantului. Paginile de personal
+// trimit fusul localului din RestaurantContext (lotul G2c); implicitul
+// (București) rămâne pentru apelanții fără fus.
 export function pickupTimeLabel(
   order: PickupFields,
   timeZone: string = DEFAULT_RESTAURANT_TZ,

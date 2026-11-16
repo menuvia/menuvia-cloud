@@ -11,6 +11,10 @@
 //   QZ2  resolveQrMenu: RPC-ul compus și fallback-ul pică → aruncă, nu null.
 //   QZ3  resolveQrMenu: `resolved: null` explicit → null FĂRĂ al doilea RTT.
 //   QZ3b control: RPC compus lipsă (PGRST202) → fallback-ul în doi pași rămâne.
+//   QZ3d fusul localului (mig 326, lotul G2c) ajunge pe /q pe AMBELE căi
+//        (compusă + fallback PGRST202); payload FĂRĂ cheie (bază fără 326) →
+//        `timezone: null`, iar consumatorul cade pe București fără eroare.
+//        Mutația care pică: `timezone` scos din `mapResolvedQrPayload`.
 //   QZ4  fetchRestaurantBySlug / fetchMenuBySlug: eroare → aruncă; [] / null → null.
 //
 // Mutații care pică: `if (error || data == null) return null` înapoi în
@@ -22,6 +26,7 @@ const { rpcMock } = vi.hoisted(() => ({ rpcMock: vi.fn() }))
 vi.mock('../supabase', () => ({ supabase: { rpc: rpcMock } }))
 
 import { resolveQrToken, resolveQrMenu, fetchRestaurantBySlug, fetchMenuBySlug } from '../qr'
+import { safeTimeZone } from '../dates'
 
 type RpcResult = { data: unknown; error: { message: string; code?: string } | null }
 
@@ -101,6 +106,26 @@ describe('resolveQrToken / resolveQrMenu — rețeaua nu se deghizează în „Q
       get_menu_for_restaurant: { data: [], error: null },
     })
     expect((await resolveQrMenu('abc'))?.resolved.restaurant.language).toBe('fr')
+  })
+
+  it('QZ3d fusul localului ajunge pe /q pe ambele căi; fără cheie → null → București', async () => {
+    const withTz = { ...RESOLVED_PAYLOAD, restaurant: { ...RESOLVED_PAYLOAD.restaurant, timezone: 'Pacific/Auckland' } }
+    rpcWorld({ resolve_qr_menu: { data: { resolved: withTz, menu: [] }, error: null } })
+    expect((await resolveQrMenu('abc'))?.resolved.restaurant.timezone).toBe('Pacific/Auckland')
+    rpcWorld({
+      resolve_qr_menu: { data: null, error: { message: 'function not found', code: 'PGRST202' } },
+      resolve_qr_token: { data: withTz, error: null },
+      get_menu_for_restaurant: { data: [], error: null },
+    })
+    expect((await resolveQrMenu('abc'))?.resolved.restaurant.timezone).toBe('Pacific/Auckland')
+    rpcWorld({ resolve_qr_token: { data: withTz, error: null } })
+    expect((await resolveQrToken('abc'))?.restaurant.timezone).toBe('Pacific/Auckland')
+
+    // Bază fără mig 326: cheia lipsește din payload.
+    rpcWorld({ resolve_qr_menu: { data: { resolved: RESOLVED_PAYLOAD, menu: [] }, error: null } })
+    const old = (await resolveQrMenu('abc'))?.resolved.restaurant
+    expect(old?.timezone).toBeNull()
+    expect(safeTimeZone(old?.timezone)).toBe('Europe/Bucharest')
   })
 })
 

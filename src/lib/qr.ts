@@ -270,13 +270,14 @@ function mapResolvedQrPayload(data: unknown): ResolvedQrToken | null {
   return {
     token: payload.token,
     table: payload.table,
-    // Mapăm TOATE câmpurile publice pe care RPC-ul `resolve_qr_token` (mig 127)
-    // le SELECTează: id, name, primary_color, logo_url, address, phone, hours,
-    // checkout_suggestion_settings, theme_settings. Fără theme_settings /
+    // Mapăm TOATE câmpurile publice pe care RPC-ul `resolve_qr_token` (mig 127
+    // → 326) le SELECTează: id, name, primary_color, logo_url, address, phone,
+    // hours, checkout_suggestion_settings, theme_settings, menu_languages,
+    // currency, language, timezone. Fără theme_settings /
     // checkout_suggestion_settings, QrMenuPage nu-și aplica tema/layout-ul
     // (resolveTheme/resolveMenuLayout) și nici upsell-ul de checkout.
-    // Notă: RPC-ul NU întoarce `currency`/`ordering_enabled` pe obiectul
-    // restaurant (semnalul de comandă vine separat prin `orderingAllowed`).
+    // Notă: RPC-ul NU întoarce `ordering_enabled` pe obiectul restaurant
+    // (semnalul de comandă vine separat prin `orderingAllowed`).
     restaurant: {
       id: restaurant.id as string,
       name: restaurant.name as string,
@@ -296,6 +297,10 @@ function mapResolvedQrPayload(data: unknown): ResolvedQrToken | null {
       // Limba de bază a meniului (lotul O6a): fără ea /q pornea mereu din
       // română, chiar pe un meniu scris în franceză (recenzia O6a).
       language: (restaurant.language as string | null | undefined) ?? undefined,
+      // Fusul localului, BRUT (mig 326, lotul G2c) — orele din „Masa ta”. Pe o
+      // bază fără 326 cheia lipsește → null → consumatorul cade pe București
+      // (`safeTimeZone`), exact ca înainte. Validarea e la consumator.
+      timezone: (restaurant.timezone as string | null | undefined) ?? null,
     },
     orderingAllowed: payload.orderingAllowed,
   }
@@ -764,80 +769,8 @@ export function happyHourPercentForProduct(
   return best
 }
 
-/** Întoarce ziua + ora curentă în timezone-ul restaurantului. */
-function nowInTimezone(timezone: string): { day: WeekDay; minutes: number } {
-  // toLocaleString cu timeZone returnează exact ce vrem; parsăm cu Date
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    weekday: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(new Date())
-  const weekdayShort = parts.find((p) => p.type === 'weekday')?.value ?? 'Mon'
-  const hour = parseInt(parts.find((p) => p.type === 'hour')?.value ?? '0', 10)
-  const minute = parseInt(parts.find((p) => p.type === 'minute')?.value ?? '0', 10)
-  const map: Record<string, WeekDay> = {
-    Sun: 'sun',
-    Mon: 'mon',
-    Tue: 'tue',
-    Wed: 'wed',
-    Thu: 'thu',
-    Fri: 'fri',
-    Sat: 'sat',
-  }
-  return { day: map[weekdayShort] ?? 'mon', minutes: hour * 60 + minute }
-}
-
-function parseHHMM(s: string): number {
-  const [h, m] = s.split(':').map((x) => parseInt(x, 10))
-  return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0)
-}
-
-/**
- * Întoarce true/false pe baza orelor structurate + timezone.
- * Întoarce null dacă lipsesc datele (hero pill complet ascuns,
- * NU "ÎNCHIS").
- */
-export function computeIsOpen(
-  hours: HoursStructured | null | undefined,
-  timezone: string | null | undefined,
-): boolean | null {
-  if (!hours || Object.keys(hours).length === 0) return null
-  const tz = timezone || 'Europe/Bucharest'
-  let now
-  try {
-    now = nowInTimezone(tz)
-  } catch {
-    return null
-  }
-  const today = hours[now.day]
-  if (!today || today.closed) return false
-  const open = parseHHMM(today.open)
-  const close = parseHHMM(today.close)
-  // Program peste miezul nopții (ex: 18:00–02:00): deschis dacă ora curentă e
-  // după open SAU înainte de close. open == close => 24/7.
-  if (close <= open) return now.minutes >= open || now.minutes < close
-  return now.minutes >= open && now.minutes < close
-}
-
-/** Întoarce program zi astăzi formatat "08:00–23:00" sau null. */
-export function todayHoursLabel(
-  hours: HoursStructured | null | undefined,
-  timezone: string | null | undefined,
-): string | null {
-  if (!hours) return null
-  const tz = timezone || 'Europe/Bucharest'
-  let day: WeekDay
-  try {
-    day = nowInTimezone(tz).day
-  } catch {
-    return null
-  }
-  const today = hours[day]
-  if (!today || today.closed) return null
-  return today.open + '–' + today.close
-}
+// `computeIsOpen` / `todayHoursLabel` stau în lib/openHours.ts (lotul G2c): pe
+// fusul localului validat, cu ziua de serviciu — și în afara grafului meniului QR.
 
 export interface TableSessionResult {
   session_id: string
