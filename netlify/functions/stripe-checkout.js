@@ -1,11 +1,20 @@
 // netlify/functions/stripe-checkout.js
 // Creates a Stripe Checkout Session for Pro plan subscription.
 // Auth: validates Supabase JWT.
+//
+// Contractul de eroare (lotul L8d): ORICE răspuns non-2xx JSON e
+// `{ error, code }` — `error` rămâne textul de dinainte, EXACT (un client vechi
+// îl afișează ca atare: româna se păstrează, engleza internă e înlocuită de
+// `describeCheckoutFailure`), iar `code` e cheia stabilă pe care clientul o
+// traduce în limba personalului. Clichet: tests/functions/fn-error-code-ratchet.test.js.
+// Singura excepție e 405, text simplu (SC1 îl îngheață).
 
 const { createClient } = require('@supabase/supabase-js')
 const Stripe = require('stripe')
 const crypto = require('crypto')
 const { appUrl: resolveAppUrl, LEGACY_NETLIFY_URL, isComHost, MAIL_DOMAIN } = require('./lib/appUrl')
+const { stripeLocale } = require('./lib/stripeLocale')
+const { parseObjectBody } = require('./lib/jsonBody')
 // Versiunea de API PINUITĂ (audit v3 OPS-8) pentru CERERILE noastre către Stripe:
 // fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
 // (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
@@ -76,16 +85,18 @@ exports.handler = async (event) => {
   // (aliniat cu validarea din stripe-webhook.js) — altfel un plan neconfigurat
   // ar trece nedetectat până la primul checkout eșuat în producție.
   if (!STRIPE_SECRET_KEY || !Object.values(PRICE_IDS).every(Boolean)) {
-    return jsonResponse(500, { error: 'Stripe not configured' })
+    return jsonResponse(500, { error: 'Stripe not configured', code: 'server_config' })
   }
 
   // Determine price strictly by requested plan — NO silent fallback to pro.
   // Parsare protejata: un corp non-JSON nu trebuie sa arunce SyntaxError neprins (crash).
   let body = {}
   try {
-    body = event.body ? JSON.parse(event.body) : {}
+    // Un corp care nu e OBIECT JSON (`null`, un tablou…) → `bad_json`, nu o
+    // excepție la `body.plan` (lib/jsonBody.js).
+    body = parseObjectBody(event.body)
   } catch {
-    return jsonResponse(400, { error: 'Invalid JSON body' })
+    return jsonResponse(400, { error: 'Invalid JSON body', code: 'bad_json' })
   }
   const requestedPlan = String(body.plan || '').toLowerCase()
   // Planul 3 se cere prin ofertă: refuz explicit, ÎNAINTEA oricărui apel Stripe
@@ -105,10 +116,14 @@ exports.handler = async (event) => {
   // visitor_id corelează touch-ul (de la /r/:cod) cu această conversie pentru
   // gate-ul de incrementality fail-closed (vezi capture_affiliate_attribution).
   const visitorId = String(body.visitor_id || '').slice(0, 64)
+  // Limba paginii Stripe = limba panoului (`ui_lang`, lotul L8d), validată pe
+  // ro/en/fr/de; absentă sau invalidă → fără `locale` = „auto”, ca înainte.
+  const locale = stripeLocale(body.ui_lang)
   const priceId = PRICE_IDS[requestedPlan]
   if (!priceId) {
     return jsonResponse(400, {
       error: `Plan "${requestedPlan}" indisponibil sau neconfigurat în Stripe`,
+      code: 'plan_unavailable',
     })
   }
 
@@ -116,13 +131,13 @@ exports.handler = async (event) => {
   const authHeader = event.headers['authorization'] || event.headers['Authorization'] || ''
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
   if (!token) {
-    return jsonResponse(401, { error: 'Missing Authorization header' })
+    return jsonResponse(401, { error: 'Missing Authorization header', code: 'auth_missing' })
   }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
   const { data: { user }, error: authErr } = await supabase.auth.getUser(token)
   if (authErr || !user) {
-    return jsonResponse(401, { error: 'Invalid token' })
+    return jsonResponse(401, { error: 'Invalid token', code: 'auth_invalid' })
   }
 
   // Rate limit per user (endpoint autentificat dar abuzabil): max 10 checkout-uri / 5 min.
@@ -137,14 +152,17 @@ exports.handler = async (event) => {
     })
     if (rlErr) {
       console.error('[stripe-checkout] rate limit RPC failed (fail-closed):', rlErr.message)
-      return jsonResponse(503, { error: 'Rate limit service unavailable' })
+      return jsonResponse(503, { error: 'Rate limit service unavailable', code: 'rate_limit_unavailable' })
     }
     if (rlOk === false) {
-      return jsonResponse(429, { error: 'Prea multe încercări. Reîncearcă în câteva minute.' })
+      return jsonResponse(429, {
+        error: 'Prea multe încercări. Reîncearcă în câteva minute.',
+        code: 'rate_limited',
+      })
     }
   } catch (e) {
     console.error('[stripe-checkout] rate limit check threw (fail-closed):', e?.message)
-    return jsonResponse(503, { error: 'Rate limit service unavailable' })
+    return jsonResponse(503, { error: 'Rate limit service unavailable', code: 'rate_limit_unavailable' })
   }
 
   // Get or create Stripe customer
@@ -161,7 +179,10 @@ exports.handler = async (event) => {
   // de creare) pentru un user care are deja unul (audit săpt. 10).
   if (profileErr) {
     console.error('[stripe-checkout] profile lookup failed:', profileErr.message)
-    return jsonResponse(503, { error: 'Serviciu temporar indisponibil. Reîncearcă.' })
+    return jsonResponse(503, {
+      error: 'Serviciu temporar indisponibil. Reîncearcă.',
+      code: 'service_unavailable',
+    })
   }
 
   let customerId = profile?.stripe_customer_id
@@ -171,10 +192,24 @@ exports.handler = async (event) => {
   let isFreshCustomer = false
 
   if (!customerId) {
-    const customer = await stripe.customers.create({
-      email: profile?.email || user.email,
-      metadata: { supabase_user_id: user.id },
-    })
+    // Un apel Stripe care aruncă (cheie rotită, Stripe indisponibil, timeout)
+    // ieșea din handler ca excepție — fără corp de contract, deci fără cod.
+    // Același cod ca la crearea sesiunii: pentru om e același „n-a pornit plata”.
+    let customer
+    try {
+      customer = await stripe.customers.create({
+        email: profile?.email || user.email,
+        metadata: { supabase_user_id: user.id },
+      })
+    } catch (e) {
+      console.error('[stripe-checkout] customer create failed:', {
+        type: e?.type, code: e?.code, message: e?.message,
+      })
+      return jsonResponse(502, {
+        error: 'Nu am putut porni plata. Reîncearcă în câteva momente.',
+        code: 'checkout_create_failed',
+      })
+    }
     customerId = customer.id
 
     // Anti race la creare concurentă (2 cereri simultane fără stripe_customer_id
@@ -297,43 +332,64 @@ exports.handler = async (event) => {
   const hadTrial = subsAll.some((s) => s.trial_start != null || s.trial_end != null)
   if (hadTrial) allowTrial = false
 
-  const session = await stripe.checkout.sessions.create(
-    {
-      customer: customerId,
-      client_reference_id: user.id,
-      mode: 'subscription',
-      line_items: [{ price: priceId, quantity: 1 }],
-      // `checkout_plan`: clientul (useCheckoutReturn) anunță „planul e activ"
-      // DOAR când profilul are EXACT planul cumpărat — un cont cu plan manual
-      // are deja un plan ≠ free înainte să ajungă webhook-ul.
-      success_url: `${appUrl}/dashboard?checkout=success&checkout_plan=${encodeURIComponent(requestedPlan)}`,
-      cancel_url: `${appUrl}/pricing?checkout=cancelled`,
-      subscription_data: {
-        // plan în metadata → webhook citește planul REAL cumpărat, nu hardcodat.
-        // referral_code persistă pe subscription → disponibil în invoice.paid
-        // (sursă secundară; atribuirea primară e legată de stripe_customer_id).
-        metadata: {
-          supabase_user_id: user.id,
-          plan: requestedPlan,
-          ...(referralCode ? { referral_code: referralCode } : {}),
+  let session
+  try {
+    session = await stripe.checkout.sessions.create(
+      {
+        customer: customerId,
+        client_reference_id: user.id,
+        mode: 'subscription',
+        line_items: [{ price: priceId, quantity: 1 }],
+        // Lotul L8d: pagina Stripe în limba panoului; fără cheie = „auto”.
+        ...(locale ? { locale } : {}),
+        // `checkout_plan`: clientul (useCheckoutReturn) anunță „planul e activ"
+        // DOAR când profilul are EXACT planul cumpărat — un cont cu plan manual
+        // are deja un plan ≠ free înainte să ajungă webhook-ul.
+        success_url: `${appUrl}/dashboard?checkout=success&checkout_plan=${encodeURIComponent(requestedPlan)}`,
+        cancel_url: `${appUrl}/pricing?checkout=cancelled`,
+        subscription_data: {
+          // plan în metadata → webhook citește planul REAL cumpărat, nu hardcodat.
+          // referral_code persistă pe subscription → disponibil în invoice.paid
+          // (sursă secundară; atribuirea primară e legată de stripe_customer_id).
+          metadata: {
+            supabase_user_id: user.id,
+            plan: requestedPlan,
+            ...(referralCode ? { referral_code: referralCode } : {}),
+          },
+          ...(allowTrial ? { trial_period_days: trialDays } : {}),
         },
-        ...(allowTrial ? { trial_period_days: trialDays } : {}),
       },
-    },
-    {
-      // Idempotență: cheia trebuie să includă TOATE intrările care schimbă corpul cererii
-      // (plan, referral_code, trial), altfel Stripe respinge cheia reutilizată cu params
-      // diferiți (idempotency_error). Click-uri repetate cu EXACT aceeași cerere → aceeași
-      // sesiune (dedup); orice diferență → cheie nouă.
-      // Fereastră temporală de 30 min: fără ea, aceeași cerere repetată mult mai
-      // târziu (ex. a doua zi) ar rămâne blocată pe cheia veche la Stripe.
-      // Prefixul `v4` + hash-ul ORIGINII: success_url/cancel_url fac parte din
-      // corp, deci o schimbare a originii (env modificat, alt domeniu) între
-      // două cereri cu aceeași cheie ar primi idempotency_error de la Stripe.
-      // Hash scurt și stabil (sha256, 10 hex) — originea nu ajunge în clar în cheie.
-      idempotencyKey: `checkout_v4_${originTag(appUrl)}_${user.id}_${requestedPlan}_${referralCode || 'none'}_${allowTrial ? trialDays : 0}_${Math.floor(Date.now() / (30 * 60 * 1000))}`,
-    },
-  )
+      {
+        // Idempotență: cheia trebuie să includă TOATE intrările care schimbă corpul cererii
+        // (plan, referral_code, trial), altfel Stripe respinge cheia reutilizată cu params
+        // diferiți (idempotency_error). Click-uri repetate cu EXACT aceeași cerere → aceeași
+        // sesiune (dedup); orice diferență → cheie nouă.
+        // Fereastră temporală de 30 min: fără ea, aceeași cerere repetată mult mai
+        // târziu (ex. a doua zi) ar rămâne blocată pe cheia veche la Stripe.
+        // Prefixul `v4` + hash-ul ORIGINII: success_url/cancel_url fac parte din
+        // corp, deci o schimbare a originii (env modificat, alt domeniu) între
+        // două cereri cu aceeași cheie ar primi idempotency_error de la Stripe.
+        // Hash scurt și stabil (sha256, 10 hex) — originea nu ajunge în clar în cheie.
+        // `v6` (lotul L8d): `locale` intră în corp, deci și în cheie (`auto` =
+        // fără cheie) — același om care schimbă limba în fereastra de 30 de minute
+        // trimite alt corp. `v5` e REZERVAT PR-ului DRAFT RES-11 (#273, cheile de
+        // trial fără card + datele de facturare): la integrarea lui, prefixul
+        // urcă la `v7` (corpul = locale + cheile lui).
+        idempotencyKey: `checkout_v6_${originTag(appUrl)}_${user.id}_${requestedPlan}_${referralCode || 'none'}_${allowTrial ? trialDays : 0}_${locale || 'auto'}_${Math.floor(Date.now() / (30 * 60 * 1000))}`,
+      },
+    )
+  } catch (e) {
+    // Fail-closed VIZIBIL: fără try/catch, o respingere Stripe ieșea din handler
+    // ca excepție — 500/502 fără corp de contract și fără cauză în log. Același
+    // cod și text ca PR-ul DRAFT RES-11 (#273), care avea aceeași reparație.
+    console.error('[stripe-checkout] session create failed:', {
+      type: e?.type, code: e?.code, param: e?.param, message: e?.message,
+    })
+    return jsonResponse(502, {
+      error: 'Nu am putut porni plata. Reîncearcă în câteva momente.',
+      code: 'checkout_create_failed',
+    })
+  }
 
   return jsonResponse(200, { url: session.url })
 }

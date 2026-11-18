@@ -31,6 +31,12 @@
 //        control NEGATIV pe un alt mesaj românesc. Mutația care pică:
 //        `includes` în loc de `startsWith` (un mesaj care doar CITEAZĂ fraza
 //        ar fi luat drept refuzul).
+//   GQ10b (lotul L8d, mig 330) HINT-ul e contractul și se verifică ÎNTÂI:
+//        `active_subscription` / `mfa_aal2_required` recunoscute oricare ar fi
+//        textul (o reformulare a mesajului nu mai rupe nimic), fiecare hint
+//        DOAR pentru refuzul lui, iar un hint necunoscut / ne-șir cade pe
+//        potrivirea pe text (rezerva unei baze fără 330). Mutația care pică:
+//        verificarea hint-ului scoasă (rămâne doar textul).
 //   TE8  contorul echipei: în română EXACT regula de dinainte (`membr` + „u”
 //        doar la 1, altfel „i” — deci „0 membri”, „20 membri”, nu „20 de
 //        membri”) pe n = 0…200; en/fr/de acordă la singular. Mutația care
@@ -206,6 +212,20 @@ describe('refuzurile fără hint ale cardurilor de cont', () => {
     }
     expect(isMfaAal2Refusal(new Error(SUB))).toBe(false)
     expect(isActiveSubscriptionRefusal(new Error(AAL2))).toBe(false)
+  })
+
+  it('GQ10b: hint-ul din mig 330 câștigă; textul rămâne rezerva', () => {
+    const reworded = (hint: unknown) => Object.assign(new Error('Mesaj reformulat de server.'), { hint })
+    expect(isActiveSubscriptionRefusal(reworded('active_subscription'))).toBe(true)
+    expect(isMfaAal2Refusal(reworded('mfa_aal2_required'))).toBe(true)
+    // Fiecare hint doar pentru refuzul lui.
+    expect(isMfaAal2Refusal(reworded('active_subscription'))).toBe(false)
+    expect(isActiveSubscriptionRefusal(reworded('mfa_aal2_required'))).toBe(false)
+    // Hint necunoscut / ne-șir: decide textul (ca pe o bază fără 330).
+    for (const hint of ['auth_required', '', null, 42]) {
+      expect(isActiveSubscriptionRefusal(reworded(hint))).toBe(false)
+      expect(isMfaAal2Refusal(reworded(hint))).toBe(false)
+    }
   })
 })
 

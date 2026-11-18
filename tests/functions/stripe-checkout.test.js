@@ -25,6 +25,32 @@
 //        trece și cu funcția stricată de tot);
 //   SR1  success_url poartă planul CUMPĂRAT (`checkout_plan=`) — clientul
 //        anunță „planul e activ" doar când profilul îl are exact pe acela.
+//
+// Lotul L8d (erorile în limba personalului + limba paginii Stripe). Prefixele
+// SCK/SLC: FC1–FC3 sunt ale featuresCountry.test.ts, SL1–SL7b ale
+// soldOut.test.ts (verificat cu grep în src/, tests/, bridge/, supabase/tests).
+//   SCK1 FIECARE ramură non-2xx JSON → statusul și `code`-ul ei, iar `error`
+//        rămâne textul de DINAINTE, exact (un client vechi îl afișează ca
+//        atare); corpul are DOAR cheile `error` + `code`. Tabelul are câte un
+//        rând pe ramură (15 — registrul FEC2 din fn-error-code-ratchet.test.js).
+//        [PICĂ: un cod scos sau redenumit; un text schimbat]
+//   SCK2 Stripe aruncă la crearea SESIUNII → 502 `checkout_create_failed`, cu
+//        text românesc (înainte: excepție neprinsă, fără corp de contract).
+//        [PICĂ: try/catch-ul scos — handler-ul aruncă]
+//   SCK3 Stripe aruncă la crearea CLIENTULUI → același 502, fără nicio sesiune.
+//        [PICĂ: try/catch-ul de pe customers.create scos]
+//   SLC1 `ui_lang` valid → `locale` în parametrii sesiunii, normalizat
+//        (' FR ' → 'fr'). CONTROL POZITIV pentru SLC2/SLC3: fără el, „nu pune
+//        locale” ar trece și pe o funcție care nu-l pune niciodată.
+//        [PICĂ: spread-ul `locale` scos din sessions.create]
+//   SLC2 `ui_lang` absent → cheia `locale` LIPSEȘTE (nu `undefined`, nu 'auto'):
+//        Stripe rămâne pe „auto”, exact ca înainte.
+//   SLC3 `ui_lang` invalid ('xx', 'en-US', 42, '<b>ro</b>', null, {}) → fără
+//        `locale`. [PICĂ: `body.ui_lang` trimis brut lui Stripe]
+//   SLC4 cheia de idempotență: prefix `checkout_v6_`, segmentul de limbă
+//        (`_en_` / `_auto_`) înaintea ferestrei de timp; aceeași limbă →
+//        aceeași cheie, altă limbă → altă cheie.
+//        [PICĂ: limba scoasă din cheie — două corpuri diferite pe o cheie]
 
 'use strict'
 
@@ -298,5 +324,165 @@ describe('stripe-checkout — Planul 3 nu se vinde self-serve (regula de aur, D4
       const created = state.stripeCalls.filter((c) => c.name === 'checkout.sessions.create')
       assert.equal(created.length, 1, plan)
     }
+  })
+})
+
+// ── Lotul L8d: un cod stabil pe fiecare ramură + limba paginii Stripe ────────
+function scriptedHappyPath(overrides = {}) {
+  setEnv()
+  state.authUser = { id: 'u1', email: 'a@x.test' }
+  state.rpcHandlers['check_rate_limit'] = () => ({ data: true, error: null })
+  state.fromHandlers['profiles'] = () => ({
+    data: { stripe_customer_id: 'cus_1', email: 'a@x.test' },
+    error: null,
+  })
+  state.stripeImpls['subscriptions.list'] = async () => []
+  state.stripeImpls['checkout.sessions.create'] = async () => ({
+    url: 'https://checkout.stripe.com/c/pay/cs_test',
+  })
+  Object.assign(state.stripeImpls, overrides)
+}
+
+async function quiet(fn) {
+  const saved = console.error
+  console.error = () => {}
+  try {
+    return await fn()
+  } finally {
+    console.error = saved
+  }
+}
+
+const AUTH = { authorization: 'Bearer tok' }
+
+// [nume, pregătire, corp, antete, status, cod, text EXACT (sau regex)]
+const BRANCHES = [
+  ['env lipsă', () => {}, { plan: 'growth' }, AUTH, 500, 'server_config', 'Stripe not configured'],
+  ['corp non-JSON', setEnv, '{nu e json', AUTH, 400, 'bad_json', 'Invalid JSON body'],
+  ['plan fără price ID', setEnv, { plan: 'inexistent' }, AUTH, 400, 'plan_unavailable',
+    'Plan "inexistent" indisponibil sau neconfigurat în Stripe'],
+  ['Planul 3', setEnv, { plan: 'pro' }, AUTH, 403, 'plan_requires_quote', /ofertă.*contact@menuvia\.ro/],
+  ['host .com', setEnv, { plan: 'growth' }, { ...AUTH, host: 'menuvia.com' }, 403,
+    'site_checkout_unavailable', 'Checkout is not available on this site yet.'],
+  ['fără antet', setEnv, { plan: 'growth' }, {}, 401, 'auth_missing', 'Missing Authorization header'],
+  ['token invalid', () => { setEnv(); state.authUser = null }, { plan: 'growth' }, AUTH, 401,
+    'auth_invalid', 'Invalid token'],
+  ['limiter: eroare RPC', () => {
+    scriptedHappyPath()
+    state.rpcHandlers['check_rate_limit'] = () => ({ data: null, error: { message: 'boom' } })
+  }, { plan: 'growth' }, AUTH, 503, 'rate_limit_unavailable', 'Rate limit service unavailable'],
+  ['limiter: excepție', () => {
+    scriptedHappyPath()
+    state.rpcHandlers['check_rate_limit'] = () => { throw new Error('conn reset') }
+  }, { plan: 'growth' }, AUTH, 503, 'rate_limit_unavailable', 'Rate limit service unavailable'],
+  ['peste plafon', () => {
+    scriptedHappyPath()
+    state.rpcHandlers['check_rate_limit'] = () => ({ data: false, error: null })
+  }, { plan: 'growth' }, AUTH, 429, 'rate_limited', 'Prea multe încercări. Reîncearcă în câteva minute.'],
+  ['profil necitibil', () => {
+    scriptedHappyPath()
+    state.fromHandlers['profiles'] = () => ({ data: null, error: { message: 'timeout' } })
+  }, { plan: 'growth' }, AUTH, 503, 'service_unavailable', 'Serviciu temporar indisponibil. Reîncearcă.'],
+  ['Stripe: client nou eșuat', () => {
+    scriptedHappyPath()
+    state.fromHandlers['profiles'] = () => ({ data: { stripe_customer_id: null, email: 'a@x.test' }, error: null })
+    state.stripeImpls['customers.create'] = async () => { throw new Error('stripe down') }
+  }, { plan: 'growth' }, AUTH, 502, 'checkout_create_failed', 'Nu am putut porni plata. Reîncearcă în câteva momente.'],
+  ['istoric necitibil', () => {
+    scriptedHappyPath({ 'subscriptions.list': async () => { throw new Error('stripe down') } })
+  }, { plan: 'growth' }, AUTH, 503, 'subscription_lookup_failed',
+    'Nu am putut verifica abonamentele existente. Reîncearcă în câteva momente.'],
+  ['abonament activ', () => {
+    scriptedHappyPath({ 'subscriptions.list': async () => [{ status: 'active' }] })
+  }, { plan: 'growth' }, AUTH, 409, 'subscription_exists',
+    'Ai deja un abonament. Schimbă planul din Portalul de facturare.'],
+  ['Stripe: sesiune respinsă', () => {
+    scriptedHappyPath({ 'checkout.sessions.create': async () => { throw Object.assign(new Error('No such price'), { type: 'StripeInvalidRequestError' }) } })
+  }, { plan: 'growth' }, AUTH, 502, 'checkout_create_failed', 'Nu am putut porni plata. Reîncearcă în câteva momente.'],
+]
+
+describe('stripe-checkout — un cod stabil pe fiecare ramură (lotul L8d)', () => {
+  it('SCK1: fiecare ramură non-2xx → status + code, cu textul de dinainte', async () => {
+    assert.equal(BRANCHES.length, 15, 'un rând pe ramură (registrul FEC2)')
+    const codes = new Set()
+    for (const [name, prep, body, headers, status, code, text] of BRANCHES) {
+      resetMocks()
+      clearEnv()
+      prep()
+      const res = await quiet(() => post(body, headers))
+      assert.equal(res.statusCode, status, name)
+      const b = parseBody(res)
+      assert.equal(b.code, code, name)
+      if (text instanceof RegExp) assert.match(b.error, text, name)
+      else assert.equal(b.error, text, name)
+      assert.deepEqual(Object.keys(b).sort(), ['code', 'error'], `${name}: alte chei în corp`)
+      codes.add(`${status}:${code}`)
+    }
+    // Două ramuri împart deliberat un cod (limiterul: eroare / excepție;
+    // Stripe: client / sesiune) — restul sunt distincte.
+    assert.equal(codes.size, 13)
+  })
+
+  it('SCK2: Stripe respinge sesiunea → 502 checkout_create_failed, nu excepție', async () => {
+    scriptedHappyPath({ 'checkout.sessions.create': async () => { throw new Error('No such price') } })
+    const res = await quiet(() => post({ plan: 'growth' }))
+    assert.equal(res.statusCode, 502)
+    assert.equal(parseBody(res).code, 'checkout_create_failed')
+    assert.match(parseBody(res).error, /[ăâîșț]/, 'mesajul e românesc')
+  })
+
+  it('SCK3: Stripe respinge clientul nou → același 502, fără nicio sesiune', async () => {
+    scriptedHappyPath()
+    state.fromHandlers['profiles'] = () => ({ data: { stripe_customer_id: null, email: 'a@x.test' }, error: null })
+    state.stripeImpls['customers.create'] = async () => { throw new Error('stripe down') }
+    const res = await quiet(() => post({ plan: 'growth' }))
+    assert.equal(res.statusCode, 502)
+    assert.equal(parseBody(res).code, 'checkout_create_failed')
+    assert.equal(state.stripeCalls.filter((c) => c.name === 'checkout.sessions.create').length, 0)
+  })
+})
+
+describe('stripe-checkout — limba paginii Stripe (lotul L8d)', () => {
+  async function sessionFor(body) {
+    resetMocks()
+    clearEnv()
+    scriptedHappyPath()
+    const res = await post({ plan: 'growth', ...body })
+    assert.equal(res.statusCode, 200, res.body)
+    const calls = state.stripeCalls.filter((c) => c.name === 'checkout.sessions.create')
+    assert.equal(calls.length, 1)
+    return { params: calls[0].args[0], key: calls[0].args[1].idempotencyKey }
+  }
+
+  it('SLC1 (control pozitiv): ui_lang valid → locale, normalizat', async () => {
+    for (const [ui, want] of [['en', 'en'], ['ro', 'ro'], ['de', 'de'], [' FR ', 'fr']]) {
+      const { params } = await sessionFor({ ui_lang: ui })
+      assert.equal(params.locale, want, JSON.stringify(ui))
+    }
+  })
+
+  it('SLC2: ui_lang absent → fără cheia locale (Stripe „auto”, ca înainte)', async () => {
+    const { params } = await sessionFor({})
+    assert.equal(Object.prototype.hasOwnProperty.call(params, 'locale'), false)
+  })
+
+  it('SLC3: ui_lang invalid → fără locale', async () => {
+    for (const ui of ['xx', 'en-US', 'it', 42, '<b>ro</b>', null, {}, ['en'], '']) {
+      const { params } = await sessionFor({ ui_lang: ui })
+      assert.equal(Object.prototype.hasOwnProperty.call(params, 'locale'), false, JSON.stringify(ui))
+    }
+  })
+
+  it('SLC4: cheia de idempotență poartă limba (v6)', async () => {
+    const strip = (k) => k.replace(/_\d+$/, '') // fereastra de 30 min
+    const en = await sessionFor({ ui_lang: 'en' })
+    const en2 = await sessionFor({ ui_lang: 'en' })
+    const ro = await sessionFor({ ui_lang: 'ro' })
+    const auto = await sessionFor({})
+    assert.match(en.key, /^checkout_v6_[0-9a-f]{10}_u1_growth_none_30_en_\d+$/)
+    assert.match(auto.key, /_auto_\d+$/)
+    assert.equal(strip(en2.key), strip(en.key), 'aceeași cerere → aceeași cheie (dedup)')
+    assert.notEqual(strip(ro.key), strip(en.key), 'altă limbă = alt corp → altă cheie')
+    assert.notEqual(strip(auto.key), strip(en.key))
   })
 })

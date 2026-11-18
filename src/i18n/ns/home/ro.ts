@@ -68,6 +68,38 @@ const ro = {
   sub_seePlans: 'Vezi planurile',
   sub_opening: 'Se deschide…',
   sub_manage: 'Gestionează abonamentul',
+  // Refuzurile portalului (stripe-portal.js), pe `code` (lotul L8d). În română
+  // cardul afișează textul SERVERULUI (`describeFunctionError`; textul englezesc
+  // intern — `auth_*`, `server_config` — cade pe `sub_portalFallback`), deci
+  // acestea contează doar în celelalte limbi; unde serverul scrie în română
+  // (`portal_unavailable`, `rate_limited`, `service_unavailable`) sunt EXACT
+  // textele lui.
+  sub_errUnavailable: 'Portalul de facturare nu e disponibil momentan.',
+  sub_errRateLimited: 'Prea multe încercări. Reîncearcă în câteva minute.',
+  sub_errSession: 'Sesiunea a expirat. Intră din nou în cont.',
+  sub_errService: 'Serviciu temporar indisponibil. Reîncearcă.',
+
+  // ── Eșecurile checkout-ului de abonament (`describeCheckoutFailure`,
+  //    lib/checkout.ts; lotul L8d) ──
+  // EXACT `CHECKOUT_MESSAGES_RO` din lib/checkout.ts (testul CH10): checkout.ts
+  // stă în pachetul de INTRARE (App.tsx), unde un namespace nu are voie să
+  // intre (SK4), deci româna e acolo de două ori — ca `err_*` din `common` față
+  // de lib/userMessages.ts (SE5). Stau lângă `sub_*`: abonamentul e singura
+  // suprafață a personalului legată de facturare. În română se afișează textul
+  // românesc al SERVERULUI când există; acestea sunt rezervele.
+  // NU se traduce „Fiscalizare” (numele COMERCIAL al planului, `PLAN_LABELS`).
+  ck_subscriptionExists: 'Ai deja un abonament activ. Schimbi planul din Portalul de facturare.',
+  ck_planRequiresQuote:
+    'Planul Fiscalizare se activează pe bază de ofertă, împreună cu instalarea pe casa ta de marcat. Cere o ofertă.',
+  ck_subscriptionLookupFailed: 'Nu am putut verifica abonamentele existente. Reîncearcă în câteva momente.',
+  ck_createFailed: 'Nu am putut porni plata. Reîncearcă în câteva momente.',
+  ck_network: 'Nu am putut contacta serverul de plată. Verifică internetul și reîncearcă.',
+  ck_auth: 'Sesiunea a expirat. Autentifică-te din nou și reia activarea.',
+  ck_rateLimited: 'Prea multe încercări. Reîncearcă în câteva minute.',
+  ck_unavailable: 'Serviciu temporar indisponibil. Reîncearcă în câteva momente.',
+  ck_notConfigured: 'Plata online nu e disponibilă momentan. Contactează-ne și îți activăm planul manual.',
+  ck_planUnavailable: 'Planul ales nu poate fi activat acum. Scrie-ne și îl activăm noi.',
+  ck_unknown: 'Nu am putut porni plata. Reîncearcă, iar dacă se repetă scrie-ne pe email.',
 
   // ── Oferta planului (PlanUpsellCard) ──
   upsell_regionLabel: 'Ofertă: {title}',

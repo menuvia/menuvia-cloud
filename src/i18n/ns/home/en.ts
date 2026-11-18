@@ -57,6 +57,23 @@ const en: Translation<typeof ro> = {
   sub_seePlans: 'See plans',
   sub_opening: 'Opening…',
   sub_manage: 'Manage subscription',
+  sub_errUnavailable: 'The billing portal isn’t available right now.',
+  sub_errRateLimited: 'Too many attempts. Try again in a few minutes.',
+  sub_errSession: 'Your session has expired. Sign in again.',
+  sub_errService: 'The service is temporarily unavailable. Try again.',
+
+  ck_subscriptionExists: 'You already have an active subscription. You can change your plan in the billing portal.',
+  ck_planRequiresQuote:
+    'The Fiscalizare plan is activated on a quote, together with the installation on your cash register. Request a quote.',
+  ck_subscriptionLookupFailed: 'We couldn’t check your existing subscriptions. Try again in a few moments.',
+  ck_createFailed: 'We couldn’t start the payment. Try again in a few moments.',
+  ck_network: 'We couldn’t reach the payment server. Check your internet connection and try again.',
+  ck_auth: 'Your session has expired. Sign in again and restart the activation.',
+  ck_rateLimited: 'Too many attempts. Try again in a few minutes.',
+  ck_unavailable: 'The service is temporarily unavailable. Try again in a few moments.',
+  ck_notConfigured: 'Online payment isn’t available right now. Contact us and we’ll activate your plan manually.',
+  ck_planUnavailable: 'The selected plan can’t be activated right now. Write to us and we’ll activate it for you.',
+  ck_unknown: 'We couldn’t start the payment. Try again, and if it happens again, email us.',
 
   upsell_regionLabel: 'Offer: {title}',
   upsell_orderingLead: 'Guests order on their own and the kitchen gets the order right away.',

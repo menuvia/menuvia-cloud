@@ -14,9 +14,13 @@
 //        și butonul; numele comercial al planului (PLAN_LABELS) rămâne cel
 //        românesc, netradus (regula 4). Mutația care pică: COPY cu text fix.
 //   HL5  SubscriptionCard în germană: textele cardului, iar un refuz al
-//        serverului cu mesaj ROMÂNESC nu ajunge pe ecran — apare textul de
-//        rezervă german. Mutația care pică: `toUserMessage` în loc de
-//        `describeStaffError` (ar afișa româna într-un card german).
+//        serverului cu mesaj ROMÂNESC nu ajunge pe ecran. Din lotul L8d
+//        `code`-ul lui stripe-portal.js are text propriu (`portal_unavailable`
+//        → „…ist derzeit nicht verfügbar”, nu rezerva generică), un cod
+//        NECUNOSCUT cade pe rezerva germană, iar portalul primește limba
+//        panoului ('de'). Mutațiile care pică: `toUserMessage` în loc de
+//        `describeFunctionError` (româna într-un card german); harta de coduri
+//        scoasă (rezerva în loc de textul codului); `openBillingPortal()` fără limbă.
 //   HL6  PlanUnknownBanner în franceză, cu „Réessayer” din `common`.
 //        Mutația care pică: butonul cu „Reîncearcă” scris în cod.
 //   HL7  AgentCard în engleză, pe o cerere de acces: titlul, starea, ce vede
@@ -32,7 +36,7 @@ const { counts, codvia, agentState, openBillingPortal } = vi.hoisted(() => ({
   counts: {} as Record<string, number>,
   codvia: { open: null as boolean | null },
   agentState: { agent: null as MyAgentResult | null },
-  openBillingPortal: vi.fn<() => Promise<never>>(),
+  openBillingPortal: vi.fn<(lang?: string) => Promise<never>>(),
 }))
 
 // Builder thenable (ca în HomeTab.test.tsx): `await from(t)…` dă {count, data, error}.
@@ -71,7 +75,7 @@ vi.mock('../../../hooks/useMyAgent', () => ({
   useMyAgent: () => ({ agent: agentState.agent, reload: vi.fn() }),
 }))
 vi.mock('../../../lib/billing', () => ({
-  openBillingPortal: () => openBillingPortal(),
+  openBillingPortal: (lang?: string) => openBillingPortal(lang),
 }))
 
 import HomeTab from '../HomeTab'
@@ -211,9 +215,21 @@ describe('Acasă în limba personalului', () => {
     expect(container).toHaveTextContent('Ihr Tarif: Meniu Digital. Aktualisieren Sie Ihre Karte')
     await user.click(screen.getByRole('button', { name: 'Abonnement verwalten' }))
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Das Abrechnungsportal konnte nicht geöffnet werden. Versuchen Sie es in einigen Augenblicken erneut.',
+      'Das Abrechnungsportal ist derzeit nicht verfügbar.',
     )
     expect(container.textContent ?? '').not.toMatch(/Portalul de facturare/)
+    expect(openBillingPortal).toHaveBeenLastCalledWith('de')
+    // Un cod pe care cardul nu-l cunoaște → rezerva germană, tot fără română.
+    openBillingPortal.mockRejectedValueOnce(
+      Object.assign(new Error('Ceva nou a eșuat la server.'), { code: 'brand_new_code' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Abonnement verwalten' }))
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Das Abrechnungsportal konnte nicht geöffnet werden. Versuchen Sie es in einigen Augenblicken erneut.',
+      ),
+    )
+    expect(container.textContent ?? '').not.toMatch(/[ăâîșț]/)
   })
 
   it('HL6: banda „planul nu s-a încărcat” în franceză', async () => {

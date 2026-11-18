@@ -10,6 +10,9 @@ const Stripe = require('stripe')
 const { appUrl: resolveAppUrl, LEGACY_NETLIFY_URL } = require('./lib/appUrl')
 // Contractul de eroare: orice non-200 = { error: <română>, code } (lib/aiErrors.js).
 const { aiError } = require('./lib/aiErrors')
+const { parseObjectBody } = require('./lib/jsonBody')
+// Limba paginii Stripe = limba panoului (lotul L8d; `ui_lang` din corp).
+const { stripeLocale } = require('./lib/stripeLocale')
 // Versiunea de API PINUITĂ (audit v3 OPS-8) pentru CERERILE noastre către Stripe:
 // fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
 // (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
@@ -49,12 +52,16 @@ exports.handler = async (event) => {
 
   let body
   try {
-    body = JSON.parse(event.body || '{}')
+    // Un corp care nu e OBIECT JSON (`null`, un tablou…) → `bad_json`, nu o
+    // excepție la destructurare (lib/jsonBody.js).
+    body = parseObjectBody(event.body)
   } catch {
     return aiError(400, 'bad_json')
   }
 
-  const { restaurant_id, pack } = body
+  const { restaurant_id, pack, ui_lang } = body
+  // Validată pe ro/en/fr/de; absentă sau invalidă → fără `locale` = „auto”.
+  const locale = stripeLocale(ui_lang)
   if (!restaurant_id) return aiError(400, 'missing_restaurant')
   // hasOwnProperty: `PACKS[pack]` cu pack='constructor'/'toString' întorcea o
   // funcție moștenită din Object.prototype → trecea de `!packDef` și crăpa mai
@@ -158,6 +165,7 @@ exports.handler = async (event) => {
       customer: customerId,
       client_reference_id: user.id,
       mode: 'payment',
+      ...(locale ? { locale } : {}),
       line_items: [
         {
           price_data: {

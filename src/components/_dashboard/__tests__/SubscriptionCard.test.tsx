@@ -22,14 +22,48 @@
 //   SUB4  corp englezesc fără cod („Stripe not configured", env lipsă pe server)
 //         → textul de rezervă românesc, iar textul englezesc NU ajunge în DOM.
 //         Mutația care pică: revenirea la `be.message || …`.
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+//   SUB5  (lotul L8d) în română un `code` cunoscut NU înlocuiește textul
+//         serverului: `server_config` cu „Stripe not configured" → tot rezerva
+//         românească (ca SUB4), iar portalul primește limba panoului ('ro' fără
+//         provider). Mutațiile care pică: harta de coduri consultată și în
+//         română (ar afișa „Portalul de facturare nu e disponibil momentan.");
+//         `openBillingPortal()` fără limbă.
+//   SUB6  (lotul L8d, recenzia adversarială) `PORTAL_ERROR_KEYS`
+//         (lib/portalErrors.ts) are EXACT codurile de eroare pe care le scrie
+//         stripe-portal.js, fără `no_customer` (ramura lui), citite din SURSA
+//         funcției — cu control pozitiv pe extractor (comentariile nu contează,
+//         un obiect pe mai multe linii da) și anti-vacuitate (≥ 8 coduri,
+//         `no_customer` și `portal_unavailable` printre ele). Înainte, șase din
+//         cele șapte intrări puteau fi șterse sau scrise greșit fără să pice
+//         nimic. Mutațiile care pică: `rate_limit` în loc de `rate_limited`
+//         (cheie pe care serverul n-o trimite); o intrare ștearsă; un cod nou
+//         în stripe-portal.js fără intrare în hartă.
+//   SUB7  în en, fr și de, FIECARE cod → textul lui EXACT (oracolul de mai jos,
+//         scris independent de hartă), nu `sub_portalFallback` și nu textul
+//         românesc al serverului; controlul pozitiv cere ca cele patru texte +
+//         rezerva să fie distincte în fiecare limbă (altfel o cheie re-legată
+//         n-ar schimba nimic vizibil). Mutațiile care pică: o intrare ștearsă
+//         (rezerva); `server_config` re-legat la `sub_errService`.
+import { Suspense, type ReactNode } from 'react'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { PORTAL_ERROR_KEYS } from '../../../lib/portalErrors'
+import { preloadNamespace } from '../../../i18n/core'
+import { homeNs } from '../../../i18n/ns/home'
+import { commonNs } from '../../../i18n/ns/common'
+import homeEn from '../../../i18n/ns/home/en'
+import homeFr from '../../../i18n/ns/home/fr'
+import homeDe from '../../../i18n/ns/home/de'
+import { UiLangScope } from '../../../i18n/UiLangContext'
+import type { StaffLang } from '../../../i18n/langs'
 
-const openBillingPortal = vi.fn<() => Promise<never>>()
+const openBillingPortal = vi.fn<(lang?: string) => Promise<never>>()
 
 vi.mock('../../../lib/billing', () => ({
-  openBillingPortal: () => openBillingPortal(),
+  openBillingPortal: (lang?: string) => openBillingPortal(lang),
 }))
 
 import { SubscriptionCard } from '../SubscriptionCard'
@@ -121,5 +155,115 @@ describe('SubscriptionCard', () => {
     expect(alert).toHaveTextContent(/Nu am putut deschide portalul de facturare/)
     expect(container.textContent ?? '').not.toMatch(/Stripe not configured/)
     expect(screen.queryByRole('button', { name: SEE_PLANS })).toBeNull()
+  })
+
+  it('SUB5: în română codul nu înlocuiește textul serverului; portalul primește limba', async () => {
+    openBillingPortal.mockRejectedValueOnce(billingError('Stripe not configured', 'server_config'))
+    const user = userEvent.setup()
+    const { container } = render(<SubscriptionCard onSeePlans={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: MANAGE }))
+
+    const alert = await screen.findByRole('alert')
+    // Exact ce afișa cardul înainte de L8d pentru același corp (SUB4).
+    expect(alert).toHaveTextContent(/Nu am putut deschide portalul de facturare/)
+    expect(container.textContent ?? '').not.toMatch(/nu e disponibil momentan/)
+    expect(openBillingPortal).toHaveBeenCalledWith('ro')
+  })
+})
+
+// ── SUB6/SUB7: harta cod → text, legată de server și verificată cod cu cod ──
+// Din process.cwd(), NU din import.meta.url (capcana din qr-scan.test.ts, #269).
+const ROOT = process.cwd()
+const read = (f: string) => readFileSync(resolve(ROOT, f), 'utf8')
+
+/** Valorile literale `code: '<x>'` din sursa unei funcții, fără comentarii. */
+function serverCodes(src: string): string[] {
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+  return [...new Set([...code.matchAll(/\bcode:\s*'([a-z_]+)'/g)].map((m) => m[1]))].sort()
+}
+
+type SubErrKey = 'sub_errUnavailable' | 'sub_errRateLimited' | 'sub_errSession' | 'sub_errService'
+
+// Oracolul, scris INDEPENDENT de `PORTAL_ERROR_KEYS`: ce trebuie să citească
+// omul pentru fiecare refuz al portalului.
+const EXPECTED_KEY: Readonly<Record<string, SubErrKey>> = {
+  server_config: 'sub_errUnavailable', // env lipsă pe server: pentru om, portalul nu merge
+  portal_unavailable: 'sub_errUnavailable',
+  rate_limited: 'sub_errRateLimited',
+  auth_missing: 'sub_errSession',
+  auth_invalid: 'sub_errSession',
+  rate_limit_unavailable: 'sub_errService',
+  service_unavailable: 'sub_errService',
+}
+
+const DICTS = { en: homeEn, fr: homeFr, de: homeDe } as const
+
+function inLang(lang: StaffLang, node: ReactNode) {
+  return render(
+    <UiLangScope lang={lang}>
+      <Suspense fallback={null}>{node}</Suspense>
+    </UiLangScope>,
+  )
+}
+
+describe('SubscriptionCard — harta codurilor portalului (lotul L8d)', () => {
+  beforeAll(async () => {
+    const langs: StaffLang[] = ['en', 'fr', 'de']
+    await Promise.all(
+      langs.flatMap((l) => [preloadNamespace(homeNs, l), preloadNamespace(commonNs, l)]),
+    )
+  })
+
+  it('SUB6: harta are EXACT codurile de eroare din stripe-portal.js (fără no_customer)', () => {
+    // Control pozitiv pe extractor: comentariile nu contează, un URL nu e
+    // comentariu, un obiect pe mai multe linii contează.
+    const sample = [
+      "// return jsonResponse(500, { error: 'x', code: 'din_comentariu' })",
+      "/* code: 'din_bloc' */",
+      "return jsonResponse(429, { error: 'Prea multe', code: 'rate_limited' })",
+      "return jsonResponse(404, {\n  error: 'Nu',\n  code: 'no_customer',\n})",
+      "const u = 'https://x.test' // code: 'dupa_url'",
+    ].join('\n')
+    expect(serverCodes(sample)).toEqual(['no_customer', 'rate_limited'])
+
+    const server = serverCodes(read('netlify/functions/stripe-portal.js'))
+    // Anti-vacuitate: extractorul chiar vede funcția reală.
+    expect(server).toContain('no_customer')
+    expect(server).toContain('portal_unavailable')
+    expect(server.length).toBeGreaterThanOrEqual(8)
+    const errors = server.filter((c) => c !== 'no_customer')
+    expect(Object.keys(PORTAL_ERROR_KEYS).sort()).toEqual(errors)
+    // Oracolul de la SUB7 acoperă și el fiecare cod (un cod nou cere textul lui).
+    expect(Object.keys(EXPECTED_KEY).sort()).toEqual(errors)
+  })
+
+  it('SUB7: în en/fr/de fiecare cod → textul lui, nu rezerva și nu româna serverului', async () => {
+    const user = userEvent.setup()
+    for (const lang of ['en', 'fr', 'de'] as const) {
+      const d = DICTS[lang]
+      // Control: textele diferă între ele și de rezervă, altfel o cheie
+      // re-legată sau o intrare ștearsă n-ar schimba nimic pe ecran.
+      const texts = [
+        d.sub_errUnavailable,
+        d.sub_errRateLimited,
+        d.sub_errSession,
+        d.sub_errService,
+        d.sub_portalFallback,
+      ]
+      expect(new Set(texts).size, lang).toBe(texts.length)
+      for (const [code, key] of Object.entries(EXPECTED_KEY)) {
+        openBillingPortal.mockRejectedValueOnce(
+          billingError(`Refuz românesc al serverului (${code}).`, code),
+        )
+        const { container, unmount } = inLang(lang, <SubscriptionCard onSeePlans={vi.fn()} />)
+        await user.click(screen.getByRole('button', { name: d.sub_manage }))
+        const alert = await screen.findByRole('alert')
+        expect(alert.textContent, `${lang} ${code}`).toBe(d[key])
+        expect(alert.textContent, `${lang} ${code}`).not.toBe(d.sub_portalFallback)
+        expect(container.textContent ?? '', `${lang} ${code}`).not.toMatch(/Refuz românesc/)
+        expect(openBillingPortal).toHaveBeenLastCalledWith(lang)
+        unmount()
+      }
+    }
   })
 })
