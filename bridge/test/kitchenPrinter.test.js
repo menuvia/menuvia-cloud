@@ -156,6 +156,56 @@ test('KB9 diacritice descompuse și negații: fără „?” parazit, fără sen
   assert.equal(body(buf).toString('latin1'), 'sef Cafe fara != ceapa ?5\n\n\n');
 });
 
+// ─── KB10–KB12: literele fără descompunere NFD (lotul L8c) ──────────────────
+// ß æ ø œ ł đ þ (și majusculele) nu au formă NFD cu literă de bază, deci pe
+// ASCII cădeau pe '?' — exact în numele produselor unui local german/nordic/
+// polonez, de lângă etichetele traduse ale mig 329. Mutații care pică:
+// LETTER_MAP scos (KB10, KB11), LETTER_MAP aplicat ÎNAINTEA ramurii latin1
+// (KB11: ß ar deveni „ss” pe o imprimantă latin1), harta pusă în
+// `transliterate()` (KB12: fișierul UTF-8 și-ar pierde literele), o intrare
+// greșită (Þ → „Th”, KB10), o literă în plus în hartă (Ð → „D”, KB12).
+test('KB10 ASCII (implicit): ß æ ø œ ł đ þ devin litere, nu „?”', () => {
+  const buf = buildEscPos(cfgWith({}),
+    'SERVICE · TISCH: 4\n2x Weißwurst\n1x Smørrebrød Ærø\n1x Œuf Łódź Đorđe Þórr æble');
+  assert.equal(
+    body(buf).toString('latin1'),
+    'SERVICE - TISCH: 4\n2x Weisswurst\n1x Smorrebrod AEro\n1x OEuf Lodz Dorde THorr aeble\n\n\n',
+  );
+  assertPrintable(body(buf));
+  // Fiecare literă din hartă, izolat (majuscule și minuscule).
+  assert.equal(sanitizeForEscPos('ß æ Æ ø Ø œ Œ ł Ł đ Đ þ Þ'), 'ss ae AE o O oe OE l L d D th TH');
+});
+
+test('KB11 latin1 (transliterare oprită): literele din latin1 rămân octeți, restul primesc baza', () => {
+  // ß æ Æ ø Ø þ Þ sunt în 0xA0–0xFF: octeți latin1, EXACT ca înainte de L8c.
+  // œ Œ ł Ł đ Đ nu încap în latin1: litera de bază în loc de '?'.
+  const buf = buildEscPos(cfgWith({ transliterate: false }), 'ß æ Æ ø Ø þ Þ | œ Œ ł Ł đ Đ');
+  assert.equal(
+    body(buf).toString('hex'),
+    Buffer.from('ß æ Æ ø Ø þ Þ | oe OE l L d D\n\n\n', 'latin1').toString('hex'),
+  );
+  assertPrintable(body(buf), { latin1: true });
+});
+
+test('KB12 control: fișierul UTF-8 păstrează literele, iar restul alfabetului rămâne pe „?”', async () => {
+  // Fișierul (ambele ramuri de transliterare) nu trece prin hartă: un spooler
+  // UTF-8 primește „Weißwurst” neatins.
+  for (const transliterate of [true, false]) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-'));
+    const result = await printTicket(cfgWith({ mode: 'file', dir, transliterate }), {
+      id: 'kb12', payload: 'SERVICE · TISCH: 4\n2x Weißwurst Smørrebrød Łódź Þórr',
+    });
+    assert.equal(result.success, true);
+    assert.equal(fs.readFileSync(path.join(dir, 'kb12.txt'), 'utf8'),
+      'SERVICE · TISCH: 4\r\n2x Weißwurst Smørrebrød Łódź Þórr\r\n');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  // Harta e EXACT lista lotului: o literă fără descompunere din afara ei
+  // (ŋ, ı, ð, Ð, ẞ) rămâne pe '?', vizibil — comportamentul de dinainte.
+  // Ð (U+00D0) n-are NFD, ca ð: fără el aici, un Ð→D adăugat în hartă trecea.
+  assert.equal(sanitizeForEscPos('ŋ ı ð Ð ẞ'), '? ? ? ? ?');
+});
+
 test('sanitizeForEscPos: implicit ASCII, fără să atingă textul curat', () => {
   assert.equal(sanitizeForEscPos('2x Mici\nMASA: 5'), '2x Mici\nMASA: 5');
   assert.equal(sanitizeForEscPos('Ő ü ñ 漢'), 'O u n ?');
