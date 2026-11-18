@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
+import { setAnalyticsUser } from '../lib/analytics'
 
 export interface Profile {
   id: string
@@ -91,6 +92,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .then(({ data: { session: s } }) => {
         setUser(s?.user ?? null)
         lastUserIdRef.current = s?.user?.id ?? null
+        // Identitatea de analytics = DOAR id-ul intern al contului (pseudonim);
+        // fără consimțământ „Performanță” nu ajunge nicăieri (lib/analytics.ts).
+        setAnalyticsUser(s?.user?.id ?? null)
         if (s?.user) void loadProfile(s.user.id)
         setLoading(false)
       })
@@ -114,6 +118,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // „necunoscut" e singurul răspuns onest, iar gate-urile tristate
         // (Termeni, plan) sunt construite exact pentru asta.
         setProfile(null)
+        // Alt cont / ieșire / sesiune expirată: PostHog face reset() înainte de
+        // noua identitate, ca profilul vechi să nu primească evenimentele noului.
+        setAnalyticsUser(next?.id ?? null)
         if (next) void loadProfile(next.id)
         // La ieșire, o încărcare încă în zbor pentru contul vechi nu mai are voie
         // să repună profilul (recenzia L0b: reîncercarea fără coloană pe o bază
@@ -133,6 +140,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     const { error } = await supabase.auth.signOut()
     if (error) throw error
+    // Și explicit, nu doar prin SIGNED_OUT: ieșirea confirmată golește
+    // identitatea de analytics (idempotent cu ramura din onAuthStateChange).
+    setAnalyticsUser(null)
   }
   const refreshProfile = async () => {
     if (user) await loadProfile(user.id)

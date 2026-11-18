@@ -57,10 +57,10 @@ Se activează **numai** dacă bifezi „Performanță" în banner. Temeiul: cons
 
 | Serviciu | Ce stochează | Scop | Durată | Destinatar |
 |---|---|---|---|---|
-| **PostHog** (analytics) | Chei `ph_*` în **localStorage** (configurat deliberat să nu folosească cookie-uri) | Statistici de utilizare a produsului (ex. pagini vizitate, pași de onboarding finalizați). Configurare orientată spre minimizare: **IP-ul nu este transmis**, profilurile se creează doar pentru utilizatori autentificați (nu pentru vizitatori anonimi), înregistrarea sesiunilor (session recording) este **dezactivată**, capturarea automată a click-urilor este dezactivată, iar semnalul „Do Not Track" din browser este **respectat**. Date procesate pe serverele PostHog din **UE** (eu.i.posthog.com). | Până la retragerea consimțământului / ștergerea datelor din browser | PostHog (UE) |
+| **PostHog** (analytics) | Chei `ph_*` în **localStorage** și, pe durata tab-ului, în sessionStorage (configurat deliberat să nu folosească cookie-uri) | Statistici de utilizare a produsului pe site-ul și panoul Menuvia (ex. pagini vizitate, pași de onboarding finalizați) — **nu** pe paginile publice ale restaurantelor (meniul QR, meniul public, pagina de rezervare), unde nu colectează nimic. Configurare orientată spre minimizare: **adresa IP nu este stocată** (proiectul PostHog o elimină la primire) și **nu este folosită pentru localizare**; profilurile se creează doar pentru contul autentificat care și-a dat acordul (nu pentru vizitatori anonimi și nici pentru alte conturi care folosesc același browser) și poartă identificatorul intern al contului și proprietățile tehnice ale vizitelor (de ex. browserul, sistemul de operare, pagina și sursa primei vizite), fără e-mail, nume sau telefon; înregistrarea sesiunilor (session recording) este **dezactivată**, capturarea automată a click-urilor este dezactivată, iar semnalul „Do Not Track" din browser este **respectat**. Date procesate pe serverele PostHog din **UE** (eu.i.posthog.com). | Până la retragerea consimțământului / ștergerea datelor din browser | PostHog (UE) |
 | **Sentry** (monitorizare erori) | Nu setează cookie-uri de tracking; transmite rapoarte de eroare tehnică | Detectarea și repararea erorilor aplicației. Configurat cu `sendDefaultPii: false` și filtre înainte de transmitere: se elimină query string-urile din URL-uri (pot conține token-uri), antetele `Authorization` și `Cookie`, precum și câmpurile e-mail/telefon din contextul erorii. Datele pot fi procesate pe servere Sentry din **SUA** — transfer în temeiul clauzelor contractuale standard / mecanismelor de adecvare aplicabile (de confirmat la avizare, împreună cu DPA-ul Sentry). | Sesiune | Sentry (SUA) |
 
-La **retragerea** consimțământului de performanță: PostHog este oprit (`opt_out`) și identitatea locală este ștearsă (`reset`); Sentry nu mai este inițializat la următoarea încărcare a paginii.
+La **retragerea** consimțământului de performanță: PostHog este oprit (`opt_out`), identitatea locală este ștearsă (`reset`, inclusiv identificatorul dispozitivului) și cheile `ph_*` sunt șterse din browser — poate rămâne doar marcajul de refuz al PostHog (`ph_menuvia_consent`), care nu conține niciun identificator; Sentry nu mai este inițializat la următoarea încărcare a paginii.
 
 ### 3.3. Funcționale (necesită consimțământ)
 
@@ -78,7 +78,7 @@ Categoria „Funcționale" din banner acoperă facilități de confort care nu s
 
 **Retragere / modificare — oricând, la fel de ușor ca acordarea:**
 
-1. Apasă linkul **„Setări cookies"** din subsolul paginilor — banner-ul se redeschide cu preferințele tale curente, pe care le poți modifica și salva. Debifarea categoriei „Performanță" oprește imediat PostHog și șterge identitatea locală de analytics.
+1. Apasă linkul **„Setări cookies"** din subsolul paginilor — banner-ul se redeschide cu preferințele tale curente, pe care le poți modifica și salva. Debifarea categoriei „Performanță" oprește imediat PostHog și șterge identitatea locală de analytics, inclusiv identificatorul dispozitivului.
 2. Alternativ, poți șterge datele site-ului din setările browserului (cookies + „date site" / stocare locală). La următoarea vizită, banner-ul va reapărea ca la prima utilizare.
 
 Retragerea consimțământului nu afectează legalitatea prelucrărilor efectuate înainte de retragere (art. 7 alin. (3) GDPR).
@@ -89,7 +89,7 @@ Retragerea consimțământului nu afectează legalitatea prelucrărilor efectuat
 
 - Nu vindem și nu închiriem date obținute prin cookie-uri.
 - Nu folosim cookie-uri terțe de publicitate și nu construim profiluri publicitare.
-- Nu urmărim vizitatorii anonimi ai meniurilor publice cu instrumente de analytics fără consimțământ — meniul QR se încarcă fără niciun script de măsurare până la acordul tău.
+- Nu folosim instrumente de analytics pe meniurile publice ale restaurantelor (meniul QR, meniul public, pagina de rezervare), nici cu consimțământ — acolo se poate încărca, doar după acordul tău, raportarea erorilor tehnice (Sentry).
 - Cookie-urile de afiliere (`mv_ref`, `mv_vid`) nu urmăresc navigarea ta pe alte site-uri și nu sunt partajate cu terți în scop de marketing; servesc exclusiv atribuirii interne a comisionului către afiliatul care te-a recomandat.
 
 ## 6. Date personale prelucrate prin alte mijloace

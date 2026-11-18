@@ -11,7 +11,9 @@
 //   • aceleași căi ÎMPACHETATE într-un parametru: /auth?next=%2Fsef-vanzari%2FTOKEN
 //     (fluxul „cont nou → revino la invitație”), inclusiv codificat de două ori;
 //   • parametri de query/hash cu valori de sesiune sau de unică folosință
-//     (access_token din linkul de resetare a parolei, ?cancel=COD la rezervări).
+//     (access_token din linkul de resetare a parolei, ?cancel=COD la rezervări,
+//     ?payment_intent_client_secret=… pe care Stripe îl pune în URL-ul de
+//     revenire după 3DS / o metodă de plată cu redirecționare).
 //
 // Regula de proiectare: mai bine o redactare în plus (telemetria pierde un
 // detaliu) decât una în minus (un secret iese din aplicație). De aceea căile cu
@@ -30,6 +32,13 @@ export const SENSITIVE_PARAMS: readonly string[] = [
   'token_hash',
   'code',
   'cancel',
+  // Revenirea din Stripe (plata la masă): secretul intentului dă acces la
+  // starea plății; curățarea lui din URL în QrMenuPage e un efect la montare,
+  // deci o cursă cu primul eveniment — nu o garanție.
+  'payment_intent_client_secret',
+  'setup_intent_client_secret',
+  'payment_intent',
+  'setup_intent',
 ]
 
 const REDACTED_TOKEN = ':token'

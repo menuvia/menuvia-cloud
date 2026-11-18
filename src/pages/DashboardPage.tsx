@@ -54,6 +54,7 @@ const WaiterAssignments = lazy(() => import('../components/WaiterAssignments'))
 const AiSettingsTab = lazy(() => import('../components/AiSettingsTab'))
 const AiChatbot = lazy(() => import('../components/AiChatbot'))
 import { isPlatformAdmin } from '../lib/ai'
+import { markAnalyticsInternalUser, setAnalyticsContext, track } from '../lib/analytics'
 import { exitFounderView, clearFounderView, getFounderViewOrigin } from '../lib/founder'
 import { isPartnerTab } from '../lib/partnerAccess'
 import { canAddLocation, hardReloadTo, hasMultipleLocations } from '../lib/locations'
@@ -758,7 +759,11 @@ export default function DashboardPage({
       // null (eroare de verificare) → tratăm ca non-admin AICI: doar ascunde
       // butonul „Panou fondator”, fără consecințe de acces (spre deosebire de
       // FounderPage).
-      if (!cancelled) setIsPlatAdmin(v === true)
+      if (cancelled) return
+      setIsPlatAdmin(v === true)
+      // Traficul fondatorului se marchează `$internal_or_test_user` în PostHog,
+      // ca filtrul de conturi interne să-l scoată din cifre (no-op fără acord).
+      if (v === true && userId) markAnalyticsInternalUser(userId)
     })
     return () => {
       cancelled = true
@@ -950,6 +955,27 @@ export default function DashboardPage({
   const contentScrollRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     contentScrollRef.current?.scrollTo(0, 0)
+  }, [tab])
+
+  // Segmentarea în PostHog (super-proprietăți fără PII, lib/analytics.ts):
+  // localul, nivelul planului (regula 3: `planTier` din useFeatures, nu
+  // `profile.plan`; null cât planul nu e cunoscut) și rolul în local. Fără ele
+  // nu se pot separa proprietarii de ospătari, nici Planul 1 de Planul 2/3.
+  // Declarat ÎNAINTEA evenimentului de tab, ca primul să poarte contextul.
+  const analyticsTier = planKnown ? tier : null
+  const analyticsRole = activeRole ?? null
+  useEffect(() => {
+    setAnalyticsContext(
+      restaurantId
+        ? { restaurant_id: restaurantId, plan_tier: analyticsTier, staff_role: analyticsRole }
+        : null,
+    )
+  }, [restaurantId, analyticsTier, analyticsRole])
+  // Ieșirea din panou: evenimentele de după nu mai poartă localul.
+  useEffect(() => () => setAnalyticsContext(null), [])
+  // Ce module se folosesc: `?tab=` nu produce page view-uri (doar calea).
+  useEffect(() => {
+    track('dashboard_tab_viewed', { tab })
   }, [tab])
 
   // Tab devenit inaccesibil (demovare rol, downgrade plan, modul oprit) sau

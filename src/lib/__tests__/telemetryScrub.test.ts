@@ -4,16 +4,19 @@
 //   TS2  query string, hash și URL absolut: tokenul dispare, restul rămâne
 //   TS3  tokenul ÎMPACHETAT într-un parametru (?next=%2F…), o dată și de două ori codificat
 //   TS4  căile nepotrivite rămân NEATINSE (byte-identic)
-//   TS5  parametri sensibili (access_token, cancel…) redactați; ceilalți rămân
+//   TS5  parametri sensibili (access_token, cancel, secretul intentului Stripe…) redactați;
+//        ceilalți rămân
 //   TS6  idempotent: a doua trecere nu schimbă nimic
 //   TS7  parcurgere profundă: obiecte, array-uri, câmpuri imbricate; netextul rămâne
 //   TS8  referință circulară nu blochează și nu scurge
 //   TS9  forma evenimentelor reale (Sentry, PostHog) — fiecare câmp cu URL
 //   TS10 CABLAJUL: Sentry (beforeSend, beforeSendSpan, beforeBreadcrumb) și PostHog
-//        (before_send) trec prin scrubTokenPathsDeep — funcția pură nu ajută dacă nu e chemată
+//        (before_send → minimizeCaptureResult) trec prin scrubTokenPathsDeep — funcția pură
+//        nu ajută dacă nu e chemată
 //   TS11 CHEILE obiectelor se redactează (heatmap-ul PostHog pune URL-ul curent drept cheie);
 //        două chei care devin identice după redactare își îmbină array-urile
-//   TS12 PostHog pornește cu `capture_heatmaps: false` (nu decide comutatorul din dashboard)
+//   TS12 PostHog pornește cu `capture_heatmaps: false` (nu decide comutatorul din dashboard),
+//        prin POSTHOG_PRIVACY_CONFIG întins în `posthog.init`
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
@@ -82,6 +85,18 @@ describe('scrubTokenPaths', () => {
     )
     // un nume care DOAR conține cuvântul nu se atinge
     expect(scrubTokenPaths('/x?zipcode=1234&tab=billing')).toBe('/x?zipcode=1234&tab=billing')
+    // Revenirea din Stripe (3DS / redirect) pe /q/:token: secretul și id-ul
+    // intentului nu pleacă (mutația: cheile scoase din SENSITIVE_PARAMS).
+    expect(
+      scrubTokenPaths(
+        '/q/T?payment_intent=pi_1&payment_intent_client_secret=pi_1_secret_X&redirect_status=succeeded',
+      ),
+    ).toBe(
+      '/q/:token?payment_intent=[redacted]&payment_intent_client_secret=[redacted]&redirect_status=succeeded',
+    )
+    expect(scrubTokenPaths('/x?setup_intent=seti_1&setup_intent_client_secret=seti_1_secret_Y')).toBe(
+      '/x?setup_intent=[redacted]&setup_intent_client_secret=[redacted]',
+    )
   })
 
   it('TS6: idempotent', () => {
@@ -216,23 +231,39 @@ describe('cablajul telemetriei', () => {
       const body = main.slice(start, end)
       expect(body).toContain('return scrubTokenPathsDeep(')
     }
+    // PostHog: `before_send` e `minimizeCaptureResult` (filtrul oaspeților +
+    // `$geoip_disable`, lib/analytics.ts), iar corpul ei trece prin scrubber.
+    // Comportamentul îl ține AN4; aici, cablajul (AN3 cere identitatea funcției).
     const analytics = read('src/lib/analytics.ts')
     const at = analytics.indexOf('before_send:')
     expect(at).toBeGreaterThan(-1)
-    expect(analytics.slice(at, at + 200)).toContain('scrubTokenPathsDeep(')
+    expect(analytics.slice(at, at + 60)).toContain('before_send: minimizeCaptureResult,')
+    const fnStart = analytics.indexOf('export function minimizeCaptureResult(')
+    expect(fnStart).toBeGreaterThan(-1)
+    const fnEnd = analytics.indexOf('\n}\n', fnStart)
+    expect(fnEnd).toBeGreaterThan(fnStart)
+    expect(analytics.slice(fnStart, fnEnd)).toContain('scrubTokenPathsDeep(result)')
   })
 
   it('TS12: PostHog pornește cu heatmap-urile OPRITE explicit', () => {
     // Fără cheie, `isEnabled` cade pe comutatorul din proiectul PostHog (remote
     // config). Mutațiile „linia ștearsă” și `capture_heatmaps: true` pică aici.
+    // Din integrarea PostHog (nov 2026) opțiunile stau în POSTHOG_PRIVACY_CONFIG,
+    // întins în `posthog.init(...)`; valorile EFECTIVE primite de init le
+    // îngheață comportamental AN3 (__tests__/analytics.test.ts).
     const analytics = read('src/lib/analytics.ts')
+    const cfgStart = analytics.indexOf('export const POSTHOG_PRIVACY_CONFIG = {')
+    expect(cfgStart).toBeGreaterThan(-1)
+    const cfgEnd = analytics.indexOf('\n} as const', cfgStart)
+    expect(cfgEnd).toBeGreaterThan(cfgStart)
+    expect(analytics.slice(cfgStart, cfgEnd)).toMatch(/\n\s*capture_heatmaps: false,/)
     const start = analytics.indexOf('posthog.init(')
     expect(start).toBeGreaterThan(-1)
     // corpul apelului: până la închiderea lui (`  })` la începutul liniei)
     const end = analytics.indexOf('\n  })', start)
     expect(end).toBeGreaterThan(start)
     const init = analytics.slice(start, end)
-    expect(init).toMatch(/\n\s*capture_heatmaps: false,/)
-    expect(init).not.toMatch(/enable_heatmaps:\s*true/)
+    expect(init).toContain('...POSTHOG_PRIVACY_CONFIG,')
+    expect(analytics).not.toMatch(/enable_heatmaps:\s*true|capture_heatmaps:\s*true/)
   })
 })

@@ -52,6 +52,10 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_APP_ENV: production
           VITE_APP_URL: https://menuvia.ro
+          # Aceeași cheie PUBLICĂ și același host UE ca [context.production.environment]
+          # din netlify.toml (clichetul PE4 din tests/functions/posthog-env.test.js).
+          VITE_POSTHOG_KEY: phc_mTaFQdzTfJXSRHvSBAmMXLhuBQpELZqWyr5uSiiXrPGS
+          VITE_POSTHOG_HOST: https://eu.i.posthog.com
         run: |
           npm ci --no-audit --no-fund
           npm run build

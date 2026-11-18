@@ -25,6 +25,7 @@ import { settingsCardsNs } from '../i18n/ns/settingsCards'
 import { commonNs } from '../i18n/ns/common'
 import { fillNodes } from '../i18n/fillNodes'
 import { isActiveSubscriptionRefusal } from '../lib/accountRefusals'
+import { track } from '../lib/analytics'
 
 const btnStyle = (variant: 'neutral' | 'danger' | 'safe'): React.CSSProperties => ({
   background: variant === 'danger' ? D.redA : D.s3,
@@ -87,6 +88,7 @@ export default function GdprCard() {
       a.click()
       a.remove()
       URL.revokeObjectURL(url)
+      track('export_data_requested')
       toast.success(tr.t('gdpr_exported'))
     } catch (e) {
       toast.error(describeStaffError(e, tc, { fallback: tr.t('gdpr_err_export') }))
@@ -111,6 +113,7 @@ export default function GdprCard() {
       if (error) throw new Error(error.message)
       const d = data as { deletion_scheduled_at?: string } | null
       setDeletionRequestedAt(new Date().toISOString())
+      track('account_deletion_requested')
       toast.success(
         d?.deletion_scheduled_at
           ? tr.t('gdpr_scheduledFor', {

@@ -27,6 +27,7 @@ import MarketingHeader from '../components/marketing/MarketingHeader'
 import MarketingFooter from '../components/marketing/MarketingFooter'
 import { Icon } from '../components/ui/Icon'
 import { CONTACT_EMAIL, browserSite } from '../lib/domain'
+import { track } from '../lib/analytics'
 import {
   SITE_PLAN_IDS,
   checkoutOpenOnSite,
@@ -799,10 +800,16 @@ export default function PricingPage({
 
                 {p.quoteHref && checkoutOpen ? (
                   // „Cere ofertă": link mailto, NU buton de checkout. Fiscalizarea
-                  // nu se cumpără singur (regula de aur) — nu are cale spre Stripe.
+                  // nu se cumpără singur (regula de aur) — nu are cale spre Stripe,
+                  // deci pâlnia Planului 3 se închide AICI (intenție, nu rezultat:
+                  // activarea o face fondatorul, se citește din DB). Trimis imediat —
+                  // clientul de e-mail poate scoate pagina din prim-plan.
                   <a
                     className="pressable"
                     href={p.quoteHref}
+                    onClick={() =>
+                      track('plan_quote_requested', { plan: p.id }, { sendInstantly: true })
+                    }
                     style={{
                       ...ctaStyle,
                       display: 'block',

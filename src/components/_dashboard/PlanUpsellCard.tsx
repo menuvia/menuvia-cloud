@@ -11,7 +11,9 @@
 // e derivat din el — regula 4) și NU se traduc; restul textului e în
 // namespace-ul `home` (lotul L3a).
 // ─────────────────────────────────────────────────────────────
+import { useEffect } from 'react'
 import { D, PLAN_LABELS } from '../../lib/constants'
+import { track } from '../../lib/analytics'
 import { PLAN_NAMES } from '../../lib/features'
 import type { PlanUpsellTarget } from '../../lib/planSurface'
 import type { Translator } from '../../i18n/core'
@@ -61,6 +63,11 @@ export function PlanUpsellCard({
 }) {
   const { t } = useT(homeNs)
   const copy = COPY[target](t)
+  // Pâlnia upsell → checkout → abonament: afișarea cardului și apăsarea lui.
+  // Evenimente de INTENȚIE (UI), nu de rezultat; rezultatul e `subscription_started`.
+  useEffect(() => {
+    track('plan_upsell_viewed', { target })
+  }, [target])
   return (
     <section aria-label={t('upsell_regionLabel', { title: copy.title })}>
       <Card variant="raised" style={{ border: `1px solid ${D.goldBorder}` }}>
@@ -107,7 +114,14 @@ export function PlanUpsellCard({
               ))}
             </ul>
           </div>
-          <Button variant="primary" onClick={onSeePlan} style={{ alignSelf: 'center' }}>
+          <Button
+            variant="primary"
+            onClick={() => {
+              track('plan_upsell_clicked', { target })
+              onSeePlan()
+            }}
+            style={{ alignSelf: 'center' }}
+          >
             {t('upsell_seePlan')}
             <Icon name="chevronRight" size={16} />
           </Button>

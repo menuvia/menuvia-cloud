@@ -18,6 +18,7 @@
 // ─────────────────────────────────────────────────────────────
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { clearPlanIntent } from '../lib/planIntent'
+import { track } from '../lib/analytics'
 import {
   checkoutActivated,
   readCheckoutPlanParam,
@@ -82,10 +83,20 @@ export function useCheckoutReturn({
   // când webhook-ul a ajuns ÎNAINTEA paginii; un plan plătit oarecare (ex. unul
   // manual) nu e dovada (`checkoutActivated`).
   const baselineRef = useRef<string | null>(null)
+  // Evenimentul de abonament se emite O SINGURĂ dată per întoarcere.
+  const reportedRef = useRef(false)
   useEffect(() => {
     if (status !== 'activating' || plan == null) return
     if (baselineRef.current == null) baselineRef.current = plan
-    if (checkoutActivated(purchased, baselineRef.current, plan)) setStatus('active')
+    if (checkoutActivated(purchased, baselineRef.current, plan)) {
+      setStatus('active')
+      // Planul l-a scris WEBHOOK-UL în profil (dovada serverului, nu redirectul).
+      // Include și trialul fără card: abonamentul există, banii vin la final.
+      if (!reportedRef.current) {
+        reportedRef.current = true
+        track('subscription_started', { plan })
+      }
+    }
   }, [status, plan, purchased])
 
   // Plafonul de 30 s curge de la întoarcere, indiferent de sesiune: dacă

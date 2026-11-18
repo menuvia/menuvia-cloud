@@ -34,6 +34,7 @@ import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { usePollWhileVisible } from '../hooks/usePollWhileVisible'
 import { toUserMessage } from '../lib/userMessages'
+import { track } from '../lib/analytics'
 
 interface Props {
   restaurantId: string
@@ -481,6 +482,7 @@ export default function CashRegisterTab({ restaurantId }: Props) {
 
       {showClose && current && (
         <CloseShiftModal
+          restaurantId={restaurantId}
           shift={current}
           onClose={() => setShowClose(false)}
           onDone={() => {
@@ -685,6 +687,8 @@ function OpenShiftModal({
     setErr(null)
     try {
       await openShift(restaurantId, n, notes.trim() || null)
+      // Fără sume: fondul de casă al unei ture identificate e dată de angajat.
+      track('shift_opened', { restaurant_id: restaurantId })
       onDone()
     } catch (e) {
       setErr(toUserMessage(e, 'Eroare la deschidere'))
@@ -951,10 +955,12 @@ function MovementModal({
 
 // ── Close shift modal ─────────────────────────────────────────
 function CloseShiftModal({
+  restaurantId,
   shift,
   onClose,
   onDone,
 }: {
+  restaurantId: string
   shift: CurrentShift
   onClose: () => void
   onDone: () => void
@@ -984,6 +990,9 @@ function CloseShiftModal({
     setErr(null)
     try {
       const result = await closeShift(shift.id, countedNum, notes.trim() || null, sendZ)
+      // Fără diferența de casă: ar fi o măsură a angajatului care a închis tura.
+      // `restaurant_id` ca la `shift_opened`: perechea se poate pune cap la cap.
+      track('shift_closed', { restaurant_id: restaurantId, z_sent: result.z_sent })
       setConfirmation({
         diff: result.cash_diff,
         counted: result.counted_cash,
