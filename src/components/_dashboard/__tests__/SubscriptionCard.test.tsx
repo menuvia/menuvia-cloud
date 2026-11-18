@@ -176,10 +176,45 @@ describe('SubscriptionCard', () => {
 const ROOT = process.cwd()
 const read = (f: string) => readFileSync(resolve(ROOT, f), 'utf8')
 
-/** Valorile literale `code: '<x>'` din sursa unei funcții, fără comentarii. */
+/**
+ * Codurile din corpurile `jsonResponse(<status non-2xx>, { …, code: '<x>' })`
+ * ale unei funcții, fără comentarii. Se citește PROPRIETATEA `code` de la
+ * primul nivel al corpului, nu orice text care arată ca un cod (recenzie
+ * CodeRabbit pe #384): un `code: 'x'` din INTERIORUL unui mesaj de eroare nu
+ * contează, iar un cod cu cifre (`customer_lookup_v2_failed`) nu e ratat.
+ */
 function serverCodes(src: string): string[] {
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
-  return [...new Set([...code.matchAll(/\bcode:\s*'([a-z_]+)'/g)].map((m) => m[1]))].sort()
+  const found = new Set<string>()
+  const call = /\bjsonResponse\(\s*(\d{3})\s*,\s*\{/g
+  for (const m of code.matchAll(call)) {
+    const status = Number(m[1])
+    if (status >= 200 && status < 300) continue
+    // Parcurge corpul `{ … }` cu adâncime și șiruri; reține doar `code:` de
+    // la adâncimea 1 urmat de un literal.
+    let i = (m.index ?? 0) + m[0].length
+    let depth = 1
+    let atKey = ''
+    while (i < code.length && depth > 0) {
+      const ch = code[i]
+      if (ch === "'" || ch === '"' || ch === '`') {
+        let j = i + 1
+        while (j < code.length && code[j] !== ch) j += code[j] === '\\' ? 2 : 1
+        const literal = code.slice(i + 1, j)
+        if (depth === 1 && /(^|[\s,{])code\s*:\s*$/.test(atKey) && /^[a-z][a-z0-9_]*$/.test(literal)) {
+          found.add(literal)
+        }
+        atKey = ''
+        i = j + 1
+        continue
+      }
+      if (ch === '{' || ch === '[' || ch === '(') depth += 1
+      else if (ch === '}' || ch === ']' || ch === ')') depth -= 1
+      if (depth === 1) atKey = ch === ',' ? ',' : atKey + ch
+      i += 1
+    }
+  }
+  return [...found].sort()
 }
 
 type SubErrKey = 'sub_errUnavailable' | 'sub_errRateLimited' | 'sub_errSession' | 'sub_errService'
@@ -223,8 +258,20 @@ describe('SubscriptionCard — harta codurilor portalului (lotul L8d)', () => {
       "return jsonResponse(429, { error: 'Prea multe', code: 'rate_limited' })",
       "return jsonResponse(404, {\n  error: 'Nu',\n  code: 'no_customer',\n})",
       "const u = 'https://x.test' // code: 'dupa_url'",
+      // Un cod cu cifre se vede; un „code: …” din interiorul mesajului NU;
+      // un răspuns 2xx nu e eroare; un `code` imbricat nu e al corpului.
+      "return jsonResponse(503, { error: 'x', code: 'customer_lookup_v2_failed' })",
+      "return jsonResponse(500, { error: \"Folosiți code: 'legacy_customer'\", code: 'real_code' })",
+      "return jsonResponse(200, { url, code: 'ok_code' })",
+      "return jsonResponse(400, { error: 'y', detail: { code: 'nested_code' }, code: 'outer_code' })",
     ].join('\n')
-    expect(serverCodes(sample)).toEqual(['no_customer', 'rate_limited'])
+    expect(serverCodes(sample)).toEqual([
+      'customer_lookup_v2_failed',
+      'no_customer',
+      'outer_code',
+      'rate_limited',
+      'real_code',
+    ])
 
     const server = serverCodes(read('netlify/functions/stripe-portal.js'))
     // Anti-vacuitate: extractorul chiar vede funcția reală.
