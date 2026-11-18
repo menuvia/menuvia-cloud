@@ -32,13 +32,28 @@
 //   SCK1 FIECARE ramură non-2xx JSON → statusul și `code`-ul ei, iar `error`
 //        rămâne textul de DINAINTE, exact (un client vechi îl afișează ca
 //        atare); corpul are DOAR cheile `error` + `code`. Tabelul are câte un
-//        rând pe ramură (15 — registrul FEC2 din fn-error-code-ratchet.test.js).
+//        rând pe ramură (16 — registrul FEC2 din fn-error-code-ratchet.test.js);
+//        rândul Planului 3 cere textul legacy COMPLET (instalarea pe casă +
+//        adresa), nu un fragment. Ramurile NOI ale lotului (`checkout_create_failed`,
+//        `checkout_in_progress`) n-au „text de dinainte”: textul lor e cel nou.
 //        [PICĂ: un cod scos sau redenumit; un text schimbat]
 //   SCK2 Stripe aruncă la crearea SESIUNII → 502 `checkout_create_failed`, cu
-//        text românesc (înainte: excepție neprinsă, fără corp de contract).
-//        [PICĂ: try/catch-ul scos — handler-ul aruncă]
+//        text românesc care numește adresa de contact (înainte: excepție
+//        neprinsă, fără corp de contract; rezerva clientului spunea „scrie-ne
+//        pe email”). [PICĂ: try/catch-ul scos — handler-ul aruncă; adresa scoasă]
 //   SCK3 Stripe aruncă la crearea CLIENTULUI → același 502, fără nicio sesiune.
 //        [PICĂ: try/catch-ul de pe customers.create scos]
+//   SCK4 Stripe respinge cheia de idempotență (aceeași cheie, ALT corp — un tab
+//        vechi fără `ui_lang` și unul nou, sau limba schimbată în fereastră)
+//        → 409 `checkout_in_progress`, text românesc, FĂRĂ mesajul englezesc
+//        al Stripe; recunoscută după `type` (clasa SDK-ului) SAU `rawType`
+//        (tipul brut) — pe alt status decât 400/404 SDK-ul dă `StripeAPIError`
+//        și tipul rămâne DOAR în `rawType`. Control: orice altă eroare Stripe
+//        rămâne 502, inclusiv 409 `idempotency_key_in_use` (cerere CONCURENTĂ
+//        cu aceeași cheie și același corp = dublu-click, tranzitoriu).
+//        [PICĂ: un catch care înghite idempotency_error ca 502; mesajul
+//        Stripe trimis clientului; `rawType` scos din `isIdempotencyConflict`;
+//        verificarea lărgită după `statusCode === 409` sau după `code`]
 //   SLC1 `ui_lang` valid → `locale` în parametrii sesiunii, normalizat
 //        (' FR ' → 'fr'). CONTROL POZITIV pentru SLC2/SLC3: fără el, „nu pune
 //        locale” ar trece și pe o funcție care nu-l pune niciodată.
@@ -47,10 +62,13 @@
 //        Stripe rămâne pe „auto”, exact ca înainte.
 //   SLC3 `ui_lang` invalid ('xx', 'en-US', 42, '<b>ro</b>', null, {}) → fără
 //        `locale`. [PICĂ: `body.ui_lang` trimis brut lui Stripe]
-//   SLC4 cheia de idempotență: prefix `checkout_v6_`, segmentul de limbă
-//        (`_en_` / `_auto_`) înaintea ferestrei de timp; aceeași limbă →
-//        aceeași cheie, altă limbă → altă cheie.
-//        [PICĂ: limba scoasă din cheie — două corpuri diferite pe o cheie]
+//   SLC4 cheia de idempotență NU poartă limba (`checkout_v7_`): cu ceasul
+//        ÎNGHEȚAT în aceeași fereastră de 30 de minute și `STRIPE_TRIAL_DAYS=30`
+//        explicit, ro / en / „auto” (fără `ui_lang`) dau aceeași cheie COMPLETĂ,
+//        iar corpurile chiar diferă (`locale`) — deci Stripe vede un conflict
+//        (SCK4), nu deschide a doua sesiune completabilă = al doilea abonament.
+//        Control pozitiv: alt plan → altă cheie (cheia nu e o constantă).
+//        [PICĂ: limba reintrodusă în cheie — două sesiuni pentru același plan]
 
 'use strict'
 
@@ -355,13 +373,28 @@ async function quiet(fn) {
 
 const AUTH = { authorization: 'Bearer tok' }
 
+// Textele ramurilor noi ale lotului L8d (fără „text de dinainte”).
+const CREATE_FAILED_RO =
+  'Nu am putut porni plata. Reîncearcă în câteva momente, iar dacă se repetă scrie-ne la contact@menuvia.ro.'
+const IN_PROGRESS_RO =
+  'Ai deja o plată începută în alt tab sau în altă limbă. Finalizeaz-o acolo sau reîncearcă peste 30 de minute.'
+
+// Eroarea pe care SDK-ul REAL o aruncă pentru `error.type === 'idempotency_error'`
+// (forma ținută de SDK8b în tests/stripe-contract/handlers.test.js).
+const STRIPE_IDEMPOTENCY_MSG =
+  "Keys for idempotent requests can only be used with the same parameters they were first used with. Try using a key other than 'k' if you meant to execute a different request."
+function idempotencyError(fields = { type: 'StripeIdempotencyError', rawType: 'idempotency_error' }) {
+  return Object.assign(new Error(STRIPE_IDEMPOTENCY_MSG), { statusCode: 400 }, fields)
+}
+
 // [nume, pregătire, corp, antete, status, cod, text EXACT (sau regex)]
 const BRANCHES = [
   ['env lipsă', () => {}, { plan: 'growth' }, AUTH, 500, 'server_config', 'Stripe not configured'],
   ['corp non-JSON', setEnv, '{nu e json', AUTH, 400, 'bad_json', 'Invalid JSON body'],
   ['plan fără price ID', setEnv, { plan: 'inexistent' }, AUTH, 400, 'plan_unavailable',
     'Plan "inexistent" indisponibil sau neconfigurat în Stripe'],
-  ['Planul 3', setEnv, { plan: 'pro' }, AUTH, 403, 'plan_requires_quote', /ofertă.*contact@menuvia\.ro/],
+  ['Planul 3', setEnv, { plan: 'pro' }, AUTH, 403, 'plan_requires_quote',
+    'Planul Fiscalizare se activează pe bază de ofertă, împreună cu instalarea pe casa ta de marcat. Scrie-ne la contact@menuvia.ro.'],
   ['host .com', setEnv, { plan: 'growth' }, { ...AUTH, host: 'menuvia.com' }, 403,
     'site_checkout_unavailable', 'Checkout is not available on this site yet.'],
   ['fără antet', setEnv, { plan: 'growth' }, {}, 401, 'auth_missing', 'Missing Authorization header'],
@@ -387,7 +420,7 @@ const BRANCHES = [
     scriptedHappyPath()
     state.fromHandlers['profiles'] = () => ({ data: { stripe_customer_id: null, email: 'a@x.test' }, error: null })
     state.stripeImpls['customers.create'] = async () => { throw new Error('stripe down') }
-  }, { plan: 'growth' }, AUTH, 502, 'checkout_create_failed', 'Nu am putut porni plata. Reîncearcă în câteva momente.'],
+  }, { plan: 'growth' }, AUTH, 502, 'checkout_create_failed', CREATE_FAILED_RO],
   ['istoric necitibil', () => {
     scriptedHappyPath({ 'subscriptions.list': async () => { throw new Error('stripe down') } })
   }, { plan: 'growth' }, AUTH, 503, 'subscription_lookup_failed',
@@ -398,12 +431,15 @@ const BRANCHES = [
     'Ai deja un abonament. Schimbă planul din Portalul de facturare.'],
   ['Stripe: sesiune respinsă', () => {
     scriptedHappyPath({ 'checkout.sessions.create': async () => { throw Object.assign(new Error('No such price'), { type: 'StripeInvalidRequestError' }) } })
-  }, { plan: 'growth' }, AUTH, 502, 'checkout_create_failed', 'Nu am putut porni plata. Reîncearcă în câteva momente.'],
+  }, { plan: 'growth' }, AUTH, 502, 'checkout_create_failed', CREATE_FAILED_RO],
+  ['Stripe: plată deja pornită (cheie cu alt corp)', () => {
+    scriptedHappyPath({ 'checkout.sessions.create': async () => { throw idempotencyError() } })
+  }, { plan: 'growth' }, AUTH, 409, 'checkout_in_progress', IN_PROGRESS_RO],
 ]
 
 describe('stripe-checkout — un cod stabil pe fiecare ramură (lotul L8d)', () => {
   it('SCK1: fiecare ramură non-2xx → status + code, cu textul de dinainte', async () => {
-    assert.equal(BRANCHES.length, 15, 'un rând pe ramură (registrul FEC2)')
+    assert.equal(BRANCHES.length, 16, 'un rând pe ramură (registrul FEC2)')
     const codes = new Set()
     for (const [name, prep, body, headers, status, code, text] of BRANCHES) {
       resetMocks()
@@ -420,7 +456,7 @@ describe('stripe-checkout — un cod stabil pe fiecare ramură (lotul L8d)', () 
     }
     // Două ramuri împart deliberat un cod (limiterul: eroare / excepție;
     // Stripe: client / sesiune) — restul sunt distincte.
-    assert.equal(codes.size, 13)
+    assert.equal(codes.size, 14)
   })
 
   it('SCK2: Stripe respinge sesiunea → 502 checkout_create_failed, nu excepție', async () => {
@@ -429,6 +465,8 @@ describe('stripe-checkout — un cod stabil pe fiecare ramură (lotul L8d)', () 
     assert.equal(res.statusCode, 502)
     assert.equal(parseBody(res).code, 'checkout_create_failed')
     assert.match(parseBody(res).error, /[ăâîșț]/, 'mesajul e românesc')
+    // Ruta de suport dacă se repetă: aceeași adresă ca refuzul Planului 3.
+    assert.match(parseBody(res).error, /dacă se repetă scrie-ne la contact@menuvia\.ro\.$/)
   })
 
   it('SCK3: Stripe respinge clientul nou → același 502, fără nicio sesiune', async () => {
@@ -439,6 +477,53 @@ describe('stripe-checkout — un cod stabil pe fiecare ramură (lotul L8d)', () 
     assert.equal(res.statusCode, 502)
     assert.equal(parseBody(res).code, 'checkout_create_failed')
     assert.equal(state.stripeCalls.filter((c) => c.name === 'checkout.sessions.create').length, 0)
+  })
+})
+
+describe('stripe-checkout — plata deja pornită (cheia de idempotență, lotul L8d)', () => {
+  it('SCK4: idempotency_error → 409 checkout_in_progress, fără mesajul englezesc al Stripe', async () => {
+    // Ambele câmpuri, apoi fiecare SINGUR: clasa SDK-ului (`type`) și tipul
+    // brut al API-ului (`rawType`) sunt, fiecare, suficiente.
+    for (const fields of [
+      { type: 'StripeIdempotencyError', rawType: 'idempotency_error' },
+      { type: 'StripeIdempotencyError' },
+      { rawType: 'idempotency_error' },
+      // Forma SDK-ului REAL pe un status ≠ 400/404 (SDK8b): clasa e generică,
+      // tipul brut e singurul semnal.
+      { type: 'StripeAPIError', rawType: 'idempotency_error', statusCode: 409 },
+    ]) {
+      resetMocks()
+      clearEnv()
+      scriptedHappyPath({ 'checkout.sessions.create': async () => { throw idempotencyError(fields) } })
+      const res = await quiet(() => post({ plan: 'growth', ui_lang: 'ro' }))
+      const where = JSON.stringify(fields)
+      assert.equal(res.statusCode, 409, where)
+      const b = parseBody(res)
+      assert.deepEqual(b, { error: IN_PROGRESS_RO, code: 'checkout_in_progress' }, where)
+      assert.ok(!res.body.includes('idempotent'), `${where}: mesajul Stripe a ajuns la client`)
+    }
+  })
+
+  it('SCK4 (control): orice altă eroare Stripe la sesiune rămâne 502 checkout_create_failed', async () => {
+    for (const fields of [
+      { type: 'StripeInvalidRequestError', rawType: 'invalid_request_error' },
+      { type: 'StripeAPIError', rawType: 'api_error' },
+      { type: 'StripeConnectionError' },
+      // Cerere CONCURENTĂ cu aceeași cheie și același corp (dublu-click), forma
+      // SDK-ului REAL pe 409 (SDK8b): tranzitoriu, nu „peste 30 de minute”.
+      { type: 'StripeAPIError', rawType: 'invalid_request_error', code: 'idempotency_key_in_use', statusCode: 409 },
+      {},
+    ]) {
+      resetMocks()
+      clearEnv()
+      scriptedHappyPath({
+        'checkout.sessions.create': async () => { throw Object.assign(new Error('boom'), fields) },
+      })
+      const res = await quiet(() => post({ plan: 'growth' }))
+      const where = JSON.stringify(fields)
+      assert.equal(res.statusCode, 502, where)
+      assert.deepEqual(parseBody(res), { error: CREATE_FAILED_RO, code: 'checkout_create_failed' }, where)
+    }
   })
 })
 
@@ -473,16 +558,45 @@ describe('stripe-checkout — limba paginii Stripe (lotul L8d)', () => {
     }
   })
 
-  it('SLC4: cheia de idempotență poartă limba (v6)', async () => {
-    const strip = (k) => k.replace(/_\d+$/, '') // fereastra de 30 min
-    const en = await sessionFor({ ui_lang: 'en' })
-    const en2 = await sessionFor({ ui_lang: 'en' })
-    const ro = await sessionFor({ ui_lang: 'ro' })
-    const auto = await sessionFor({})
-    assert.match(en.key, /^checkout_v6_[0-9a-f]{10}_u1_growth_none_30_en_\d+$/)
-    assert.match(auto.key, /_auto_\d+$/)
-    assert.equal(strip(en2.key), strip(en.key), 'aceeași cerere → aceeași cheie (dedup)')
-    assert.notEqual(strip(ro.key), strip(en.key), 'altă limbă = alt corp → altă cheie')
-    assert.notEqual(strip(auto.key), strip(en.key))
+  it('SLC4: cheia de idempotență NU poartă limba (v7) — o singură plată pe fereastră', async () => {
+    // Ceasul ÎNGHEȚAT (nu tăiem sufixul ferestrei: comparăm cheile COMPLETE) și
+    // trialul EXPLICIT (segmentul `_30_` nu mai depinde de implicitul din cod).
+    const FROZEN = Date.UTC(2026, 10, 18, 10, 7, 0)
+    const WINDOW = String(Math.floor(FROZEN / (30 * 60 * 1000)))
+    const savedNow = Date.now
+    const savedTrial = Object.prototype.hasOwnProperty.call(process.env, 'STRIPE_TRIAL_DAYS')
+      ? process.env.STRIPE_TRIAL_DAYS
+      : undefined
+    Date.now = () => FROZEN
+    process.env.STRIPE_TRIAL_DAYS = '30'
+    try {
+      const ro = await sessionFor({ ui_lang: 'ro' })
+      const auto = await sessionFor({})
+      const en = await sessionFor({ ui_lang: 'en' })
+      const en2 = await sessionFor({ ui_lang: 'en' })
+      assert.match(ro.key, new RegExp(`^checkout_v7_[0-9a-f]{10}_u1_growth_none_30_${WINDOW}$`))
+      assert.equal(auto.key, ro.key, 'ro și „auto” (tab vechi, fără ui_lang) → aceeași cheie')
+      assert.equal(en.key, ro.key, 'altă limbă → aceeași cheie (Stripe respinge corpul diferit)')
+      assert.equal(en2.key, en.key, 'aceeași cerere → aceeași cheie (dedup)')
+      // Corpurile chiar diferă — altfel egalitatea cheilor n-ar dovedi nimic.
+      assert.equal(ro.params.locale, 'ro')
+      assert.equal(Object.prototype.hasOwnProperty.call(auto.params, 'locale'), false)
+      assert.equal(en.params.locale, 'en')
+      for (const lang of ['ro', 'en', 'fr', 'de', 'auto']) {
+        assert.ok(!ro.key.includes(`_${lang}_`), `segment de limbă „${lang}” în cheie`)
+      }
+      // Control pozitiv: cheia nu e o constantă — alt plan dă altă cheie.
+      resetMocks()
+      clearEnv()
+      scriptedHappyPath()
+      await post({ plan: 'starter', ui_lang: 'ro' })
+      const starter = state.stripeCalls.filter((c) => c.name === 'checkout.sessions.create')[0]
+      assert.notEqual(starter.args[1].idempotencyKey, ro.key)
+      assert.match(starter.args[1].idempotencyKey, /_u1_starter_none_30_/)
+    } finally {
+      Date.now = savedNow
+      if (savedTrial === undefined) delete process.env.STRIPE_TRIAL_DAYS
+      else process.env.STRIPE_TRIAL_DAYS = savedTrial
+    }
   })
 })

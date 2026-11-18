@@ -15,6 +15,12 @@
 // contractul și se verifică ÎNTÂI. Potrivirea pe începutul textului RĂMÂNE ca
 // rezervă: clientul se poate deploya înaintea migrației (o bază fără 330 nu
 // trimite hint), iar mesajul e ACELAȘI pe ambele.
+//
+// Ordinea e pe EROARE, nu pe predicat (recenzie CodeRabbit pe #384): ambele
+// hint-uri se rezolvă ÎNAINTEA oricărui prefix, deci un hint recunoscut bate un
+// text care ar indica celălalt refuz (hint `mfa_aal2_required` + mesaj care
+// începe cu „Aveți un abonament activ” = refuzul MFA, NU abonamentul). Prefixul
+// decide DOAR când niciun hint nu e recunoscut (bază fără 330).
 // =============================================================
 
 const ACTIVE_SUBSCRIPTION_HINT = 'active_subscription'
@@ -35,12 +41,26 @@ function messageOf(err: unknown): string {
   return typeof m === 'string' ? m : ''
 }
 
+type AccountRefusal = 'active_subscription' | 'mfa_aal2' | null
+
+/** Care dintre cele două refuzuri e eroarea: întâi hint-ul, apoi (doar fără
+ *  hint recunoscut) începutul textului. */
+function classify(err: unknown): AccountRefusal {
+  const hint = hintOf(err)
+  if (hint === ACTIVE_SUBSCRIPTION_HINT) return 'active_subscription'
+  if (hint === MFA_AAL2_HINT) return 'mfa_aal2'
+  const msg = messageOf(err).trim()
+  if (msg.startsWith(ACTIVE_SUBSCRIPTION_PREFIX)) return 'active_subscription'
+  if (msg.startsWith(MFA_AAL2_PREFIX)) return 'mfa_aal2'
+  return null
+}
+
 /** Ștergerea contului refuzată fiindcă abonamentul e încă activ (mig 042 → 330). */
 export function isActiveSubscriptionRefusal(err: unknown): boolean {
-  return hintOf(err) === ACTIVE_SUBSCRIPTION_HINT || messageOf(err).trim().startsWith(ACTIVE_SUBSCRIPTION_PREFIX)
+  return classify(err) === 'active_subscription'
 }
 
 /** Schimbarea MFA refuzată fiindcă sesiunea nu e aal2 (mig 235 → 330). */
 export function isMfaAal2Refusal(err: unknown): boolean {
-  return hintOf(err) === MFA_AAL2_HINT || messageOf(err).trim().startsWith(MFA_AAL2_PREFIX)
+  return classify(err) === 'mfa_aal2'
 }

@@ -18,8 +18,11 @@
 --        [PICĂ: hint-ul scos] (Ordinea refuz → scriere o ține EH6, TEXTUAL:
 --        un `raise` după UPDATE ar anula oricum instrucțiunea, deci
 --        comportamental ordinea nu se vede.)
---   EH3  CONTROL POZITIV: fără abonament → { success: true } și marcajul
---        scris — fără el, EH2 ar trece și pe o funcție care refuză orice.
+--   EH3  CONTROL POZITIV: fără abonament → răspunsul jsonb CAPTURAT sub
+--        `authenticated` are `success` = boolean JSON `true` (nu șirul "true",
+--        nu lipsă) și marcajul e scris — fără el, EH2 ar trece și pe o funcție
+--        care refuză orice. [PICĂ: `'success', false` / `'success', 'true'`
+--        (șir) / cheia scoasă din răspuns]
 --   EH4  set_my_mfa_enforced(false) din aal1 → P0001, mesajul EXACT, hint
 --        `mfa_aal2_required`, flag-ul rămâne TRUE; din aal2 → acceptat;
 --        activarea (true) e liberă și din aal1 (clichetul 235, MF3).
@@ -81,6 +84,26 @@ begin
 end;
 $$;
 
+-- Rezultatul jsonb al unui apel REUȘIT sub rolul REAL `authenticated`. O
+-- excepție se propagă (testul pică zgomotos); rolul și claim-urile sunt
+-- `set_config(..., true)` — locale tranzacției, ca în `eh_refusal`.
+create function pg_temp.eh_result(p_sql text, p_uid text)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_res jsonb;
+begin
+  perform set_config('request.jwt.claim.sub', coalesce(p_uid, ''), true);
+  perform set_config('request.jwt.claims', '', true);
+  perform set_config('role', 'authenticated', true);
+  execute p_sql into v_res;
+  perform set_config('role', 'none', true);
+  perform set_config('request.jwt.claim.sub', '', true);
+  return v_res;
+end;
+$$;
+
 -- ── EH1 ──────────────────────────────────────────────────────────────────────
 do $$
 declare v text[];
@@ -94,7 +117,9 @@ end $$;
 
 -- ── EH2 / EH3 ────────────────────────────────────────────────────────────────
 do $$
-declare v text[];
+declare
+  v     text[];
+  v_res jsonb;
 begin
   v := pg_temp.eh_refusal('select public.request_account_deletion()', '33000000-0000-4000-8000-00000000a001', null);
   if v is distinct from array['P0001',
@@ -108,16 +133,19 @@ begin
   end if;
   raise notice 'EH2 PASS: abonament activ → P0001 + active_subscription, fără scriere';
 
-  -- Control pozitiv: fără abonament, cererea trece și marchează contul.
-  v := pg_temp.eh_refusal('select public.request_account_deletion()', '33000000-0000-4000-8000-00000000a002', null);
-  if v is not null then
-    raise exception 'EH3 FAIL: cererea fără abonament a fost refuzată: %', v;
+  -- Control pozitiv: fără abonament, cererea trece, RĂSPUNSUL spune succes și
+  -- contul e marcat. Rezultatul se capturează (nu doar „n-a aruncat”): un corp
+  -- care întoarce `success: false` fără să arunce trecea varianta veche.
+  v_res := pg_temp.eh_result('select public.request_account_deletion()', '33000000-0000-4000-8000-00000000a002');
+  if jsonb_typeof(v_res -> 'success') is distinct from 'boolean'
+     or (v_res -> 'success') is distinct from 'true'::jsonb then
+    raise exception 'EH3 FAIL: răspunsul nu are success = true (boolean JSON): %', v_res;
   end if;
   if (select deletion_requested_at from public.profiles
        where id = '33000000-0000-4000-8000-00000000a002') is null then
     raise exception 'EH3 FAIL: cererea a trecut, dar marcajul lipsește';
   end if;
-  raise notice 'EH3 PASS: control — fără abonament, marcajul e scris';
+  raise notice 'EH3 PASS: control — fără abonament, success = true și marcajul e scris';
 end $$;
 
 -- ── EH4 ──────────────────────────────────────────────────────────────────────

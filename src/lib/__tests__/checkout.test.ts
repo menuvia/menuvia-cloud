@@ -24,7 +24,20 @@
 //        și acțiunea rămân aceleași. Control: textul diferă de cel românesc.
 //        [PICĂ: `msg` păstrat și în altă limbă (ecran amestecat)]
 //   CH13 502 `checkout_create_failed` (nou în L8d) → `retry`, cheia ei, iar în
-//        română textul serverului.
+//        română textul serverului; în TOATE cele patru limbi textul cheii
+//        numește adresa de contact (`CONTACT_EMAIL`, fără `{email}` rămas) —
+//        rezerva veche spunea doar „scrie-ne pe email”.
+//        [PICĂ: adresa scoasă dintr-o limbă; `{email}` neinterpolat]
+//   CH15 409 `checkout_in_progress` (cheia de idempotență nu mai poartă limba,
+//        deci un al doilea tab / altă limbă primește refuzul Stripe) → `retry`,
+//        cheia ei, în română textul serverului, în en/fr/de textul cheii.
+//        Control: fără ramură, același corp ar cădea pe `unknown`.
+//        [PICĂ: ramura scoasă — codul devine `unknown`]
+//   CH16 româna rezervelor == textul pe care îl scrie SERVERUL, citit din
+//        netlify/functions/stripe-checkout.js (`CHECKOUT_CREATE_FAILED_MSG` cu
+//        `MAIL_DOMAIN` = domeniul lui `CONTACT_EMAIL`, `CHECKOUT_IN_PROGRESS_MSG`)
+//        — „ro = textul serverului” nu mai depinde de copierea de mână.
+//        [PICĂ: un text schimbat doar într-o parte]
 //   CH14 cablajul limbii paginii Stripe: App.tsx trimite `ui_lang` în corpul
 //        lui stripe-checkout, billing.ts în cel al portalului, AiSettingsTab în
 //        cumpărarea de credite. [PICĂ: oricare `ui_lang` scos]
@@ -40,6 +53,7 @@ import {
   type CheckoutTranslator,
 } from '../checkout'
 import { makeTranslator } from '../../i18n/core'
+import { CONTACT_EMAIL } from '../domain'
 import homeRo from '../../i18n/ns/home/ro'
 import homeEn from '../../i18n/ns/home/en'
 import homeFr from '../../i18n/ns/home/fr'
@@ -217,6 +231,12 @@ const LEGACY: Array<[number, unknown, string, string, string]> = [
   [200, {}, 'unknown', 'retry', 'Nu am putut porni plata. Reîncearcă, iar dacă se repetă scrie-ne pe email.'],
 ]
 
+// Textele ramurilor NOI ale lotului (fără „ieșire de dinainte”), exact cum le
+// scrie serverul (CH16 le leagă de stripe-checkout.js).
+const CREATE_FAILED_RO = `Nu am putut porni plata. Reîncearcă în câteva momente, iar dacă se repetă scrie-ne la ${CONTACT_EMAIL}.`
+const IN_PROGRESS_RO =
+  'Ai deja o plată începută în alt tab sau în altă limbă. Finalizeaz-o acolo sau reîncearcă peste 30 de minute.'
+
 const KEYS = Object.keys(CHECKOUT_MESSAGES_RO) as CheckoutMessageKey[]
 const roTr: CheckoutTranslator = makeTranslator(homeRo, 'ro')
 const OTHER: Array<[string, CheckoutTranslator]> = [
@@ -248,7 +268,9 @@ describe('describeCheckoutFailure() — limba (lotul L8d)', () => {
     const all: Array<[number, unknown]> = [
       ...LEGACY.map(([st, b]): [number, unknown] => [st, b]),
       ...RESPONSES.map((r): [number, unknown] => [r.status, r.body]),
-      [502, { error: 'Nu am putut porni plata. Reîncearcă în câteva momente.', code: 'checkout_create_failed' }],
+      [502, { error: CREATE_FAILED_RO, code: 'checkout_create_failed' }],
+      [409, { error: IN_PROGRESS_RO, code: 'checkout_in_progress' }],
+      [409, { code: 'checkout_in_progress' }],
     ]
     for (const [status, body] of all) {
       expect(describeCheckoutFailure(status, body, roTr), `${status} ${JSON.stringify(body)}`).toEqual(
@@ -266,7 +288,7 @@ describe('describeCheckoutFailure() — limba (lotul L8d)', () => {
         expect(f.code, where).toBe(ro.code)
         expect(f.action, where).toBe(ro.action)
         expect(f.key, where).toBe(ro.key)
-        expect(f.message, where).toBe(tr.t(f.key as CheckoutMessageKey))
+        expect(f.message, where).toBe(tr.t(f.key as CheckoutMessageKey, { email: CONTACT_EMAIL }))
         // Control: textul chiar e altul decât cel românesc.
         expect(f.message, where).not.toBe(ro.message)
         expect(f.message, where).not.toMatch(/[ăâîșț]/i)
@@ -275,16 +297,64 @@ describe('describeCheckoutFailure() — limba (lotul L8d)', () => {
     }
   })
 
-  it('CH13: 502 checkout_create_failed → reîncercare, cheia ei, româna serverului', () => {
-    const body = { error: 'Nu am putut porni plata. Reîncearcă în câteva momente.', code: 'checkout_create_failed' }
+  it('CH13: 502 checkout_create_failed → reîncercare, cheia ei, româna serverului, adresa de suport', () => {
+    const body = { error: CREATE_FAILED_RO, code: 'checkout_create_failed' }
     const f = describeCheckoutFailure(502, body)
     expect(f).toEqual({
       code: 'checkout_create_failed',
       key: 'ck_createFailed',
       action: 'retry',
-      message: 'Nu am putut porni plata. Reîncearcă în câteva momente.',
+      message: CREATE_FAILED_RO,
     })
-    expect(describeCheckoutFailure(502, body, OTHER[0][1]).message).toBe(homeEn.ck_createFailed)
+    // Fără textul serverului (un corp doar cu `code`): rezerva, cu adresa.
+    expect(describeCheckoutFailure(502, { code: 'checkout_create_failed' }).message).toBe(CREATE_FAILED_RO)
+    expect(describeCheckoutFailure(502, body, OTHER[0][1]).message).toBe(
+      homeEn.ck_createFailed.replace('{email}', CONTACT_EMAIL),
+    )
+    // În TOATE limbile textul numește adresa, iar locul ei e interpolat.
+    for (const [lang, tr] of [['ro', roTr] as [string, CheckoutTranslator], ...OTHER]) {
+      const m = describeCheckoutFailure(502, { code: 'checkout_create_failed' }, tr).message
+      expect(m, lang).toContain(CONTACT_EMAIL)
+      expect(m, lang).not.toContain('{email}')
+      // Acțiunea rămâne reîncercarea: nicio acțiune de contact atașată.
+      expect(describeCheckoutFailure(502, { code: 'checkout_create_failed' }, tr).action, lang).toBe('retry')
+    }
+  })
+
+  it('CH15: 409 checkout_in_progress → reîncercare, cheia ei; româna serverului, en/fr/de textul cheii', () => {
+    const body = { error: IN_PROGRESS_RO, code: 'checkout_in_progress' }
+    expect(describeCheckoutFailure(409, body)).toEqual({
+      code: 'checkout_in_progress',
+      key: 'ck_checkoutInProgress',
+      action: 'retry',
+      message: IN_PROGRESS_RO,
+    })
+    expect(describeCheckoutFailure(409, { code: 'checkout_in_progress' }).message).toBe(IN_PROGRESS_RO)
+    for (const [lang, tr] of OTHER) {
+      const f = describeCheckoutFailure(409, body, tr)
+      expect(f.code, lang).toBe('checkout_in_progress')
+      expect(f.action, lang).toBe('retry')
+      expect(f.message, lang).toBe(tr.t('ck_checkoutInProgress'))
+      expect(f.message, lang).not.toBe(IN_PROGRESS_RO)
+      expect(f.message, lang).not.toMatch(/[ăâîșț]/i)
+    }
+    // Control: un 409 cu ALT cod nu e luat drept plată în curs.
+    expect(describeCheckoutFailure(409, { code: 'altceva' }).code).toBe('unknown')
+  })
+
+  it('CH16: româna rezervelor == textul scris de server (stripe-checkout.js)', () => {
+    const src = readFileSync(resolve(process.cwd(), 'netlify/functions/stripe-checkout.js'), 'utf8')
+    const createTpl = /const CHECKOUT_CREATE_FAILED_MSG =\s*`([^`]+)`/.exec(src)?.[1]
+    const inProgress = /const CHECKOUT_IN_PROGRESS_MSG =\s*'([^']+)'/.exec(src)?.[1]
+    // Anti-vacuitate: extractorul chiar a găsit ambele constante.
+    expect(createTpl).toContain('${MAIL_DOMAIN}')
+    expect(inProgress).toBeTruthy()
+    const mailDomain = CONTACT_EMAIL.split('@')[1]
+    expect(createTpl?.replace('${MAIL_DOMAIN}', mailDomain)).toBe(CREATE_FAILED_RO)
+    expect(inProgress).toBe(IN_PROGRESS_RO)
+    // …și sunt EXACT rezervele (CH10 leagă rezervele de ns/home/ro.ts).
+    expect(CHECKOUT_MESSAGES_RO.ck_createFailed.replace('{email}', CONTACT_EMAIL)).toBe(CREATE_FAILED_RO)
+    expect(CHECKOUT_MESSAGES_RO.ck_checkoutInProgress).toBe(IN_PROGRESS_RO)
   })
 
   it('CH14: limba paginii Stripe pleacă din client', () => {

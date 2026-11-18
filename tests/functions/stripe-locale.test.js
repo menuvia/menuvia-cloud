@@ -19,6 +19,13 @@
 //   SLX4  cele trei funcții citesc limba DOAR prin helper (o a doua validare
 //         scrisă de mână ar putea diverge de listă).
 //         [PICĂ: `locale: body.ui_lang` direct într-o funcție]
+//   SLX5  ai-credits-checkout: numele produsului din pagina Stripe — pe `ro` și
+//         fără `ui_lang` (inclusiv invalid) EXACT eticheta de dinainte, pentru
+//         fiecare pachet („Menuvia · 100.000 tokens AI”); în en/fr/de numărul
+//         e formatat în limba Checkout-ului (en „100,000”, unde „100.000” ar
+//         însemna o sută). Prețul și metadatele sunt IDENTICE în toate limbile.
+//         [PICĂ: formatarea scoasă (en rămâne „100.000”); formatarea aplicată și
+//         fără `ui_lang` / pe ro (eticheta nu mai e byte-identică)]
 //
 // Rulează în jobul „Bridge tests" (vitest nu vede tests/functions).
 'use strict'
@@ -80,7 +87,7 @@ describe('SLX3: ai-credits-checkout în limba panoului', () => {
     }
   })
 
-  async function sessionFor(extra) {
+  async function sessionFor(extra, pack = 'small') {
     resetMocks()
     Object.assign(process.env, {
       SUPABASE_URL: 'https://sb.example',
@@ -95,7 +102,7 @@ describe('SLX3: ai-credits-checkout în limba panoului', () => {
     const res = await handler({
       httpMethod: 'POST',
       headers: { authorization: 'Bearer jwt' },
-      body: JSON.stringify({ restaurant_id: 'r1', pack: 'small', ...extra }),
+      body: JSON.stringify({ restaurant_id: 'r1', pack, ...extra }),
     })
     assert.equal(res.statusCode, 200, res.body)
     assert.equal(parseBody(res).url, 'https://checkout.stripe.com/c/pay/cs_ai')
@@ -111,6 +118,38 @@ describe('SLX3: ai-credits-checkout în limba panoului', () => {
       assert.equal(Object.prototype.hasOwnProperty.call(params, 'locale'), false, JSON.stringify(extra))
       assert.equal(params.mode, 'payment')
     }
+  })
+
+  it('SLX5: numele produsului — eticheta de dinainte pe ro / fără limbă, numărul localizat altfel', async () => {
+    const LEGACY = {
+      small: 'Menuvia · 100.000 tokens AI',
+      medium: 'Menuvia · 500.000 tokens AI',
+      large: 'Menuvia · 2.000.000 tokens AI',
+    }
+    const WANT = {
+      en: { small: '100,000', medium: '500,000', large: '2,000,000' },
+      // fr: spațiu îngust NEdespărțitor (U+202F) ca separator de mii.
+      fr: { small: '100\u202f000', medium: '500\u202f000', large: '2\u202f000\u202f000' },
+      de: { small: '100.000', medium: '500.000', large: '2.000.000' },
+    }
+    const nameOf = (p) => p.line_items[0].price_data.product_data.name
+    const money = (p) => JSON.stringify({ price: { ...p.line_items[0].price_data, product_data: undefined }, metadata: p.metadata })
+    for (const pack of Object.keys(LEGACY)) {
+      const base = await sessionFor({}, pack)
+      assert.equal(nameOf(base), LEGACY[pack], `${pack} fără ui_lang`)
+      for (const extra of [{ ui_lang: 'ro' }, { ui_lang: ' RO ' }, { ui_lang: 'en-US' }, { ui_lang: 7 }]) {
+        assert.equal(nameOf(await sessionFor(extra, pack)), LEGACY[pack], `${pack} ${JSON.stringify(extra)}`)
+      }
+      for (const lang of Object.keys(WANT)) {
+        const p = await sessionFor({ ui_lang: lang }, pack)
+        assert.equal(nameOf(p), `Menuvia · ${WANT[lang][pack]} tokens AI`, `${pack} ${lang}`)
+        // Banii nu depind de limbă: același preț, aceeași monedă, aceleași metadate.
+        assert.equal(money(p), money(base), `${pack} ${lang}: prețul sau metadatele s-au schimbat`)
+      }
+    }
+    // Control: engleza chiar diferă de eticheta românească (altfel testul ar
+    // trece și pe o funcție care ignoră limba).
+    assert.notEqual(nameOf(await sessionFor({ ui_lang: 'en' })), LEGACY.small)
   })
 })
 

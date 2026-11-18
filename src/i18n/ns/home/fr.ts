@@ -70,7 +70,10 @@ const fr: Translation<typeof ro> = {
     'La formule Fiscalizare s’active sur devis, avec l’installation sur votre caisse enregistreuse. Demandez un devis.',
   ck_subscriptionLookupFailed:
     'Nous n’avons pas pu vérifier vos abonnements existants. Réessayez dans quelques instants.',
-  ck_createFailed: 'Nous n’avons pas pu lancer le paiement. Réessayez dans quelques instants.',
+  ck_createFailed:
+    'Nous n’avons pas pu lancer le paiement. Réessayez dans quelques instants et, si le problème persiste, écrivez-nous à {email}.',
+  ck_checkoutInProgress:
+    'Vous avez déjà un paiement en cours dans un autre onglet ou dans une autre langue. Finalisez-le là-bas ou réessayez dans 30 minutes.',
   ck_network:
     'Nous n’avons pas pu joindre le serveur de paiement. Vérifiez votre connexion internet et réessayez.',
   ck_auth: 'Votre session a expiré. Reconnectez-vous et relancez l’activation.',

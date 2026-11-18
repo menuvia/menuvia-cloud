@@ -4,7 +4,8 @@
 //
 // De ce există: funcția întoarcea NOUĂ forme de răspuns non-200 (405 text
 // simplu, 400 ×2, 401 ×2, 429, 503 ×3, 409, 500 — din L8d și 502
-// `checkout_create_failed`, iar fiecare JSON poartă `code`), iar clientul trata exact
+// `checkout_create_failed` + 409 `checkout_in_progress`, iar fiecare JSON
+// poartă `code`), iar clientul trata exact
 // DOUĂ dintre ele — restul lăsau butonul mut, adică omul apăsa „Activează",
 // nu se întâmpla nimic vizibil și pleca. E cel mai scump click din produs.
 //
@@ -25,9 +26,14 @@
 // cheii ei. Modulul stă în pachetul de INTRARE (App.tsx), deci namespace-ul nu
 // se importă aici (SK4) — doar TIPUL lui, iar româna rezervelor e dublată în
 // `CHECKOUT_MESSAGES_RO` (egalitatea o ține CH10).
+//
+// Adresa de contact din texte (`{email}`) vine din `CONTACT_EMAIL`
+// (lib/domain.ts, deja în pachetul de intrare) — aceeași rută pe care o
+// numește serverul (`contact@${MAIL_DOMAIN}` în stripe-checkout.js).
 // ─────────────────────────────────────────────────────────────
 import type { Translator } from '../i18n/core'
 import type homeRo from '../i18n/ns/home/ro'
+import { CONTACT_EMAIL } from './domain'
 
 export type CheckoutAction = 'retry' | 'login' | 'billing' | 'contact' | 'quote'
 
@@ -37,7 +43,9 @@ export const CHECKOUT_MESSAGES_RO = {
   ck_planRequiresQuote:
     'Planul Fiscalizare se activează pe bază de ofertă, împreună cu instalarea pe casa ta de marcat. Cere o ofertă.',
   ck_subscriptionLookupFailed: 'Nu am putut verifica abonamentele existente. Reîncearcă în câteva momente.',
-  ck_createFailed: 'Nu am putut porni plata. Reîncearcă în câteva momente.',
+  ck_createFailed: 'Nu am putut porni plata. Reîncearcă în câteva momente, iar dacă se repetă scrie-ne la {email}.',
+  ck_checkoutInProgress:
+    'Ai deja o plată începută în alt tab sau în altă limbă. Finalizeaz-o acolo sau reîncearcă peste 30 de minute.',
   ck_network: 'Nu am putut contacta serverul de plată. Verifică internetul și reîncearcă.',
   ck_auth: 'Sesiunea a expirat. Autentifică-te din nou și reia activarea.',
   ck_rateLimited: 'Prea multe încercări. Reîncearcă în câteva minute.',
@@ -102,7 +110,9 @@ export function describeCheckoutFailure(
   // Textul românesc al serverului: doar pe un ecran în română (fără traducător
   // sau cu traducător românesc). În altă limbă ar face ecranul amestecat.
   const msg = !tr || tr.lang === 'ro' ? serverMessage(body) : null
-  const text = (key: CheckoutMessageKey): string => (tr ? tr.t(key) : CHECKOUT_MESSAGES_RO[key])
+  // `{email}` = ruta de suport; o cheie fără loc pentru el rămâne neschimbată.
+  const text = (key: CheckoutMessageKey): string =>
+    tr ? tr.t(key, { email: CONTACT_EMAIL }) : CHECKOUT_MESSAGES_RO[key].replace('{email}', CONTACT_EMAIL)
   // `server` = textul serverului pe ramurile care îl păstrează, `null` pe cele
   // care îl înlocuiesc mereu (rețea, sesiune, configurare).
   const failure = (
@@ -125,9 +135,14 @@ export function describeCheckoutFailure(
   if (serverCodeValue === 'subscription_lookup_failed')
     return failure(serverCodeValue, 'ck_subscriptionLookupFailed', 'retry', msg)
   // Stripe a respins crearea clientului sau a sesiunii (lotul L8d: înainte,
-  // excepție neprinsă, fără corp). Tranzitoriu cel mai adesea.
+  // excepție neprinsă, fără corp). Tranzitoriu cel mai adesea; textul numește
+  // adresa de suport pentru cazul în care se repetă (acțiunea rămâne `retry`).
   if (serverCodeValue === 'checkout_create_failed')
     return failure(serverCodeValue, 'ck_createFailed', 'retry', msg)
+  // 409: o plată e deja pornită în fereastra curentă (alt tab / altă limbă —
+  // cheia de idempotență nu poartă limba). Reîncercarea are sens după fereastră.
+  if (serverCodeValue === 'checkout_in_progress')
+    return failure(serverCodeValue, 'ck_checkoutInProgress', 'retry', msg)
 
   if (status === 0) return failure('network', 'ck_network', 'retry', null)
   // 401 = sesiune expirată → autentificare, nu „reîncearcă".

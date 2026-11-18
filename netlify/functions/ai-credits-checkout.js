@@ -40,6 +40,17 @@ const PACKS = {
   large:  { tokens: 2000000, amount: 24900, label: '2.000.000 tokens AI' },
 }
 
+// Numele produsului din pagina Stripe. Pe `ro` și fără `ui_lang` rămâne
+// `label`, BYTE-identic (punctul e separatorul românesc de mii). În altă limbă
+// a Checkout-ului (lotul L8d), „100.000” se citește „o sută” în engleză (punctul
+// e acolo separator ZECIMAL), deci numărul se formatează în limba paginii
+// (`Intl.NumberFormat(locale)`: en „100,000”, fr „100 000”, de „100.000”).
+// Prețul și metadatele (`tokens`, citite de webhook) NU depind de limbă.
+function packProductName(packDef, locale) {
+  if (!locale || locale === 'ro') return `Menuvia · ${packDef.label}`
+  return `Menuvia · ${new Intl.NumberFormat(locale).format(packDef.tokens)} tokens AI`
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return aiError(405, 'method_not_allowed')
@@ -171,7 +182,7 @@ exports.handler = async (event) => {
           price_data: {
             currency: 'ron',
             unit_amount: packDef.amount,
-            product_data: { name: `Menuvia · ${packDef.label}` },
+            product_data: { name: packProductName(packDef, locale) },
           },
           quantity: 1,
         },

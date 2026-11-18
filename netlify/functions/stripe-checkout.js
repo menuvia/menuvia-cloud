@@ -41,6 +41,39 @@ function originTag(origin) {
   return crypto.createHash('sha256').update(String(origin)).digest('hex').slice(0, 10)
 }
 
+// Stripe n-a putut porni plata (crearea clientului sau a sesiunii a aruncat):
+// cel mai adesea tranzitoriu, deci „reîncearcă”; dacă se repetă, omul are nevoie
+// de o adresă — aceeași rută de contact ca refuzul Planului 3 (`MAIL_DOMAIN`).
+const CHECKOUT_CREATE_FAILED_MSG =
+  `Nu am putut porni plata. Reîncearcă în câteva momente, iar dacă se repetă scrie-ne la contact@${MAIL_DOMAIN}.`
+
+// Aceeași cheie de idempotență, alt corp (vezi cheia de la `sessions.create`):
+// o sesiune e deja pornită în fereastra curentă, din alt tab sau în altă limbă.
+const CHECKOUT_IN_PROGRESS_MSG =
+  'Ai deja o plată începută în alt tab sau în altă limbă. Finalizeaz-o acolo sau reîncearcă peste 30 de minute.'
+
+/**
+ * Stripe a respins cheia de idempotență fiindcă a mai văzut-o cu ALȚI parametri.
+ * SDK-ul (`generateV1Error`, src/Error.ts) decide întâi după STATUS: doar pe
+ * HTTP 400/404 face din `error.type === 'idempotency_error'` un
+ * `StripeIdempotencyError` (`type` = numele clasei). Pe orice alt status
+ * (în afară de 401/402/403/429, care au clasele lor) eroarea e `StripeAPIError`,
+ * iar tipul brut al API-ului rămâne doar în `rawType`. De aceea le citim pe
+ * AMBELE: `rawType` nu e redundant, prinde exact statusurile ≠ 400/404.
+ *
+ * DELIBERAT în afară: 409 `idempotency_key_in_use` (cerere CONCURENTĂ cu
+ * aceeași cheie și același corp, adică un dublu-click) vine cu `type:
+ * 'invalid_request_error'`, deci aici dă `false` și rămâne 502 „reîncearcă în
+ * câteva momente” — e tranzitoriu, iar reîncercarea primește sesiunea din
+ * cache. NU lărgi verificarea după `statusCode === 409` sau după `code`: un
+ * dublu-click ar primi „reîncearcă peste 30 de minute”.
+ * Formele sunt ținute de SDK8b (tests/stripe-contract/handlers.test.js, pe
+ * SDK-ul REAL) și de SCK4 (tests/functions/stripe-checkout.test.js).
+ */
+function isIdempotencyConflict(e) {
+  return e?.type === 'StripeIdempotencyError' || e?.rawType === 'idempotency_error'
+}
+
 function jsonResponse(statusCode, body) {
   return {
     statusCode,
@@ -205,10 +238,7 @@ exports.handler = async (event) => {
       console.error('[stripe-checkout] customer create failed:', {
         type: e?.type, code: e?.code, message: e?.message,
       })
-      return jsonResponse(502, {
-        error: 'Nu am putut porni plata. Reîncearcă în câteva momente.',
-        code: 'checkout_create_failed',
-      })
+      return jsonResponse(502, { error: CHECKOUT_CREATE_FAILED_MSG, code: 'checkout_create_failed' })
     }
     customerId = customer.id
 
@@ -360,35 +390,53 @@ exports.handler = async (event) => {
         },
       },
       {
-        // Idempotență: cheia trebuie să includă TOATE intrările care schimbă corpul cererii
-        // (plan, referral_code, trial), altfel Stripe respinge cheia reutilizată cu params
-        // diferiți (idempotency_error). Click-uri repetate cu EXACT aceeași cerere → aceeași
-        // sesiune (dedup); orice diferență → cheie nouă.
+        // Idempotență: cheia include intrările care schimbă corpul cererii și erau
+        // deja în cheie pe main (plan, referral_code, trial), altfel Stripe respinge
+        // cheia reutilizată cu params diferiți (idempotency_error). Click-uri repetate
+        // cu EXACT aceeași cerere → aceeași sesiune (dedup); o diferență din acestea →
+        // cheie nouă. Planul și trialul deosebesc două plăți; `referral_code` NU
+        // (schimbă doar metadata — atribuirea primară e `capture_affiliate_attribution`
+        // de mai sus, pe `stripe_customer_id`): e în cheie ca pe main, iar un vanity
+        // rezolvat între două click-uri (plafonul de 1,5 s din App.tsx) dă două
+        // sesiuni completabile — rămășiță consemnată în CLAUDE.md (lotul L8d), ca
+        // granița ferestrei și schimbarea de prefix la deploy. Excepția deliberată
+        // e limba paginii (`locale`, vezi `v7` mai jos).
         // Fereastră temporală de 30 min: fără ea, aceeași cerere repetată mult mai
         // târziu (ex. a doua zi) ar rămâne blocată pe cheia veche la Stripe.
         // Prefixul `v4` + hash-ul ORIGINII: success_url/cancel_url fac parte din
         // corp, deci o schimbare a originii (env modificat, alt domeniu) între
         // două cereri cu aceeași cheie ar primi idempotency_error de la Stripe.
         // Hash scurt și stabil (sha256, 10 hex) — originea nu ajunge în clar în cheie.
-        // `v6` (lotul L8d): `locale` intră în corp, deci și în cheie (`auto` =
-        // fără cheie) — același om care schimbă limba în fereastra de 30 de minute
-        // trimite alt corp. `v5` e REZERVAT PR-ului DRAFT RES-11 (#273, cheile de
-        // trial fără card + datele de facturare): la integrarea lui, prefixul
-        // urcă la `v7` (corpul = locale + cheile lui).
-        idempotencyKey: `checkout_v6_${originTag(appUrl)}_${user.id}_${requestedPlan}_${referralCode || 'none'}_${allowTrial ? trialDays : 0}_${locale || 'auto'}_${Math.floor(Date.now() / (30 * 60 * 1000))}`,
+        // `v7` (lotul L8d): `locale` intră în CORP, dar DELIBERAT NU în cheie.
+        // Prima variantă (`v6`, doar pe branch, nu se refolosește) punea limba în
+        // cheie: un tab vechi (fără `ui_lang` = „auto”) și unul nou (`ro`) — sau
+        // același om care schimbă limba panoului — primeau DOUĂ sesiuni
+        // completabile pentru același plan în aceeași fereastră, iar două plăți
+        // finalizate = două abonamente facturate (recenzie CodeRabbit pe #384).
+        // Fără limbă în cheie, Stripe vede aceeași cheie cu alt corp și o
+        // respinge (`idempotency_error`) → 409 `checkout_in_progress` mai jos:
+        // limba nu are voie să deschidă a doua plată. `v5` e REZERVAT PR-ului
+        // DRAFT RES-11 (#273, cheile de trial fără card + datele de facturare):
+        // la integrarea lui, prefixul urcă la `v8`.
+        idempotencyKey: `checkout_v7_${originTag(appUrl)}_${user.id}_${requestedPlan}_${referralCode || 'none'}_${allowTrial ? trialDays : 0}_${Math.floor(Date.now() / (30 * 60 * 1000))}`,
       },
     )
   } catch (e) {
     // Fail-closed VIZIBIL: fără try/catch, o respingere Stripe ieșea din handler
     // ca excepție — 500/502 fără corp de contract și fără cauză în log. Același
-    // cod și text ca PR-ul DRAFT RES-11 (#273), care avea aceeași reparație.
+    // cod ca PR-ul DRAFT RES-11 (#273), care avea aceeași reparație; textul
+    // numește acum și adresa de contact.
     console.error('[stripe-checkout] session create failed:', {
       type: e?.type, code: e?.code, param: e?.param, message: e?.message,
     })
-    return jsonResponse(502, {
-      error: 'Nu am putut porni plata. Reîncearcă în câteva momente.',
-      code: 'checkout_create_failed',
-    })
+    // Cheie reutilizată cu alt corp = o plată deja pornită în fereastra curentă
+    // (alt tab, altă limbă, un client vechi). NU 502 „reîncearcă în câteva
+    // momente”: până la fereastra următoare, cererea cu ACEST corp primește
+    // același refuz. Mesajul englezesc al Stripe rămâne doar în log.
+    if (isIdempotencyConflict(e)) {
+      return jsonResponse(409, { error: CHECKOUT_IN_PROGRESS_MSG, code: 'checkout_in_progress' })
+    }
+    return jsonResponse(502, { error: CHECKOUT_CREATE_FAILED_MSG, code: 'checkout_create_failed' })
   }
 
   return jsonResponse(200, { url: session.url })

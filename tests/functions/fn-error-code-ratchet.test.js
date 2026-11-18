@@ -15,12 +15,20 @@
 //        scris de mână cu `statusCode` literal, un cod ne-literal la `fail`/
 //        `aiError`; NU numără apelurile din comentarii, din șiruri sau din
 //        definițiile helperilor și trece de un regex cu ghilimele și de un
-//        șablon cu `${…}` (formele care păcăleau o căutare pe text).
+//        șablon cu `${…}` (formele care păcăleau o căutare pe text); un
+//        comentariu lângă VALOAREA lui `code` (după ea fără virgulă, sau între
+//        `:` și ea) nu respinge un cod corect și nu face literal unul greșit.
+//        [PICĂ: valoarea citită din sursa originală fără restrângerea
+//        capetelor pe sursa mascată]
 //   FEC1 în cele opt funcții, fiecare apel `jsonResponse(<non-2xx>, {…})` are
-//        cheia `code` la PRIMUL nivel al obiectului; `fail(…)` (send-invite) și
-//        `aiError(…)` (AI) au codul ca șir literal ne-gol; niciun `statusCode`
-//        literal 4xx/5xx în afara formei TEXT a lui 405 (SC1 o îngheață).
-//        [PICĂ: `code: 'rate_limited'` scos din 429-ul lui stripe-portal]
+//        cheia `code` la PRIMUL nivel al obiectului, iar VALOAREA ei e un șir
+//        literal ne-gol (`code: undefined`, `''`, `null`, `e.code`, o variabilă
+//        sau forma scurtă `{ code }` nu trec — aceeași regulă ca la `fail(…)`
+//        (send-invite) și `aiError(…)` (AI), care au codul ca șir literal ne-gol);
+//        niciun `statusCode` literal 4xx/5xx în afara formei TEXT a lui 405
+//        (SC1 o îngheață).
+//        [PICĂ: `code: 'rate_limited'` scos din 429-ul lui stripe-portal;
+//        `code: undefined` pe o ramură (cheia există, codul nu)]
 //   FEC2 registrul e EXACT: numărul de răspunsuri de eroare per fișier e cel
 //        din `EXPECTED` — o ramură nouă cere actualizarea registrului ȘI a
 //        testului de comportament al funcției (SCK1 / SPT4 / SCN1 …), una
@@ -53,7 +61,7 @@ const ROOT = path.join(__dirname, '..', '..')
 // contract. Funcțiile AI și send-invite aveau deja codul pe fiecare ramură
 // (lib/aiErrors.js, AEC1–AEC5; `fail()`, L6b); cele trei Stripe l-au primit în L8d.
 const EXPECTED = {
-  'netlify/functions/stripe-checkout.js': 15,
+  'netlify/functions/stripe-checkout.js': 16,
   'netlify/functions/stripe-portal.js': 9,
   'netlify/functions/stripe-connect.js': 12,
   'netlify/functions/send-invite.js': 15,
@@ -223,25 +231,58 @@ function callArgs(masked, open) {
   throw new Error('apel neînchis')
 }
 
-// Obiectul literal din [a, b) are cheia `code` la PRIMUL nivel?
-function hasTopLevelCode(masked, a, b) {
-  const text = masked.slice(a, b).trim()
-  if (!text.startsWith('{')) return false
-  let depth = 0
-  let flat = ''
-  for (const ch of text) {
-    if (ch === '{' || ch === '[' || ch === '(') depth++
-    if (depth === 1) flat += ch
-    if (ch === '}' || ch === ']' || ch === ')') depth--
-  }
-  return /[{,]\s*code\s*(?::|,|\})/.test(flat)
-}
-
 // Un șir literal ne-gol (pe sursa ORIGINALĂ: masca i-a golit conținutul).
 function literalString(src, a, b) {
   const raw = src.slice(a, b).trim()
   const m = /^(['"])([a-z0-9_:]+)\1$/.exec(raw)
   return m ? m[2] : null
+}
+
+// Valoarea cheii `code` de la PRIMUL nivel al obiectului literal din [a, b):
+// `{ present, value }`, unde `value` e codul dacă e un șir literal ne-gol, altfel
+// null (lipsă, `undefined`, `''`, o expresie, forma scurtă `{ code }`). Cheile
+// și separatorii se caută pe sursa MASCATĂ (comentariile și conținutul
+// șirurilor nu contează), valoarea se citește din sursa ORIGINALĂ.
+function topLevelCode(src, masked, a, b) {
+  let k = a
+  while (k < b && /\s/.test(masked[k])) k++
+  if (masked[k] !== '{') return { present: false, value: null }
+  let depth = 0
+  for (let i = k; i < b; i++) {
+    const ch = masked[i]
+    if (ch === '{' || ch === '[' || ch === '(') depth++
+    else if (ch === '}' || ch === ']' || ch === ')') depth--
+    // Începutul unei proprietăți la primul nivel: după `{`-ul obiectului sau
+    // după un `,` de la primul nivel.
+    if (depth !== 1 || !((i === k && ch === '{') || ch === ',')) continue
+    let j = i + 1
+    while (j < b && /\s/.test(masked[j])) j++
+    if (masked.slice(j, j + 4) !== 'code' || /[\w$]/.test(masked[j + 4] || '')) continue
+    let c = j + 4
+    while (c < b && /\s/.test(masked[c])) c++
+    if (masked[c] !== ':') return { present: true, value: null } // `{ code }` / `{ code, … }`
+    // Valoarea: până la următorul `,` sau `}` de la PRIMUL nivel.
+    let d = 0
+    let e = c + 1
+    for (; e < b; e++) {
+      const x = masked[e]
+      if (x === '{' || x === '[' || x === '(') d++
+      else if (x === '}' || x === ']' || x === ')') {
+        if (d === 0) break
+        d--
+      } else if (x === ',' && d === 0) break
+    }
+    // Capetele valorii se restrâng pe sursa MASCATĂ: un comentariu e spații
+    // acolo, dar încă text în sursa originală, deci un `// motiv` după valoare
+    // (fără virgulă) sau un `/* … */` între `:` și valoare ar intra în șirul
+    // citit și ar respinge un cod corect.
+    let vs = c + 1
+    let ve = e
+    while (vs < ve && /\s/.test(masked[vs])) vs++
+    while (ve > vs && /\s/.test(masked[ve - 1])) ve--
+    return { present: true, value: literalString(src, vs, ve) }
+  }
+  return { present: false, value: null }
 }
 
 /** Răspunsurile de eroare ale unei surse: [{ line, kind, ok, why }]. */
@@ -265,8 +306,10 @@ function scanErrorResponses(src) {
         continue
       }
       if (statusTxt.startsWith('2')) continue
-      const ok = args.length >= 2 && hasTopLevelCode(masked, args[1][0], args[1][1])
-      found.push({ line, kind: name, status: statusTxt, ok, why: ok ? '' : 'fără `code` la primul nivel' })
+      const code = args.length >= 2 ? topLevelCode(src, masked, args[1][0], args[1][1]) : { present: false, value: null }
+      const ok = code.value !== null
+      const why = ok ? '' : code.present ? '`code` fără valoare literală ne-goală' : 'fără `code` la primul nivel'
+      found.push({ line, kind: name, status: statusTxt, ok, why })
     } else {
       const code = args.length >= 2 ? literalString(src, args[1][0], args[1][1]) : null
       found.push({ line, kind: name, status: statusTxt, ok: !!code, why: code ? '' : 'cod ne-literal sau gol' })
@@ -312,12 +355,34 @@ describe('FEC0: scanerul, pe surse sintetice', () => {
     assert.equal(bad("return fail(400, code, 'x')").length, 1)
     assert.equal(bad('return aiError(400)').length, 1)
     assert.equal(bad("return jsonResponse(status, { error: 'x', code: 'y' })").length, 1)
+    // Cheia `code` există, dar codul NU: valoarea trebuie să fie un șir literal ne-gol.
+    for (const v of ['undefined', "''", 'null', 'e.code', 'codeVar', '`x`', "'Cu Spații'", "cond ? 'a' : 'b'"]) {
+      const src = `return jsonResponse(503, { error: 'x', code: ${v} })`
+      assert.equal(bad(src).length, 1, src)
+    }
+    assert.equal(bad("return jsonResponse(503, { code: undefined, error: 'x' })").length, 1)
+    assert.equal(bad("return jsonResponse(400, { code, error: 'x' })").length, 1, 'forma scurtă { code }')
+    // Un literal ascuns într-un COMENTARIU lângă valoare nu o face literală.
+    assert.equal(bad("return jsonResponse(503, { error: 'x', code: /* 'ok' */ undefined })").length, 1)
+    assert.equal(bad("return jsonResponse(503, {\n  error: 'x',\n  code: undefined // 'ok'\n})").length, 1)
+    // Un `code` IMBRICAT cu valoare bună nu salvează un `code: undefined` de sus.
+    assert.equal(bad("return jsonResponse(503, { code: undefined, meta: { code: 'n' } })").length, 1)
+    // Motivul spune care e defectul.
+    assert.match(scanErrorResponses("return jsonResponse(503, { error: 'x', code: undefined })")[0].why, /fără valoare/)
   })
 
   it('trece formele corecte și nu numără ce nu e cod', () => {
     const ok = [
       "return jsonResponse(503, { error: 'x', code: 'y' })",
-      "return jsonResponse(400, { code, error: 'x' })",
+      "return jsonResponse(400, { code: 'bad_json', error: 'x' })",
+      "return jsonResponse(502, { error: MSG_CONST, code: 'checkout_create_failed' })",
+      "return jsonResponse(409, {\n  error: 'x', // code: undefined (comentariu)\n  code: 'checkout_in_progress',\n})",
+      // Un comentariu lângă VALOARE (după ea fără virgulă, sau între `:` și ea)
+      // nu face parte din cod. [PICĂ: valoarea citită fără restrângerea
+      // capetelor pe sursa mascată]
+      "return jsonResponse(409, {\n  error: X,\n  code: 'checkout_in_progress' // motiv\n})",
+      "return jsonResponse(409, { error: X, code: /* stabil */ 'checkout_in_progress' })",
+      "return jsonResponse(409, { error: X, code: 'checkout_in_progress' /* stabil */ })",
       "return fail(400, 'bad_json', 'x')",
       "return aiError(403, 'forbidden')",
       "return jsonResponse(200, { url: session.url })",

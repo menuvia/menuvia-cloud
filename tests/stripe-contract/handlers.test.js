@@ -5,6 +5,18 @@
 // noastre după bump-ul de SDK.
 //
 //   SDK8   stripe-checkout: 200 cu url; ambele cereri pe pin; cheia checkout_*
+//   SDK8b  stripe-checkout: Stripe răspunde 400 `idempotency_error` (aceeași
+//          cheie, alt corp — limba NU e în cheie, lotul L8d) → 409
+//          `checkout_in_progress`, fără mesajul englezesc al Stripe; control:
+//          400 `invalid_request_error` → 502 `checkout_create_failed`. Dovedește
+//          pe SDK-ul REAL forma erorii pe care o citește `isIdempotencyConflict`
+//          (fake-ul din tests/functions o construiește de mână, deci e orb aici):
+//          `StripeIdempotencyError` DOAR pe 400/404; pe alt status (409)
+//          `StripeAPIError` cu tipul doar în `rawType` → tot 409 la client.
+//          Cererea CONCURENTĂ (409 `invalid_request_error` +
+//          `idempotency_key_in_use`, dublu-click) rămâne 502: tranzitorie.
+//          [PICĂ: `rawType` scos din `isIdempotencyConflict`; verificarea
+//          lărgită după `statusCode === 409` sau după `code`]
 //   SDK9   table-payment: supersede și opt-out — fiecare anulare pleacă cu antet
 //          Stripe-Account (defectul v22), create-ul cu cheia tp_. Celelalte două
 //          anulări (split-uri stale, attach eșuat) sunt ținute de fake-ul din
@@ -73,6 +85,118 @@ describe('SDK8: stripe-checkout pe SDK-ul real', () => {
     assert.equal(b.mode, 'subscription')
     assert.equal(b['line_items[0][price]'], 'price_growth')
     assert.equal(b['subscription_data[metadata][plan]'], 'growth')
+  })
+})
+
+describe('SDK8b: stripe-checkout — cheia de idempotență refuzată, pe SDK-ul real', () => {
+  const IDEM_MSG = "Keys for idempotent requests can only be used with the same parameters they were first used with. Try using a key other than 'checkout_v7_x' if you meant to execute a different request."
+  // Răspunsul Stripe pentru o cerere concurentă cu aceeași cheie (forma din
+  // beam-community/stripity_stripe#564: 409, `invalid_request_error`).
+  const IN_USE_ERR = {
+    type: 'invalid_request_error',
+    code: 'idempotency_key_in_use',
+    message: 'There is currently another in-progress request using this Idempotent Key (that probably means you submitted twice, and the other request is still going through): checkout_v7_x. Please try again later.',
+  }
+
+  async function run(sessionReply) {
+    state.authUser = { id: 'u1', email: 'a@x.test' }
+    state.rpcHandlers.check_rate_limit = () => ({ data: true, error: null })
+    state.fromHandlers.profiles = () => ({ data: { stripe_customer_id: 'cus_1', email: 'a@x.test' }, error: null })
+    t.route('GET', '/v1/subscriptions', { body: { object: 'list', has_more: false, data: [] } })
+    t.route('POST', '/v1/checkout/sessions', sessionReply)
+    const saved = console.error
+    console.error = () => {}
+    try {
+      return await checkout({
+        httpMethod: 'POST',
+        headers: { authorization: 'Bearer tok' },
+        body: JSON.stringify({ plan: 'growth', ui_lang: 'ro' }),
+      })
+    } finally {
+      console.error = saved
+    }
+  }
+
+  it('forma erorii SDK-ului: type StripeIdempotencyError, rawType idempotency_error', async () => {
+    t.route('POST', '/v1/checkout/sessions', { status: 400, body: { error: { type: 'idempotency_error', message: IDEM_MSG } } })
+    const stripe = new Stripe('sk_test_x', { apiVersion: PIN, timeout: 6000, maxNetworkRetries: 0 })
+    await assert.rejects(
+      stripe.checkout.sessions.create({ customer: 'cus_1', mode: 'subscription' }, { idempotencyKey: 'k' }),
+      (e) => {
+        assert.equal(e.type, 'StripeIdempotencyError')
+        assert.equal(e.rawType, 'idempotency_error')
+        assert.ok(e instanceof stripe.errors.StripeIdempotencyError)
+        return true
+      },
+    )
+  })
+
+  it('forma erorii pe alt status: 409 idempotency_error → StripeAPIError, tipul doar în rawType', async () => {
+    // generateV1Error decide întâi după status: clasa dedicată există doar pe
+    // 400/404, deci verificarea pe `rawType` nu e redundantă.
+    t.route('POST', '/v1/checkout/sessions', { status: 409, body: { error: { type: 'idempotency_error', message: IDEM_MSG } } })
+    const stripe = new Stripe('sk_test_x', { apiVersion: PIN, timeout: 6000, maxNetworkRetries: 0 })
+    await assert.rejects(
+      stripe.checkout.sessions.create({ customer: 'cus_1', mode: 'subscription' }, { idempotencyKey: 'k' }),
+      (e) => {
+        assert.equal(e.type, 'StripeAPIError')
+        assert.equal(e.rawType, 'idempotency_error')
+        assert.ok(!(e instanceof stripe.errors.StripeIdempotencyError))
+        return true
+      },
+    )
+  })
+
+  it('forma cererii CONCURENTE: 409 idempotency_key_in_use → StripeAPIError, rawType invalid_request_error', async () => {
+    t.route('POST', '/v1/checkout/sessions', { status: 409, body: { error: IN_USE_ERR } })
+    const stripe = new Stripe('sk_test_x', { apiVersion: PIN, timeout: 6000, maxNetworkRetries: 0 })
+    await assert.rejects(
+      stripe.checkout.sessions.create({ customer: 'cus_1', mode: 'subscription' }, { idempotencyKey: 'k' }),
+      (e) => {
+        assert.equal(e.type, 'StripeAPIError')
+        assert.equal(e.rawType, 'invalid_request_error')
+        assert.equal(e.code, 'idempotency_key_in_use')
+        assert.equal(e.statusCode, 409)
+        return true
+      },
+    )
+  })
+
+  it('400 idempotency_error → 409 checkout_in_progress, mesajul Stripe nu ajunge la client', async () => {
+    const res = await run({ status: 400, body: { error: { type: 'idempotency_error', message: IDEM_MSG } } })
+    assert.equal(res.statusCode, 409, res.body)
+    assert.equal(parseBody(res).code, 'checkout_in_progress')
+    assert.ok(!res.body.includes('idempotent'), res.body)
+    // Cererea chiar a plecat cu cheia v7, fără segment de limbă, și cu `locale` în corp.
+    const sess = t.requests().find((r) => r.path === '/v1/checkout/sessions')
+    assert.match(sess.headers['idempotency-key'], /^checkout_v7_[0-9a-f]{10}_u1_growth_none_\d+_\d+$/)
+    assert.equal(form(sess).locale, 'ro')
+  })
+
+  it('409 idempotency_error (alt status decât 400/404, doar rawType) → tot 409 checkout_in_progress', async () => {
+    const res = await run({ status: 409, body: { error: { type: 'idempotency_error', message: IDEM_MSG } } })
+    assert.equal(res.statusCode, 409, res.body)
+    assert.equal(parseBody(res).code, 'checkout_in_progress')
+    assert.ok(!res.body.includes('idempotent'), res.body)
+  })
+
+  it('cerere CONCURENTĂ: 409 idempotency_key_in_use → 502 checkout_create_failed, NU checkout_in_progress', async () => {
+    // Dublu-click: aceeași cheie, același corp, prima cerere încă în zbor.
+    // Tranzitoriu — reîncercarea primește sesiunea din cache, deci „reîncearcă
+    // în câteva momente”, nu „peste 30 de minute”.
+    const res = await run({ status: 409, body: { error: IN_USE_ERR } })
+    assert.equal(res.statusCode, 502, res.body)
+    assert.equal(parseBody(res).code, 'checkout_create_failed')
+    assert.ok(!res.body.includes('Idempotent'), res.body)
+  })
+
+  it('control: 400 invalid_request_error → 502 checkout_create_failed', async () => {
+    const res = await run({
+      status: 400,
+      body: { error: { type: 'invalid_request_error', code: 'resource_missing', message: 'No such price' } },
+    })
+    assert.equal(res.statusCode, 502, res.body)
+    assert.equal(parseBody(res).code, 'checkout_create_failed')
   })
 })
 

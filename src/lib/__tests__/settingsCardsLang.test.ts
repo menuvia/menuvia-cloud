@@ -34,9 +34,13 @@
 //   GQ10b (lotul L8d, mig 330) HINT-ul e contractul și se verifică ÎNTÂI:
 //        `active_subscription` / `mfa_aal2_required` recunoscute oricare ar fi
 //        textul (o reformulare a mesajului nu mai rupe nimic), fiecare hint
-//        DOAR pentru refuzul lui, iar un hint necunoscut / ne-șir cade pe
-//        potrivirea pe text (rezerva unei baze fără 330). Mutația care pică:
-//        verificarea hint-ului scoasă (rămâne doar textul).
+//        DOAR pentru refuzul lui, un hint recunoscut BATE un text care începe
+//        cu prefixul CELUILALT refuz (hint aal2 + „Aveți un abonament activ…”
+//        = refuzul MFA, nu abonamentul — și invers), iar un hint necunoscut /
+//        ne-șir cade pe potrivirea pe text (rezerva unei baze fără 330).
+//        Mutațiile care pică: verificarea hint-ului scoasă (rămâne doar
+//        textul); predicatele `hint === X || prefix(X)` independente (hint-ul
+//        celuilalt refuz nu mai oprește prefixul).
 //   TE8  contorul echipei: în română EXACT regula de dinainte (`membr` + „u”
 //        doar la 1, altfel „i” — deci „0 membri”, „20 membri”, nu „20 de
 //        membri”) pe n = 0…200; en/fr/de acordă la singular. Mutația care
@@ -226,6 +230,17 @@ describe('refuzurile fără hint ale cardurilor de cont', () => {
       expect(isActiveSubscriptionRefusal(reworded(hint))).toBe(false)
       expect(isMfaAal2Refusal(reworded(hint))).toBe(false)
     }
+    // Hint recunoscut + text cu prefixul CELUILALT refuz: câștigă hint-ul.
+    const SUB = 'Aveți un abonament activ. Anulați-l prin Portal Stripe înainte de a șterge contul.'
+    const AAL2 = 'Dezactivarea MFA cere o sesiune verificată cu MFA (aal2)'
+    const conflict = (hint: string, message: string) => Object.assign(new Error(message), { hint })
+    expect(isMfaAal2Refusal(conflict('mfa_aal2_required', SUB))).toBe(true)
+    expect(isActiveSubscriptionRefusal(conflict('mfa_aal2_required', SUB))).toBe(false)
+    expect(isActiveSubscriptionRefusal(conflict('active_subscription', AAL2))).toBe(true)
+    expect(isMfaAal2Refusal(conflict('active_subscription', AAL2))).toBe(false)
+    // Control: același text cu un hint NErecunoscut decide prin prefix (rezerva).
+    expect(isActiveSubscriptionRefusal(conflict('auth_required', SUB))).toBe(true)
+    expect(isMfaAal2Refusal(conflict('auth_required', AAL2))).toBe(true)
   })
 })
 
