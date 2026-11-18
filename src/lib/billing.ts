@@ -7,6 +7,7 @@
 // schimbarea planului și descărcarea facturilor — fără UI propriu de reconstruit.
 import { supabase } from './supabase'
 import { fnUrl } from './fn'
+import type { StaffLang } from '../i18n/langs'
 
 export interface BillingError extends Error {
   code?: string
@@ -14,8 +15,11 @@ export interface BillingError extends Error {
 
 // Cere o sesiune de portal și redirecționează. La succes NU se întoarce
 // (schimbă window.location). La eșec aruncă un BillingError cu `code` pentru
-// ca apelantul să diferențieze (`no_customer` → trimite spre /pricing).
-export async function openBillingPortal(): Promise<never> {
+// ca apelantul să diferențieze (`no_customer` → trimite spre /pricing) și să
+// traducă (lotul L8d: fiecare răspuns de eroare al funcției are `code`).
+// `uiLang` = limba panoului: portalul Stripe se deschide în ea (serverul o
+// validează pe ro/en/fr/de; lipsă → Stripe „auto”, ca înainte).
+export async function openBillingPortal(uiLang?: StaffLang): Promise<never> {
   const {
     data: { session },
   } = await supabase.auth.getSession()
@@ -26,6 +30,7 @@ export async function openBillingPortal(): Promise<never> {
       'Content-Type': 'application/json',
       Authorization: 'Bearer ' + (session?.access_token || ''),
     },
+    body: JSON.stringify(uiLang ? { ui_lang: uiLang } : {}),
   })
 
   let d: { url?: string; error?: string; code?: string } = {}

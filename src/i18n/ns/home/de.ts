@@ -62,6 +62,33 @@ const de: Translation<typeof ro> = {
   sub_seePlans: 'Tarife ansehen',
   sub_opening: 'Wird geöffnet…',
   sub_manage: 'Abonnement verwalten',
+  sub_errUnavailable: 'Das Abrechnungsportal ist derzeit nicht verfügbar.',
+  sub_errRateLimited: 'Zu viele Versuche. Versuchen Sie es in einigen Minuten erneut.',
+  sub_errSession: 'Ihre Sitzung ist abgelaufen. Melden Sie sich erneut an.',
+  sub_errService: 'Der Dienst ist vorübergehend nicht verfügbar. Versuchen Sie es erneut.',
+
+  // Der Tarifname „Fiscalizare” wird nicht übersetzt (Handelsname).
+  ck_subscriptionExists:
+    'Sie haben bereits ein aktives Abonnement. Den Tarif wechseln Sie im Abrechnungsportal.',
+  ck_planRequiresQuote:
+    'Der Tarif Fiscalizare wird auf Angebot freigeschaltet, zusammen mit der Installation an Ihrer Registrierkasse. Fordern Sie ein Angebot an.',
+  ck_subscriptionLookupFailed:
+    'Wir konnten Ihre bestehenden Abonnements nicht prüfen. Versuchen Sie es in einigen Augenblicken erneut.',
+  ck_createFailed:
+    'Wir konnten die Zahlung nicht starten. Versuchen Sie es in einigen Augenblicken erneut; wenn es wieder passiert, schreiben Sie uns an {email}.',
+  ck_checkoutInProgress:
+    'Für dieses Konto läuft bereits eine Zahlung. Versuchen Sie es in einigen Augenblicken erneut.',
+  ck_network:
+    'Wir konnten den Zahlungsserver nicht erreichen. Prüfen Sie Ihre Internetverbindung und versuchen Sie es erneut.',
+  ck_auth: 'Ihre Sitzung ist abgelaufen. Melden Sie sich erneut an und starten Sie die Aktivierung neu.',
+  ck_rateLimited: 'Zu viele Versuche. Versuchen Sie es in einigen Minuten erneut.',
+  ck_unavailable: 'Der Dienst ist vorübergehend nicht verfügbar. Versuchen Sie es in einigen Augenblicken erneut.',
+  ck_notConfigured:
+    'Die Online-Zahlung ist derzeit nicht verfügbar. Kontaktieren Sie uns, dann schalten wir Ihren Tarif manuell frei.',
+  ck_planUnavailable:
+    'Der gewählte Tarif kann gerade nicht freigeschaltet werden. Schreiben Sie uns, dann schalten wir ihn für Sie frei.',
+  ck_unknown:
+    'Wir konnten die Zahlung nicht starten. Versuchen Sie es erneut; wenn es wieder passiert, schreiben Sie uns eine E-Mail.',
 
   upsell_regionLabel: 'Angebot: {title}',
   upsell_orderingLead: 'Ihre Gäste bestellen selbst, und die Küche erhält die Bestellung sofort.',

@@ -10,6 +10,9 @@ const Stripe = require('stripe')
 const { appUrl: resolveAppUrl, LEGACY_NETLIFY_URL } = require('./lib/appUrl')
 // Contractul de eroare: orice non-200 = { error: <română>, code } (lib/aiErrors.js).
 const { aiError } = require('./lib/aiErrors')
+const { parseObjectBody } = require('./lib/jsonBody')
+// Limba paginii Stripe = limba panoului (lotul L8d; `ui_lang` din corp).
+const { stripeLocale } = require('./lib/stripeLocale')
 // Versiunea de API PINUITĂ (audit v3 OPS-8) pentru CERERILE noastre către Stripe:
 // fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
 // (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
@@ -37,6 +40,17 @@ const PACKS = {
   large:  { tokens: 2000000, amount: 24900, label: '2.000.000 tokens AI' },
 }
 
+// Numele produsului din pagina Stripe. Pe `ro` și fără `ui_lang` rămâne
+// `label`, BYTE-identic (punctul e separatorul românesc de mii). În altă limbă
+// a Checkout-ului (lotul L8d), „100.000” se citește „o sută” în engleză (punctul
+// e acolo separator ZECIMAL), deci numărul se formatează în limba paginii
+// (`Intl.NumberFormat(locale)`: en „100,000”, fr „100 000”, de „100.000”).
+// Prețul și metadatele (`tokens`, citite de webhook) NU depind de limbă.
+function packProductName(packDef, locale) {
+  if (!locale || locale === 'ro') return `Menuvia · ${packDef.label}`
+  return `Menuvia · ${new Intl.NumberFormat(locale).format(packDef.tokens)} tokens AI`
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return aiError(405, 'method_not_allowed')
@@ -49,12 +63,16 @@ exports.handler = async (event) => {
 
   let body
   try {
-    body = JSON.parse(event.body || '{}')
+    // Un corp care nu e OBIECT JSON (`null`, un tablou…) → `bad_json`, nu o
+    // excepție la destructurare (lib/jsonBody.js).
+    body = parseObjectBody(event.body)
   } catch {
     return aiError(400, 'bad_json')
   }
 
-  const { restaurant_id, pack } = body
+  const { restaurant_id, pack, ui_lang } = body
+  // Validată pe ro/en/fr/de; absentă sau invalidă → fără `locale` = „auto”.
+  const locale = stripeLocale(ui_lang)
   if (!restaurant_id) return aiError(400, 'missing_restaurant')
   // hasOwnProperty: `PACKS[pack]` cu pack='constructor'/'toString' întorcea o
   // funcție moștenită din Object.prototype → trecea de `!packDef` și crăpa mai
@@ -158,12 +176,13 @@ exports.handler = async (event) => {
       customer: customerId,
       client_reference_id: user.id,
       mode: 'payment',
+      ...(locale ? { locale } : {}),
       line_items: [
         {
           price_data: {
             currency: 'ron',
             unit_amount: packDef.amount,
-            product_data: { name: `Menuvia · ${packDef.label}` },
+            product_data: { name: packProductName(packDef, locale) },
           },
           quantity: 1,
         },

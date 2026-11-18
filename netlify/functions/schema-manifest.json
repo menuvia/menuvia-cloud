@@ -327,6 +327,7 @@
     "migration_326_qr_time_zone",
     "migration_327_reservation_email_restaurant_id",
     "migration_328_reservation_guest_language",
-    "migration_329_kitchen_ticket_language"
+    "migration_329_kitchen_ticket_language",
+    "migration_330_staff_error_hints"
   ]
 }

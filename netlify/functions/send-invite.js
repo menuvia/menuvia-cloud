@@ -26,6 +26,7 @@ const { createClient } = require('@supabase/supabase-js')
 const { siteAppUrl, FROM_HELLO, LEGACY_NETLIFY_URL } = require('./lib/appUrl')
 const { fetchUiLanguages, resolveInviteLang } = require('./lib/emailLang')
 const { kindStrings, fill } = require('./lib/emailStrings')
+const { parseObjectBody } = require('./lib/jsonBody')
 
 function fail(statusCode, code, error) {
   return { statusCode, body: JSON.stringify({ error, code }) }
@@ -103,9 +104,11 @@ exports.handler = async (event) => {
 
   // Parse protejat (audit aug 2026): era SINGURA funcție cu JSON.parse
   // neîmpachetat — un body malformat arunca SyntaxError neprins → 500 brut.
+  // Lotul L8d: și un JSON care nu e OBIECT (`null`) arunca, la destructurare
+  // — parseObjectBody îl trimite pe aceeași ramură (lib/jsonBody.js).
   let payload
   try {
-    payload = JSON.parse(event.body || '{}')
+    payload = parseObjectBody(event.body)
   } catch {
     return fail(400, 'bad_json', 'Cererea nu a putut fi citită. Reîncearcă.')
   }

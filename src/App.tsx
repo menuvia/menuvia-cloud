@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, Suspense, lazy, type ReactNode } from 'rea
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { RestaurantProvider, useRestaurantCtx } from './contexts/RestaurantContext'
 // Limba personalului (L0b): modul mic, fără dicționare — sigur în intrare.
-import { FunnelDocumentLang, StaffDocumentLang, UiLangProvider } from './i18n/UiLangContext'
+import { FunnelDocumentLang, StaffDocumentLang, UiLangProvider, useUiLang } from './i18n/UiLangContext'
 import { browserChromeLang, chromeT } from './i18n/chrome'
 import { useDocumentLang } from './hooks/useDocumentLang'
 import { supabase, SUPABASE_CONFIGURED } from './lib/supabase'
@@ -359,6 +359,8 @@ function AppRouter() {
   const { restaurants, loading: rLoading, refetch, update, patchLocal } = useRestaurants()
   // Rolul restaurantului ACTIV — garda de rol pe /dashboard (mai jos).
   const { activeRole, loading: ctxLoading } = useRestaurantCtx()
+  // Limba panoului (lotul L8d): pagina Stripe Checkout se deschide în ea.
+  const { lang: uiLang } = useUiLang()
   const [state, setState] = useState<RouteState>(parsePath)
 
   // Ruta se anunță și DUPĂ fiecare commit al routerului, nu doar din
@@ -728,6 +730,8 @@ function AppRouter() {
                   plan,
                   ...(referralCode ? { referral_code: referralCode } : {}),
                   ...(visitorId ? { visitor_id: visitorId } : {}),
+                  // Validată pe server (ro/en/fr/de) → `locale` al sesiunii Stripe.
+                  ui_lang: uiLang,
                 }),
               })
             } catch {

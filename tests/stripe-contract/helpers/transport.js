@@ -21,7 +21,9 @@ const original = https.request
 let routes = []
 let captured = []
 
-// route(method, pathPrefix, reply) — reply: { status, body } sau funcție (req) => {status, body}
+// route(method, pathPrefix, reply) — reply: { status, body, headers? } sau funcție
+// (req) => {status, body, headers?}; `headers` (litere mici, ca pe fir) se adaugă
+// antetelor implicite ale răspunsului.
 function route(method, pathPrefix, reply) {
   routes.push({ method, pathPrefix, reply })
 }
@@ -53,7 +55,7 @@ function install() {
         : { status: 599, body: { error: { type: 'api_error', message: `transport: rută nescriptată ${rec.method} ${rec.path}` } } }
       const res = new Readable({ read() {} })
       res.statusCode = reply.status || 200
-      res.headers = { 'request-id': 'req_test', 'content-type': 'application/json' }
+      res.headers = { 'request-id': 'req_test', 'content-type': 'application/json', ...(reply.headers || {}) }
       res.complete = true
       res.push(JSON.stringify(reply.body || {}))
       res.push(null)
