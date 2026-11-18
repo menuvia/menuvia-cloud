@@ -49,6 +49,18 @@ const PUNCT_MAP = {
   '\u00b7': '-', '\u2260': '!=',
 };
 
+// Litere latine FĂRĂ descompunere NFD (lotul L8c): NFD le lasă neatinse, deci
+// cădeau pe '?' și în numele produselor germane, nordice, poloneze („Weißwurst”
+// → „Wei?wurst”, „Smørrebrød” → „Sm?rrebr?d”). Se aplică DUPĂ ramura latin1:
+// pe 9100 cu transliterarea oprită, ß æ Æ ø Ø þ Þ (0xA0–0xFF) rămân octeți
+// latin1 ca înainte, iar œ Œ ł Ł đ Đ (care nu încap în latin1) primesc litera
+// de bază în loc de '?'. Fișierul UTF-8 nu trece pe aici.
+const LETTER_MAP = {
+  '\u00df': 'ss', '\u00e6': 'ae', '\u00c6': 'AE', '\u00f8': 'o', '\u00d8': 'O',
+  '\u0153': 'oe', '\u0152': 'OE', '\u0142': 'l', '\u0141': 'L',
+  '\u0111': 'd', '\u0110': 'D', '\u00fe': 'th', '\u00de': 'TH',
+};
+
 function sanitizeForEscPos(text, { charset = 'ascii' } = {}) {
   let out = '';
   // NFC întâi: „s” + virgulă combinată devine „ș” precompus (altfel ieșea
@@ -74,6 +86,8 @@ function sanitizeForEscPos(text, { charset = 'ascii' } = {}) {
     const mapped = PUNCT_MAP[ch];
     if (mapped !== undefined) { out += mapped; continue; }
     if (charset === 'latin1' && cp >= 0xa0 && cp <= 0xff) { out += ch; continue; }
+    const letter = LETTER_MAP[ch];
+    if (letter !== undefined) { out += letter; continue; }
     // Un semn diacritic rămas singur după NFC nu are literă de purtat.
     if (/\p{M}/u.test(ch)) continue;
     // Litere latine cu accent (é, ü, ő…): litera de bază — DOAR dacă e literă.
