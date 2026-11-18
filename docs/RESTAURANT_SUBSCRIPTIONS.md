@@ -39,7 +39,8 @@ la pâlnie în Faza 0. `reserve_ai_import_slot` a fost ȘTEARSĂ în mig 290: ze
 
 **Frontend-ul e DEJA per-restaurant** (`useFeatures(restaurantId)`, CLAUDE.md
 regula 3) — zero schimbări UI la citire. Singurele scrieri de plan sunt
-webhook-ul Stripe (3 locuri: `stripe-webhook.js:201`, `:256`, `:300`) și
+webhook-ul Stripe (3 ramuri din `stripe-webhook.js`: `claimProfileSubscription` la
+`checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`) și
 `admin_set_restaurant_plan`.
 
 ## 3. Modelul țintă
