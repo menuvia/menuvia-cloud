@@ -5,8 +5,15 @@
 //   SE3  un hint cunoscut de apelant câștigă în orice limbă.
 //   SE4  necunoscut → rezerva contextului, apoi `err_generic`.
 //   SE5  textele `err_*` românești sunt identice cu MSG_* (o singură sursă).
+//   SE6  `describeFunctionError` (lotul L8d, erorile funcțiilor Netlify
+//        `{ error, code }`): în ROMÂNĂ = `toUserMessage`, iar `codes` NU se
+//        consultă (textul românesc al serverului rămâne, engleza internă cade
+//        pe rezervă); în altă limbă un `code` cunoscut → textul lui, unul
+//        necunoscut → clasa erorii / rezerva, niciodată textul serverului; un
+//        SQLSTATE nu se potrivește din greșeală. Mutațiile care pică: `codes`
+//        consultat și în română; `codes` ignorat în celelalte limbi.
 import { describe, it, expect } from 'vitest'
-import { describeStaffError } from '../staffErrors'
+import { describeFunctionError, describeStaffError } from '../staffErrors'
 import { makeTranslator } from '../core'
 import ro from '../ns/common/ro'
 import fr from '../ns/common/fr'
@@ -69,5 +76,25 @@ describe('describeStaffError', () => {
       MSG_FORBIDDEN,
       MSG_GENERIC,
     ])
+  })
+
+  it('SE6 describeFunctionError: româna neschimbată, celelalte limbi pe cod', () => {
+    const codes = { portal_unavailable: 'Portail indisponible.', rate_limited: 'Trop de tentatives.' }
+    const roServer = Object.assign(new Error('Portalul de facturare nu e disponibil momentan.'), { code: 'portal_unavailable' })
+    const enInternal = Object.assign(new Error('Stripe not configured'), { code: 'server_config' })
+    // Română: EXACT toUserMessage, oricare ar fi codul (harta nu se consultă).
+    for (const e of [roServer, enInternal, ...SAMPLES]) {
+      expect(describeFunctionError(e, tRo, { fallback: 'Rezervă.', codes })).toBe(toUserMessage(e, 'Rezervă.'))
+    }
+    expect(describeFunctionError(roServer, tRo, { codes })).toBe('Portalul de facturare nu e disponibil momentan.')
+    // Franceză: codul cunoscut → textul lui; necunoscut → rezerva; rețeaua → clasa.
+    expect(describeFunctionError(roServer, tFr, { fallback: 'Échec.', codes })).toBe('Portail indisponible.')
+    expect(describeFunctionError(enInternal, tFr, { fallback: 'Échec.', codes })).toBe('Échec.')
+    expect(describeFunctionError(new TypeError('Failed to fetch'), tFr, { codes })).toBe(fr.err_network)
+    // Un SQLSTATE nu e în hartă: rămâne clasa lui (drepturi).
+    expect(describeFunctionError({ code: '42501', message: 'permission denied' }, tFr, { codes })).toBe(fr.err_permission)
+    for (const e of [roServer, enInternal, ...SAMPLES]) {
+      expect(describeFunctionError(e, tFr, { codes })).not.toMatch(/[ăâîșț]/i)
+    }
   })
 })

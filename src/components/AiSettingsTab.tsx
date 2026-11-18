@@ -264,7 +264,8 @@ export default function AiSettingsTab({
     setBuying(pack)
     setMsg(null)
     try {
-      const { url } = await buyAiCredits({ restaurant_id: restaurantId, pack })
+      // Pagina Stripe în limba panoului (lotul L8d).
+      const { url } = await buyAiCredits({ restaurant_id: restaurantId, pack, ui_lang: uiLang })
       window.location.href = url
     } catch (e) {
       setMsg({ kind: 'err', key: 'err_buy', cause: e })

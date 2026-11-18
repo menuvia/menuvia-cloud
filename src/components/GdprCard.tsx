@@ -108,7 +108,8 @@ export default function GdprCard() {
     setDeleting(true)
     try {
       const { data, error } = await supabase.rpc('request_account_deletion')
-      if (error) throw new Error(error.message)
+      // Hint-ul (mig 330, lotul L8d) merge mai departe: e contractul refuzului.
+      if (error) throw Object.assign(new Error(error.message), { hint: error.hint })
       const d = data as { deletion_scheduled_at?: string } | null
       setDeletionRequestedAt(new Date().toISOString())
       toast.success(

@@ -51,3 +51,40 @@ export function describeStaffError(
       return fallback
   }
 }
+
+export interface FunctionErrorOpts {
+  /** Textul de rezervă al contextului (deja tradus); implicit `err_generic`. */
+  fallback?: string
+  /** `code` al funcției → text deja tradus (doar pentru celelalte limbi). */
+  codes?: Readonly<Record<string, string>>
+}
+
+function functionCodeOf(err: unknown): string | null {
+  if (err == null || typeof err !== 'object') return null
+  const c = (err as { code?: unknown }).code
+  return typeof c === 'string' && c ? c : null
+}
+
+/**
+ * Eroarea unei funcții Netlify (contractul `{ error: <română>, code }`, lotul
+ * L8d) pentru personal. Aceeași regulă ca `describeStaffError`, cu `code`-ul
+ * funcției în rolul hint-ului:
+ *   - în ROMÂNĂ: EXACT `toUserMessage` de dinainte (textul românesc al
+ *     serverului rămâne, textul englezesc intern cade pe rezervă) — `codes`
+ *     nu se consultă, deci migrarea unui ecran nu schimbă nimic;
+ *   - în altă limbă: un `code` cunoscut → textul lui; altfel clasa erorii
+ *     (rețea, drepturi…) sau rezerva — niciodată textul românesc al serverului.
+ * `code` se citește doar din `codes` (cheile funcției), deci un SQLSTATE
+ * (`42501`) nu se poate potrivi din greșeală.
+ */
+export function describeFunctionError(
+  err: unknown,
+  tc: Translator<typeof commonRo>,
+  opts: FunctionErrorOpts = {},
+): string {
+  if (tc.lang !== 'ro') {
+    const code = functionCodeOf(err)
+    if (code && opts.codes && Object.prototype.hasOwnProperty.call(opts.codes, code)) return opts.codes[code]
+  }
+  return describeStaffError(err, tc, { fallback: opts.fallback })
+}

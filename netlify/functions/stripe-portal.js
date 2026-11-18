@@ -9,10 +9,18 @@
 // ⚠️ Setup founder (o singură dată): Portalul de facturare trebuie activat în
 // Stripe Dashboard → Settings → Billing → Customer portal (altfel API-ul
 // întoarce o eroare de configurare, surfaceată aici ca 500 cu mesaj clar).
+//
+// Lotul L8d: orice răspuns non-2xx JSON e `{ error, code }` (`error` = textul
+// de dinainte, EXACT; `code` = cheia pe care SubscriptionCard o traduce), iar
+// portalul se deschide în limba panoului (`ui_lang` din corp, validat pe
+// ro/en/fr/de). Corpul era ignorat înainte, deci se citește TOLERANT: lipsă,
+// ne-JSON sau fără `ui_lang` → fără `locale` = „auto”, ca înainte.
 
 const { createClient } = require('@supabase/supabase-js')
 const Stripe = require('stripe')
 const { appUrl: resolveAppUrl, LEGACY_NETLIFY_URL } = require('./lib/appUrl')
+const { stripeLocale } = require('./lib/stripeLocale')
+const { parseObjectBody } = require('./lib/jsonBody')
 // Versiunea de API PINUITĂ (audit v3 OPS-8) pentru CERERILE noastre către Stripe:
 // fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
 // (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
@@ -42,20 +50,32 @@ exports.handler = async (event) => {
   } = process.env
 
   if (!STRIPE_SECRET_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    return jsonResponse(500, { error: 'Stripe not configured' })
+    return jsonResponse(500, { error: 'Stripe not configured', code: 'server_config' })
   }
+
+  // Limba portalului (lotul L8d). NU respinge nimic: un corp stricat nu avea
+  // niciun efect înainte și nu capătă unul acum.
+  let uiLang = null
+  try {
+    // Ne-JSON sau ne-obiect (`null`, un tablou…) → parseObjectBody aruncă →
+    // fără limbă, fără refuz (lib/jsonBody.js).
+    uiLang = parseObjectBody(event.body).ui_lang
+  } catch {
+    uiLang = null
+  }
+  const locale = stripeLocale(uiLang)
 
   // Auth
   const authHeader = event.headers['authorization'] || event.headers['Authorization'] || ''
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
   if (!token) {
-    return jsonResponse(401, { error: 'Missing Authorization header' })
+    return jsonResponse(401, { error: 'Missing Authorization header', code: 'auth_missing' })
   }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
   const { data: { user }, error: authErr } = await supabase.auth.getUser(token)
   if (authErr || !user) {
-    return jsonResponse(401, { error: 'Invalid token' })
+    return jsonResponse(401, { error: 'Invalid token', code: 'auth_invalid' })
   }
 
   // OPT-R2: rate-limit-ul și lookup-ul de profil depind ambele DOAR de user.id
@@ -76,16 +96,19 @@ exports.handler = async (event) => {
     profile = profRes.data; profileErr = profRes.error
   } catch (e) {
     console.error('[stripe-portal] rate limit / profile fetch threw (fail-closed):', e?.message)
-    return jsonResponse(503, { error: 'Rate limit service unavailable' })
+    return jsonResponse(503, { error: 'Rate limit service unavailable', code: 'rate_limit_unavailable' })
   }
 
   // Rate limit per user (fail-closed pe eroare de infra, ca la stripe-checkout).
   if (rlErr) {
     console.error('[stripe-portal] rate limit RPC failed (fail-closed):', rlErr.message)
-    return jsonResponse(503, { error: 'Rate limit service unavailable' })
+    return jsonResponse(503, { error: 'Rate limit service unavailable', code: 'rate_limit_unavailable' })
   }
   if (rlOk === false) {
-    return jsonResponse(429, { error: 'Prea multe încercări. Reîncearcă în câteva minute.' })
+    return jsonResponse(429, {
+      error: 'Prea multe încercări. Reîncearcă în câteva minute.',
+      code: 'rate_limited',
+    })
   }
 
   // Eroare de DB (rețea/RLS tranzitoriu) ≠ „fără abonament": fără verificare,
@@ -93,7 +116,10 @@ exports.handler = async (event) => {
   // 404 „nu ai abonament" unui admin cu abonament activ (audit săpt. 10).
   if (profileErr) {
     console.error('[stripe-portal] profile lookup failed:', profileErr.message)
-    return jsonResponse(503, { error: 'Serviciu temporar indisponibil. Reîncearcă.' })
+    return jsonResponse(503, {
+      error: 'Serviciu temporar indisponibil. Reîncearcă.',
+      code: 'service_unavailable',
+    })
   }
 
   const customerId = profile?.stripe_customer_id
@@ -114,6 +140,8 @@ exports.handler = async (event) => {
     const session = await stripe.billingPortal.sessions.create({
       customer: customerId,
       return_url: `${appUrl}/dashboard`,
+      // Lotul L8d: portalul în limba panoului; fără cheie = „auto”.
+      ...(locale ? { locale } : {}),
     })
     return jsonResponse(200, { url: session.url })
   } catch (e) {

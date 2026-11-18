@@ -58,6 +58,33 @@ const fr: Translation<typeof ro> = {
   sub_seePlans: 'Voir les formules',
   sub_opening: 'Ouverture…',
   sub_manage: 'Gérer l’abonnement',
+  sub_errUnavailable: 'Le portail de facturation n’est pas disponible pour le moment.',
+  sub_errRateLimited: 'Trop de tentatives. Réessayez dans quelques minutes.',
+  sub_errSession: 'Votre session a expiré. Reconnectez-vous.',
+  sub_errService: 'Service temporairement indisponible. Réessayez.',
+
+  // Le nom du plan « Fiscalizare » ne se traduit pas (nom commercial).
+  ck_subscriptionExists:
+    'Vous avez déjà un abonnement actif. Vous changez de formule depuis le portail de facturation.',
+  ck_planRequiresQuote:
+    'La formule Fiscalizare s’active sur devis, avec l’installation sur votre caisse enregistreuse. Demandez un devis.',
+  ck_subscriptionLookupFailed:
+    'Nous n’avons pas pu vérifier vos abonnements existants. Réessayez dans quelques instants.',
+  ck_createFailed:
+    'Nous n’avons pas pu lancer le paiement. Réessayez dans quelques instants et, si le problème persiste, écrivez-nous à {email}.',
+  ck_checkoutInProgress:
+    'Un paiement pour ce compte est déjà en cours. Réessayez dans quelques instants.',
+  ck_network:
+    'Nous n’avons pas pu joindre le serveur de paiement. Vérifiez votre connexion internet et réessayez.',
+  ck_auth: 'Votre session a expiré. Reconnectez-vous et relancez l’activation.',
+  ck_rateLimited: 'Trop de tentatives. Réessayez dans quelques minutes.',
+  ck_unavailable: 'Service temporairement indisponible. Réessayez dans quelques instants.',
+  ck_notConfigured:
+    'Le paiement en ligne n’est pas disponible pour le moment. Contactez-nous et nous activerons votre formule manuellement.',
+  ck_planUnavailable:
+    'La formule choisie ne peut pas être activée pour le moment. Écrivez-nous et nous l’activerons pour vous.',
+  ck_unknown:
+    'Nous n’avons pas pu lancer le paiement. Réessayez et, si le problème persiste, écrivez-nous par e-mail.',
 
   upsell_regionLabel: 'Offre : {title}',
   upsell_orderingLead:
