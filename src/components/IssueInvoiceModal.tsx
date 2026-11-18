@@ -9,6 +9,7 @@ import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { enqueueInvoice } from '../lib/invoices'
 import { toUserMessage } from '../lib/userMessages'
+import { track } from '../lib/analytics'
 
 interface PaidOrder {
   id: string
@@ -140,6 +141,12 @@ export default function IssueInvoiceModal({ restaurantId, onClose, onIssued }: P
         customerAddress: form.customer_address.trim() || undefined,
         customerEmail: form.customer_email.trim() || undefined,
         customerPhone: form.customer_phone.trim() || undefined,
+      })
+      // Cererea acceptată de server (factura intră în coada Oblio; emiterea e
+      // asincronă). Doar dacă e B2B — niciun câmp al clientului.
+      track('invoice_requested', {
+        restaurant_id: restaurantId,
+        b2b: form.customer_cif.trim().length > 0,
       })
       onIssued()
     } catch (e) {

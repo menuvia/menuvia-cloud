@@ -319,11 +319,16 @@ function AuthScreen({ onSuccess }: AuthPageProps) {
       // poate onora tab-ul de confirmare a emailului, și doar pentru el
       // (dispozitiv partajat — vezi `planIntent.ts`).
       bindPlanIntentToEmail(email)
-      // Telemetria funelului — zero PII (fără email/nume în properties).
-      track('signup_completed', {
-        email_confirmation_required: !data.session,
-        plan_intent: planIntent,
-      })
+      // Telemetria funelului — zero PII (fără email/nume în properties). Un
+      // e-mail DEJA înregistrat (și confirmat) nu dă eroare cu confirmarea
+      // pornită: GoTrue întoarce un user OBFUSCAT, fără identități și fără
+      // sesiune. Nu e un cont nou, deci nu intră în pâlnie.
+      if ((data.user?.identities?.length ?? 0) > 0) {
+        track('signup_completed', {
+          email_confirmation_required: !data.session,
+          plan_intent: planIntent,
+        })
+      }
 
       // If Supabase requires email confirmation, session is null — don't call onSuccess()
       if (!data.session) {
@@ -363,6 +368,8 @@ function AuthScreen({ onSuccess }: AuthPageProps) {
     } catch {
       /* fallback: continuăm fără pasul MFA din UI */
     }
+    // După ce serverul a acceptat parola (fără pas MFA) — zero PII.
+    track('login_completed', { mfa: false })
     onSuccess(email)
   }
 
@@ -386,6 +393,7 @@ function AuthScreen({ onSuccess }: AuthPageProps) {
         setLoading(false)
         return
       }
+      track('login_completed', { mfa: true })
       onSuccess(email)
     } catch {
       setError(t('mfaInvalidCode'))

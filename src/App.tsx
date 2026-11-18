@@ -35,6 +35,7 @@ import { fnUrl } from './lib/fn'
 import { browserSite, currentSite, defaultUiLang } from './lib/domain'
 import { checkoutOpenOnSite, siteCheckoutClosedFailure } from './lib/siteMarket'
 import { usePwaPromptAllowed } from './lib/pwaGate'
+import { track } from './lib/analytics'
 
 // ── Eager: doar pagina de intrare (LCP) ──────────────────────
 // OPT-R2: LandingPage devine lazy — intra în chunk-ul de ENTRY descărcat și
@@ -750,6 +751,8 @@ function AppRouter() {
             if (res.ok) {
               const url = readCheckoutUrl(payload)
               if (url) {
+                // Sesiunea Stripe creată de server; trimis IMEDIAT — pagina pleacă.
+                track('checkout_started', { plan }, { sendInstantly: true })
                 window.location.href = url
                 return
               }

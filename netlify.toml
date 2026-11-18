@@ -167,6 +167,14 @@
 [context.production.environment]
   VITE_APP_ENV    = "production"
   VITE_APP_URL    = "https://menuvia.ro"
+  # PostHog (proiectul 356135, regiunea UE). Cheia `phc_` e PUBLICĂ prin
+  # construcție — ajunge oricum în JS-ul oricărui browser —, deci stă aici, nu
+  # în UI. DOAR în producție: preview-urile, branch deploy-urile și develop
+  # rămân FĂRĂ cheie, adică fără analytics (src/lib/analytics.ts). Clichet:
+  # tests/functions/posthog-env.test.js (PE1–PE6). Încărcarea tot cere
+  # consimțământul „Performanță”.
+  VITE_POSTHOG_KEY  = "phc_mTaFQdzTfJXSRHvSBAmMXLhuBQpELZqWyr5uSiiXrPGS"
+  VITE_POSTHOG_HOST = "https://eu.i.posthog.com"
   # VITE_SUPABASE_URL și VITE_SUPABASE_ANON_KEY sunt setate în Netlify UI
   # pentru contextul "production" — pointing la project Supabase prod
 
