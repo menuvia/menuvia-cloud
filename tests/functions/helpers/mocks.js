@@ -92,6 +92,8 @@ const CHAIN_METHODS = [
   'delete',
   'ilike',
   'maybeSingle',
+  // stripe-webhook: UPDATE condiționat pe profil (abonament unic la finalizare).
+  'or',
 ]
 
 function makeBuilder(table) {
@@ -184,6 +186,7 @@ const STRIPE_OPTIONS_KEYS = [
   'additionalHeaders', 'streaming',
 ]
 const STRIPE_ID_METHODS = new Set([
+  'subscriptions.cancel', 'invoices.retrieve',
   'paymentIntents.cancel', 'paymentIntents.retrieve', 'subscriptions.retrieve',
   'customers.del', 'customers.retrieve', 'charges.retrieve', 'accounts.retrieve',
   'checkout.sessions.expire', 'checkout.sessions.retrieve',
@@ -219,6 +222,7 @@ function FakeStripe(key, opts) {
     },
     subscriptions: {
       retrieve: stripeMethod('subscriptions.retrieve'),
+      cancel: stripeMethod('subscriptions.cancel'),
       // `list()` NU e async în stripe-node: întoarce un obiect paginabil, iar
       // stripe-checkout cheamă `.autoPagingToArray({limit})` pe el. Impl-ul
       // scriptat primește argumentele listei + opțiunile de paginare.
@@ -263,7 +267,8 @@ function FakeStripe(key, opts) {
       retrieve: stripeMethod('accounts.retrieve'),
     },
     accountLinks: { create: stripeMethod('accountLinks.create') },
-    refunds: { list: stripeMethod('refunds.list') },
+    refunds: { list: stripeMethod('refunds.list'), create: stripeMethod('refunds.create') },
+    invoices: { retrieve: stripeMethod('invoices.retrieve') },
     charges: { retrieve: stripeMethod('charges.retrieve') },
     webhooks: {
       // constructEvent e SINCRON în stripe-node — nu-l trecem prin stripeMethod
@@ -341,6 +346,95 @@ function parseBody(res) {
   return JSON.parse(res.body)
 }
 
+// ── Tabelă cu STARE și semantica WHERE a PostgREST ───────────────────────────
+// installTable(name, rows) înlocuiește handler-ul tabelei cu un magazin de
+// rânduri. Filtrele `eq` / `is(col, null)` / `or('a.is.null,a.eq.x')` se
+// EVALUEAZĂ pe rânduri, iar `update(...).select()` întoarce DOAR rândurile
+// atinse — exact ce citește un UPDATE condiționat. Un handler scriptat care
+// întoarce „succes” orice ar fi WHERE-ul face orice test pe o gardă de
+// concurență VACUU: condiția ar putea lipsi și testul tot ar trece.
+//
+// Evaluarea unei operații e SINCRONĂ (se face când handler-ul face `await` pe
+// lanț, într-un singur pas al buclei de evenimente), deci două handler-e
+// pornite în paralel se SERIALIZEAZĂ pe fiecare operație ca sub lacătul de rând
+// din Postgres: al doilea UPDATE vede rândul scris de primul și își
+// re-evaluează WHERE-ul pe el (EvalPlanQual, READ COMMITTED).
+//
+// `hooks.beforeUpdate` (o singură dată) rulează IMEDIAT înaintea următorului
+// UPDATE: modelează o scriere concurentă COMISĂ între citirea și scrierea unui
+// handler (read-then-write), deterministic.
+// `hooks.afterUpdate` (o singură dată) rulează imediat DUPĂ evaluarea
+// următorului UPDATE, înaintea oricărei alte operații: modelează o scriere
+// concurentă comisă între un UPDATE condiționat ratat și citirea de după.
+// Un cârlig se poate re-arma singur (`table.hooks.x = fn` din interiorul lui),
+// ca să tragă la FIECARE UPDATE.
+// `readError`: orice citire `.single()` / `.maybeSingle()` întoarce eroarea
+// (blip de infra), scrierile rămân pe magazin.
+// Un filtru sau o operație nemodelată ARUNCĂ: testul pică zgomotos în loc să
+// treacă pe o semantică inventată.
+const TABLE_FILTERS = new Set(['eq', 'is', 'or'])
+const TABLE_VERBS = new Set(['update', 'select', 'single', 'maybeSingle'])
+function parseOrFilter(expr) {
+  return String(expr).split(',').map((term) => {
+    const m = /^([a-z_]+)\.(is|eq)\.(.+)$/.exec(term)
+    if (!m) throw new Error(`installTable: termen or() nemodelat: '${term}'`)
+    if (m[2] === 'is' && m[3] !== 'null') throw new Error(`installTable: doar is.null e modelat, nu '${term}'`)
+    return { col: m[1], op: m[2], val: m[3] }
+  })
+}
+function rowMatches(row, ops) {
+  for (const o of ops) {
+    if (TABLE_VERBS.has(o.m)) continue
+    if (!TABLE_FILTERS.has(o.m)) throw new Error(`installTable: operația '${o.m}' nu e modelată`)
+    const [col, val] = o.args
+    if (o.m === 'eq' && row[col] !== val) return false
+    if (o.m === 'is') {
+      if (val !== null) throw new Error(`installTable: doar is(col, null) e modelat`)
+      if (row[col] != null) return false
+    }
+    if (o.m === 'or') {
+      const ok = parseOrFilter(col).some((t) => (t.op === 'is' ? row[t.col] == null : row[t.col] === t.val))
+      if (!ok) return false
+    }
+  }
+  return true
+}
+function installTable(name, rows, { defaults = {}, readError = null } = {}) {
+  const table = {
+    rows: rows.map((r) => ({ ...defaults, ...r })),
+    // Scrierile EFECTIVE (cel puțin un rând atins), în ordine: payload + id-urile atinse.
+    writes: [],
+    hooks: { beforeUpdate: null, afterUpdate: null },
+  }
+  state.fromHandlers[name] = (ops) => {
+    const upd = ops.find((o) => o.m === 'update')
+    if (upd) {
+      const hook = table.hooks.beforeUpdate
+      table.hooks.beforeUpdate = null
+      if (hook) hook(table.rows)
+      const hit = table.rows.filter((r) => rowMatches(r, ops))
+      for (const r of hit) Object.assign(r, upd.args[0])
+      if (hit.length) table.writes.push({ payload: { ...upd.args[0] }, ids: hit.map((r) => r.id) })
+      // RETURNING-ul se ia ÎNAINTEA cârligului: e ce a văzut UPDATE-ul, nu ce
+      // a scris concurentul după el.
+      const returned = hasOp(ops, 'select') ? hit.map((r) => ({ ...r })) : null
+      const after = table.hooks.afterUpdate
+      table.hooks.afterUpdate = null
+      if (after) after(table.rows)
+      return { data: returned, error: null }
+    }
+    if (!hasOp(ops, 'select')) throw new Error(`installTable(${name}): doar select/update sunt modelate`)
+    const single = hasOp(ops, 'single') || hasOp(ops, 'maybeSingle')
+    if (single && readError) return { data: null, error: readError }
+    const hit = table.rows.filter((r) => rowMatches(r, ops))
+    if (!single) return { data: hit.map((r) => ({ ...r })), error: null }
+    if (hit.length === 1) return { data: { ...hit[0] }, error: null }
+    if (hit.length === 0 && hasOp(ops, 'maybeSingle')) return { data: null, error: null }
+    return { data: null, error: { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' } }
+  }
+  return table
+}
+
 module.exports = {
   state,
   resetMocks,
@@ -351,4 +445,5 @@ module.exports = {
   opArg,
   hasOp,
   parseBody,
+  installTable,
 }

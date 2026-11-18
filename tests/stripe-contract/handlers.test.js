@@ -46,6 +46,16 @@
 //   SDK10  stripe-webhook cu semnătură REALĂ: payload dahlia → comision cu plan și
 //          abonament; charge fără `invoice` → re-citire; formă necunoscută → 500;
 //          eveniment LIVE pe cheia de TEST → ignorat cu semnătură reală (livemode)
+//   SDK12  stripe-webhook, abonament unic la finalizare: profilul ține alt
+//          abonament VIU → pe fir, în ORDINE: citirea dublurii, citirea celui
+//          păstrat, DELETE pe dublură (urma în query, fără cheie), factura,
+//          lista de rambursări (pe payment_intent), POST /v1/refunds cu cheia
+//          `dupsub_refund_<factură>`; profilul (fake cu WHERE evaluat) neatins.
+//          Fake-ul din tests/functions nu vede metoda HTTP, query-ul sau
+//          antetele. [DE CONFIRMAT ÎN CI — SDK-ul real nu se poate instala în
+//          sesiunea agentului, deci nici testul, nici mutațiile lui (rambursarea
+//          înaintea anulării; urma scoasă) n-au rulat încă; ordinea și urma sunt
+//          ținute oricum de DUP16 și DUP2 în tests/functions]
 
 'use strict'
 
@@ -56,7 +66,7 @@ const os = require('os')
 const path = require('path')
 const t = require('./helpers/transport')
 const {
-  state, resetMocks, loadFunction, rpcCallsFor, parseBody,
+  state, resetMocks, loadFunction, rpcCallsFor, parseBody, installTable,
 } = require('../functions/helpers/mocks')
 
 const PIN = '2023-10-16'
@@ -426,10 +436,13 @@ describe('SDK10: stripe-webhook cu semnătură REALĂ', () => {
       .generateTestHeaderString({ payload: body, secret: 'whsec_contract' })
     return { httpMethod: 'POST', headers: { 'stripe-signature': header }, body }
   }
+  // Profilul urmărește abonamentul facturilor de mai jos (`sub_d`): altfel garda
+  // de dublură din invoice.paid (lotul #61) citește abonamentul din Stripe, iar
+  // transportul ar răspunde 599 pe o rută nescriptată.
   function okDb() {
     state.fromHandlers.stripe_events = () => ({ data: null, error: null })
     state.fromHandlers.lifecycle_events = () => ({ data: null, error: null })
-    state.fromHandlers.profiles = () => ({ data: { id: 'u1' }, error: null })
+    state.fromHandlers.profiles = () => ({ data: { id: 'u1', stripe_subscription_id: 'sub_d' }, error: null })
   }
   const dahliaInvoice = (lineOverrides = {}) => ({
     id: 'in_d', object: 'invoice', customer: 'cus_1', amount_paid: 49900, currency: 'ron',
@@ -497,5 +510,85 @@ describe('SDK10: stripe-webhook cu semnătură REALĂ', () => {
     const get = t.requests().find((r) => r.path.startsWith('/v1/charges/ch_9'))
     assert.equal(get.headers['stripe-version'], PIN)
     assert.equal(rpcCallsFor('process_affiliate_refund')[0].args.p_stripe_invoice_id, 'in_9')
+  })
+})
+
+describe('SDK12: stripe-webhook — dublura la finalizare, pe SDK-ul real', () => {
+  const COMMENT = 'menuvia:duplicate_subscription;kept=sub_kept'
+  function signedEvent(ev) {
+    const body = JSON.stringify(ev)
+    const header = new Stripe('sk_test_x', { apiVersion: PIN }).webhooks
+      .generateTestHeaderString({ payload: body, secret: 'whsec_contract' })
+    return { httpMethod: 'POST', headers: { 'stripe-signature': header }, body }
+  }
+
+  it('profilul ține alt abonament viu → anulare + rambursare a dublurii, în ordine, pe pin; profilul neatins', async () => {
+    state.fromHandlers.stripe_events = () => ({ data: null, error: null })
+    state.fromHandlers.lifecycle_events = () => ({ data: null, error: null })
+    const profiles = installTable('profiles', [
+      { id: 'u1', plan: 'growth', stripe_customer_id: 'cus_1', stripe_subscription_id: 'sub_kept' },
+    ])
+    const sub = (id, extra) => ({
+      id, object: 'subscription', status: 'active', metadata: { plan: 'growth' },
+      items: { object: 'list', data: [{ id: `si_${id}`, object: 'subscription_item', price: { id: 'price_growth', object: 'price' } }] },
+      ...extra,
+    })
+    t.route('GET', '/v1/subscriptions/sub_dup', { body: sub('sub_dup', { latest_invoice: 'in_dup' }) })
+    t.route('GET', '/v1/subscriptions/sub_kept', { body: sub('sub_kept', { latest_invoice: 'in_kept' }) })
+    t.route('DELETE', '/v1/subscriptions/sub_dup', { body: sub('sub_dup', {
+      status: 'canceled', latest_invoice: 'in_dup',
+      cancellation_details: { comment: COMMENT, feedback: null, reason: 'cancellation_requested' },
+    }) })
+    t.route('GET', '/v1/invoices/in_dup', { body: {
+      id: 'in_dup', object: 'invoice', status: 'paid', amount_paid: 24900, payment_intent: 'pi_dup', charge: 'ch_dup',
+    } })
+    t.route('GET', '/v1/refunds', { body: { object: 'list', has_more: false, data: [] } })
+    t.route('POST', '/v1/refunds', { body: { id: 're_dup', object: 'refund', amount: 24900, status: 'succeeded' } })
+
+    const saved = { error: console.error, log: console.log }
+    console.error = () => {}
+    console.log = () => {}
+    let res
+    try {
+      res = await webhook(signedEvent({
+        id: 'evt_dup', object: 'event', livemode: false, api_version: PIN,
+        type: 'checkout.session.completed', created: 1_700_000_000,
+        data: { object: {
+          id: 'cs_dup', object: 'checkout.session', mode: 'subscription',
+          client_reference_id: 'u1', customer: 'cus_1', subscription: 'sub_dup',
+        } },
+      }))
+    } finally {
+      Object.assign(console, saved)
+    }
+    assert.equal(res.statusCode, 200, res.body)
+
+    const reqs = t.requests()
+    const at = (r) => new URL(r.path, 'https://api.stripe.com')
+    assert.deepEqual(reqs.map((r) => `${r.method} ${at(r).pathname}`), [
+      'GET /v1/subscriptions/sub_dup',
+      'GET /v1/subscriptions/sub_kept',
+      'DELETE /v1/subscriptions/sub_dup',
+      'GET /v1/invoices/in_dup',
+      'GET /v1/refunds',
+      'POST /v1/refunds',
+    ])
+    for (const r of reqs) assert.equal(r.headers['stripe-version'], PIN)
+
+    const del = reqs[2]
+    assert.equal(at(del).searchParams.get('cancellation_details[comment]'), COMMENT)
+    assert.equal(at(del).searchParams.get('prorate'), 'false')
+    assert.equal(del.headers['idempotency-key'], undefined)
+
+    assert.equal(at(reqs[4]).searchParams.get('payment_intent'), 'pi_dup')
+    const post = reqs[5]
+    assert.equal(post.headers['idempotency-key'], 'dupsub_refund_in_dup')
+    const b = form(post)
+    assert.equal(b.payment_intent, 'pi_dup')
+    assert.equal(b.reason, 'duplicate')
+    assert.equal(b['metadata[menuvia_subscription]'], 'sub_dup')
+
+    assert.deepEqual(profiles.writes, [], 'profilul NU se atinge')
+    assert.equal(profiles.rows[0].stripe_subscription_id, 'sub_kept')
   })
 })
