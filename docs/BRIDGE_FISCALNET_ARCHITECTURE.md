@@ -297,9 +297,14 @@ Din iulie 2026 bridge-ul deservește DOUĂ cozi complet separate:
 Componente:
 
 - **DB (mig 227)**: `kitchen_tickets` (RLS: membri read-only; mutații DOAR prin RPC-uri),
-  `build_kitchen_ticket_payload` (text gata de tipărit: MASA/PICKUP/OSPĂTAR, produse cu
-  opțiuni+extras+note, oră Europe/Bucharest), `enqueue_kitchen_ticket` (CONSTRAINT TRIGGER
-  DEFERRABLE INITIALLY DEFERRED pe `orders`, catch-all — nu avortează comanda),
+  `build_kitchen_ticket_payload` (text gata de tipărit: antet, masă/ridicare/ospătar, produse
+  cu opțiuni+extras+note, ora comenzii; lanț 227→316→329: 316 citește extra-urile pe
+  `extra_name`, iar din 329 etichetele sunt în limba de bază a localului — `restaurants.language`,
+  ro/en/de/fr/it/hu/es, ASCII pur, NULL sau necunoscută → româna MASA/PICKUP/OSPATAR — și ora
+  e pe `restaurant_time_zone(restaurant_id)`, fus invalid sau lipsă → Europe/Bucharest; payload-ul
+  e STOCAT la enqueue, retry-ul îl retrimite neschimbat, reprint-ul îl regenerează),
+  `enqueue_kitchen_ticket` (CONSTRAINT TRIGGER DEFERRABLE INITIALLY DEFERRED pe `orders`,
+  catch-all — nu avortează comanda),
   `bridge_get_pending_tickets`/`bridge_claim_ticket`/`bridge_confirm_ticket` (auth pe
   `device_secret` + `prints_kitchen_receipts=true`), `kitchen_ticket_retry`/`_cancel`
   (is_admin), `kitchen_ticket_reprint` (is_member), `kitchen_tickets_mark_stale`
