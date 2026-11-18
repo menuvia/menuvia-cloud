@@ -347,17 +347,25 @@ end $$;
 -- ── §3. Informativ (ca notice-ul 324): localurile al căror tichet se schimbă ─
 -- Doar ro + București rămâne byte-identic; orice alt local (inclusiv unul din
 -- România cu limba de bază a meniului ≠ ro) primește de acum alte etichete
--- și/sau alt ceas pe tichet. Fondatorul vede lista la aplicare.
+-- și/sau alt ceas pe tichet. Fondatorul vede lista la aplicare. Lista e
+-- filtrată pe ACEEAȘI eligibilitate ca enqueue-ul (227: feature
+-- `kitchen_tickets` + un bridge cu `prints_kitchen_receipts`) — un local fără
+-- tichete nu are ce tichet să-i se schimbe (recenzie CodeRabbit pe #383).
 do $$
 declare v_list text;
 begin
-  select string_agg(format('%s (%s, %s)', r.slug, coalesce(r.language, 'NULL'),
-                           public.restaurant_time_zone(r.id)), ', ' order by r.slug)
+  select string_agg(format('%s (%s, %s)', x.slug, x.lang, x.tz), ', ' order by x.slug)
     into v_list
-    from public.restaurants r
-   where coalesce(r.language, 'ro') <> 'ro'
-      or public.restaurant_time_zone(r.id) <> 'Europe/Bucharest';
-  raise notice 'mig 329: localuri cu tichetul de bucătărie în altă limbă / pe alt fus decât ro + București: %',
+    from (
+      select r.slug, coalesce(r.language, 'NULL') as lang, public.restaurant_time_zone(r.id) as tz,
+             coalesce(r.language, 'ro') as eff_lang
+        from public.restaurants r
+       where public.restaurant_has_feature(r.id, 'kitchen_tickets')
+         and exists (select 1 from public.bridge_devices d
+                      where d.restaurant_id = r.id and d.prints_kitchen_receipts = true)
+    ) x
+   where x.eff_lang <> 'ro' or x.tz <> 'Europe/Bucharest';
+  raise notice 'mig 329: localuri care tipăresc tichete de bucătărie și le primesc de acum în altă limbă / pe alt fus decât ro + București: %',
     coalesce(v_list, '(niciunul)');
 end $$;
 

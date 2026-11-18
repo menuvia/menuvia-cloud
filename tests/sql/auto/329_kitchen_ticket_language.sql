@@ -521,8 +521,11 @@ begin
     raise exception 'KL8 FAIL: tichetul pus în coadă nu e german / pe Berlin:%', e'\n' || v_tk.payload;
   end if;
 
-  -- Limba localului se schimbă DUPĂ emitere.
-  update public.restaurants set language = 'fr' where id = '32900000-0000-4000-8000-00000000b003';
+  -- Limba ȘI fusul localului se schimbă DUPĂ emitere (recenzie CodeRabbit pe
+  -- #383: cu fusul neschimbat, un reprint care ar refolosi fusul de la emitere
+  -- trecea; New York = 18:30 15.07, deci se schimbă și ZIUA față de Berlin).
+  update public.restaurants set language = 'fr', timezone = 'America/New_York'
+   where id = '32900000-0000-4000-8000-00000000b003';
   update public.kitchen_tickets set status = 'error', error_code = 'PRINT_TIMEOUT' where id = v_tk.id;
 
   perform set_config('request.jwt.claim.sub', '32900000-0000-4000-8000-00000000a003', true);
@@ -534,6 +537,12 @@ begin
   if (select payload from public.kitchen_tickets where id = v_tk.id) is distinct from v_tk.payload then
     raise exception 'KL8 FAIL: retry-ul a rescris payload-ul stocat';
   end if;
+  -- Retry-ul trebuie să și REPUNĂ tichetul în coadă: un `ok:true` care lasă
+  -- rândul în `error` nu se mai tipărește niciodată (recenzie CodeRabbit pe #383).
+  if (select status from public.kitchen_tickets where id = v_tk.id) is distinct from 'pending' then
+    raise exception 'KL8 FAIL: retry-ul nu a repus tichetul în pending (status=%)',
+      (select status from public.kitchen_tickets where id = v_tk.id);
+  end if;
 
   v_res := public.kitchen_ticket_reprint(c_oid);
   if coalesce((v_res->>'ok')::boolean, false) is not true then
@@ -543,12 +552,12 @@ begin
   if not v_rp.is_reprint
      or split_part(v_rp.payload, e'\n', 1) is distinct from '*** REIMPRESSION ***'
      or split_part(v_rp.payload, e'\n', 2) is distinct from 'SERVEUR · TABLE: T3'
-     or split_part(v_rp.payload, e'\n', 3) not like '% · 00:30 16.07' then
-    raise exception 'KL8 FAIL: retipărirea nu e în limba curentă (fr) / ora comenzii:%', e'\n' || v_rp.payload;
+     or split_part(v_rp.payload, e'\n', 3) not like '% · 18:30 15.07' then
+    raise exception 'KL8 FAIL: retipărirea nu e în limba / pe fusul curent (fr, New York) la instantul comenzii:%', e'\n' || v_rp.payload;
   end if;
   perform set_config('request.jwt.claim.sub', '', true);
   perform set_config('request.jwt.claim.role', '', true);
-  raise notice 'KL8 PASS: enqueue stocat în de, retry neschimbat, reprint în fr';
+  raise notice 'KL8 PASS: enqueue stocat în de/Berlin, retry neschimbat + pending, reprint în fr/New York';
 end $$;
 
 -- ── KL9: suprafața, pe catalog ──────────────────────────────────────────────
@@ -566,10 +575,13 @@ begin
   if not (select p.prosecdef and p.provolatile = 's' from pg_proc p where p.oid = c_fn) then
     raise exception 'KL9 FAIL: nu mai e STABLE SECURITY DEFINER';
   end if;
-  select lower(regexp_replace(coalesce(array_to_string(p.proconfig, ','), ''), '[[:space:]]+', '', 'g')),
-         p.prosrc
+  -- Intrarea EXACTĂ din proconfig (recenzie CodeRabbit pe #383): o expresie
+  -- pe șirul unit cu virgule accepta și `public, pg_temp, alta_schema`.
+  select array_to_string(p.proconfig, ' | '), p.prosrc
     into v_cfg, v_src from pg_proc p where p.oid = c_fn;
-  if v_cfg !~ '(^|,)search_path=public,pg_temp(,|$)' then
+  if not exists (select 1 from pg_proc p, unnest(p.proconfig) c(e)
+                  where p.oid = c_fn
+                    and lower(regexp_replace(c.e, '[[:space:]]+', '', 'g')) = 'search_path=public,pg_temp') then
     raise exception 'KL9 FAIL: proconfig=%', v_cfg;
   end if;
   foreach v_role in array array['anon', 'authenticated'] loop
