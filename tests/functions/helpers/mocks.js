@@ -186,7 +186,7 @@ const STRIPE_OPTIONS_KEYS = [
 const STRIPE_ID_METHODS = new Set([
   'paymentIntents.cancel', 'paymentIntents.retrieve', 'subscriptions.retrieve',
   'customers.del', 'customers.retrieve', 'charges.retrieve', 'accounts.retrieve',
-  'checkout.sessions.expire',
+  'checkout.sessions.expire', 'checkout.sessions.retrieve',
 ])
 function assertStripeArgs(name, args) {
   const params = STRIPE_ID_METHODS.has(name) ? args[1] : args[0]
@@ -253,6 +253,8 @@ function FakeStripe(key, opts) {
           return impl ? impl(...args) : { object: 'list', data: [], has_more: false }
         },
         expire: stripeMethod('checkout.sessions.expire'),
+        // Recitirea unei sesiuni întoarse de un REPLAY al cheii (stripe-checkout).
+        retrieve: stripeMethod('checkout.sessions.retrieve'),
       },
     },
     billingPortal: { sessions: { create: stripeMethod('billingPortal.sessions.create') } },

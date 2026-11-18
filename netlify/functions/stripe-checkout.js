@@ -49,8 +49,9 @@ const CHECKOUT_CREATE_FAILED_MSG =
 
 // O plată a acestui cont e deja în mișcare și nu putem garanta că pornim una
 // singură: sesiunile n-au putut fi citite sau închise (vezi
-// `settleOpenSessions`), sau Stripe a respins cheia de idempotență reutilizată
-// cu alt corp. Cheia se repetă doar cât nicio sesiune nouă n-a apărut între
+// `settleOpenSessions`), Stripe a respins cheia de idempotență reutilizată
+// cu alt corp, sau a reluat (replay) pe cheie o sesiune închisă între timp.
+// Cheia se repetă doar cât nicio sesiune nouă n-a apărut între
 // timp (`sessionsTagOf`), deci cazul obișnuit e o cerere CONCURENTĂ încă în
 // zbor: la reîncercare lista vede sesiunea câștigătoare și o reia sau o
 // închide — de aceea textul NU promite o fereastră de timp. Rar: dacă prima
@@ -59,14 +60,29 @@ const CHECKOUT_CREATE_FAILED_MSG =
 // următoare a cheii.
 const CHECKOUT_IN_PROGRESS_MSG = 'O plată pentru acest cont e deja în curs. Reîncearcă în câteva momente.'
 
-// O singură pagină din lista Stripe (`limit` maxim = 100), cu sesiunile
+// Lista Stripe se citește în pagini de câte 100 (`limit` maxim), cu sesiunile
 // clientului din ORICE stare și mod (inclusiv creditele AI) din intervalul
-// `SESSIONS_LOOKBACK_S`. Cu politica de mai jos un client are cel mult o
-// sesiune de abonament deschisă; mai multe vin din codul de dinainte (o sesiune
-// nouă la fiecare fereastră de 30 de minute, valabilă 24 h) sau dintr-o cursă
-// între două cereri cu planuri diferite. Peste 100 de sesiuni în ~25 h (doar
-// prin sute de schimbări de plan) → `has_more` → 409 până ies din interval.
+// `SESSIONS_LOOKBACK_S` — TOATE paginile, înaintea oricărei închideri
+// (recenzia pe #384, runda 3): o închidere făcută pe o listă incompletă lăsa
+// deschisă o sesiune nevăzută, iar segmentul de stare al cheii se calcula pe o
+// mulțime incompletă. Cu politica de mai jos un client are de regulă cel mult
+// o sesiune de abonament deschisă; mai multe vin din codul de dinainte (o
+// sesiune nouă la fiecare fereastră de 30 de minute, valabilă 24 h) sau din
+// cursele de la `settleOpenSessions`. Peste `SESSIONS_MAX_PAGES` pagini (300
+// de sesiuni în ~25 h: sute de schimbări de plan SAU de cumpărări de credite
+// AI — ai-credits-checkout.js creează o sesiune `mode: 'payment'` pe același
+// client la fiecare click, fără cheie de idempotență și fără plafon; ele intră
+// în paginare, deși nu se închid) → 409 până ies din interval, FĂRĂ nicio
+// închidere.
 const SESSIONS_PAGE = 100
+const SESSIONS_MAX_PAGES = 3
+
+// Un abonament „viu” — același predicat pentru istoricul de abonamente și
+// pentru o sesiune finalizată după citirea lui (`hasLiveSubscriptionSinceHistory`).
+// 'unpaid' și 'incomplete' acoperă fereastra dintre eșecul repetat de plată
+// și anularea efectivă a subscripției — fără ele, un checkout nou ar putea
+// porni un al doilea abonament pe o subscripție încă "vie" la Stripe.
+const LIVE_SUBSCRIPTION_STATUSES = ['active', 'trialing', 'past_due', 'unpaid', 'incomplete']
 
 // Fereastra cheii de idempotență (vezi cheia de la `sessions.create`).
 const KEY_WINDOW_MS = 30 * 60 * 1000
@@ -91,6 +107,13 @@ function customerIdOf(s) {
   if (typeof s?.customer === 'string') return s.customer
   return s?.customer?.id ?? null
 }
+
+function subscriptionIdOf(s) {
+  if (typeof s?.subscription === 'string') return s.subscription
+  return s?.subscription?.id ?? null
+}
+
+const nowSeconds = () => Math.floor(Date.now() / 1000)
 
 /**
  * Sesiunea deschisă e EXACT plata pe care ar porni-o cererea curentă?
@@ -137,11 +160,14 @@ function isReusableSession(s, want, nowS) {
  *      EXPIRAT (growth → starter cu creare eșuată → growth) sau FINALIZAT, cu
  *      abonamentul anulat. Prima variantă dădea `s0` celei de-a treia cereri,
  *      exact cheia lui X;
- *  (2) două cereri SIMULTANE identice au aceeași cheie. Starea NU intră, deci
- *      închiderea unei sesiuni vechi de către una dintre ele nu schimbă
- *      mulțimea pe care o citește cealaltă; o schimbă doar o sesiune NOUĂ. Cu
- *      prima variantă, a doua cerere listată după `expire`-ul primei dădea
- *      `s0`, cealaltă `s<hash>` — două sesiuni completabile pentru același plan.
+ *  (2) două cereri SIMULTANE identice din ACEEAȘI fereastră a cheii au aceeași
+ *      cheie (la granița ferestrei, nu — vezi `settleOpenSessions`). Starea
+ *      NU intră, deci închiderea unei sesiuni vechi de către una dintre ele nu schimbă
+ *      mulțimea pe care o citește cealaltă; o schimbă doar o sesiune NOUĂ (una
+ *      născută între cele două liste dă chei diferite — cazul (d) de la
+ *      `settleOpenSessions`). Cu prima variantă, a doua cerere listată după
+ *      `expire`-ul primei dădea `s0`, cealaltă `s<hash>` — două sesiuni
+ *      completabile pentru același plan.
  * Mulțimea e filtrată și aici pe `sinceS` (nu ne bizuim doar pe filtrul
  * Stripe), ca segmentul să depindă doar de fereastră și de sesiunile născute.
  */
@@ -161,52 +187,149 @@ function sessionsTagOf(sessions, sinceS) {
  * deschisă a clientului (alt plan, altă origine, alt preț, creată de codul de
  * dinainte) se închide (`expire`) înaintea creării — ultimul click câștigă.
  * Fără asta, o sesiune `checkout_v4` pornită înainte de deploy și una `v7`
- * după, sau două sesiuni de o parte și de alta a graniței ferestrei de 30 de
- * minute, erau completabile AMBELE = două abonamente facturate.
+ * după, sau două sesiuni SUCCESIVE de o parte și de alta a graniței ferestrei
+ * de 30 de minute, erau completabile AMBELE = două abonamente facturate.
  *
  * Aruncă (→ 409 `checkout_in_progress`, fail-closed, fără sesiune nouă) dacă
- * lista nu poate fi citită, dacă o închidere eșuează sau dacă pagina nu le
- * cuprinde pe toate (`has_more`). Cumpărările de credite AI
+ * lista nu poate fi citită complet (o pagină eșuată, `has_more` fără cursor,
+ * peste `SESSIONS_MAX_PAGES` pagini — în toate cazurile ÎNAINTEA oricărei
+ * închideri) sau dacă o închidere eșuează. Cumpărările de credite AI
  * (ai-credits-checkout.js, `mode: 'payment'`, același client Stripe) nu se
- * ating. Garanția e la CREARE: două cereri simultane cu planuri diferite pot
- * lista amândouă înainte ca vreuna să-și fi creat sesiunea, deci fiecare
- * creează una — închiderea clasei la FINALIZARE (webhook-ul anulează al doilea
- * abonament viu) e lotul următor.
+ * ating. Garanția e la CREARE și NU acoperă cererile SIMULTANE ale căror CHEI
+ * diferă: listează amândouă înainte ca vreuna să-și fi creat sesiunea și
+ * fiecare creează câte o sesiune completabilă. Cheile diferă prin (a) plan;
+ * (b) fereastră (ACELAȘI plan, de o parte și de alta a graniței de 30 de
+ * minute: intervale și chei diferite, deși niciuna nu vede sesiunea
+ * celeilalte); (c) `referral_code` (ACELAȘI plan și aceeași fereastră, un tab
+ * care a rezolvat codul și unul care nu — codul e în cheie); (d) segmentul de
+ * stare (ACELAȘI plan și aceeași fereastră, dar sesiunea unei a treia cereri
+ * se naște între cele două liste). Tot neacoperită: o plată finalizată DUPĂ
+ * listă. Închiderea clasei la FINALIZARE (webhook-ul anulează al doilea
+ * abonament viu) e lotul următor (#61). Neacoperit nici de #61, fiindcă nu e
+ * un al doilea abonament: sub cursa cu planuri diferite, o cerere poate primi
+ * 200 cu URL-ul unei sesiuni pe care cealaltă tocmai a închis-o (`keep` vine
+ * din aceeași listă pe care cealaltă o închide, iar reverificarea de mai jos
+ * citește doar ceasul; la replay, vezi recitirea din handler) — omul ajunge
+ * pe pagina Stripe „expirată” și reîncearcă cu un click nou.
  *
- * O SINGURĂ listă, fără filtru de stare, servește ambelor scopuri: sesiunile
- * deschise (reluare / închidere) și segmentul de stare al cheii
+ * O SINGURĂ listă, fără filtru de stare, servește tuturor scopurilor:
+ * sesiunile deschise (reluare / închidere), cele finalizate între timp
+ * (`hasLiveSubscriptionSinceHistory`) și segmentul de stare al cheii
  * (`sessionsTagOf`, care cere și sesiunile expirate/finalizate din interval).
+ *
+ * `{ subscriptionExists: true }` = prima plată s-a finalizat între citirea
+ * istoricului și listă: același 409 `subscription_exists`, nimic închis.
  */
-async function settleOpenSessions(stripe, customerId, want, keyWindow) {
-  const nowS = Math.floor(Date.now() / 1000)
+async function settleOpenSessions(stripe, customerId, want, keyWindow, knownSubscriptionIds) {
   const sinceS = Math.floor((keyWindow * KEY_WINDOW_MS) / 1000) - SESSIONS_LOOKBACK_S
-  const page = await stripe.checkout.sessions.list({
-    customer: customerId,
-    created: { gte: sinceS },
-    limit: SESSIONS_PAGE,
-  })
-  if (!page || !Array.isArray(page.data)) throw new Error('checkout.sessions.list: răspuns fără `data`')
+  const all = await listSessionsSince(stripe, customerId, sinceS)
   // Sesiunile de ABONAMENT ale clientului, din orice stare.
-  const subs = page.data.filter((s) => s && s.mode === 'subscription' && customerIdOf(s) === customerId)
+  const subs = all.filter((s) => s && s.mode === 'subscription' && customerIdOf(s) === customerId)
+  if (await hasLiveSubscriptionSinceHistory(stripe, subs, knownSubscriptionIds)) {
+    return { subscriptionExists: true }
+  }
   const open = subs.filter((s) => s.status === 'open')
   // Mai multe reutilizabile (cursă, sau cod vechi + nou): cea mai NOUĂ rămâne.
-  const keep = open
-    .filter((s) => isReusableSession(s, want, nowS))
+  // Timpul se citește DUPĂ listă (paginile pot dura secunde).
+  let keep = open
+    .filter((s) => isReusableSession(s, want, nowSeconds()))
     .sort((a, b) => (Number(b.created) || 0) - (Number(a.created) || 0))[0] || null
-  const stale = open.filter((s) => s !== keep)
-  const results = await Promise.allSettled(stale.map((s) => stripe.checkout.sessions.expire(s.id)))
+  await expireAll(stripe, open.filter((s) => s !== keep))
+  // Și din nou chiar înainte de a întoarce URL-ul (runda 3): închiderile pot
+  // dura și ele (timeout 6 s per cerere), iar o sesiune aleasă la limită ar fi
+  // ajuns la om cu mai puțin de `REUSE_MIN_LEFT_S`. Sub prag → se închide și
+  // ea, ca orice sesiune nereutilizabilă, și se creează una nouă.
+  if (keep && !isReusableSession(keep, want, nowSeconds())) {
+    await expireAll(stripe, [keep])
+    keep = null
+  }
+  return { reuseUrl: keep ? keep.url : null, sessionsTag: sessionsTagOf(subs, sinceS) }
+}
+
+/**
+ * TOATE sesiunile clientului create de la `sinceS`, paginate cu
+ * `starting_after` (cursorul = ultima sesiune a paginii; Stripe le întoarce de
+ * la cea mai nouă). Aruncă la orice pagină eșuată sau fără `data`, la
+ * `has_more` fără cursor și peste `SESSIONS_MAX_PAGES` pagini — apelantul nu
+ * închide nimic pe o listă incompletă.
+ */
+async function listSessionsSince(stripe, customerId, sinceS) {
+  const all = []
+  let startingAfter = null
+  for (let pageNo = 0; pageNo < SESSIONS_MAX_PAGES; pageNo++) {
+    const page = await stripe.checkout.sessions.list({
+      customer: customerId,
+      created: { gte: sinceS },
+      limit: SESSIONS_PAGE,
+      ...(startingAfter ? { starting_after: startingAfter } : {}),
+    })
+    if (!page || !Array.isArray(page.data)) throw new Error('checkout.sessions.list: răspuns fără `data`')
+    all.push(...page.data)
+    if (page.has_more !== true) return all
+    const last = page.data[page.data.length - 1]
+    if (typeof last?.id !== 'string') throw new Error('checkout.sessions.list: `has_more` fără cursor')
+    startingAfter = last.id
+  }
+  throw new Error(`peste ${SESSIONS_MAX_PAGES * SESSIONS_PAGE} sesiuni în interval`)
+}
+
+/**
+ * Prima plată s-a finalizat ÎNTRE citirea istoricului de abonamente și listă
+ * (runda 3 a recenziei pe #384): sesiunea e `complete`, dar abonamentul ei nu
+ * era în istoric, deci verificarea „abonament viu” din handler nu l-a văzut.
+ * Se recitește abonamentul: viu (`LIVE_SUBSCRIPTION_STATUSES`) → `true`;
+ * sesiune fără abonament, recitire eșuată sau abonament fără stare → aruncă
+ * (409 `checkout_in_progress`, nimic închis); altă stare (terminal) → `false`,
+ * crearea continuă. Un abonament viu bate o recitire eșuată a altei sesiuni.
+ */
+async function hasLiveSubscriptionSinceHistory(stripe, subs, knownSubscriptionIds) {
+  const unseen = subs.filter((s) => s.status === 'complete' && !knownSubscriptionIds.has(subscriptionIdOf(s)))
+  const results = await Promise.allSettled(unseen.map(async (s) => {
+    const id = subscriptionIdOf(s)
+    if (!id) throw new Error(`sesiunea finalizată ${s.id} n-are abonament`)
+    const sub = await stripe.subscriptions.retrieve(id)
+    if (typeof sub?.status !== 'string') throw new Error(`abonamentul ${id} n-are stare`)
+    return LIVE_SUBSCRIPTION_STATUSES.includes(sub.status)
+  }))
+  if (results.some((r) => r.status === 'fulfilled' && r.value === true)) return true
+  const failed = results.find((r) => r.status === 'rejected')
+  if (failed) {
+    throw Object.assign(new Error(`abonament nerecitit: ${failed.reason?.message}`), {
+      type: failed.reason?.type, code: failed.reason?.code,
+    })
+  }
+  return false
+}
+
+/** Închide sesiunile date; aruncă dacă oricare închidere eșuează. */
+async function expireAll(stripe, sessions) {
+  const results = await Promise.allSettled(sessions.map((s) => stripe.checkout.sessions.expire(s.id)))
   const failed = results.filter((r) => r.status === 'rejected')
   if (failed.length) {
     const reason = failed[0].reason
-    throw Object.assign(new Error(`expire eșuat pe ${failed.length}/${stale.length} sesiuni deschise`), {
+    throw Object.assign(new Error(`expire eșuat pe ${failed.length}/${sessions.length} sesiuni deschise`), {
       type: reason?.type, code: reason?.code,
     })
   }
-  // O pagină care NU le cuprinde pe toate: cele văzute s-au închis, dar nu
-  // putem garanta că nu mai rămâne alta completabilă. Reîncercarea continuă.
-  // Tot aici: fără pagina completă, segmentul de stare n-ar fi complet.
-  if (page.has_more === true) throw new Error(`peste ${SESSIONS_PAGE} sesiuni în interval`)
-  return { reuseUrl: keep ? keep.url : null, sessionsTag: sessionsTagOf(subs, sinceS) }
+}
+
+/**
+ * Răspunsul lui `sessions.create` e un REPLAY al cheii: Stripe a întors
+ * răspunsul SALVAT la prima cerere cu cheia (antetul `Idempotent-Replayed:
+ * true`, docs.stripe.com/error-low-level), deci și starea de ATUNCI. SDK-ul
+ * atașează obiectului răspunsul HTTP brut ca `lastResponse` (RequestSender,
+ * stripe@23; pe clientul Node e `IncomingMessage`, cu antetele cu litere
+ * mici). Pe alt client HTTP antetul nu se vede → replay-ul trece ca înainte.
+ */
+function isIdempotentReplay(session) {
+  return session?.lastResponse?.headers?.['idempotent-replayed'] === 'true'
+}
+
+function subscriptionExistsResponse() {
+  return jsonResponse(409, {
+    error: 'Ai deja un abonament. Schimbă planul din Portalul de facturare.',
+    code: 'subscription_exists',
+  })
 }
 
 /**
@@ -503,18 +626,9 @@ exports.handler = async (event) => {
     })
   }
 
-  // 'unpaid' și 'incomplete' acoperă fereastra dintre eșecul repetat de plată
-  // și anularea efectivă a subscripției — fără ele, un checkout nou ar putea
-  // porni un al doilea abonament pe o subscripție încă "vie" la Stripe.
-  const hasLive = subsAll.some(
-    (s) => ['active', 'trialing', 'past_due', 'unpaid', 'incomplete'].includes(s.status),
-  )
-  if (hasLive) {
-    return jsonResponse(409, {
-      error: 'Ai deja un abonament. Schimbă planul din Portalul de facturare.',
-      code: 'subscription_exists',
-    })
-  }
+  // Predicatul „viu”: `LIVE_SUBSCRIPTION_STATUSES` (de ce 'unpaid'/'incomplete', acolo).
+  const hasLive = subsAll.some((s) => LIVE_SUBSCRIPTION_STATUSES.includes(s.status))
+  if (hasLive) return subscriptionExistsResponse()
   // trial-once: dacă a existat VREODATĂ un trial, nu mai acordăm altul (anti trial-farming).
   const hadTrial = subsAll.some((s) => s.trial_start != null || s.trial_end != null)
   if (hadTrial) allowTrial = false
@@ -543,13 +657,19 @@ exports.handler = async (event) => {
   if (!isFreshCustomer) {
     let settled
     try {
-      settled = await settleOpenSessions(stripe, customerId, want, keyWindow)
+      // Abonamentele din istoric: o sesiune finalizată al cărei abonament NU e
+      // printre ele s-a plătit între cele două citiri.
+      const knownSubscriptionIds = new Set(subsAll.map((s) => s?.id).filter((id) => typeof id === 'string'))
+      settled = await settleOpenSessions(stripe, customerId, want, keyWindow, knownSubscriptionIds)
     } catch (e) {
       console.error('[stripe-checkout] open sessions not settled (fail-closed):', {
         type: e?.type, code: e?.code, message: e?.message,
       })
       return jsonResponse(409, { error: CHECKOUT_IN_PROGRESS_MSG, code: 'checkout_in_progress' })
     }
+    // Prima plată s-a finalizat între citirea istoricului și listă: același
+    // răspuns ca abonamentul viu din istoric.
+    if (settled.subscriptionExists) return subscriptionExistsResponse()
     // Aceeași plată, deja deschisă → îi întoarcem URL-ul (aceeași formă ca la
     // creare). Limba paginii rămâne a sesiunii existente.
     if (settled.reuseUrl) return jsonResponse(200, { url: settled.reuseUrl })
@@ -599,7 +719,9 @@ exports.handler = async (event) => {
         // (`sessionsTagOf`: o închidere nu-l schimbă, doar o sesiune nouă). Planul și
         // trialul deosebesc două plăți; `referral_code` NU (schimbă doar metadata —
         // atribuirea primară e `capture_affiliate_attribution` de mai sus, pe
-        // `stripe_customer_id`): e în cheie ca pe main. Excepția deliberată e limba
+        // `stripe_customer_id`): e în cheie ca pe main, deci două cereri SIMULTANE
+        // care diferă doar prin el au chei diferite — neacoperit la creare (cazul
+        // (c) de la `settleOpenSessions`). Excepția deliberată e limba
         // paginii (`locale`, vezi `v7` mai jos).
         // Fereastră temporală de 30 min: fără ea, aceeași cerere repetată mult mai
         // târziu (ex. a doua zi) ar rămâne blocată pe cheia veche la Stripe.
@@ -641,6 +763,32 @@ exports.handler = async (event) => {
       return jsonResponse(409, { error: CHECKOUT_IN_PROGRESS_MSG, code: 'checkout_in_progress' })
     }
     return jsonResponse(502, { error: CHECKOUT_CREATE_FAILED_MSG, code: 'checkout_create_failed' })
+  }
+
+  // REPLAY al cheii (runda 3): o cerere SIMULTANĂ a listat înaintea sesiunii
+  // noastre, a calculat aceeași cheie și primește acum de la Stripe răspunsul
+  // SALVAT al creării — cu starea `open` de ATUNCI, chiar dacă între timp o
+  // altă cerere a închis sesiunea (`expire`) sau omul a finalizat-o. Starea
+  // curentă se recitește; orice altceva decât `open` (sau recitirea eșuată) →
+  // 409 retryable. NU se creează aici o sesiune cu o cheie nouă calculată din
+  // același instantaneu (lista citită ÎNAINTEA sesiunii): la reîncercare lista
+  // o vede, iar segmentul de stare dă altă cheie. O creare proaspătă (fără
+  // replay) e mereu `open` și nu costă o cerere în plus. Recitirea ÎNGUSTEAZĂ
+  // fereastra, n-o închide: o închidere a altei cereri între recitire și
+  // răspuns lasă tot un 200 cu URL-ul unei sesiuni închise (consemnat la
+  // `settleOpenSessions`).
+  if (isIdempotentReplay(session)) {
+    let current = null
+    try {
+      current = await stripe.checkout.sessions.retrieve(session.id)
+    } catch (e) {
+      console.error('[stripe-checkout] replayed session not re-read (fail-closed):', {
+        type: e?.type, code: e?.code, message: e?.message,
+      })
+    }
+    if (current?.status !== 'open') {
+      return jsonResponse(409, { error: CHECKOUT_IN_PROGRESS_MSG, code: 'checkout_in_progress' })
+    }
   }
 
   return jsonResponse(200, { url: session.url })

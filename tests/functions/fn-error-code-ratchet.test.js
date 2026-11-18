@@ -23,12 +23,20 @@
 //        Un literal SUPRASCRIS mai târziu în același obiect nu e un cod stabil
 //        (recenzia CodeRabbit pe #384, runda 2): `{ code: 'x', ...details }`,
 //        `{ code: 'x', code: y }`, o redefinire prin cheie citată (`'code': y`),
-//        o cheie calculată (`[k]: …`) sau un accesor `get code()` după literal
-//        → respins; literalul e acceptat DOAR dacă vine după orice spread /
+//        o cheie calculată (`[k]: …`, și după un modificator: `get ['code']()`,
+//        `get [k]()`), un accesor `get code()` sau o metodă `async code()` /
+//        `*code()` după literal (și cu comentarii / spații / rânduri noi între
+//        modificator și cheie: `get /* motiv */ code()`) → respins; un getter
+//        sau o metodă fără legătură (`get other()`, `get codeHint()`, `async
+//        other()`) sau o cheie numită `get` / `async` rămân valide; literalul e
+//        acceptat DOAR dacă vine după orice spread /
 //        redefinire (`{ ...details, code: 'x' }`). Cheia citată `'code': 'x'`
 //        e recunoscută ca `code`. Un spread IMBRICAT nu contează.
 //        [PICĂ: prima cheie `code` decide (varianta de dinainte); cheia citată
-//        ignorată la redefinire]
+//        ignorată la redefinire; accesorul căutat într-o felie fixă de text
+//        (un comentariu între `get` și `code` îl ascundea); modificatorul
+//        căutat doar ca `get`/`set` urmat de `code` (scăpau `get ['code']()`,
+//        `async code()`, `*code()`)]
 //   FEC1 în cele opt funcții, fiecare apel `jsonResponse(<non-2xx>, {…})` are
 //        cheia `code` la PRIMUL nivel al obiectului, iar VALOAREA ei e un șir
 //        literal ne-gol (`code: undefined`, `''`, `null`, `e.code`, o variabilă
@@ -70,7 +78,7 @@ const ROOT = path.join(__dirname, '..', '..')
 // contract. Funcțiile AI și send-invite aveau deja codul pe fiecare ramură
 // (lib/aiErrors.js, AEC1–AEC5; `fail()`, L6b); cele trei Stripe l-au primit în L8d.
 const EXPECTED = {
-  'netlify/functions/stripe-checkout.js': 17,
+  'netlify/functions/stripe-checkout.js': 18,
   'netlify/functions/stripe-portal.js': 9,
   'netlify/functions/stripe-connect.js': 12,
   'netlify/functions/send-invite.js': 15,
@@ -255,8 +263,9 @@ function literalString(src, a, b) {
 //
 // Decide ULTIMA proprietate de la primul nivel care POATE scrie `code` (în JS
 // câștigă ultima): o cheie `code` (identificator sau șir `'code'`/`"code"`), un
-// spread `...x`, o cheie calculată `[…]` sau un accesor `get`/`set code`. Un
-// literal urmat de oricare dintre ele nu e un cod stabil → `overridden`.
+// spread `...x`, o cheie calculată `[…]` (și după un modificator), un accesor
+// `get`/`set code` sau o metodă `async`/`*` `code`. Un literal urmat de oricare
+// dintre ele nu e un cod stabil → `overridden`.
 function topLevelCode(src, masked, a, b) {
   let k = a
   while (k < b && /\s/.test(masked[k])) k++
@@ -277,12 +286,27 @@ function topLevelCode(src, masked, a, b) {
       last = { kind: 'override', what: 'un spread' }
       continue
     }
+    // Modificatorii unui accesor / unei metode (`get`, `set`, `async`, `*`),
+    // cu ORICE spații sau comentarii după ei (`get /* motiv */ code()`): pe
+    // sursa MASCATĂ comentariile sunt spații, deci se sare peste ele. Cheia de
+    // după modificator se judecă la fel ca una fără: `get ['code']()` e o cheie
+    // calculată, `async code()` / `*code()` scriu `code` (JSON.stringify sare
+    // peste o funcție, deci corpul pleacă FĂRĂ cod). Când cuvântul e chiar
+    // cheia (`get: y`, `async() {}`, `{ get }`), saltul se oprește pe `:` /
+    // `(` / `,` / `}`, unde nu e nici `code`, nici `[` — deci fără o gardă
+    // separată. (Recenzia pe #384, runda 4: modificatorul era căutat doar ca
+    // `get`/`set` urmat de `code`.)
+    let modifier = null
+    for (;;) {
+      const w = /^(get|set|async)(?![\w$])/.exec(masked.slice(j, j + 6))
+      if (masked[j] === '*') j++
+      else if (w) j += w[1].length
+      else break
+      modifier = modifier || (w ? w[1] : '*')
+      while (j < b && /\s/.test(masked[j])) j++
+    }
     if (masked[j] === '[') {
       last = { kind: 'override', what: 'o cheie calculată' }
-      continue
-    }
-    if (/^(get|set)\s+(code\b|['"]code['"])/.test(src.slice(j, j + 12))) {
-      last = { kind: 'override', what: 'un accesor' }
       continue
     }
     // Cheia `code`: identificator, sau șir citat (conținutul e mascat — se
@@ -291,6 +315,10 @@ function topLevelCode(src, masked, a, b) {
     if (masked.slice(j, j + 4) === 'code' && !/[\w$]/.test(masked[j + 4] || '')) keyEnd = j + 4
     else if ((src[j] === "'" || src[j] === '"') && src.slice(j, j + 6) === `${src[j]}code${src[j]}`) keyEnd = j + 6
     if (keyEnd < 0) continue
+    if (modifier) {
+      last = { kind: 'override', what: modifier === 'get' || modifier === 'set' ? 'un accesor' : 'o metodă' }
+      continue
+    }
     present = true
     let c = keyEnd
     while (c < b && /\s/.test(masked[c])) c++
@@ -424,6 +452,21 @@ describe('FEC0: scanerul, pe surse sintetice', () => {
       "return jsonResponse(503, { ...a, code: 'x', ...b })",
       "return jsonResponse(503, { code: 'x', [k]: 'y' })",
       "return jsonResponse(503, { code: 'x', get code() { return y } })",
+      // Accesorul trece de comentarii și de spații / rânduri noi între cuvânt și cheie.
+      "return jsonResponse(503, { code: 'x', get /* motiv */ code() { return y } })",
+      "return jsonResponse(503, { code: 'x', set // motiv\n  code(v) {} })",
+      "return jsonResponse(503, { code: 'x', get\n    'code'() { return y } })",
+      "return jsonResponse(503, { code: 'x', get/**/\"code\"() { return y } })",
+      // Cheia de după modificator se judecă la fel ca una fără: un accesor
+      // calculat, o metodă `async` / generator (JSON.stringify sare peste o
+      // funcție — corpul pleacă fără `code`). [PICĂ: modificatorul căutat doar
+      // ca `get`/`set` urmat de `code` (varianta rundei 3)]
+      "return jsonResponse(503, { code: 'x', get ['code']() { return y } })",
+      "return jsonResponse(503, { code: 'x', get [k]() { return y } })",
+      "return jsonResponse(503, { code: 'x', async code() { return y } })",
+      "return jsonResponse(503, { code: 'x', async ['code']() { return y } })",
+      "return jsonResponse(503, { code: 'x', *code() {} })",
+      "return jsonResponse(503, { code: 'x', async /* motiv */ *code() {} })",
     ]
     for (const src of overridden) {
       const found = bad(src)
@@ -454,6 +497,20 @@ describe('FEC0: scanerul, pe surse sintetice', () => {
       "return jsonResponse(503, { code: 'x', list: [...items] })",
       // O cheie care doar ÎNCEPE cu „code” nu e `code`.
       "return jsonResponse(503, { code: 'x', codeHint: y, 'codes': z })",
+      // Un getter FĂRĂ legătură (și cu comentariu) sau o cheie numită `get`
+      // nu scriu `code`.
+      "return jsonResponse(503, { code: 'x', get other() { return 1 } })",
+      "return jsonResponse(503, { code: 'x', get /* motiv */ codeHint() { return 1 } })",
+      "return jsonResponse(503, { code: 'x', get: y, set: z })",
+      "return jsonResponse(503, { code: 'x', getcode: y })",
+      // O metodă `async` / generator fără legătură, cuvintele modificatorilor
+      // ca chei sau metode (`async: y`, `async() {}`, `{ get }`) și un accesor
+      // calculat ÎNAINTEA literalului nu scriu `code`-ul de după.
+      "return jsonResponse(503, { code: 'x', async other() {}, *gen() {} })",
+      "return jsonResponse(503, { code: 'x', async: y, async() {}, get() {} })",
+      "return jsonResponse(503, { code: 'x', async, get })",
+      "return jsonResponse(503, { get [k]() { return 1 }, code: 'x' })",
+      "return jsonResponse(503, { async code() {}, code: 'x' })",
     ]) {
       assert.deepEqual(bad(src), [], src)
     }

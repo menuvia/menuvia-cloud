@@ -41,7 +41,11 @@
 //         (cheie pe care serverul n-o trimite); o intrare ștearsă; un cod nou
 //         în stripe-portal.js fără intrare în hartă; un cod scris cu cheie
 //         citată (`'code': 'x'`) ignorat de extractor; un apel citat într-un
-//         șir numărat (recenzia CodeRabbit pe #384, runda 2).
+//         șir numărat (recenzia CodeRabbit pe #384, runda 2); o gramatică a
+//         literalului mai îngustă decât a lui FEC (`portal:v2` ignorat — un
+//         singur rând `rate_limit_unavailable` schimbat lângă geamănul lui nu
+//         mai schimba setul); toate scrierile lui `code` din același obiect
+//         numărate, nu doar ULTIMA, cea efectivă (runda 3).
 //   SUB7  în en, fr și de, FIECARE cod → textul lui EXACT (oracolul de mai jos,
 //         scris independent de hartă), nu `sub_portalFallback` și nu textul
 //         românesc al serverului; controlul pozitiv cere ca cele patru texte +
@@ -294,6 +298,13 @@ function tokenize(src: string): Tok[] {
 
 const isPunct = (t: Tok | undefined, v: string): boolean => t !== undefined && t.k === 'p' && t.v === v
 
+// Gramatica literalului de cod — ACEEAȘI ca la FEC (`literalString` din
+// tests/functions/fn-error-code-ratchet.test.js): litere mici, cifre, `_` și
+// `:`. Una mai îngustă ar ignora tăcut un cod pe care FEC1 îl acceptă
+// (`portal:v2`), deci un rând schimbat lângă un rând-geamăn neschimbat n-ar
+// schimba nimic aici.
+const CODE_LITERAL = /^[a-z0-9_:]+$/
+
 /**
  * Codurile din corpurile `jsonResponse(<status non-2xx>, { …, code: '<x>' })`
  * ale unei funcții. Apelurile se caută pe TOKENI (un text în formă de apel
@@ -302,7 +313,9 @@ const isPunct = (t: Tok | undefined, v: string): boolean => t !== undefined && t
  * corpului, cu cheia identificator SAU citată (`'code'` / `"code"`), a cărei
  * valoare e EXACT un literal (urmat de `,` sau `}`): un `code: 'x'` din
  * interiorul unui mesaj de eroare nu contează, iar un cod cu cifre
- * (`customer_lookup_v2_failed`) nu e ratat.
+ * (`customer_lookup_v2_failed`) sau cu `:` nu e ratat. Pe un obiect cu mai
+ * multe scrieri ale lui `code` (citate sau nu) contează doar ULTIMA — cea
+ * efectivă în JS; dacă ea nu e un literal, corpul n-are cod citibil.
  */
 function serverCodes(src: string): string[] {
   const toks = tokenize(src)
@@ -316,6 +329,7 @@ function serverCodes(src: string): string[] {
     const code = Number(status.v)
     if (code >= 200 && code < 300) continue
     let depth = 0
+    let last: string | null = null
     for (let j = i + 4; j < toks.length; j++) {
       const x = toks[j]
       if (x.k === 'p' && '{[('.includes(x.v)) depth += 1
@@ -328,17 +342,19 @@ function serverCodes(src: string): string[] {
       const key = toks[j + 1]
       const value = toks[j + 3]
       const isCodeKey = key !== undefined && (key.k === 'id' || key.k === 'str') && key.v === 'code'
-      if (
-        isCodeKey &&
+      if (!isCodeKey) continue
+      // O scriere a lui `code` (și forma scurtă `{ code }` / o metodă `code()`)
+      // înlocuiește orice scriere de dinainte.
+      last =
         isPunct(toks[j + 2], ':') &&
         value !== undefined &&
         value.k === 'str' &&
-        /^[a-z][a-z0-9_]*$/.test(value.v) &&
+        CODE_LITERAL.test(value.v) &&
         (isPunct(toks[j + 4], ',') || isPunct(toks[j + 4], '}'))
-      ) {
-        found.add(value.v)
-      }
+          ? value.v
+          : null
     }
+    if (last !== null) found.add(last)
   }
   return [...found].sort()
 }
@@ -401,19 +417,42 @@ describe('SubscriptionCard — harta codurilor portalului (lotul L8d)', () => {
       "const q = s.replace(/'/g, ''); return jsonResponse(409, { code: 'after_regex' })",
       // Valoarea trebuie să fie EXACT literalul (nu o expresie care îl conține).
       "return jsonResponse(500, { code: 'prefix_' + suffix })",
+      // Aceeași gramatică ca FEC: un cod cu `:` se vede.
+      "return jsonResponse(503, { error: 'x', code: 'portal:v2' })",
+      // Mai multe scrieri ale lui `code`: doar ULTIMA (efectivă) contează, în
+      // ambele ordini ale formelor citată / necitată; una ne-literală la final
+      // lasă corpul fără cod.
+      "return jsonResponse(503, { code: 'first_unquoted', error: 'x', 'code': 'last_quoted' })",
+      'return jsonResponse(503, { "code": \'first_quoted\', code: \'last_unquoted\' })',
+      "return jsonResponse(503, { code: 'shadowed_lit', code: notLiteral })",
+      "return jsonResponse(503, { 'code': 'shadowed_short', code })",
     ].join('\n')
     expect(serverCodes(sample)).toEqual([
       'after_regex',
       'customer_lookup_v2_failed',
+      'last_quoted',
+      'last_unquoted',
       'no_customer',
       'outer_code',
+      'portal:v2',
       'quoted_double',
       'quoted_single',
       'rate_limited',
       'real_code',
     ])
 
-    const server = serverCodes(read('netlify/functions/stripe-portal.js'))
+    const portalSrc = read('netlify/functions/stripe-portal.js')
+    const server = serverCodes(portalSrc)
+    // Un SINGUR rând din cele două `rate_limit_unavailable` schimbat (pe un cod
+    // cu `:`, pe care FEC1 îl acceptă) trebuie să schimbe rezultatul: cu o
+    // gramatică mai îngustă rândul schimbat ar fi ignorat, iar geamănul lui
+    // neschimbat ar fi ținut setul identic.
+    const twin = "code: 'rate_limit_unavailable'"
+    expect(portalSrc.split(twin).length - 1).toBe(2)
+    const mutated = serverCodes(portalSrc.replace(twin, "code: 'rate_limit:v2'"))
+    expect(mutated).not.toEqual(server)
+    expect(mutated).toContain('rate_limit:v2')
+    expect(mutated).toContain('rate_limit_unavailable')
     // Anti-vacuitate: extractorul chiar vede funcția reală.
     expect(server).toContain('no_customer')
     expect(server).toContain('portal_unavailable')

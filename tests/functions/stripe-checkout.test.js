@@ -32,10 +32,10 @@
 //   SCK1 FIECARE ramură non-2xx JSON → statusul și `code`-ul ei, iar `error`
 //        rămâne textul de DINAINTE, exact (un client vechi îl afișează ca
 //        atare); corpul are DOAR cheile `error` + `code`. Tabelul are câte un
-//        rând pe ramură (17 — registrul FEC2 din fn-error-code-ratchet.test.js);
+//        rând pe ramură (18 — registrul FEC2 din fn-error-code-ratchet.test.js);
 //        rândul Planului 3 cere textul legacy COMPLET (instalarea pe casă +
 //        adresa), nu un fragment. Ramurile NOI ale lotului (`checkout_create_failed`,
-//        `checkout_in_progress`, cele două căi ale lui) n-au „text de dinainte”:
+//        `checkout_in_progress`, cele trei căi ale lui) n-au „text de dinainte”:
 //        textul lor e cel nou.
 //        [PICĂ: un cod scos sau redenumit; un text schimbat]
 //   SCK2 Stripe aruncă la crearea SESIUNII → 502 `checkout_create_failed`, cu
@@ -61,9 +61,11 @@
 //        domeniul se substituia din `CONTACT_EMAIL`, deci o schimbare a lui
 //        `MAIL_DOMAIN` pe server trecea. CH10 leagă apoi ro.ts de
 //        `CHECKOUT_MESSAGES_RO`. Control: extractorul găsește fiecare cheie o
-//        singură dată și refuză un șablon cu altă interpolare.
+//        singură dată, refuză un șablon cu altă interpolare și o valoare care
+//        nu e UN SINGUR literal (`'a' + b`, concatenare pe rândul următor).
 //        [PICĂ: `MAIL_DOMAIN` schimbat în appUrl.js; textul serverului schimbat
-//        fără ro.ts; `CONTACT_EMAIL` mutat pe alt domeniu]
+//        fără ro.ts; `CONTACT_EMAIL` mutat pe alt domeniu; extractorul care ia
+//        doar primul literal al unei concatenări]
 //        [PICĂ: un catch care înghite idempotency_error ca 502; mesajul
 //        Stripe trimis clientului; `rawType` scos din `isIdempotencyConflict`;
 //        verificarea lărgită după `statusCode === 409` sau după `code`]
@@ -118,11 +120,22 @@
 //   SOS6 client NOU (abia creat de cererea asta) → lista nu se cere.
 //        Control: un client ADOPTAT după cursă (nu l-am creat noi) → se cere.
 //   SOS7 o sesiune `mode: 'payment'` (credite AI, același client) sau a ALTUI
-//        client nu se închide și nu se reia.
+//        client nu se închide și nu se reia; una finalizată al cărei abonament
+//        e în istoric nu se recitește.
 //   SOS8 două sesiuni reutilizabile (cursă / cod vechi + nou) → cea mai NOUĂ se
 //        reia, cealaltă se închide.
-//   SOS9 `has_more: true` → cele văzute se închid, dar nu se creează nimic (409):
-//        o sesiune nevăzută ar rămâne completabilă.
+//   SOS9 lista se paginează COMPLET (`has_more` + `starting_after` = id-ul
+//        ultimei sesiuni a paginii; prima pagină fără cursor) ÎNAINTEA oricărei
+//        închideri (runda 3): o sesiune de alt plan pe pagina 1 + `has_more`,
+//        iar pagina 2 eșuează → 409 `checkout_in_progress` și ZERO `expire`;
+//        `has_more` fără cursor (pagină goală) sau peste plafon (3 pagini) → 409,
+//        ZERO `expire`, exact 3 cereri de listă; paginile complete → sesiunile
+//        vechi de pe AMBELE pagini se închid, cea reutilizabilă de pe pagina 2
+//        se reia, iar segmentul de stare cuprinde sesiunile tuturor paginilor
+//        (aceeași cheie ca pe o singură pagină cu aceleași sesiuni; alta fără
+//        pagina 2). [PICĂ: o singură pagină (prima variantă: cele văzute se
+//        închideau înainte de 409); `expire` înaintea paginării complete;
+//        cursorul greșit; plafonul scos (buclă fără sfârșit) sau ignorat]
 //   SOS10 segmentul de stare al cheii = rezumatul MULȚIMII sesiunilor de
 //        abonament ale clientului create în interval, din ORICE stare: niciuna →
 //        `s0`; una → `s<hash>`; aceeași sesiune deschisă / expirată / finalizată
@@ -130,7 +143,9 @@
 //        concurentă nu-i schimbă cheia celeilalte); altă sesiune → altă cheie;
 //        ordinea din listă nu contează; sesiunile `mode: 'payment'`, ale altui
 //        client sau create înaintea intervalului (`created` = gte − 1) nu intră,
-//        cea de la limită (`created` = gte) intră; id-ul nu apare în clar.
+//        cea de la limită (`created` = gte) intră; id-ul nu apare în clar. Sesiunea
+//        finalizată are un abonament recitit ca TERMINAL (SOS13), deci nu oprește
+//        crearea.
 //        [PICĂ: segmentul scos din cheie; calculat doar din sesiunile închise de
 //        cererea curentă (prima variantă) sau doar din cele deschise; filtrul pe
 //        `mode` / client / `created` scos]
@@ -152,8 +167,39 @@
 //        fel din alt tab cu altă limbă (200, nu 409 `checkout_in_progress` până
 //        la fereastra următoare); o sesiune FINALIZATĂ al cărei abonament s-a
 //        anulat → growth din nou primește o sesiune nouă, deschisă.
+//        Abonamentul sesiunii finalizate e în istoric (anulat).
 //        [PICĂ: prima variantă — `s0` dă exact cheia sesiunii moarte, Stripe
-//        reia răspunsul salvat; lista readusă la `status: 'open'`]
+//        reia răspunsul salvat (azi oprit și de SOS15: 409 în loc de 200);
+//        lista readusă la `status: 'open'`]
+//   SOS13 prima plată se FINALIZEAZĂ între citirea istoricului de abonamente și
+//        listă (runda 3): sesiunea e `complete`, abonamentul ei nu e în istoric
+//        → `subscriptions.retrieve`: viu (active / trialing / past_due / unpaid /
+//        incomplete — același predicat ca istoricul) → 409 `subscription_exists`
+//        cu corpul IDENTIC verificării din istoric, ZERO `expire`, ZERO create;
+//        nerezolvat (recitire eșuată, sesiune fără abonament, abonament fără
+//        stare) → 409 `checkout_in_progress`, ZERO `expire`; terminal (canceled,
+//        incomplete_expired) → crearea continuă; un abonament viu bate o
+//        recitire eșuată a altei sesiuni; una al cărei abonament e în istoric
+//        nu se recitește. [PICĂ: verificarea scoasă (se creează a doua plată);
+//        recitirea eșuată tratată ca terminal; doar `active` considerat viu]
+//   SOS14 ceasul avansează între listă și decizie / între închideri și răspuns
+//        (runda 3): o sesiune cu 31 min rămase la începutul cererii și 29 la
+//        decizie → închisă și recreată; una aleasă cu 31 min care ajunge la 29
+//        după închiderea celorlalte → închisă și ea, apoi o sesiune nouă;
+//        închiderea ei eșuată → 409, fără URL; control: 30,5 min rămase la
+//        răspuns → reluată. [PICĂ: timpul citit înaintea listei (prima
+//        variantă); reverificarea dinaintea răspunsului scoasă]
+//   SOS15 REPLAY al cheii (runda 3): Stripe întoarce răspunsul SALVAT (antetul
+//        `Idempotent-Replayed: true`, pe `lastResponse`), cu starea de la
+//        creare — se recitește sesiunea: închisă / finalizată / recitire
+//        eșuată → 409 `checkout_in_progress`, fără a doua creare; deschisă →
+//        200 cu URL-ul ei; o creare fără replay nu recitește nimic. Cap-coadă
+//        pe fake-ul cu stare: B listează înaintea sesiunii lui A (aceeași
+//        cheie), C (alt plan) o închide, B primește replay-ul → 409, iar
+//        reîncercarea lui B creează o sesiune nouă, deschisă; fără C, B
+//        primește URL-ul lui A. [PICĂ: verificarea scoasă (B primește URL-ul
+//        unei sesiuni închise); starea citită din corpul replay-ului în loc de
+//        recitire; recitirea eșuată tratată ca deschisă]
 
 'use strict'
 
@@ -474,6 +520,16 @@ function idempotencyError(fields = { type: 'StripeIdempotencyError', rawType: 'i
   return Object.assign(new Error(STRIPE_IDEMPOTENCY_MSG), { statusCode: 400 }, fields)
 }
 
+// Un REPLAY al cheii, cum îl vede handler-ul pe SDK-ul real: răspunsul HTTP brut
+// atașat NE-enumerabil ca `lastResponse`, cu antetul `idempotent-replayed`
+// (forma pe fir: SDK8c din tests/stripe-contract/handlers.test.js).
+function replayed(obj) {
+  return Object.defineProperty({ ...obj }, 'lastResponse', {
+    enumerable: false,
+    value: { headers: { 'request-id': 'req_x', 'idempotent-replayed': 'true' } },
+  })
+}
+
 // [nume, pregătire, corp, antete, status, cod, text EXACT (sau regex)]
 const BRANCHES = [
   ['env lipsă', () => {}, { plan: 'growth' }, AUTH, 500, 'server_config', 'Stripe not configured'],
@@ -525,11 +581,17 @@ const BRANCHES = [
   ['Stripe: sesiunile deschise necitibile', () => {
     scriptedHappyPath({ 'checkout.sessions.list': async () => { throw new Error('stripe down') } })
   }, { plan: 'growth' }, AUTH, 409, 'checkout_in_progress', IN_PROGRESS_RO],
+  ['Stripe: replay al unei sesiuni închise între timp', () => {
+    scriptedHappyPath({
+      'checkout.sessions.create': async () => replayed({ id: 'cs_r', status: 'open', url: 'https://checkout.stripe.com/c/pay/cs_r' }),
+      'checkout.sessions.retrieve': async (id) => ({ id, status: 'expired' }),
+    })
+  }, { plan: 'growth' }, AUTH, 409, 'checkout_in_progress', IN_PROGRESS_RO],
 ]
 
 describe('stripe-checkout — un cod stabil pe fiecare ramură (lotul L8d)', () => {
   it('SCK1: fiecare ramură non-2xx → status + code, cu textul de dinainte', async () => {
-    assert.equal(BRANCHES.length, 17, 'un rând pe ramură (registrul FEC2)')
+    assert.equal(BRANCHES.length, 18, 'un rând pe ramură (registrul FEC2)')
     const codes = new Set()
     for (const [name, prep, body, headers, status, code, text] of BRANCHES) {
       resetMocks()
@@ -544,9 +606,9 @@ describe('stripe-checkout — un cod stabil pe fiecare ramură (lotul L8d)', () 
       assert.deepEqual(Object.keys(b).sort(), ['code', 'error'], `${name}: alte chei în corp`)
       codes.add(`${status}:${code}`)
     }
-    // Trei perechi de ramuri împart deliberat un cod (limiterul: eroare /
-    // excepție; Stripe: client / sesiune; plata în curs: cheia / lista) —
-    // restul sunt distincte.
+    // Trei grupuri de ramuri împart deliberat un cod (limiterul: eroare /
+    // excepție; Stripe: client / sesiune; plata în curs: cheia / lista /
+    // replay-ul) — restul sunt distincte.
     assert.equal(codes.size, 14)
   })
 
@@ -701,6 +763,11 @@ function dictString(src, key) {
   const re = new RegExp(String.raw`(^|[\s{,])${key}\s*:\s*('(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*")`, 'g')
   const hits = [...src.matchAll(re)]
   if (hits.length !== 1) throw new Error(`${key}: ${hits.length} apariții, nu 1`)
+  // Valoarea e UN SINGUR literal: după el vine doar sfârșitul proprietății
+  // (`,` / `}` / sfârșitul sursei). Altfel (`'a' + b`, `'a' +\n 'b'`,
+  // `'a'.trim()`) literalul potrivit ar fi doar începutul valorii reale.
+  const end = hits[0].index + hits[0][0].length
+  if (!/^\s*(?:,|\}|$)/.test(src.slice(end))) throw new Error(`${key}: valoarea nu e un singur literal`)
   // Literalul (doar el, potrivit de regex) evaluat ca JS: escape-urile ies corect.
   return vm.runInNewContext(hits[0][2])
 }
@@ -728,6 +795,14 @@ describe('stripe-checkout — textul serverului e rezerva clientului (lotul L8d)
     assert.equal(dictString("  ck_x:\n    'L\\'a {email}',", 'ck_x'), "L'a {email}")
     assert.throws(() => dictString("ck_x: 'a',\nck_x: 'b',", 'ck_x'), /2 apariții/)
     assert.throws(() => dictString("ck_y: 'a',", 'ck_x'), /0 apariții/)
+    // UN SINGUR literal: o concatenare (pe același rând sau pe următorul) sau
+    // un apel pe literal e respinsă; ultima proprietate (`}`) și sfârșitul
+    // sursei trec.
+    for (const bad of ["ck_x: 'a' + rest,", "ck_x: 'a' +\n  'b',", "ck_x: 'a'.trim(),", "ck_x: \"a\" + `b`\n}"]) {
+      assert.throws(() => dictString(bad, 'ck_x'), /un singur literal/, bad)
+    }
+    assert.equal(dictString("{\n  ck_x: 'a'\n}", 'ck_x'), 'a')
+    assert.equal(dictString("ck_x: 'a'", 'ck_x'), 'a')
     const domain = "export const SITE_HOSTS = {\n  ro: 'exemplu.ro',\n  com: 'exemplu.com',\n}\n"
     assert.equal(contactEmailFromSource(`${domain}export const CONTACT_EMAIL = \`contact@\${SITE_HOSTS.ro}\``), 'contact@exemplu.ro')
     assert.equal(contactEmailFromSource("export const CONTACT_EMAIL = 'help@altul.ro'"), 'help@altul.ro')
@@ -753,10 +828,15 @@ describe('stripe-checkout — textul serverului e rezerva clientului (lotul L8d)
     assert.equal(parseBody(failed).code, 'checkout_create_failed')
     assert.equal(parseBody(failed).error, createTpl.replace('{email}', email))
 
-    // Ambele căi ale lui 409: cheia refuzată de Stripe și lista necitibilă.
+    // Toate trei căile lui 409: cheia refuzată de Stripe, lista necitibilă și
+    // replay-ul unei sesiuni închise între timp.
     for (const over of [
       { 'checkout.sessions.create': async () => { throw idempotencyError() } },
       { 'checkout.sessions.list': async () => { throw new Error('stripe down') } },
+      {
+        'checkout.sessions.create': async () => replayed({ id: 'cs_r', status: 'open', url: 'https://checkout.stripe.com/c/pay/cs_r' }),
+        'checkout.sessions.retrieve': async (id) => ({ id, status: 'expired' }),
+      },
     ]) {
       resetMocks()
       clearEnv()
@@ -987,12 +1067,15 @@ describe('stripe-checkout — o singură sesiune deschisă per client (lotul L8d
     withOpen([
       openSession({ id: 'cs_ai', mode: 'payment', metadata: { type: 'ai_credits', restaurant_id: 'r1', tokens: '100000' } }),
       openSession({ id: 'cs_foreign', customer: 'cus_altul' }),
-      openSession({ id: 'cs_done', status: 'complete', metadata: { plan: 'starter' } }),
+      openSession({ id: 'cs_done', status: 'complete', subscription: 'sub_done', metadata: { plan: 'starter' } }),
     ])
+    // Abonamentul sesiunii finalizate e în istoric (anulat): nu se recitește.
+    state.stripeImpls['subscriptions.list'] = async () => [{ id: 'sub_done', status: 'canceled', trial_start: null, trial_end: null }]
     const res = await post({ plan: 'growth' })
     assert.deepEqual(parseBody(res), { url: NEW_URL }, 'sesiunea altui client a fost reluată')
     assert.equal(calls('checkout.sessions.expire').length, 0)
     assert.equal(calls('checkout.sessions.create').length, 1)
+    assert.equal(calls('subscriptions.retrieve').length, 0)
   })
 
   it('SOS8: două reutilizabile → cea mai NOUĂ se reia, cealaltă se închide', async () => {
@@ -1007,18 +1090,85 @@ describe('stripe-checkout — o singură sesiune deschisă per client (lotul L8d
     assert.equal(calls('checkout.sessions.create').length, 0)
   })
 
-  it('SOS9: has_more → cele văzute se închid, dar nu se creează și nu se reia nimic', async () => {
-    const stale = openSession({ id: 'cs_starter', metadata: { plan: 'starter', price_id: 'price_starter', trial_days: '30' } })
-    for (const [name, sessions] of [['doar vechi', [stale]], ['cu reutilizabilă', [openSession(), stale]]]) {
+  // Lista în pagini: `pages[i]` e răspunsul celei de-a i-a cereri (o funcție =
+  // pagina eșuează). Cursorul cerut se verifică după, din stripeCalls.
+  function withPages(pages, { expire } = {}) {
+    let n = 0
+    scriptedHappyPath({
+      'checkout.sessions.list': async () => {
+        const page = pages[Math.min(n++, pages.length - 1)]
+        return typeof page === 'function' ? page() : page
+      },
+      'checkout.sessions.expire': expire || (async (id) => ({ id, status: 'expired' })),
+    })
+  }
+  const page = (data, hasMore) => ({ object: 'list', data, has_more: hasMore })
+  const cursors = () => calls('checkout.sessions.list').map((c) =>
+    (Object.prototype.hasOwnProperty.call(c.args[0], 'starting_after') ? c.args[0].starting_after : '(fără)'))
+  const staleStarter = (id) => openSession({ id, ...STARTER, url: `https://checkout.stripe.com/c/pay/${id}` })
+
+  it('SOS9: pagina 2 eșuează → 409, ZERO expire (nici sesiunea de alt plan de pe pagina 1)', async () => {
+    withPages([
+      page([staleStarter('cs_p1')], true),
+      async () => { throw Object.assign(new Error('stripe down'), { type: 'StripeConnectionError' }) },
+    ])
+    const res = await quiet(() => post({ plan: 'growth' }))
+    assert.equal(res.statusCode, 409, res.body)
+    assert.deepEqual(parseBody(res), { error: IN_PROGRESS_RO, code: 'checkout_in_progress' })
+    assert.equal(calls('checkout.sessions.expire').length, 0, 'o sesiune s-a închis pe o listă incompletă')
+    assert.equal(calls('checkout.sessions.create').length, 0)
+    // Pagina 2 a fost chiar cerută, cu cursorul = ultima sesiune a paginii 1.
+    assert.deepEqual(cursors(), ['(fără)', 'cs_p1'])
+    // Restul parametrilor rămân aceiași pe pagina 2.
+    const [p1, p2] = calls('checkout.sessions.list').map((c) => c.args[0])
+    assert.deepEqual({ ...p2, starting_after: undefined }, { ...p1, starting_after: undefined })
+  })
+
+  it('SOS9: has_more fără cursor / peste plafon → 409, ZERO expire', async () => {
+    for (const [name, pages, lists] of [
+      ['pagină goală cu has_more', [page([staleStarter('cs_p1')], true), page([], true)], 2],
+      ['ultima sesiune fără id', [page([staleStarter('cs_p1'), { mode: 'subscription' }], true)], 1],
+      // Fiecare pagină are has_more: după 3 pagini se oprește (fără buclă).
+      ['peste plafon', [page([staleStarter('cs_p1')], true), page([staleStarter('cs_p2')], true),
+        page([staleStarter('cs_p3')], true), page([staleStarter('cs_p4')], false)], 3],
+    ]) {
       resetMocks()
       clearEnv()
-      withOpen(sessions, { hasMore: true })
+      withPages(pages)
       const res = await quiet(() => post({ plan: 'growth' }))
-      assert.equal(res.statusCode, 409, name)
+      assert.equal(res.statusCode, 409, `${name}: ${res.body}`)
       assert.equal(parseBody(res).code, 'checkout_in_progress', name)
-      assert.deepEqual(calls('checkout.sessions.expire').map((c) => c.args[0]), ['cs_starter'], name)
+      assert.equal(calls('checkout.sessions.list').length, lists, name)
+      assert.equal(calls('checkout.sessions.expire').length, 0, name)
       assert.equal(calls('checkout.sessions.create').length, 0, name)
     }
+  })
+
+  it('SOS9: paginile complete → vechile de pe AMBELE pagini se închid, reutilizabila de pe pagina 2 se reia', async () => {
+    withPages([page([staleStarter('cs_p1')], true), page([openSession(), staleStarter('cs_p2')], false)])
+    const res = await post({ plan: 'growth' })
+    assert.deepEqual(parseBody(res), { url: 'https://checkout.stripe.com/c/pay/cs_open' })
+    assert.deepEqual(calls('checkout.sessions.expire').map((c) => c.args[0]).sort(), ['cs_p1', 'cs_p2'])
+    assert.equal(calls('checkout.sessions.create').length, 0)
+    assert.deepEqual(cursors(), ['(fără)', 'cs_p1'])
+  })
+
+  it('SOS9: segmentul de stare cuprinde sesiunile TUTUROR paginilor', async () => {
+    await frozen(async () => {
+      async function keyFor(pages) {
+        resetMocks()
+        clearEnv()
+        withPages(pages)
+        const res = await post({ plan: 'growth' })
+        assert.equal(res.statusCode, 200, res.body)
+        return calls('checkout.sessions.create')[0].args[1].idempotencyKey
+      }
+      const twoPages = await keyFor([page([staleStarter('cs_a')], true), page([staleStarter('cs_b')], false)])
+      const onePage = await keyFor([page([staleStarter('cs_a'), staleStarter('cs_b')], false)])
+      const firstOnly = await keyFor([page([staleStarter('cs_a')], false)])
+      assert.equal(twoPages, onePage, 'aceleași sesiuni, altă paginare → aceeași cheie')
+      assert.notEqual(twoPages, firstOnly, 'sesiunea de pe pagina 2 n-a intrat în segment')
+    })
   })
 
   it('SOS10: segmentul de stare = mulțimea sesiunilor de abonament din interval, din orice stare', async () => {
@@ -1028,10 +1178,11 @@ describe('stripe-checkout — o singură sesiune deschisă per client (lotul L8d
       // închide, expirată/finalizată rămâne neatinsă — cheia trebuie să fie
       // aceeași în toate trei cazurile.
       const starter = (id, over = {}) => openSession({ id, ...STARTER, url: `https://checkout.stripe.com/c/pay/${id}`, ...over })
-      async function keyFor(sessions) {
+      async function keyFor(sessions, impls = {}) {
         resetMocks()
         clearEnv()
         withOpen(sessions)
+        Object.assign(state.stripeImpls, impls)
         const res = await post({ plan: 'growth' })
         assert.equal(res.statusCode, 200, res.body)
         return calls('checkout.sessions.create')[0].args[1].idempotencyKey
@@ -1040,7 +1191,10 @@ describe('stripe-checkout — o singură sesiune deschisă per client (lotul L8d
       const x = await keyFor([starter('cs_x')])
       const x2 = await keyFor([starter('cs_x')])
       const xExpired = await keyFor([starter('cs_x', { status: 'expired' })])
-      const xComplete = await keyFor([starter('cs_x', { status: 'complete' })])
+      // Finalizată, cu abonamentul recitit ca TERMINAL (SOS13): crearea continuă.
+      const xComplete = await keyFor([starter('cs_x', { status: 'complete', subscription: 'sub_x' })], {
+        'subscriptions.retrieve': async (id) => ({ id, status: 'canceled' }),
+      })
       const xNullStatus = await keyFor([starter('cs_x', { status: null })])
       const y = await keyFor([starter('cs_y')])
       const xy = await keyFor([starter('cs_x'), starter('cs_y')])
@@ -1070,30 +1224,43 @@ describe('stripe-checkout — o singură sesiune deschisă per client (lotul L8d
     })
   })
 
-  // Fake Stripe cu STARE și cu idempotența Stripe, pentru SOS11/SOS12: cheie în
-  // zbor → 409 `idempotency_key_in_use`; aceeași cheie + același corp →
-  // răspunsul SALVAT (Stripe nu re-citește starea sesiunii); aceeași cheie +
+  // Fake Stripe cu STARE și cu idempotența Stripe, pentru SOS11/SOS12/SOS15:
+  // cheie în zbor → 409 `idempotency_key_in_use`; aceeași cheie + același corp
+  // → răspunsul SALVAT, marcat ca replay (`lastResponse` cu antetul
+  // `idempotent-replayed`; Stripe nu re-citește starea sesiunii); aceeași cheie +
   // alt corp → `idempotency_error`. Lista onorează `customer`, `status` și
   // `created.gte` — deci și varianta veche a funcției (cu `status: 'open'`) e
-  // simulată fidel, ca mutația să pice din motivul real.
+  // simulată fidel, ca mutația să pice din motivul real. `hooks.listGate(n)`
+  // (opțional) ține a n-a listare DUPĂ ce instantaneul a fost luat.
   function statefulStripe(initial = []) {
     const store = new Map(initial.map((s) => [s.id, { ...s }]))
     const saved = new Map()
     const inFlight = new Set()
-    const hooks = { beforeCreate: null, afterExpire: null, failCreate: 0 }
+    const hooks = { beforeCreate: null, afterExpire: null, failCreate: 0, listGate: null }
     let n = 0
+    let lists = 0
     const copy = (s) => ({ ...s, metadata: s.metadata ? { ...s.metadata } : s.metadata })
     scriptedHappyPath({
-      'checkout.sessions.list': async (params = {}) => ({
-        object: 'list',
-        has_more: false,
-        data: [...store.values()]
-          .filter((s) => s.customer === params.customer)
-          .filter((s) => !params.status || s.status === params.status)
-          .filter((s) => !params.created || s.created >= params.created.gte)
-          .sort((a, b) => b.created - a.created)
-          .map(copy),
-      }),
+      'checkout.sessions.list': async (params = {}) => {
+        const page = {
+          object: 'list',
+          has_more: false,
+          data: [...store.values()]
+            .filter((s) => s.customer === params.customer)
+            .filter((s) => !params.status || s.status === params.status)
+            .filter((s) => !params.created || s.created >= params.created.gte)
+            .sort((a, b) => b.created - a.created)
+            .map(copy),
+        }
+        lists += 1
+        if (hooks.listGate) await hooks.listGate(lists)
+        return page
+      },
+      'checkout.sessions.retrieve': async (id) => {
+        const s = store.get(id)
+        if (!s) throw Object.assign(new Error(`No such checkout.session: '${id}'`), { type: 'StripeInvalidRequestError' })
+        return copy(s)
+      },
       'checkout.sessions.expire': async (id) => {
         const s = store.get(id)
         if (!s || s.status !== 'open') {
@@ -1114,7 +1281,7 @@ describe('stripe-checkout — o singură sesiune deschisă per client (lotul L8d
         if (saved.has(key)) {
           const hit = saved.get(key)
           if (hit.body !== body) throw idempotencyError()
-          return { ...hit.response }
+          return replayed(hit.response)
         }
         inFlight.add(key)
         try {
@@ -1226,13 +1393,246 @@ describe('stripe-checkout — o singură sesiune deschisă per client (lotul L8d
       const r1 = await post({ plan: 'growth' })
       assert.equal(r1.statusCode, 200, r1.body)
       fake.store.get('cs_new1').status = 'complete'
-      state.stripeImpls['subscriptions.list'] = async () => [{ status: 'canceled', trial_start: null, trial_end: null }]
+      fake.store.get('cs_new1').subscription = 'sub_1'
+      state.stripeImpls['subscriptions.list'] = async () => [{ id: 'sub_1', status: 'canceled', trial_start: null, trial_end: null }]
       const r2 = await post({ plan: 'growth' })
       assert.equal(r2.statusCode, 200, r2.body)
       assert.equal(fake.urlStatus(r2), 'open', 'URL-ul sesiunii finalizate')
       const keys = createKeys()
       assert.equal(keys.length, 2)
       assert.notEqual(keys[1], keys[0])
+    })
+  })
+
+  it('SOS13: prima plată se finalizează între istoric și listă → același 409 subscription_exists, nimic închis', async () => {
+    // Referința: corpul verificării din istoric (SC10), comparat EXACT.
+    scriptedHappyPath({ 'subscriptions.list': async () => [{ id: 'sub_old', status: 'active' }] })
+    const fromHistory = await post({ plan: 'growth' })
+    assert.equal(fromHistory.statusCode, 409)
+    assert.equal(parseBody(fromHistory).code, 'subscription_exists')
+
+    // Sesiunea `cs_first` e DESCHISĂ când se citește istoricul și se finalizează
+    // imediat după (abonamentul ei nu e în istoric); `cs_other` e o sesiune
+    // deschisă de alt plan, care NU are voie să fie închisă pe ramura asta.
+    function racing({ retrieve, subscription = 'sub_first' }) {
+      const first = openSession({ id: 'cs_first', ...STARTER })
+      scriptedHappyPath({
+        'subscriptions.list': async () => {
+          const history = []
+          Object.assign(first, { status: 'complete', subscription })
+          return history
+        },
+        'checkout.sessions.list': async () => page([{ ...first }, staleStarter('cs_other')], false),
+        'checkout.sessions.expire': async (id) => ({ id, status: 'expired' }),
+        'subscriptions.retrieve': retrieve,
+      })
+    }
+    for (const status of ['active', 'trialing', 'past_due', 'unpaid', 'incomplete']) {
+      resetMocks()
+      clearEnv()
+      racing({ retrieve: async (id) => ({ id, status }) })
+      const res = await post({ plan: 'growth' })
+      assert.equal(res.statusCode, 409, `${status}: ${res.body}`)
+      assert.equal(res.body, fromHistory.body, `${status}: alt corp decât verificarea din istoric`)
+      assert.deepEqual(calls('subscriptions.retrieve').map((c) => c.args), [['sub_first']], status)
+      assert.equal(calls('checkout.sessions.expire').length, 0, status)
+      assert.equal(calls('checkout.sessions.create').length, 0, status)
+    }
+    // Abonamentul extins (obiect, nu id) se citește la fel.
+    resetMocks()
+    clearEnv()
+    racing({ retrieve: async (id) => ({ id, status: 'active' }), subscription: { id: 'sub_first', object: 'subscription' } })
+    assert.equal((await post({ plan: 'growth' })).body, fromHistory.body)
+
+    // Nerezolvat → 409 checkout_in_progress, nimic închis.
+    for (const [name, opts] of [
+      ['recitire eșuată', { retrieve: async () => { throw Object.assign(new Error('stripe down'), { type: 'StripeConnectionError' }) } }],
+      ['sesiune fără abonament', { retrieve: async (id) => ({ id, status: 'active' }), subscription: null }],
+      ['abonament fără stare', { retrieve: async (id) => ({ id }) }],
+    ]) {
+      resetMocks()
+      clearEnv()
+      racing(opts)
+      const res = await quiet(() => post({ plan: 'growth' }))
+      assert.equal(res.statusCode, 409, `${name}: ${res.body}`)
+      assert.deepEqual(parseBody(res), { error: IN_PROGRESS_RO, code: 'checkout_in_progress' }, name)
+      assert.equal(calls('checkout.sessions.expire').length, 0, name)
+      assert.equal(calls('checkout.sessions.create').length, 0, name)
+    }
+
+    // Terminal → crearea continuă (și sesiunea de alt plan se închide).
+    for (const status of ['canceled', 'incomplete_expired']) {
+      resetMocks()
+      clearEnv()
+      racing({ retrieve: async (id) => ({ id, status }) })
+      const res = await post({ plan: 'growth' })
+      assert.deepEqual(parseBody(res), { url: NEW_URL }, status)
+      assert.deepEqual(calls('checkout.sessions.expire').map((c) => c.args[0]), ['cs_other'], status)
+      assert.equal(calls('checkout.sessions.create').length, 1, status)
+    }
+
+    // Un abonament viu bate recitirea eșuată a altei sesiuni.
+    resetMocks()
+    clearEnv()
+    scriptedHappyPath({
+      'checkout.sessions.list': async () => page([
+        openSession({ id: 'cs_a', ...STARTER, status: 'complete', subscription: 'sub_a' }),
+        openSession({ id: 'cs_b', status: 'complete', subscription: 'sub_b' }),
+      ], false),
+      'subscriptions.retrieve': async (id) => {
+        if (id === 'sub_a') throw new Error('stripe down')
+        return { id, status: 'active' }
+      },
+    })
+    assert.equal((await quiet(() => post({ plan: 'growth' }))).body, fromHistory.body)
+  })
+
+  it('SOS14: ceasul avansează între listă și decizie / între închideri și răspuns', async () => {
+    const T = FROZEN // 10:07 — +2 min rămâne în aceeași fereastră a cheii
+    const t0 = Math.floor(T / 1000)
+    const savedNow = Date.now
+    let clock = T
+    Date.now = () => clock
+    try {
+      // (a) Listarea durează: 31 min rămase la începutul cererii, 29 la decizie.
+      scriptedHappyPath({
+        'checkout.sessions.list': async () => {
+          clock = T + 2 * 60 * 1000
+          return page([openSession({ expires_at: t0 + 31 * 60 })], false)
+        },
+        'checkout.sessions.expire': async (id) => ({ id, status: 'expired' }),
+      })
+      let res = await post({ plan: 'growth' })
+      assert.deepEqual(parseBody(res), { url: NEW_URL }, '(a) sesiune cu 29 min reluată')
+      assert.deepEqual(calls('checkout.sessions.expire').map((c) => c.args[0]), ['cs_open'], '(a)')
+      assert.equal(calls('checkout.sessions.create').length, 1, '(a)')
+
+      // (b)–(d) Aleasă cu 31 min; închiderea celeilalte durează `advance`.
+      async function afterStaleExpire(advanceMs, { keepExpireFails = false } = {}) {
+        resetMocks()
+        clearEnv()
+        clock = T
+        scriptedHappyPath({
+          'checkout.sessions.list': async () => page([openSession({ expires_at: t0 + 31 * 60 }), staleStarter('cs_s')], false),
+          'checkout.sessions.expire': async (id) => {
+            if (id === 'cs_s') clock = T + advanceMs
+            if (id === 'cs_open' && keepExpireFails) throw Object.assign(new Error('not open'), { type: 'StripeInvalidRequestError' })
+            return { id, status: 'expired' }
+          },
+        })
+        return quiet(() => post({ plan: 'growth' }))
+      }
+      res = await afterStaleExpire(2 * 60 * 1000)
+      assert.deepEqual(parseBody(res), { url: NEW_URL }, '(b) sesiune cu 29 min la răspuns')
+      assert.deepEqual(calls('checkout.sessions.expire').map((c) => c.args[0]), ['cs_s', 'cs_open'], '(b)')
+      assert.equal(calls('checkout.sessions.create').length, 1, '(b)')
+
+      res = await afterStaleExpire(2 * 60 * 1000, { keepExpireFails: true })
+      assert.equal(res.statusCode, 409, `(c) ${res.body}`)
+      assert.deepEqual(parseBody(res), { error: IN_PROGRESS_RO, code: 'checkout_in_progress' }, '(c)')
+      assert.ok(!res.body.includes('cs_open'), '(c) a plecat URL-ul sesiunii sub prag')
+      assert.equal(calls('checkout.sessions.create').length, 0, '(c)')
+
+      // Control: 30,5 min rămase la răspuns → reluată (reverificarea nu respinge tot).
+      res = await afterStaleExpire(30 * 1000)
+      assert.deepEqual(parseBody(res), { url: 'https://checkout.stripe.com/c/pay/cs_open' }, '(d)')
+      assert.deepEqual(calls('checkout.sessions.expire').map((c) => c.args[0]), ['cs_s'], '(d)')
+      assert.equal(calls('checkout.sessions.create').length, 0, '(d)')
+    } finally {
+      Date.now = savedNow
+    }
+  })
+
+  it('SOS15: replay al cheii → se recitește sesiunea; închisă / finalizată / necitibilă → 409, deschisă → 200', async () => {
+    const REPLAYED_URL = 'https://checkout.stripe.com/c/pay/cs_r'
+    for (const [name, retrieve, status] of [
+      ['închisă', async (id) => ({ id, status: 'expired' }), 409],
+      ['finalizată', async (id) => ({ id, status: 'complete' }), 409],
+      ['recitire eșuată', async () => { throw Object.assign(new Error('stripe down'), { type: 'StripeConnectionError' }) }, 409],
+      ['fără stare', async (id) => ({ id }), 409],
+      ['deschisă', async (id) => ({ id, status: 'open', url: REPLAYED_URL }), 200],
+    ]) {
+      resetMocks()
+      clearEnv()
+      scriptedHappyPath({
+        // Corpul SALVAT spune `open` (starea de la creare) — exact ce face Stripe.
+        'checkout.sessions.create': async () => replayed({ id: 'cs_r', status: 'open', url: REPLAYED_URL }),
+        'checkout.sessions.retrieve': retrieve,
+      })
+      const res = await quiet(() => post({ plan: 'growth' }))
+      assert.equal(res.statusCode, status, `${name}: ${res.body}`)
+      if (status === 200) assert.deepEqual(parseBody(res), { url: REPLAYED_URL }, name)
+      else assert.deepEqual(parseBody(res), { error: IN_PROGRESS_RO, code: 'checkout_in_progress' }, name)
+      assert.deepEqual(calls('checkout.sessions.retrieve').map((c) => c.args), [['cs_r']], name)
+      assert.equal(calls('checkout.sessions.create').length, 1, `${name}: a doua creare (cheie nouă din același instantaneu)`)
+    }
+    // Control: o creare fără replay nu recitește nimic.
+    resetMocks()
+    clearEnv()
+    scriptedHappyPath({ 'checkout.sessions.create': async () => ({ id: 'cs_n', status: 'open', url: NEW_URL }) })
+    const res = await post({ plan: 'growth' })
+    assert.deepEqual(parseBody(res), { url: NEW_URL })
+    assert.equal(calls('checkout.sessions.retrieve').length, 0)
+  })
+
+  it('SOS15: cap-coadă — B reia pe cheie sesiunea lui A, închisă între timp de C → 409; reîncercarea creează alta', async () => {
+    await frozen(async () => {
+      for (const withC of [true, false]) {
+        const name = withC ? 'cu C' : 'fără C'
+        resetMocks()
+        clearEnv()
+        const fake = statefulStripe()
+        // A: ținută în creare (cheia în zbor, sesiunea încă nescrisă).
+        let releaseA
+        const aHeld = new Promise((r) => { releaseA = r })
+        let aInCreate
+        const aCreating = new Promise((r) => { aInCreate = r })
+        let firstCreate = true
+        fake.hooks.beforeCreate = async () => {
+          if (!firstCreate) return
+          firstCreate = false
+          aInCreate()
+          await aHeld
+        }
+        // B: a doua listare — instantaneul e luat ÎNAINTEA sesiunii lui A, apoi B e ținută.
+        let releaseB
+        const bHeld = new Promise((r) => { releaseB = r })
+        let bListed
+        const bListing = new Promise((r) => { bListed = r })
+        fake.hooks.listGate = async (n) => {
+          if (n !== 2) return
+          bListed()
+          await bHeld
+        }
+        const pA = post({ plan: 'growth' })
+        await aCreating
+        const pB = quiet(() => post({ plan: 'growth' }))
+        await bListing
+        releaseA()
+        const resA = await pA
+        assert.equal(resA.statusCode, 200, `${name}: A ${resA.body}`)
+        if (withC) {
+          // C (alt plan) vede sesiunea lui A deschisă și o închide.
+          const resC = await post({ plan: 'starter' })
+          assert.equal(resC.statusCode, 200, `${name}: C ${resC.body}`)
+          assert.equal(fake.store.get('cs_new1').status, 'expired', name)
+        }
+        releaseB()
+        const resB = await pB
+        const keys = createKeys()
+        assert.equal(keys[keys.length - 1], keys[0], `${name}: B n-a refolosit cheia lui A (scenariul nu e un replay)`)
+        if (withC) {
+          assert.equal(resB.statusCode, 409, `${name}: B ${resB.body}`)
+          assert.deepEqual(parseBody(resB), { error: IN_PROGRESS_RO, code: 'checkout_in_progress' }, name)
+          const retryB = await post({ plan: 'growth' })
+          assert.equal(retryB.statusCode, 200, `${name}: B reîncercat ${retryB.body}`)
+          assert.equal(fake.urlStatus(retryB), 'open', name)
+        } else {
+          assert.equal(resB.statusCode, 200, `${name}: B ${resB.body}`)
+          assert.equal(parseBody(resB).url, parseBody(resA).url, name)
+        }
+        assert.equal(fake.openOf('growth').length, 1, `${name}: sesiuni growth deschise`)
+      }
     })
   })
 })
