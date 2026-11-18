@@ -68,7 +68,7 @@ const en: Translation<typeof ro> = {
   ck_subscriptionLookupFailed: 'We couldn’t check your existing subscriptions. Try again in a few moments.',
   ck_createFailed: 'We couldn’t start the payment. Try again in a few moments, and if it happens again, write to us at {email}.',
   ck_checkoutInProgress:
-    'You already have a payment in progress in another tab or in another language. Complete it there or try again in 30 minutes.',
+    'A payment for this account is already in progress. Try again in a few moments.',
   ck_network: 'We couldn’t reach the payment server. Check your internet connection and try again.',
   ck_auth: 'Your session has expired. Sign in again and restart the activation.',
   ck_rateLimited: 'Too many attempts. Try again in a few minutes.',

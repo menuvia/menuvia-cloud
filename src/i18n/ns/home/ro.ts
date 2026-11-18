@@ -95,7 +95,7 @@ const ro = {
   // `{email}` = adresa de contact (CONTACT_EMAIL), aceeași pe care o numește serverul.
   ck_createFailed: 'Nu am putut porni plata. Reîncearcă în câteva momente, iar dacă se repetă scrie-ne la {email}.',
   ck_checkoutInProgress:
-    'Ai deja o plată începută în alt tab sau în altă limbă. Finalizeaz-o acolo sau reîncearcă peste 30 de minute.',
+    'O plată pentru acest cont e deja în curs. Reîncearcă în câteva momente.',
   ck_network: 'Nu am putut contacta serverul de plată. Verifică internetul și reîncearcă.',
   ck_auth: 'Sesiunea a expirat. Autentifică-te din nou și reia activarea.',
   ck_rateLimited: 'Prea multe încercări. Reîncearcă în câteva minute.',

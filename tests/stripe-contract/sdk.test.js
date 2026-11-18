@@ -114,6 +114,8 @@ describe('SDK4: clichet de descoperire pe apelurile din netlify/functions', () =
   const EXPECTED = [
     'accountLinks.create', 'accounts.create', 'accounts.retrieve',
     'billingPortal.sessions.create', 'charges.retrieve', 'checkout.sessions.create',
+    // Lotul L8d: o singură sesiune deschisă per client (stripe-checkout; pe fir: SDK8c).
+    'checkout.sessions.expire', 'checkout.sessions.list',
     'customers.create', 'customers.del', 'paymentIntents.cancel', 'paymentIntents.create',
     'refunds.list', 'subscriptions.list', 'subscriptions.retrieve', 'webhooks.constructEvent',
   ]

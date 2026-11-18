@@ -77,7 +77,7 @@ const de: Translation<typeof ro> = {
   ck_createFailed:
     'Wir konnten die Zahlung nicht starten. Versuchen Sie es in einigen Augenblicken erneut; wenn es wieder passiert, schreiben Sie uns an {email}.',
   ck_checkoutInProgress:
-    'Sie haben bereits eine Zahlung in einem anderen Tab oder in einer anderen Sprache begonnen. Schließen Sie sie dort ab oder versuchen Sie es in 30 Minuten erneut.',
+    'Für dieses Konto läuft bereits eine Zahlung. Versuchen Sie es in einigen Augenblicken erneut.',
   ck_network:
     'Wir konnten den Zahlungsserver nicht erreichen. Prüfen Sie Ihre Internetverbindung und versuchen Sie es erneut.',
   ck_auth: 'Ihre Sitzung ist abgelaufen. Melden Sie sich erneut an und starten Sie die Aktivierung neu.',

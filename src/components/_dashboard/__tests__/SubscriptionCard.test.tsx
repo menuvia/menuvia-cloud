@@ -32,12 +32,16 @@
 //         (lib/portalErrors.ts) are EXACT codurile de eroare pe care le scrie
 //         stripe-portal.js, fără `no_customer` (ramura lui), citite din SURSA
 //         funcției — cu control pozitiv pe extractor (comentariile nu contează,
-//         un obiect pe mai multe linii da) și anti-vacuitate (≥ 8 coduri,
-//         `no_customer` și `portal_unavailable` printre ele). Înainte, șase din
+//         un obiect pe mai multe linii da, cheia citată `'code'`/`"code"` da, un
+//         text în formă de apel ÎN INTERIORUL unui șir / șablon / regex nu —
+//         apelurile se caută pe TOKENI, nu pe text) și anti-vacuitate (≥ 8
+//         coduri, `no_customer` și `portal_unavailable` printre ele). Înainte, șase din
 //         cele șapte intrări puteau fi șterse sau scrise greșit fără să pice
 //         nimic. Mutațiile care pică: `rate_limit` în loc de `rate_limited`
 //         (cheie pe care serverul n-o trimite); o intrare ștearsă; un cod nou
-//         în stripe-portal.js fără intrare în hartă.
+//         în stripe-portal.js fără intrare în hartă; un cod scris cu cheie
+//         citată (`'code': 'x'`) ignorat de extractor; un apel citat într-un
+//         șir numărat (recenzia CodeRabbit pe #384, runda 2).
 //   SUB7  în en, fr și de, FIECARE cod → textul lui EXACT (oracolul de mai jos,
 //         scris independent de hartă), nu `sub_portalFallback` și nu textul
 //         românesc al serverului; controlul pozitiv cere ca cele patru texte +
@@ -176,42 +180,164 @@ describe('SubscriptionCard', () => {
 const ROOT = process.cwd()
 const read = (f: string) => readFileSync(resolve(ROOT, f), 'utf8')
 
+type Tok = { k: 'id' | 'num' | 'str' | 'tpl' | 'p'; v: string }
+
+/** Sfârșitul unui șablon `…` care începe la `start` (cu `${…}` imbricate). */
+function skipTemplate(src: string, start: number): number {
+  let i = start + 1
+  while (i < src.length) {
+    const c = src[i]
+    if (c === '\\') {
+      i += 2
+      continue
+    }
+    if (c === '`') return i + 1
+    if (c === '$' && src[i + 1] === '{') {
+      i += 2
+      let depth = 1
+      while (i < src.length && depth > 0) {
+        const x = src[i]
+        if (x === "'" || x === '"') {
+          let j = i + 1
+          while (j < src.length && src[j] !== x) j += src[j] === '\\' ? 2 : 1
+          i = j + 1
+          continue
+        }
+        if (x === '`') {
+          i = skipTemplate(src, i)
+          continue
+        }
+        if (x === '{') depth += 1
+        else if (x === '}') depth -= 1
+        i += 1
+      }
+      continue
+    }
+    i += 1
+  }
+  return i
+}
+
+/**
+ * Tokenii unei surse JS: comentariile se sar, iar un șir, un șablon sau un
+ * regex devin UN singur token — deci nimic din interiorul lor nu poate arăta
+ * ca un apel sau ca o cheie.
+ */
+function tokenize(src: string): Tok[] {
+  const out: Tok[] = []
+  const n = src.length
+  // Un `/` începe un regex după un operator / o paranteză deschisă / `return`.
+  const regexAllowed = (): boolean => {
+    const prev = out[out.length - 1]
+    if (prev === undefined) return true
+    if (prev.k === 'p') return !')]}'.includes(prev.v)
+    return prev.k === 'id' && (prev.v === 'return' || prev.v === 'typeof')
+  }
+  let i = 0
+  while (i < n) {
+    const c = src[i]
+    const d = src[i + 1]
+    if (/\s/.test(c)) {
+      i += 1
+    } else if (c === '/' && d === '/') {
+      const e = src.indexOf('\n', i)
+      i = e < 0 ? n : e
+    } else if (c === '/' && d === '*') {
+      const e = src.indexOf('*/', i + 2)
+      i = e < 0 ? n : e + 2
+    } else if (c === "'" || c === '"') {
+      let j = i + 1
+      while (j < n && src[j] !== c && src[j] !== '\n') j += src[j] === '\\' ? 2 : 1
+      out.push({ k: 'str', v: src.slice(i + 1, j) })
+      i = j + 1
+    } else if (c === '`') {
+      i = skipTemplate(src, i)
+      out.push({ k: 'tpl', v: '' })
+    } else if (c === '/' && regexAllowed()) {
+      let j = i + 1
+      let cls = false
+      while (j < n && src[j] !== '\n') {
+        const x = src[j]
+        if (x === '\\') {
+          j += 2
+          continue
+        }
+        if (x === '[') cls = true
+        else if (x === ']') cls = false
+        else if (x === '/' && !cls) break
+        j += 1
+      }
+      j += 1
+      while (j < n && /[a-z]/i.test(src[j])) j += 1
+      out.push({ k: 'tpl', v: '' })
+      i = j
+    } else if (/[A-Za-z_$]/.test(c)) {
+      let j = i
+      while (j < n && /[\w$]/.test(src[j])) j += 1
+      out.push({ k: 'id', v: src.slice(i, j) })
+      i = j
+    } else if (/[0-9]/.test(c)) {
+      let j = i
+      while (j < n && /[0-9.]/.test(src[j])) j += 1
+      out.push({ k: 'num', v: src.slice(i, j) })
+      i = j
+    } else if (src.startsWith('...', i)) {
+      out.push({ k: 'p', v: '...' })
+      i += 3
+    } else {
+      out.push({ k: 'p', v: c })
+      i += 1
+    }
+  }
+  return out
+}
+
+const isPunct = (t: Tok | undefined, v: string): boolean => t !== undefined && t.k === 'p' && t.v === v
+
 /**
  * Codurile din corpurile `jsonResponse(<status non-2xx>, { …, code: '<x>' })`
- * ale unei funcții, fără comentarii. Se citește PROPRIETATEA `code` de la
- * primul nivel al corpului, nu orice text care arată ca un cod (recenzie
- * CodeRabbit pe #384): un `code: 'x'` din INTERIORUL unui mesaj de eroare nu
- * contează, iar un cod cu cifre (`customer_lookup_v2_failed`) nu e ratat.
+ * ale unei funcții. Apelurile se caută pe TOKENI (un text în formă de apel
+ * dintr-un șir, șablon, regex sau comentariu nu e apel — recenzia CodeRabbit
+ * pe #384, runda 2) și se citește PROPRIETATEA `code` de la primul nivel al
+ * corpului, cu cheia identificator SAU citată (`'code'` / `"code"`), a cărei
+ * valoare e EXACT un literal (urmat de `,` sau `}`): un `code: 'x'` din
+ * interiorul unui mesaj de eroare nu contează, iar un cod cu cifre
+ * (`customer_lookup_v2_failed`) nu e ratat.
  */
 function serverCodes(src: string): string[] {
-  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+  const toks = tokenize(src)
   const found = new Set<string>()
-  const call = /\bjsonResponse\(\s*(\d{3})\s*,\s*\{/g
-  for (const m of code.matchAll(call)) {
-    const status = Number(m[1])
-    if (status >= 200 && status < 300) continue
-    // Parcurge corpul `{ … }` cu adâncime și șiruri; reține doar `code:` de
-    // la adâncimea 1 urmat de un literal.
-    let i = (m.index ?? 0) + m[0].length
-    let depth = 1
-    let atKey = ''
-    while (i < code.length && depth > 0) {
-      const ch = code[i]
-      if (ch === "'" || ch === '"' || ch === '`') {
-        let j = i + 1
-        while (j < code.length && code[j] !== ch) j += code[j] === '\\' ? 2 : 1
-        const literal = code.slice(i + 1, j)
-        if (depth === 1 && /(^|[\s,{])code\s*:\s*$/.test(atKey) && /^[a-z][a-z0-9_]*$/.test(literal)) {
-          found.add(literal)
-        }
-        atKey = ''
-        i = j + 1
-        continue
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i]
+    if (t.k !== 'id' || t.v !== 'jsonResponse' || isPunct(toks[i - 1], '.')) continue
+    const status = toks[i + 2]
+    if (!isPunct(toks[i + 1], '(') || status === undefined || status.k !== 'num' || !/^\d{3}$/.test(status.v)) continue
+    if (!isPunct(toks[i + 3], ',') || !isPunct(toks[i + 4], '{')) continue
+    const code = Number(status.v)
+    if (code >= 200 && code < 300) continue
+    let depth = 0
+    for (let j = i + 4; j < toks.length; j++) {
+      const x = toks[j]
+      if (x.k === 'p' && '{[('.includes(x.v)) depth += 1
+      else if (x.k === 'p' && '}])'.includes(x.v)) {
+        depth -= 1
+        if (depth === 0) break
       }
-      if (ch === '{' || ch === '[' || ch === '(') depth += 1
-      else if (ch === '}' || ch === ']' || ch === ')') depth -= 1
-      if (depth === 1) atKey = ch === ',' ? ',' : atKey + ch
-      i += 1
+      // Începutul unei proprietăți la primul nivel: `{`-ul corpului sau un `,`.
+      if (depth !== 1 || !(j === i + 4 || isPunct(x, ','))) continue
+      const key = toks[j + 1]
+      const value = toks[j + 3]
+      const isCodeKey = key !== undefined && (key.k === 'id' || key.k === 'str') && key.v === 'code'
+      if (
+        isCodeKey &&
+        isPunct(toks[j + 2], ':') &&
+        value !== undefined &&
+        value.k === 'str' &&
+        /^[a-z][a-z0-9_]*$/.test(value.v) &&
+        (isPunct(toks[j + 4], ',') || isPunct(toks[j + 4], '}'))
+      ) {
+        found.add(value.v)
+      }
     }
   }
   return [...found].sort()
@@ -264,11 +390,25 @@ describe('SubscriptionCard — harta codurilor portalului (lotul L8d)', () => {
       "return jsonResponse(500, { error: \"Folosiți code: 'legacy_customer'\", code: 'real_code' })",
       "return jsonResponse(200, { url, code: 'ok_code' })",
       "return jsonResponse(400, { error: 'y', detail: { code: 'nested_code' }, code: 'outer_code' })",
+      // Cheia CITATĂ e tot `code` (ambele ghilimele).
+      "return jsonResponse(503, { error: 'x', 'code': 'quoted_single' })",
+      'return jsonResponse(503, { "code": \'quoted_double\', error: \'x\' })',
+      // Un text în formă de apel ÎN INTERIORUL unui șir / șablon nu e apel.
+      'const note = "diagnostic: jsonResponse(500, { code: \'example_only\' })"',
+      "const esc = 'vezi jsonResponse(500, { code: \\'esc_only\\' })'",
+      'const t = `jsonResponse(500, { code: \'in_template\' }) ${x}`',
+      // Un regex cu ghilimele nu înghite restul fișierului.
+      "const q = s.replace(/'/g, ''); return jsonResponse(409, { code: 'after_regex' })",
+      // Valoarea trebuie să fie EXACT literalul (nu o expresie care îl conține).
+      "return jsonResponse(500, { code: 'prefix_' + suffix })",
     ].join('\n')
     expect(serverCodes(sample)).toEqual([
+      'after_regex',
       'customer_lookup_v2_failed',
       'no_customer',
       'outer_code',
+      'quoted_double',
+      'quoted_single',
       'rate_limited',
       'real_code',
     ])

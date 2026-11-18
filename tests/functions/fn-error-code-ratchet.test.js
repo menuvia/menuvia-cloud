@@ -20,6 +20,15 @@
 //        `:` și ea) nu respinge un cod corect și nu face literal unul greșit.
 //        [PICĂ: valoarea citită din sursa originală fără restrângerea
 //        capetelor pe sursa mascată]
+//        Un literal SUPRASCRIS mai târziu în același obiect nu e un cod stabil
+//        (recenzia CodeRabbit pe #384, runda 2): `{ code: 'x', ...details }`,
+//        `{ code: 'x', code: y }`, o redefinire prin cheie citată (`'code': y`),
+//        o cheie calculată (`[k]: …`) sau un accesor `get code()` după literal
+//        → respins; literalul e acceptat DOAR dacă vine după orice spread /
+//        redefinire (`{ ...details, code: 'x' }`). Cheia citată `'code': 'x'`
+//        e recunoscută ca `code`. Un spread IMBRICAT nu contează.
+//        [PICĂ: prima cheie `code` decide (varianta de dinainte); cheia citată
+//        ignorată la redefinire]
 //   FEC1 în cele opt funcții, fiecare apel `jsonResponse(<non-2xx>, {…})` are
 //        cheia `code` la PRIMUL nivel al obiectului, iar VALOAREA ei e un șir
 //        literal ne-gol (`code: undefined`, `''`, `null`, `e.code`, o variabilă
@@ -61,7 +70,7 @@ const ROOT = path.join(__dirname, '..', '..')
 // contract. Funcțiile AI și send-invite aveau deja codul pe fiecare ramură
 // (lib/aiErrors.js, AEC1–AEC5; `fail()`, L6b); cele trei Stripe l-au primit în L8d.
 const EXPECTED = {
-  'netlify/functions/stripe-checkout.js': 16,
+  'netlify/functions/stripe-checkout.js': 17,
   'netlify/functions/stripe-portal.js': 9,
   'netlify/functions/stripe-connect.js': 12,
   'netlify/functions/send-invite.js': 15,
@@ -239,14 +248,21 @@ function literalString(src, a, b) {
 }
 
 // Valoarea cheii `code` de la PRIMUL nivel al obiectului literal din [a, b):
-// `{ present, value }`, unde `value` e codul dacă e un șir literal ne-gol, altfel
-// null (lipsă, `undefined`, `''`, o expresie, forma scurtă `{ code }`). Cheile
-// și separatorii se caută pe sursa MASCATĂ (comentariile și conținutul
-// șirurilor nu contează), valoarea se citește din sursa ORIGINALĂ.
+// `{ present, value, overridden }`, unde `value` e codul dacă e un șir literal
+// ne-gol, altfel null (lipsă, `undefined`, `''`, o expresie, forma scurtă
+// `{ code }`). Cheile și separatorii se caută pe sursa MASCATĂ (comentariile și
+// conținutul șirurilor nu contează), valoarea se citește din sursa ORIGINALĂ.
+//
+// Decide ULTIMA proprietate de la primul nivel care POATE scrie `code` (în JS
+// câștigă ultima): o cheie `code` (identificator sau șir `'code'`/`"code"`), un
+// spread `...x`, o cheie calculată `[…]` sau un accesor `get`/`set code`. Un
+// literal urmat de oricare dintre ele nu e un cod stabil → `overridden`.
 function topLevelCode(src, masked, a, b) {
   let k = a
   while (k < b && /\s/.test(masked[k])) k++
   if (masked[k] !== '{') return { present: false, value: null }
+  let present = false
+  let last = null // { kind: 'code', value } | { kind: 'override', what }
   let depth = 0
   for (let i = k; i < b; i++) {
     const ch = masked[i]
@@ -257,10 +273,31 @@ function topLevelCode(src, masked, a, b) {
     if (depth !== 1 || !((i === k && ch === '{') || ch === ',')) continue
     let j = i + 1
     while (j < b && /\s/.test(masked[j])) j++
-    if (masked.slice(j, j + 4) !== 'code' || /[\w$]/.test(masked[j + 4] || '')) continue
-    let c = j + 4
+    if (masked.startsWith('...', j)) {
+      last = { kind: 'override', what: 'un spread' }
+      continue
+    }
+    if (masked[j] === '[') {
+      last = { kind: 'override', what: 'o cheie calculată' }
+      continue
+    }
+    if (/^(get|set)\s+(code\b|['"]code['"])/.test(src.slice(j, j + 12))) {
+      last = { kind: 'override', what: 'un accesor' }
+      continue
+    }
+    // Cheia `code`: identificator, sau șir citat (conținutul e mascat — se
+    // citește din sursa originală, la aceeași poziție).
+    let keyEnd = -1
+    if (masked.slice(j, j + 4) === 'code' && !/[\w$]/.test(masked[j + 4] || '')) keyEnd = j + 4
+    else if ((src[j] === "'" || src[j] === '"') && src.slice(j, j + 6) === `${src[j]}code${src[j]}`) keyEnd = j + 6
+    if (keyEnd < 0) continue
+    present = true
+    let c = keyEnd
     while (c < b && /\s/.test(masked[c])) c++
-    if (masked[c] !== ':') return { present: true, value: null } // `{ code }` / `{ code, … }`
+    if (masked[c] !== ':') {
+      last = { kind: 'code', value: null } // `{ code }` / `{ code, … }` / `code() {}`
+      continue
+    }
     // Valoarea: până la următorul `,` sau `}` de la PRIMUL nivel.
     let d = 0
     let e = c + 1
@@ -280,9 +317,11 @@ function topLevelCode(src, masked, a, b) {
     let ve = e
     while (vs < ve && /\s/.test(masked[vs])) vs++
     while (ve > vs && /\s/.test(masked[ve - 1])) ve--
-    return { present: true, value: literalString(src, vs, ve) }
+    last = { kind: 'code', value: literalString(src, vs, ve) }
   }
-  return { present: false, value: null }
+  if (!present) return { present: false, value: null }
+  if (last.kind === 'override') return { present: true, value: null, overridden: last.what }
+  return { present: true, value: last.value }
 }
 
 /** Răspunsurile de eroare ale unei surse: [{ line, kind, ok, why }]. */
@@ -308,7 +347,13 @@ function scanErrorResponses(src) {
       if (statusTxt.startsWith('2')) continue
       const code = args.length >= 2 ? topLevelCode(src, masked, args[1][0], args[1][1]) : { present: false, value: null }
       const ok = code.value !== null
-      const why = ok ? '' : code.present ? '`code` fără valoare literală ne-goală' : 'fără `code` la primul nivel'
+      const why = ok
+        ? ''
+        : code.overridden
+          ? `\`code\` literal suprascris după el de ${code.overridden}`
+          : code.present
+            ? '`code` fără valoare literală ne-goală'
+            : 'fără `code` la primul nivel'
       found.push({ line, kind: name, status: statusTxt, ok, why })
     } else {
       const code = args.length >= 2 ? literalString(src, args[1][0], args[1][1]) : null
@@ -369,6 +414,49 @@ describe('FEC0: scanerul, pe surse sintetice', () => {
     assert.equal(bad("return jsonResponse(503, { code: undefined, meta: { code: 'n' } })").length, 1)
     // Motivul spune care e defectul.
     assert.match(scanErrorResponses("return jsonResponse(503, { error: 'x', code: undefined })")[0].why, /fără valoare/)
+  })
+
+  it('respinge un literal pe care îl poate suprascrie ceva DUPĂ el', () => {
+    const overridden = [
+      "return jsonResponse(503, { code: 'x', ...details })",
+      "return jsonResponse(503, { error: 'e', code: 'x', ...rest })",
+      "return jsonResponse(503, {\n  code: 'x',\n  ...details,\n})",
+      "return jsonResponse(503, { ...a, code: 'x', ...b })",
+      "return jsonResponse(503, { code: 'x', [k]: 'y' })",
+      "return jsonResponse(503, { code: 'x', get code() { return y } })",
+    ]
+    for (const src of overridden) {
+      const found = bad(src)
+      assert.equal(found.length, 1, src)
+      assert.match(found[0].why, /suprascris/, src)
+    }
+    // Redefinirea cu o valoare ne-literală — și prin cheie CITATĂ.
+    for (const src of [
+      "return jsonResponse(503, { code: 'x', code: y })",
+      "return jsonResponse(503, { code: 'x', 'code': y })",
+      "return jsonResponse(503, { code: 'x', \"code\": undefined })",
+      "return jsonResponse(503, { error: 'e', 'code': y })",
+    ]) {
+      assert.equal(bad(src).length, 1, src)
+    }
+  })
+
+  it('acceptă literalul de DUPĂ orice spread / redefinire și cheia citată', () => {
+    for (const src of [
+      "return jsonResponse(503, { ...details, code: 'x' })",
+      "return jsonResponse(503, { ...details, error: 'e', code: 'x' })",
+      "return jsonResponse(503, { ...a, code: 'x', error: 'e' })",
+      "return jsonResponse(503, { code: y, code: 'x' })",
+      "return jsonResponse(503, { 'code': 'x', error: 'e' })",
+      "return jsonResponse(503, { error: 'e', \"code\": 'x' })",
+      // Un spread IMBRICAT nu scrie `code`-ul corpului.
+      "return jsonResponse(503, { code: 'x', detail: { ...more } })",
+      "return jsonResponse(503, { code: 'x', list: [...items] })",
+      // O cheie care doar ÎNCEPE cu „code” nu e `code`.
+      "return jsonResponse(503, { code: 'x', codeHint: y, 'codes': z })",
+    ]) {
+      assert.deepEqual(bad(src), [], src)
+    }
   })
 
   it('trece formele corecte și nu numără ce nu e cod', () => {

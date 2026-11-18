@@ -47,10 +47,167 @@ function originTag(origin) {
 const CHECKOUT_CREATE_FAILED_MSG =
   `Nu am putut porni plata. Reîncearcă în câteva momente, iar dacă se repetă scrie-ne la contact@${MAIL_DOMAIN}.`
 
-// Aceeași cheie de idempotență, alt corp (vezi cheia de la `sessions.create`):
-// o sesiune e deja pornită în fereastra curentă, din alt tab sau în altă limbă.
-const CHECKOUT_IN_PROGRESS_MSG =
-  'Ai deja o plată începută în alt tab sau în altă limbă. Finalizeaz-o acolo sau reîncearcă peste 30 de minute.'
+// O plată a acestui cont e deja în mișcare și nu putem garanta că pornim una
+// singură: sesiunile n-au putut fi citite sau închise (vezi
+// `settleOpenSessions`), sau Stripe a respins cheia de idempotență reutilizată
+// cu alt corp. Cheia se repetă doar cât nicio sesiune nouă n-a apărut între
+// timp (`sessionsTagOf`), deci cazul obișnuit e o cerere CONCURENTĂ încă în
+// zbor: la reîncercare lista vede sesiunea câștigătoare și o reia sau o
+// închide — de aceea textul NU promite o fereastră de timp. Rar: dacă prima
+// cerere cu cheia asta a primit de la Stripe o eroare SALVATĂ (Stripe păstrează
+// și răspunsurile de eroare pe cheie), refuzul durează până la fereastra
+// următoare a cheii.
+const CHECKOUT_IN_PROGRESS_MSG = 'O plată pentru acest cont e deja în curs. Reîncearcă în câteva momente.'
+
+// O singură pagină din lista Stripe (`limit` maxim = 100), cu sesiunile
+// clientului din ORICE stare și mod (inclusiv creditele AI) din intervalul
+// `SESSIONS_LOOKBACK_S`. Cu politica de mai jos un client are cel mult o
+// sesiune de abonament deschisă; mai multe vin din codul de dinainte (o sesiune
+// nouă la fiecare fereastră de 30 de minute, valabilă 24 h) sau dintr-o cursă
+// între două cereri cu planuri diferite. Peste 100 de sesiuni în ~25 h (doar
+// prin sute de schimbări de plan) → `has_more` → 409 până ies din interval.
+const SESSIONS_PAGE = 100
+
+// Fereastra cheii de idempotență (vezi cheia de la `sessions.create`).
+const KEY_WINDOW_MS = 30 * 60 * 1000
+
+// Lista cuprinde sesiunile create începând cu 25 h ÎNAINTEA începutului
+// ferestrei curente a cheii. O sesiune Checkout expiră la cel mult 24 h după
+// creare (`expires_at`, stripe@23: „anywhere from 30 minutes to 24 hours after
+// Checkout Session creation”), iar ora în plus acoperă trecerea ei la
+// `expired` — deci nicio sesiune deschisă nu rămâne în afara listei. Pragul e
+// FIX pe fereastră (nu „acum − 25 h”): două cereri din aceeași fereastră citesc
+// același interval, deci mulțimea din `sessionsTagOf` doar CREȘTE în fereastră.
+const SESSIONS_LOOKBACK_S = 25 * 60 * 60
+
+// O sesiune care expiră în mai puțin de atât NU se reia: omul ar ajunge pe
+// pagina „sesiune expirată” în timp ce completează plata (pe main, o cerere
+// dintr-o fereastră nouă primea mereu o sesiune nouă, valabilă 24 h). Se
+// închide și se creează una nouă, ca orice sesiune nereutilizabilă. 30 de
+// minute = valabilitatea MINIMĂ pe care Stripe o acceptă la creare.
+const REUSE_MIN_LEFT_S = 30 * 60
+
+function customerIdOf(s) {
+  if (typeof s?.customer === 'string') return s.customer
+  return s?.customer?.id ?? null
+}
+
+/**
+ * Sesiunea deschisă e EXACT plata pe care ar porni-o cererea curentă?
+ * Planul, prețul și trialul se citesc din `metadata` SESIUNII (scrise la
+ * `sessions.create`, mai jos): `subscription_data.metadata` ajunge pe
+ * abonament, iar obiectul Session NU îl întoarce (stripe@23,
+ * `Checkout.Session` n-are câmpul `subscription_data`). Originea se citește din
+ * `success_url` — singurul câmp al sesiunii care o poartă (`originTag` din cheie
+ * e un hash). O sesiune fără aceste metadate (creată de codul de dinainte) nu
+ * se reia: se închide și se creează una nouă — sigur în ambele sensuri.
+ * Prețul și trialul intră deliberat: o sesiune deschisă înaintea unei
+ * schimbări de preț ar încasa prețul vechi, iar una cu trial pornită înainte ca
+ * istoricul să conțină un trial ar ocoli regula „un singur trial” de mai sus.
+ * Limba (`locale`) și `referral_code` NU intră: nu schimbă ce se cumpără
+ * (limba nu are voie să deschidă a doua plată; atribuirea primară e
+ * `capture_affiliate_attribution`, pe client, făcută deja).
+ * Și să mai fie valabilă cel puțin `REUSE_MIN_LEFT_S` (`expires_at` lipsă sau
+ * nenumeric → nu se reia: NaN pică comparația).
+ */
+function isReusableSession(s, want, nowS) {
+  const md = s.metadata || {}
+  return (
+    md.plan === want.plan &&
+    md.price_id === want.priceId &&
+    md.trial_days === want.trialDays &&
+    typeof s.success_url === 'string' &&
+    s.success_url.startsWith(`${want.appUrl}/`) &&
+    typeof s.url === 'string' &&
+    /^https:\/\/[^/]/.test(s.url) &&
+    Number(s.expires_at) - nowS > REUSE_MIN_LEFT_S
+  )
+}
+
+/**
+ * Segmentul de stare al cheii de idempotență: un rezumat al MULȚIMII
+ * sesiunilor de abonament ale clientului create în interval, din ORICE stare
+ * (`s0` = niciuna). Două proprietăți, ambele cerute de recenzia adversarială
+ * pe #384, unde prima variantă (doar sesiunile închise de cererea CURENTĂ)
+ * le încălca pe amândouă:
+ *  (1) cheia nu se repetă după o sesiune creată cu ea. Sesiunea X, creată cu
+ *      cheia K, intră în mulțime pentru orice cerere ulterioară din aceeași
+ *      fereastră, deci aceasta are altă cheie și Stripe nu-i mai întoarce
+ *      răspunsul salvat al lui K — URL-ul lui X, care între timp poate fi
+ *      EXPIRAT (growth → starter cu creare eșuată → growth) sau FINALIZAT, cu
+ *      abonamentul anulat. Prima variantă dădea `s0` celei de-a treia cereri,
+ *      exact cheia lui X;
+ *  (2) două cereri SIMULTANE identice au aceeași cheie. Starea NU intră, deci
+ *      închiderea unei sesiuni vechi de către una dintre ele nu schimbă
+ *      mulțimea pe care o citește cealaltă; o schimbă doar o sesiune NOUĂ. Cu
+ *      prima variantă, a doua cerere listată după `expire`-ul primei dădea
+ *      `s0`, cealaltă `s<hash>` — două sesiuni completabile pentru același plan.
+ * Mulțimea e filtrată și aici pe `sinceS` (nu ne bizuim doar pe filtrul
+ * Stripe), ca segmentul să depindă doar de fereastră și de sesiunile născute.
+ */
+function sessionsTagOf(sessions, sinceS) {
+  const ids = sessions
+    .filter((s) => typeof s.id === 'string' && Number(s.created) >= sinceS)
+    .map((s) => s.id)
+  if (!ids.length) return 's0'
+  const digest = crypto.createHash('sha256').update([...new Set(ids)].sort().join(',')).digest('hex')
+  return `s${digest.slice(0, 10)}`
+}
+
+/**
+ * O singură sesiune Checkout de abonament deschisă per client, la creare
+ * (recenzia CodeRabbit pe #384): o sesiune deschisă pentru EXACT aceeași plată
+ * se reia (îi întoarcem URL-ul, nu creăm alta); ORICE altă sesiune de abonament
+ * deschisă a clientului (alt plan, altă origine, alt preț, creată de codul de
+ * dinainte) se închide (`expire`) înaintea creării — ultimul click câștigă.
+ * Fără asta, o sesiune `checkout_v4` pornită înainte de deploy și una `v7`
+ * după, sau două sesiuni de o parte și de alta a graniței ferestrei de 30 de
+ * minute, erau completabile AMBELE = două abonamente facturate.
+ *
+ * Aruncă (→ 409 `checkout_in_progress`, fail-closed, fără sesiune nouă) dacă
+ * lista nu poate fi citită, dacă o închidere eșuează sau dacă pagina nu le
+ * cuprinde pe toate (`has_more`). Cumpărările de credite AI
+ * (ai-credits-checkout.js, `mode: 'payment'`, același client Stripe) nu se
+ * ating. Garanția e la CREARE: două cereri simultane cu planuri diferite pot
+ * lista amândouă înainte ca vreuna să-și fi creat sesiunea, deci fiecare
+ * creează una — închiderea clasei la FINALIZARE (webhook-ul anulează al doilea
+ * abonament viu) e lotul următor.
+ *
+ * O SINGURĂ listă, fără filtru de stare, servește ambelor scopuri: sesiunile
+ * deschise (reluare / închidere) și segmentul de stare al cheii
+ * (`sessionsTagOf`, care cere și sesiunile expirate/finalizate din interval).
+ */
+async function settleOpenSessions(stripe, customerId, want, keyWindow) {
+  const nowS = Math.floor(Date.now() / 1000)
+  const sinceS = Math.floor((keyWindow * KEY_WINDOW_MS) / 1000) - SESSIONS_LOOKBACK_S
+  const page = await stripe.checkout.sessions.list({
+    customer: customerId,
+    created: { gte: sinceS },
+    limit: SESSIONS_PAGE,
+  })
+  if (!page || !Array.isArray(page.data)) throw new Error('checkout.sessions.list: răspuns fără `data`')
+  // Sesiunile de ABONAMENT ale clientului, din orice stare.
+  const subs = page.data.filter((s) => s && s.mode === 'subscription' && customerIdOf(s) === customerId)
+  const open = subs.filter((s) => s.status === 'open')
+  // Mai multe reutilizabile (cursă, sau cod vechi + nou): cea mai NOUĂ rămâne.
+  const keep = open
+    .filter((s) => isReusableSession(s, want, nowS))
+    .sort((a, b) => (Number(b.created) || 0) - (Number(a.created) || 0))[0] || null
+  const stale = open.filter((s) => s !== keep)
+  const results = await Promise.allSettled(stale.map((s) => stripe.checkout.sessions.expire(s.id)))
+  const failed = results.filter((r) => r.status === 'rejected')
+  if (failed.length) {
+    const reason = failed[0].reason
+    throw Object.assign(new Error(`expire eșuat pe ${failed.length}/${stale.length} sesiuni deschise`), {
+      type: reason?.type, code: reason?.code,
+    })
+  }
+  // O pagină care NU le cuprinde pe toate: cele văzute s-au închis, dar nu
+  // putem garanta că nu mai rămâne alta completabilă. Reîncercarea continuă.
+  // Tot aici: fără pagina completă, segmentul de stare n-ar fi complet.
+  if (page.has_more === true) throw new Error(`peste ${SESSIONS_PAGE} sesiuni în interval`)
+  return { reuseUrl: keep ? keep.url : null, sessionsTag: sessionsTagOf(subs, sinceS) }
+}
 
 /**
  * Stripe a respins cheia de idempotență fiindcă a mai văzut-o cu ALȚI parametri.
@@ -63,10 +220,10 @@ const CHECKOUT_IN_PROGRESS_MSG =
  *
  * DELIBERAT în afară: 409 `idempotency_key_in_use` (cerere CONCURENTĂ cu
  * aceeași cheie și același corp, adică un dublu-click) vine cu `type:
- * 'invalid_request_error'`, deci aici dă `false` și rămâne 502 „reîncearcă în
- * câteva momente” — e tranzitoriu, iar reîncercarea primește sesiunea din
- * cache. NU lărgi verificarea după `statusCode === 409` sau după `code`: un
- * dublu-click ar primi „reîncearcă peste 30 de minute”.
+ * 'invalid_request_error'`, deci aici dă `false` și rămâne 502
+ * `checkout_create_failed` — e tranzitoriu, iar reîncercarea primește sesiunea
+ * din cache. NU lărgi verificarea după `statusCode === 409` sau după `code`:
+ * un dublu-click ar primi „o plată e deja în curs” pentru propria lui plată.
  * Formele sunt ținute de SDK8b (tests/stripe-contract/handlers.test.js, pe
  * SDK-ul REAL) și de SCK4 (tests/functions/stripe-checkout.test.js).
  */
@@ -362,6 +519,44 @@ exports.handler = async (event) => {
   const hadTrial = subsAll.some((s) => s.trial_start != null || s.trial_end != null)
   if (hadTrial) allowTrial = false
 
+  // Plata pe care o pornește cererea asta — scrisă în metadata SESIUNII și
+  // comparată cu sesiunile deschise (`isReusableSession`).
+  const want = {
+    plan: requestedPlan,
+    priceId,
+    trialDays: String(allowTrial ? trialDays : 0),
+    appUrl,
+  }
+
+  // Fereastra cheii, citită O SINGURĂ dată: aceeași pentru intervalul listei
+  // (`settleOpenSessions`) și pentru sufixul cheii — altfel, la granița
+  // ferestrei, lista ar fi citit intervalul unei ferestre și cheia ar fi purtat-o
+  // pe următoarea.
+  const keyWindow = Math.floor(Date.now() / KEY_WINDOW_MS)
+
+  // ── O singură sesiune deschisă per client (vezi `settleOpenSessions`) ──────
+  // Pe un client creat de NOI acum câteva milisecunde (`isFreshCustomer`) nu
+  // poate exista nicio sesiune: sărim RTT-ul, ca la istoricul de abonamente, iar
+  // segmentul de stare e cel al mulțimii goale, `s0` — același pe care l-ar
+  // calcula o cerere concurentă care a ADOPTAT clientul și a citit lista goală.
+  let sessionsTag = 's0'
+  if (!isFreshCustomer) {
+    let settled
+    try {
+      settled = await settleOpenSessions(stripe, customerId, want, keyWindow)
+    } catch (e) {
+      console.error('[stripe-checkout] open sessions not settled (fail-closed):', {
+        type: e?.type, code: e?.code, message: e?.message,
+      })
+      return jsonResponse(409, { error: CHECKOUT_IN_PROGRESS_MSG, code: 'checkout_in_progress' })
+    }
+    // Aceeași plată, deja deschisă → îi întoarcem URL-ul (aceeași formă ca la
+    // creare). Limba paginii rămâne a sesiunii existente.
+    if (settled.reuseUrl) return jsonResponse(200, { url: settled.reuseUrl })
+    // Segmentul de stare al cheii (de ce, la `sessionsTagOf`).
+    sessionsTag = settled.sessionsTag
+  }
+
   let session
   try {
     session = await stripe.checkout.sessions.create(
@@ -370,6 +565,11 @@ exports.handler = async (event) => {
         client_reference_id: user.id,
         mode: 'subscription',
         line_items: [{ price: priceId, quantity: 1 }],
+        // Metadata SESIUNII (≠ `subscription_data.metadata`, care ajunge pe
+        // abonament și nu e citibilă de pe sesiune): ce plată e, pentru
+        // `isReusableSession`. Fără cheia `type` (webhook-ul o citește pe
+        // sesiunile `mode: 'payment'` ca `ai_credits`).
+        metadata: { plan: want.plan, price_id: want.priceId, trial_days: want.trialDays },
         // Lotul L8d: pagina Stripe în limba panoului; fără cheie = „auto”.
         ...(locale ? { locale } : {}),
         // `checkout_plan`: clientul (useCheckoutReturn) anunță „planul e activ"
@@ -393,14 +593,14 @@ exports.handler = async (event) => {
         // Idempotență: cheia include intrările care schimbă corpul cererii și erau
         // deja în cheie pe main (plan, referral_code, trial), altfel Stripe respinge
         // cheia reutilizată cu params diferiți (idempotency_error). Click-uri repetate
-        // cu EXACT aceeași cerere → aceeași sesiune (dedup); o diferență din acestea →
-        // cheie nouă. Planul și trialul deosebesc două plăți; `referral_code` NU
-        // (schimbă doar metadata — atribuirea primară e `capture_affiliate_attribution`
-        // de mai sus, pe `stripe_customer_id`): e în cheie ca pe main, iar un vanity
-        // rezolvat între două click-uri (plafonul de 1,5 s din App.tsx) dă două
-        // sesiuni completabile — rămășiță consemnată în CLAUDE.md (lotul L8d), ca
-        // granița ferestrei și schimbarea de prefix la deploy. Excepția deliberată
-        // e limba paginii (`locale`, vezi `v7` mai jos).
+        // cu EXACT aceeași cerere SECVENȚIALE se dedup-ează acum din listă (sesiunea
+        // deschisă se reia, `settleOpenSessions`); cheia rămâne plasa pentru cererile
+        // SIMULTANE (dublu-click, două taburi), care au același segment de stare
+        // (`sessionsTagOf`: o închidere nu-l schimbă, doar o sesiune nouă). Planul și
+        // trialul deosebesc două plăți; `referral_code` NU (schimbă doar metadata —
+        // atribuirea primară e `capture_affiliate_attribution` de mai sus, pe
+        // `stripe_customer_id`): e în cheie ca pe main. Excepția deliberată e limba
+        // paginii (`locale`, vezi `v7` mai jos).
         // Fereastră temporală de 30 min: fără ea, aceeași cerere repetată mult mai
         // târziu (ex. a doua zi) ar rămâne blocată pe cheia veche la Stripe.
         // Prefixul `v4` + hash-ul ORIGINII: success_url/cancel_url fac parte din
@@ -411,14 +611,16 @@ exports.handler = async (event) => {
         // Prima variantă (`v6`, doar pe branch, nu se refolosește) punea limba în
         // cheie: un tab vechi (fără `ui_lang` = „auto”) și unul nou (`ro`) — sau
         // același om care schimbă limba panoului — primeau DOUĂ sesiuni
-        // completabile pentru același plan în aceeași fereastră, iar două plăți
-        // finalizate = două abonamente facturate (recenzie CodeRabbit pe #384).
-        // Fără limbă în cheie, Stripe vede aceeași cheie cu alt corp și o
-        // respinge (`idempotency_error`) → 409 `checkout_in_progress` mai jos:
-        // limba nu are voie să deschidă a doua plată. `v5` e REZERVAT PR-ului
-        // DRAFT RES-11 (#273, cheile de trial fără card + datele de facturare):
-        // la integrarea lui, prefixul urcă la `v8`.
-        idempotencyKey: `checkout_v7_${originTag(appUrl)}_${user.id}_${requestedPlan}_${referralCode || 'none'}_${allowTrial ? trialDays : 0}_${Math.floor(Date.now() / (30 * 60 * 1000))}`,
+        // completabile pentru același plan (recenzie CodeRabbit pe #384). Acum a
+        // doua cerere reia sesiunea deschisă din listă; dacă cele două sunt
+        // SIMULTANE, Stripe vede aceeași cheie cu alt corp și o respinge
+        // (`idempotency_error`) → 409 `checkout_in_progress` mai jos. Tot în `v7`
+        // (înainte de orice deploy al lui `v7`, deci nicio cheie emisă nu se
+        // ciocnește): `metadata` sesiunii în corp și segmentul de stare
+        // `sessionsTag` în cheie (de ce, la `sessionsTagOf`). `v5` e REZERVAT
+        // PR-ului DRAFT RES-11 (#273, cheile de trial fără card + datele de
+        // facturare): la integrarea lui, prefixul urcă la `v8`.
+        idempotencyKey: `checkout_v7_${originTag(appUrl)}_${user.id}_${requestedPlan}_${referralCode || 'none'}_${want.trialDays}_${sessionsTag}_${keyWindow}`,
       },
     )
   } catch (e) {
@@ -429,10 +631,12 @@ exports.handler = async (event) => {
     console.error('[stripe-checkout] session create failed:', {
       type: e?.type, code: e?.code, param: e?.param, message: e?.message,
     })
-    // Cheie reutilizată cu alt corp = o plată deja pornită în fereastra curentă
-    // (alt tab, altă limbă, un client vechi). NU 502 „reîncearcă în câteva
-    // momente”: până la fereastra următoare, cererea cu ACEST corp primește
-    // același refuz. Mesajul englezesc al Stripe rămâne doar în log.
+    // Cheie reutilizată cu alt corp = o cerere SIMULTANĂ pentru aceeași plată
+    // (alt tab, altă limbă, un client vechi) își creează sesiunea cu aceeași
+    // cheie (sau, rar, Stripe a salvat pe cheie eroarea primei cereri — vezi
+    // `CHECKOUT_IN_PROGRESS_MSG`). Plasa de cursă a listei de mai sus: la
+    // reîncercare lista vede sesiunea câștigătoare și o reia sau o închide.
+    // Mesajul englezesc al Stripe rămâne doar în log.
     if (isIdempotencyConflict(e)) {
       return jsonResponse(409, { error: CHECKOUT_IN_PROGRESS_MSG, code: 'checkout_in_progress' })
     }

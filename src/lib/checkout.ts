@@ -45,7 +45,7 @@ export const CHECKOUT_MESSAGES_RO = {
   ck_subscriptionLookupFailed: 'Nu am putut verifica abonamentele existente. Reîncearcă în câteva momente.',
   ck_createFailed: 'Nu am putut porni plata. Reîncearcă în câteva momente, iar dacă se repetă scrie-ne la {email}.',
   ck_checkoutInProgress:
-    'Ai deja o plată începută în alt tab sau în altă limbă. Finalizeaz-o acolo sau reîncearcă peste 30 de minute.',
+    'O plată pentru acest cont e deja în curs. Reîncearcă în câteva momente.',
   ck_network: 'Nu am putut contacta serverul de plată. Verifică internetul și reîncearcă.',
   ck_auth: 'Sesiunea a expirat. Autentifică-te din nou și reia activarea.',
   ck_rateLimited: 'Prea multe încercări. Reîncearcă în câteva minute.',
@@ -139,8 +139,9 @@ export function describeCheckoutFailure(
   // adresa de suport pentru cazul în care se repetă (acțiunea rămâne `retry`).
   if (serverCodeValue === 'checkout_create_failed')
     return failure(serverCodeValue, 'ck_createFailed', 'retry', msg)
-  // 409: o plată e deja pornită în fereastra curentă (alt tab / altă limbă —
-  // cheia de idempotență nu poartă limba). Reîncercarea are sens după fereastră.
+  // 409: o plată a contului e deja în mișcare și serverul n-a putut garanta una
+  // singură (sesiunile deschise necitibile / neînchise, sau o cerere simultană
+  // cu aceeași cheie). Reîncercarea, peste câteva momente, o reia sau o închide.
   if (serverCodeValue === 'checkout_in_progress')
     return failure(serverCodeValue, 'ck_checkoutInProgress', 'retry', msg)
 

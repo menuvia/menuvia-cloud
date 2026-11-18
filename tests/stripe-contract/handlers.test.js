@@ -4,7 +4,8 @@
 // cap-coadă ce testele cu fake nu pot: ce pleacă efectiv pe fir din funcțiile
 // noastre după bump-ul de SDK.
 //
-//   SDK8   stripe-checkout: 200 cu url; ambele cereri pe pin; cheia checkout_*
+//   SDK8   stripe-checkout: 200 cu url; toate cele trei cereri (abonamente,
+//          sesiuni deschise, creare) pe pin; cheia checkout_*; metadata sesiunii
 //   SDK8b  stripe-checkout: Stripe răspunde 400 `idempotency_error` (aceeași
 //          cheie, alt corp — limba NU e în cheie, lotul L8d) → 409
 //          `checkout_in_progress`, fără mesajul englezesc al Stripe; control:
@@ -17,6 +18,18 @@
 //          `idempotency_key_in_use`, dublu-click) rămâne 502: tranzitorie.
 //          [PICĂ: `rawType` scos din `isIdempotencyConflict`; verificarea
 //          lărgită după `statusCode === 409` sau după `code`]
+//   SDK8c  stripe-checkout — o singură sesiune deschisă per client, pe fir:
+//          `checkout.sessions.list` pleacă GET cu customer / `created[gte]` /
+//          limit=100 în query, FĂRĂ `status` (segmentul de stare al cheii cere și
+//          sesiunile expirate/finalizate), și pe pin; `created[gte]` e începutul
+//          ferestrei cheii − 25 h, deci aliniat la 30 de minute și între
+//          acum − 25,5 h și acum − 25 h (ceasul nu se îngheață aici: SDK-ul
+//          real îl citește); aceeași plată deschisă → URL-ul ei, ZERO POST;
+//          alt plan → POST `/v1/checkout/sessions/<id>/expire` ÎNAINTEA
+//          creării; lista refuzată (500) → 409 `checkout_in_progress`. Fake-ul
+//          din tests/functions nu vede calea, metoda HTTP sau codarea query-ului.
+//          [PICĂ: lista sau expire scoase; `status: 'open'` readus în listă;
+//          `created` scos sau calculat din „acum”]
 //   SDK9   table-payment: supersede și opt-out — fiecare anulare pleacă cu antet
 //          Stripe-Account (defectul v22), create-ul cu cheia tp_. Celelalte două
 //          anulări (split-uri stale, attach eșuat) sunt ținute de fake-ul din
@@ -71,20 +84,25 @@ describe('SDK8: stripe-checkout pe SDK-ul real', () => {
     state.rpcHandlers.check_rate_limit = () => ({ data: true, error: null })
     state.fromHandlers.profiles = () => ({ data: { stripe_customer_id: 'cus_1', email: 'a@x.test' }, error: null })
     t.route('GET', '/v1/subscriptions', { body: { object: 'list', has_more: false, data: [] } })
+    t.route('GET', '/v1/checkout/sessions', { body: { object: 'list', has_more: false, data: [] } })
     t.route('POST', '/v1/checkout/sessions', { body: { id: 'cs_1', object: 'checkout.session', url: 'https://checkout.stripe.com/c/cs_1' } })
     const res = await checkout({ httpMethod: 'POST', headers: { authorization: 'Bearer tok' }, body: JSON.stringify({ plan: 'growth' }) })
     assert.equal(res.statusCode, 200, res.body)
     assert.equal(parseBody(res).url, 'https://checkout.stripe.com/c/cs_1')
     const reqs = t.requests()
-    assert.equal(reqs.length, 2)
+    assert.equal(reqs.length, 3)
     for (const r of reqs) assert.equal(r.headers['stripe-version'], PIN)
-    const sess = reqs.find((r) => r.path === '/v1/checkout/sessions')
+    const sess = reqs.find((r) => r.method === 'POST' && r.path === '/v1/checkout/sessions')
     assert.match(sess.headers['idempotency-key'], /^checkout_/)
     const b = form(sess)
     assert.equal(b.customer, 'cus_1')
     assert.equal(b.mode, 'subscription')
     assert.equal(b['line_items[0][price]'], 'price_growth')
     assert.equal(b['subscription_data[metadata][plan]'], 'growth')
+    // Metadata SESIUNII: ce citește `isReusableSession` la cererea următoare.
+    assert.equal(b['metadata[plan]'], 'growth')
+    assert.equal(b['metadata[price_id]'], 'price_growth')
+    assert.equal(b['metadata[trial_days]'], '30')
   })
 })
 
@@ -103,6 +121,7 @@ describe('SDK8b: stripe-checkout — cheia de idempotență refuzată, pe SDK-ul
     state.rpcHandlers.check_rate_limit = () => ({ data: true, error: null })
     state.fromHandlers.profiles = () => ({ data: { stripe_customer_id: 'cus_1', email: 'a@x.test' }, error: null })
     t.route('GET', '/v1/subscriptions', { body: { object: 'list', has_more: false, data: [] } })
+    t.route('GET', '/v1/checkout/sessions', { body: { object: 'list', has_more: false, data: [] } })
     t.route('POST', '/v1/checkout/sessions', sessionReply)
     const saved = console.error
     console.error = () => {}
@@ -168,8 +187,8 @@ describe('SDK8b: stripe-checkout — cheia de idempotență refuzată, pe SDK-ul
     assert.equal(parseBody(res).code, 'checkout_in_progress')
     assert.ok(!res.body.includes('idempotent'), res.body)
     // Cererea chiar a plecat cu cheia v7, fără segment de limbă, și cu `locale` în corp.
-    const sess = t.requests().find((r) => r.path === '/v1/checkout/sessions')
-    assert.match(sess.headers['idempotency-key'], /^checkout_v7_[0-9a-f]{10}_u1_growth_none_\d+_\d+$/)
+    const sess = t.requests().find((r) => r.method === 'POST' && r.path === '/v1/checkout/sessions')
+    assert.match(sess.headers['idempotency-key'], /^checkout_v7_[0-9a-f]{10}_u1_growth_none_\d+_s0_\d+$/)
     assert.equal(form(sess).locale, 'ro')
   })
 
@@ -182,8 +201,8 @@ describe('SDK8b: stripe-checkout — cheia de idempotență refuzată, pe SDK-ul
 
   it('cerere CONCURENTĂ: 409 idempotency_key_in_use → 502 checkout_create_failed, NU checkout_in_progress', async () => {
     // Dublu-click: aceeași cheie, același corp, prima cerere încă în zbor.
-    // Tranzitoriu — reîncercarea primește sesiunea din cache, deci „reîncearcă
-    // în câteva momente”, nu „peste 30 de minute”.
+    // Tranzitoriu — reîncercarea primește sesiunea din cache; nu „o plată e
+    // deja în curs” pentru propria lui plată.
     const res = await run({ status: 409, body: { error: IN_USE_ERR } })
     assert.equal(res.statusCode, 502, res.body)
     assert.equal(parseBody(res).code, 'checkout_create_failed')
@@ -197,6 +216,91 @@ describe('SDK8b: stripe-checkout — cheia de idempotență refuzată, pe SDK-ul
     })
     assert.equal(res.statusCode, 502, res.body)
     assert.equal(parseBody(res).code, 'checkout_create_failed')
+  })
+})
+
+describe('SDK8c: stripe-checkout — o singură sesiune deschisă per client, pe SDK-ul real', () => {
+  const APP = 'https://app.test'
+  let savedApp
+  beforeEach(() => {
+    savedApp = process.env.VITE_APP_URL
+    process.env.VITE_APP_URL = APP
+    state.authUser = { id: 'u1', email: 'a@x.test' }
+    state.rpcHandlers.check_rate_limit = () => ({ data: true, error: null })
+    state.fromHandlers.profiles = () => ({ data: { stripe_customer_id: 'cus_1', email: 'a@x.test' }, error: null })
+    t.route('GET', '/v1/subscriptions', { body: { object: 'list', has_more: false, data: [] } })
+  })
+  afterEach(() => {
+    if (savedApp === undefined) delete process.env.VITE_APP_URL
+    else process.env.VITE_APP_URL = savedApp
+  })
+  // Creată acum un minut, valabilă încă 24 h (o sesiune care expiră în mai
+  // puțin de 30 de minute nu se reia).
+  function openSession(over = {}) {
+    const nowS = Math.floor(Date.now() / 1000)
+    return {
+      id: 'cs_open', object: 'checkout.session', mode: 'subscription', status: 'open',
+      customer: 'cus_1', created: nowS - 60, expires_at: nowS + 24 * 60 * 60,
+      url: 'https://checkout.stripe.com/c/cs_open',
+      success_url: `${APP}/dashboard?checkout=success&checkout_plan=growth`,
+      metadata: { plan: 'growth', price_id: 'price_growth', trial_days: '30' },
+      ...over,
+    }
+  }
+  async function run() {
+    const saved = console.error
+    console.error = () => {}
+    try {
+      return await checkout({ httpMethod: 'POST', headers: { authorization: 'Bearer tok' }, body: JSON.stringify({ plan: 'growth' }) })
+    } finally {
+      console.error = saved
+    }
+  }
+
+  it('aceeași plată deschisă → URL-ul ei; lista pleacă GET cu customer/created[gte]/limit, fără status, pe pin; zero POST', async () => {
+    t.route('GET', '/v1/checkout/sessions', { body: { object: 'list', has_more: false, data: [openSession()] } })
+    const nowS = Math.floor(Date.now() / 1000)
+    const res = await run()
+    assert.equal(res.statusCode, 200, res.body)
+    assert.deepEqual(parseBody(res), { url: 'https://checkout.stripe.com/c/cs_open' })
+    const list = t.requests().find((r) => r.method === 'GET' && r.path.startsWith('/v1/checkout/sessions'))
+    assert.ok(list, 'lista de sesiuni n-a plecat')
+    assert.equal(list.headers['stripe-version'], PIN)
+    const q = new URL(list.path, 'https://api.stripe.com').searchParams
+    assert.equal(q.get('customer'), 'cus_1')
+    assert.equal(q.get('status'), null, 'lista nu are voie să filtreze pe stare')
+    assert.equal(q.get('limit'), '100')
+    const gte = q.get('created[gte]')
+    assert.match(String(gte), /^\d+$/, `created[gte] lipsă sau nenumeric: ${list.path}`)
+    // Începutul ferestrei de 30 min − 25 h (90 000 s = 50 de ferestre): aliniat.
+    assert.equal(Number(gte) % 1800, 0, `created[gte] nealiniat la fereastră: ${gte}`)
+    assert.ok(Number(gte) <= nowS - 25 * 3600 + 5 && Number(gte) > nowS - 25 * 3600 - 1800 - 5, `created[gte] în afara ferestrei: ${gte}`)
+    assert.equal(t.requests().filter((r) => r.method === 'POST').length, 0)
+  })
+
+  it('alt plan deschis → POST …/<id>/expire ÎNAINTEA creării', async () => {
+    t.route('GET', '/v1/checkout/sessions', {
+      body: { object: 'list', has_more: false, data: [openSession({ id: 'cs_starter', metadata: { plan: 'starter', price_id: 'price_starter', trial_days: '30' } })] },
+    })
+    // Ruta lui expire ÎNAINTEA celei de creare: potrivirea e pe prefix.
+    t.route('POST', '/v1/checkout/sessions/cs_starter/expire', { body: { id: 'cs_starter', object: 'checkout.session', status: 'expired' } })
+    t.route('POST', '/v1/checkout/sessions', { body: { id: 'cs_2', object: 'checkout.session', url: 'https://checkout.stripe.com/c/cs_2' } })
+    const res = await run()
+    assert.equal(res.statusCode, 200, res.body)
+    assert.deepEqual(parseBody(res), { url: 'https://checkout.stripe.com/c/cs_2' })
+    const posts = t.requests().filter((r) => r.method === 'POST').map((r) => r.path)
+    assert.deepEqual(posts, ['/v1/checkout/sessions/cs_starter/expire', '/v1/checkout/sessions'])
+    const expire = t.requests().find((r) => r.path === '/v1/checkout/sessions/cs_starter/expire')
+    assert.equal(expire.headers['stripe-version'], PIN)
+    assert.equal(expire.body, '', 'expire pleacă fără corp')
+  })
+
+  it('lista refuzată de Stripe (500) → 409 checkout_in_progress, fără creare', async () => {
+    t.route('GET', '/v1/checkout/sessions', { status: 500, body: { error: { type: 'api_error', message: 'boom' } } })
+    const res = await run()
+    assert.equal(res.statusCode, 409, res.body)
+    assert.equal(parseBody(res).code, 'checkout_in_progress')
+    assert.equal(t.requests().filter((r) => r.method === 'POST').length, 0)
   })
 })
 
