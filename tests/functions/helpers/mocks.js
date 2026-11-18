@@ -189,6 +189,7 @@ const STRIPE_ID_METHODS = new Set([
   'subscriptions.cancel', 'invoices.retrieve',
   'paymentIntents.cancel', 'paymentIntents.retrieve', 'subscriptions.retrieve',
   'customers.del', 'customers.retrieve', 'charges.retrieve', 'accounts.retrieve',
+  'checkout.sessions.expire', 'checkout.sessions.retrieve',
 ])
 function assertStripeArgs(name, args) {
   const params = STRIPE_ID_METHODS.has(name) ? args[1] : args[0]
@@ -241,7 +242,25 @@ function FakeStripe(key, opts) {
       create: stripeMethod('customers.create'),
       del: stripeMethod('customers.del'),
     },
-    checkout: { sessions: { create: stripeMethod('checkout.sessions.create') } },
+    checkout: {
+      sessions: {
+        create: stripeMethod('checkout.sessions.create'),
+        // Sesiunile deschise ale clientului (stripe-checkout, „o singură sesiune
+        // deschisă per client”). EXCEPȚIE deliberată de la „nescriptată →
+        // throw”: implicit lista e GOALĂ (`{ data: [], has_more: false }`, forma
+        // unei pagini Stripe), ca testele care nu se ocupă de sesiunile deschise
+        // să rămână neschimbate. Apelul se înregistrează oricum în stripeCalls.
+        list: async (...args) => {
+          assertStripeArgs('checkout.sessions.list', args)
+          state.stripeCalls.push({ name: 'checkout.sessions.list', args })
+          const impl = state.stripeImpls['checkout.sessions.list']
+          return impl ? impl(...args) : { object: 'list', data: [], has_more: false }
+        },
+        expire: stripeMethod('checkout.sessions.expire'),
+        // Recitirea unei sesiuni întoarse de un REPLAY al cheii (stripe-checkout).
+        retrieve: stripeMethod('checkout.sessions.retrieve'),
+      },
+    },
     billingPortal: { sessions: { create: stripeMethod('billingPortal.sessions.create') } },
     accounts: {
       create: stripeMethod('accounts.create'),

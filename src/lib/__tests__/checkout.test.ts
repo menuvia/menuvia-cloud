@@ -8,8 +8,59 @@
 //   CH4  codurile de business (409/503 cu `code`) au acțiunea corectă;
 //   CH5  rețeaua căzută are mesajul ei, nu „eroare necunoscută";
 //   CH6  URL-ul de redirect e validat — ajunge direct în window.location.
+//
+// Lotul L8d (erorile în limba personalului):
+//   CH9  ROMÂNA E CEA DE DINAINTE, ramură cu ramură: fiecare (status, corp) dă
+//        EXACT mesajul, codul și acțiunea de dinainte de L8d (tabelul de mai jos
+//        e copiat din codul vechi), plus o `key` pe fiecare eșec.
+//        [PICĂ: orice text schimbat în CHECKOUT_MESSAGES_RO; o ramură reordonată]
+//   CH10 `CHECKOUT_MESSAGES_RO` == `ck_*` din ns/home/ro.ts, în ambele sensuri
+//        (o singură sursă de adevăr, ca SE5 pentru `err_*`).
+//        [PICĂ: un text schimbat doar într-unul din cele două locuri]
+//   CH11 cu traducătorul ROMÂNESC ieșirea e identică cu cea fără traducător, pe
+//        toate răspunsurile (inclusiv textul românesc al serverului).
+//   CH12 cu traducător en/fr/de: mesajul e textul cheii ramurii, niciodată
+//        textul românesc al serverului și niciun mesaj intern englezesc; codul
+//        și acțiunea rămân aceleași. Control: textul diferă de cel românesc.
+//        [PICĂ: `msg` păstrat și în altă limbă (ecran amestecat)]
+//   CH13 502 `checkout_create_failed` (nou în L8d) → `retry`, cheia ei, iar în
+//        română textul serverului; în TOATE cele patru limbi textul cheii
+//        numește adresa de contact (`CONTACT_EMAIL`, fără `{email}` rămas) —
+//        rezerva veche spunea doar „scrie-ne pe email”.
+//        [PICĂ: adresa scoasă dintr-o limbă; `{email}` neinterpolat]
+//   CH15 409 `checkout_in_progress` (o plată a contului e deja în mișcare:
+//        sesiunile deschise n-au putut fi citite/închise, sau o cerere
+//        simultană cu aceeași cheie) → `retry`, cheia ei, în română textul
+//        serverului, în en/fr/de textul cheii; niciun text nu mai promite o
+//        fereastră de timp. Control: fără ramură, același corp ar cădea pe `unknown`.
+//        [PICĂ: ramura scoasă — codul devine `unknown`]
+//   (CH16 — „româna rezervelor == textul serverului” — s-a MUTAT în SCK5,
+//        tests/functions/stripe-checkout.test.js: acolo HANDLER-UL REAL scrie
+//        textul, iar rezerva e citită din ns/home/ro.ts cu `{email}` randat din
+//        `CONTACT_EMAIL` citit din lib/domain.ts. Varianta de aici citea
+//        constantele din sursa funcției și substituia `MAIL_DOMAIN` cu domeniul
+//        lui `CONTACT_EMAIL`, deci un `MAIL_DOMAIN` schimbat pe server trecea.
+//        CH10 leagă mai departe ro.ts de `CHECKOUT_MESSAGES_RO`.)
+//   CH14 cablajul limbii paginii Stripe: App.tsx trimite `ui_lang` în corpul
+//        lui stripe-checkout, billing.ts în cel al portalului, AiSettingsTab în
+//        cumpărarea de credite. [PICĂ: oricare `ui_lang` scos]
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { describeCheckoutFailure, readCheckoutUrl, CheckoutError } from '../checkout'
+import {
+  CHECKOUT_MESSAGES_RO,
+  describeCheckoutFailure,
+  readCheckoutUrl,
+  CheckoutError,
+  type CheckoutMessageKey,
+  type CheckoutTranslator,
+} from '../checkout'
+import { makeTranslator } from '../../i18n/core'
+import { CONTACT_EMAIL } from '../domain'
+import homeRo from '../../i18n/ns/home/ro'
+import homeEn from '../../i18n/ns/home/en'
+import homeFr from '../../i18n/ns/home/fr'
+import homeDe from '../../i18n/ns/home/de'
 
 // Exact răspunsurile pe care le poate întoarce netlify/functions/stripe-checkout.js.
 const RESPONSES: Array<{ name: string; status: number; body: unknown }> = [
@@ -148,5 +199,160 @@ describe('readCheckoutUrl()', () => {
     expect(readCheckoutUrl({ url: '' })).toBeNull()
     expect(readCheckoutUrl({})).toBeNull()
     expect(readCheckoutUrl(null)).toBeNull()
+  })
+})
+
+// ── Lotul L8d ────────────────────────────────────────────────────────────────
+// Ieșirea de DINAINTE de L8d, copiată din codul vechi: (status, corp) →
+// [cod, acțiune, mesaj]. Corpurile cu text românesc îl păstrează.
+const LEGACY: Array<[number, unknown, string, string, string]> = [
+  [409, { error: 'Ai deja un abonament. Schimbă planul din Portalul de facturare.', code: 'subscription_exists' },
+    'subscription_exists', 'billing', 'Ai deja un abonament. Schimbă planul din Portalul de facturare.'],
+  [409, { code: 'subscription_exists' }, 'subscription_exists', 'billing',
+    'Ai deja un abonament activ. Schimbi planul din Portalul de facturare.'],
+  [403, { code: 'plan_requires_quote' }, 'plan_requires_quote', 'quote',
+    'Planul Fiscalizare se activează pe bază de ofertă, împreună cu instalarea pe casa ta de marcat. Cere o ofertă.'],
+  [503, { code: 'subscription_lookup_failed' }, 'subscription_lookup_failed', 'retry',
+    'Nu am putut verifica abonamentele existente. Reîncearcă în câteva momente.'],
+  [0, null, 'network', 'retry', 'Nu am putut contacta serverul de plată. Verifică internetul și reîncearcă.'],
+  [401, { error: 'Invalid token', code: 'auth_invalid' }, 'auth', 'login',
+    'Sesiunea a expirat. Autentifică-te din nou și reia activarea.'],
+  [429, { error: 'Prea multe încercări. Reîncearcă în câteva minute.', code: 'rate_limited' }, 'rate_limited', 'retry',
+    'Prea multe încercări. Reîncearcă în câteva minute.'],
+  [429, null, 'rate_limited', 'retry', 'Prea multe încercări. Reîncearcă în câteva minute.'],
+  [503, { error: 'Rate limit service unavailable', code: 'rate_limit_unavailable' }, 'unavailable', 'retry',
+    'Serviciu temporar indisponibil. Reîncearcă în câteva momente.'],
+  [503, { error: 'Serviciu temporar indisponibil. Reîncearcă.', code: 'service_unavailable' }, 'unavailable', 'retry',
+    'Serviciu temporar indisponibil. Reîncearcă.'],
+  [500, { error: 'Stripe not configured', code: 'server_config' }, 'not_configured', 'contact',
+    'Plata online nu e disponibilă momentan. Contactează-ne și îți activăm planul manual.'],
+  [400, { error: 'Invalid JSON body', code: 'bad_json' }, 'plan_unavailable', 'contact',
+    'Planul ales nu poate fi activat acum. Scrie-ne și îl activăm noi.'],
+  [400, { error: 'Plan "growth" indisponibil sau neconfigurat în Stripe', code: 'plan_unavailable' }, 'plan_unavailable',
+    'contact', 'Plan "growth" indisponibil sau neconfigurat în Stripe'],
+  [405, null, 'unknown', 'retry', 'Nu am putut porni plata. Reîncearcă, iar dacă se repetă scrie-ne pe email.'],
+  [200, {}, 'unknown', 'retry', 'Nu am putut porni plata. Reîncearcă, iar dacă se repetă scrie-ne pe email.'],
+]
+
+// Textele ramurilor NOI ale lotului (fără „ieșire de dinainte”). CH13/CH15 le
+// leagă de rezerve (`CHECKOUT_MESSAGES_RO`), CH10 rezervele de ns/home/ro.ts,
+// iar SCK5 (tests/functions) ro.ts de textul scris de handler-ul real.
+const CREATE_FAILED_RO = `Nu am putut porni plata. Reîncearcă în câteva momente, iar dacă se repetă scrie-ne la ${CONTACT_EMAIL}.`
+const IN_PROGRESS_RO = 'O plată pentru acest cont e deja în curs. Reîncearcă în câteva momente.'
+
+const KEYS = Object.keys(CHECKOUT_MESSAGES_RO) as CheckoutMessageKey[]
+const roTr: CheckoutTranslator = makeTranslator(homeRo, 'ro')
+const OTHER: Array<[string, CheckoutTranslator]> = [
+  ['en', makeTranslator<typeof homeRo>(homeEn, 'en')],
+  ['fr', makeTranslator<typeof homeRo>(homeFr, 'fr')],
+  ['de', makeTranslator<typeof homeRo>(homeDe, 'de')],
+]
+
+describe('describeCheckoutFailure() — limba (lotul L8d)', () => {
+  it('CH9: româna e cea de dinainte, ramură cu ramură, iar fiecare eșec are cheie', () => {
+    for (const [status, body, code, action, message] of LEGACY) {
+      const f = describeCheckoutFailure(status, body)
+      expect({ code: f.code, action: f.action, message: f.message }, `${status} ${JSON.stringify(body)}`).toEqual({
+        code,
+        action,
+        message,
+      })
+      expect(KEYS).toContain(f.key)
+    }
+  })
+
+  it('CH10: CHECKOUT_MESSAGES_RO == ck_* din ns/home/ro.ts', () => {
+    const fromNs = Object.fromEntries(Object.entries(homeRo).filter(([k]) => k.startsWith('ck_')))
+    expect(fromNs).toEqual(CHECKOUT_MESSAGES_RO)
+    expect(KEYS.length).toBeGreaterThanOrEqual(10)
+  })
+
+  it('CH11: traducătorul românesc nu schimbă nimic', () => {
+    const all: Array<[number, unknown]> = [
+      ...LEGACY.map(([st, b]): [number, unknown] => [st, b]),
+      ...RESPONSES.map((r): [number, unknown] => [r.status, r.body]),
+      [502, { error: CREATE_FAILED_RO, code: 'checkout_create_failed' }],
+      [409, { error: IN_PROGRESS_RO, code: 'checkout_in_progress' }],
+      [409, { code: 'checkout_in_progress' }],
+    ]
+    for (const [status, body] of all) {
+      expect(describeCheckoutFailure(status, body, roTr), `${status} ${JSON.stringify(body)}`).toEqual(
+        describeCheckoutFailure(status, body),
+      )
+    }
+  })
+
+  it('CH12: în en/fr/de textul cheii, niciodată româna serverului sau engleza internă', () => {
+    for (const [lang, tr] of OTHER) {
+      for (const [status, body] of LEGACY) {
+        const ro = describeCheckoutFailure(status, body)
+        const f = describeCheckoutFailure(status, body, tr)
+        const where = `${lang} ${status} ${JSON.stringify(body)}`
+        expect(f.code, where).toBe(ro.code)
+        expect(f.action, where).toBe(ro.action)
+        expect(f.key, where).toBe(ro.key)
+        expect(f.message, where).toBe(tr.t(f.key as CheckoutMessageKey, { email: CONTACT_EMAIL }))
+        // Control: textul chiar e altul decât cel românesc.
+        expect(f.message, where).not.toBe(ro.message)
+        expect(f.message, where).not.toMatch(/[ăâîșț]/i)
+        for (const internal of ENGLISH_INTERNALS) expect(f.message, where).not.toContain(internal)
+      }
+    }
+  })
+
+  it('CH13: 502 checkout_create_failed → reîncercare, cheia ei, româna serverului, adresa de suport', () => {
+    const body = { error: CREATE_FAILED_RO, code: 'checkout_create_failed' }
+    const f = describeCheckoutFailure(502, body)
+    expect(f).toEqual({
+      code: 'checkout_create_failed',
+      key: 'ck_createFailed',
+      action: 'retry',
+      message: CREATE_FAILED_RO,
+    })
+    // Fără textul serverului (un corp doar cu `code`): rezerva, cu adresa.
+    expect(describeCheckoutFailure(502, { code: 'checkout_create_failed' }).message).toBe(CREATE_FAILED_RO)
+    expect(describeCheckoutFailure(502, body, OTHER[0][1]).message).toBe(
+      homeEn.ck_createFailed.replace('{email}', CONTACT_EMAIL),
+    )
+    // În TOATE limbile textul numește adresa, iar locul ei e interpolat.
+    for (const [lang, tr] of [['ro', roTr] as [string, CheckoutTranslator], ...OTHER]) {
+      const m = describeCheckoutFailure(502, { code: 'checkout_create_failed' }, tr).message
+      expect(m, lang).toContain(CONTACT_EMAIL)
+      expect(m, lang).not.toContain('{email}')
+      // Acțiunea rămâne reîncercarea: nicio acțiune de contact atașată.
+      expect(describeCheckoutFailure(502, { code: 'checkout_create_failed' }, tr).action, lang).toBe('retry')
+    }
+  })
+
+  it('CH15: 409 checkout_in_progress → reîncercare, cheia ei; româna serverului, en/fr/de textul cheii', () => {
+    const body = { error: IN_PROGRESS_RO, code: 'checkout_in_progress' }
+    expect(describeCheckoutFailure(409, body)).toEqual({
+      code: 'checkout_in_progress',
+      key: 'ck_checkoutInProgress',
+      action: 'retry',
+      message: IN_PROGRESS_RO,
+    })
+    expect(describeCheckoutFailure(409, { code: 'checkout_in_progress' }).message).toBe(IN_PROGRESS_RO)
+    for (const [lang, tr] of OTHER) {
+      const f = describeCheckoutFailure(409, body, tr)
+      expect(f.code, lang).toBe('checkout_in_progress')
+      expect(f.action, lang).toBe('retry')
+      expect(f.message, lang).toBe(tr.t('ck_checkoutInProgress'))
+      expect(f.message, lang).not.toBe(IN_PROGRESS_RO)
+      expect(f.message, lang).not.toMatch(/[ăâîșț]/i)
+    }
+    // Control: un 409 cu ALT cod nu e luat drept plată în curs.
+    expect(describeCheckoutFailure(409, { code: 'altceva' }).code).toBe('unknown')
+  })
+
+  it('CH14: limba paginii Stripe pleacă din client', () => {
+    const read = (f: string) => readFileSync(resolve(process.cwd(), f), 'utf8')
+    const app = read('src/App.tsx')
+    const call = app.slice(app.indexOf("fnUrl('stripe-checkout')"), app.indexOf("fnUrl('stripe-checkout')") + 900)
+    expect(call).toContain('ui_lang: uiLang')
+    expect(app).toContain('const { lang: uiLang } = useUiLang()')
+    expect(read('src/lib/billing.ts')).toContain('JSON.stringify(uiLang ? { ui_lang: uiLang } : {})')
+    expect(read('src/components/_dashboard/SubscriptionCard.tsx')).toContain('openBillingPortal(uiLang)')
+    expect(read('src/components/AiSettingsTab.tsx')).toContain('buyAiCredits({ restaurant_id: restaurantId, pack, ui_lang: uiLang })')
   })
 })

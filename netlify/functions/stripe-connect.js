@@ -9,10 +9,16 @@
 //   { restaurant_id, action: 'status' } → { connected, charges_enabled, ... }
 // Scrierea stripe_account_id trece EXCLUSIV prin RPC-ul service_role-only
 // set_restaurant_stripe_account (mig 204) — coloana nu are grant authenticated.
+//
+// Contractul de eroare (lotul L8d): orice răspuns non-2xx JSON e
+// `{ error, code }` — `error` rămâne textul de dinainte, EXACT, iar `code` e
+// cheia stabilă. OnlinePaymentsCard (card DOAR-ROMÂNIA, în română prin decizia L6b)
+// afișează încă `error`; codul e contractul pentru clientul care îl va traduce.
 
 const { createClient } = require('@supabase/supabase-js')
 const Stripe = require('stripe')
 const { appUrl } = require('./lib/appUrl')
+const { parseObjectBody } = require('./lib/jsonBody')
 // Versiunea de API PINUITĂ (audit v3 OPS-8) pentru CERERILE noastre către Stripe:
 // fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
 // (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
@@ -40,29 +46,34 @@ exports.handler = async (event) => {
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, STRIPE_SECRET_KEY } = process.env
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !STRIPE_SECRET_KEY) {
     console.error('[stripe-connect] Missing env vars')
-    return jsonResponse(500, { error: 'Stripe Connect nu este configurat.' })
+    return jsonResponse(500, { error: 'Stripe Connect nu este configurat.', code: 'server_config' })
   }
 
   let body = {}
   try {
-    body = event.body ? JSON.parse(event.body) : {}
+    // Un corp care nu e OBIECT JSON (`null`, un tablou…) → `bad_json`, nu o
+    // excepție la `body.restaurant_id` (lib/jsonBody.js).
+    body = parseObjectBody(event.body)
   } catch {
-    return jsonResponse(400, { error: 'Invalid JSON body' })
+    return jsonResponse(400, { error: 'Invalid JSON body', code: 'bad_json' })
   }
   const restaurantId = String(body.restaurant_id || '')
   const action = String(body.action || 'status')
   if (!/^[0-9a-f-]{36}$/i.test(restaurantId) || !['link', 'status'].includes(action)) {
-    return jsonResponse(400, { error: 'restaurant_id și action (link|status) sunt obligatorii.' })
+    return jsonResponse(400, {
+      error: 'restaurant_id și action (link|status) sunt obligatorii.',
+      code: 'invalid_request',
+    })
   }
 
   // Auth: userul din JWT trebuie să fie owner/manager al restaurantului.
   const authHeader = event.headers['authorization'] || event.headers['Authorization'] || ''
   const jwt = authHeader.replace(/^Bearer\s+/i, '')
-  if (!jwt) return jsonResponse(401, { error: 'Neautentificat.' })
+  if (!jwt) return jsonResponse(401, { error: 'Neautentificat.', code: 'auth_missing' })
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
   const { data: { user } = {}, error: authErr } = await supabase.auth.getUser(jwt)
-  if (authErr || !user) return jsonResponse(401, { error: 'Sesiune invalidă.' })
+  if (authErr || !user) return jsonResponse(401, { error: 'Sesiune invalidă.', code: 'auth_invalid' })
 
   const { data: membership, error: memErr } = await supabase
     .from('restaurant_memberships')
@@ -72,10 +83,10 @@ exports.handler = async (event) => {
     .maybeSingle()
   if (memErr) {
     console.error('[stripe-connect] membership check failed:', memErr.message)
-    return jsonResponse(500, { error: 'Verificarea accesului a eșuat.' })
+    return jsonResponse(500, { error: 'Verificarea accesului a eșuat.', code: 'membership_check_failed' })
   }
   if (!membership || !['owner', 'manager'].includes(membership.role)) {
-    return jsonResponse(403, { error: 'Doar owner/manager poate configura plățile.' })
+    return jsonResponse(403, { error: 'Doar owner/manager poate configura plățile.', code: 'forbidden' })
   }
 
   // `country` (mig 296): plata online (Stripe Connect, RON-only — mig 209) e
@@ -96,7 +107,7 @@ exports.handler = async (event) => {
       .maybeSingle())
   }
   if (restErr || !restaurant) {
-    return jsonResponse(404, { error: 'Restaurant negăsit.' })
+    return jsonResponse(404, { error: 'Restaurant negăsit.', code: 'restaurant_not_found' })
   }
 
   const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: STRIPE_API_VERSION, timeout: 6000, maxNetworkRetries: 0 })
@@ -114,7 +125,7 @@ exports.handler = async (event) => {
       })
     } catch (e) {
       console.error('[stripe-connect] account retrieve failed:', e?.message)
-      return jsonResponse(502, { error: 'Stripe indisponibil. Reîncearcă.' })
+      return jsonResponse(502, { error: 'Stripe indisponibil. Reîncearcă.', code: 'stripe_unavailable' })
     }
   }
 
@@ -150,7 +161,10 @@ exports.handler = async (event) => {
           `[stripe-connect] set account failed (acct ${accountId} pentru ${restaurantId}):`,
           setErr.message,
         )
-        return jsonResponse(500, { error: 'Contul a fost creat dar legarea a eșuat. Reîncearcă.' })
+        return jsonResponse(500, {
+          error: 'Contul a fost creat dar legarea a eșuat. Reîncearcă.',
+          code: 'account_link_failed',
+        })
       }
     }
 
@@ -169,6 +183,7 @@ exports.handler = async (event) => {
     return jsonResponse(502, {
       error:
         'Stripe a refuzat operațiunea. Verifică dacă Connect e activat pe contul platformei.',
+      code: 'stripe_rejected',
     })
   }
 }

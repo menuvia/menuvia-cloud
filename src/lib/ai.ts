@@ -9,6 +9,7 @@ import { supabase } from './supabase'
 import { fnUrl } from './fn'
 import { ALLERGENS, DIETARY_TAGS } from './constants'
 import { MENU_LANGS, type Translations } from './i18nMenu'
+import type { StaffLang } from '../i18n/langs'
 
 // ── Tipuri ───────────────────────────────────────────────────
 export type AiProvider = 'openai' | 'anthropic' | 'gemini' | 'custom'
@@ -556,10 +557,12 @@ function parseTranslateBatch(
 
 // ── Top-up credite (Faza F) ──────────────────────────────────
 // Pornește un checkout Stripe pentru cumpărarea de tokens AI suplimentari.
-// La plată, webhook-ul Stripe apelează ai_add_credits.
+// La plată, webhook-ul Stripe apelează ai_add_credits. `ui_lang` = limba
+// panoului (lotul L8d): pagina Stripe se deschide în ea (validată pe server).
 export async function buyAiCredits(input: {
   restaurant_id: string
   pack: 'small' | 'medium' | 'large'
+  ui_lang?: StaffLang
 }): Promise<{ url: string }> {
   return postFn('ai-credits-checkout', input)
 }

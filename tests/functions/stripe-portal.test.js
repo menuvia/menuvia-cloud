@@ -18,6 +18,17 @@
 //         abonament" (și să-l trimită pe un abonat activ la /pricing).
 //         Mutația care pică: verificarea `profileErr` scoasă (codul cade pe
 //         404 no_customer).
+//   SPT4  (lotul L8d) FIECARE ramură non-2xx JSON → statusul și `code`-ul ei,
+//         cu textul `error` de DINAINTE, exact (SubscriptionCard îl afișează
+//         în română; în altă limbă traduce pe cod); corpul are doar
+//         `error` + `code`. 9 rânduri = registrul FEC2.
+//         Mutația care pică: `code: 'rate_limited'` scos din 429.
+//   SPT5  limba portalului: `ui_lang` valid → `locale` (control pozitiv,
+//         normalizat); absent, invalid sau corp ne-JSON → fără cheia `locale`
+//         („auto”, ca înainte) și FĂRĂ refuz — portalul nu citea corpul, deci
+//         un corp stricat nu capătă acum un efect.
+//         Mutația care pică: spread-ul `locale` scos (control), `JSON.parse`
+//         fără try (corpul ne-JSON aruncă).
 //
 // Rulează în jobul „Bridge tests" (vitest nu vede tests/functions).
 
@@ -52,12 +63,12 @@ afterEach(() => {
   }
 })
 
-async function openPortal() {
+async function openPortal(body = '{}', headers = { authorization: 'Bearer jwt' }) {
   const { handler } = loadFunction(REL)
   const savedErr = console.error
   console.error = () => {}
   try {
-    return await handler({ httpMethod: 'POST', headers: { authorization: 'Bearer jwt' }, body: '{}' })
+    return await handler({ httpMethod: 'POST', headers, body })
   } finally {
     console.error = savedErr
   }
@@ -109,5 +120,83 @@ describe('stripe-portal: contractul no_customer', () => {
     assert.notEqual(body.code, 'no_customer')
     assert.match(body.error, /temporar indisponibil/)
     assert.equal(stripeCallsFor('billingPortal.sessions.create').length, 0)
+  })
+})
+
+describe('stripe-portal: un cod stabil pe fiecare ramură (lotul L8d)', () => {
+  const withCustomer = () => {
+    state.fromHandlers['profiles'] = () => ({ data: { stripe_customer_id: 'cus_1' }, error: null })
+  }
+  // [nume, pregătire, antete, status, cod, text EXACT]
+  const BRANCHES = [
+    ['env lipsă', () => { delete process.env.STRIPE_SECRET_KEY }, undefined, 500, 'server_config', 'Stripe not configured'],
+    ['fără antet', () => {}, {}, 401, 'auth_missing', 'Missing Authorization header'],
+    ['token invalid', () => { state.authUser = null }, undefined, 401, 'auth_invalid', 'Invalid token'],
+    ['limiter: excepție', () => {
+      withCustomer()
+      state.rpcHandlers['check_rate_limit'] = () => { throw new Error('conn reset') }
+    }, undefined, 503, 'rate_limit_unavailable', 'Rate limit service unavailable'],
+    ['limiter: eroare RPC', () => {
+      withCustomer()
+      state.rpcHandlers['check_rate_limit'] = () => ({ data: null, error: { message: 'boom' } })
+    }, undefined, 503, 'rate_limit_unavailable', 'Rate limit service unavailable'],
+    ['peste plafon', () => {
+      withCustomer()
+      state.rpcHandlers['check_rate_limit'] = () => ({ data: false, error: null })
+    }, undefined, 429, 'rate_limited', 'Prea multe încercări. Reîncearcă în câteva minute.'],
+    ['profil necitibil', () => {
+      state.fromHandlers['profiles'] = () => ({ data: null, error: { message: 'timeout' } })
+    }, undefined, 503, 'service_unavailable', 'Serviciu temporar indisponibil. Reîncearcă.'],
+    ['fără client Stripe', () => {
+      state.fromHandlers['profiles'] = () => ({ data: { stripe_customer_id: null }, error: null })
+    }, undefined, 404, 'no_customer', 'Nu ai încă un abonament de gestionat.'],
+    ['portal neconfigurat', () => {
+      withCustomer()
+      state.stripeImpls['billingPortal.sessions.create'] = async () => { throw new Error('No configuration provided') }
+    }, undefined, 500, 'portal_unavailable', 'Portalul de facturare nu e disponibil momentan.'],
+  ]
+
+  it('SPT4: fiecare ramură non-2xx → status + code, cu textul de dinainte', async () => {
+    assert.equal(BRANCHES.length, 9, 'un rând pe ramură (registrul FEC2)')
+    for (const [name, prep, headers, status, code, text] of BRANCHES) {
+      resetMocks()
+      state.authUser = { id: 'owner-1', email: 'ana@x.test' }
+      state.rpcHandlers['check_rate_limit'] = () => ({ data: true, error: null })
+      Object.assign(process.env, { STRIPE_SECRET_KEY: 'sk_test_x' })
+      prep()
+      const res = await openPortal('{}', headers ?? { authorization: 'Bearer jwt' })
+      assert.equal(res.statusCode, status, name)
+      const body = parseBody(res)
+      assert.equal(body.code, code, name)
+      assert.equal(body.error, text, name)
+      assert.deepEqual(Object.keys(body).sort(), ['code', 'error'], `${name}: alte chei în corp`)
+    }
+  })
+})
+
+describe('stripe-portal: limba portalului (lotul L8d)', () => {
+  async function sessionFor(body) {
+    resetMocks()
+    state.authUser = { id: 'owner-1', email: 'ana@x.test' }
+    state.rpcHandlers['check_rate_limit'] = () => ({ data: true, error: null })
+    state.fromHandlers['profiles'] = () => ({ data: { stripe_customer_id: 'cus_1' }, error: null })
+    state.stripeImpls['billingPortal.sessions.create'] = async () => ({ url: 'https://billing.stripe.com/p/s' })
+    const res = await openPortal(body)
+    assert.equal(res.statusCode, 200, res.body)
+    const calls = stripeCallsFor('billingPortal.sessions.create')
+    assert.equal(calls.length, 1)
+    return calls[0].args[0]
+  }
+
+  it('SPT5: ui_lang valid → locale; absent / invalid / corp stricat → fără locale, fără refuz', async () => {
+    // Control pozitiv: fără el, „nu pune locale” ar trece și pe o funcție care
+    // nu-l pune niciodată.
+    assert.equal((await sessionFor(JSON.stringify({ ui_lang: 'de' }))).locale, 'de')
+    assert.equal((await sessionFor(JSON.stringify({ ui_lang: ' EN ' }))).locale, 'en')
+    for (const body of ['{}', '', null, '{nu e json', 'null', '42', JSON.stringify({ ui_lang: 'en-GB' }), JSON.stringify({ ui_lang: 7 })]) {
+      const params = await sessionFor(body)
+      assert.equal(Object.prototype.hasOwnProperty.call(params, 'locale'), false, JSON.stringify(body))
+      assert.equal(params.customer, 'cus_1')
+    }
   })
 })

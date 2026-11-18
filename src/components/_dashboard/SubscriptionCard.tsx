@@ -19,13 +19,19 @@ import { openBillingPortal, type BillingError } from '../../lib/billing'
 import { useT } from '../../i18n/useT'
 import { homeNs } from '../../i18n/ns/home'
 import { commonNs } from '../../i18n/ns/common'
-import { describeStaffError } from '../../i18n/staffErrors'
+import { describeFunctionError } from '../../i18n/staffErrors'
+import { useUiLang } from '../../i18n/UiLangContext'
+import { PORTAL_ERROR_KEYS } from '../../lib/portalErrors'
 
 // Textele: namespace-ul `home` (lotul L3a). `sub_noCustomer` e neutru
 // DELIBERAT: rămâne adevărat și pentru proprietarul pe gratuit, și pentru cel
 // cu plan setat manual sau pilot (n-are client Stripe, deci n-are portal).
-// Eroarea portalului trece prin `describeStaffError`: în română exact
-// `toUserMessage` de dinainte (mesajul românesc al serverului rămâne).
+// Eroarea portalului trece prin `describeFunctionError` (lotul L8d): în română
+// exact `toUserMessage` de dinainte (mesajul românesc al serverului rămâne); în
+// altă limbă `code`-ul lui stripe-portal.js → textul lui din `PORTAL_ERROR_KEYS`
+// (lib/portalErrors.ts, legată de server de SUB6), iar un cod necunoscut cade
+// pe `sub_portalFallback`. Portalul Stripe se deschide în limba panoului
+// (`ui_lang`, validat pe server).
 
 export function SubscriptionCard({
   planName,
@@ -37,6 +43,7 @@ export function SubscriptionCard({
 }) {
   const { t } = useT(homeNs)
   const tc = useT(commonNs)
+  const { lang: uiLang } = useUiLang()
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [noCustomer, setNoCustomer] = useState(false)
@@ -46,7 +53,7 @@ export function SubscriptionCard({
     setNoCustomer(false)
     setLoading(true)
     try {
-      await openBillingPortal()
+      await openBillingPortal(uiLang)
       // openBillingPortal redirecționează la succes; nu ajungem aici.
     } catch (e) {
       const be = e as BillingError
@@ -54,7 +61,11 @@ export function SubscriptionCard({
       // Stripe": un fost abonat retrogradat pe gratuit are încă facturi în
       // portal, deci nu se poate decide din plan înainte de click.
       if (be.code === 'no_customer') setNoCustomer(true)
-      else setErr(describeStaffError(be, tc, { fallback: t('sub_portalFallback') }))
+      else {
+        const codes: Record<string, string> = {}
+        for (const [code, key] of Object.entries(PORTAL_ERROR_KEYS)) codes[code] = t(key)
+        setErr(describeFunctionError(be, tc, { fallback: t('sub_portalFallback'), codes }))
+      }
       setLoading(false)
     }
   }

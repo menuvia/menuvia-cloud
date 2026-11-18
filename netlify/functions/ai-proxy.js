@@ -25,6 +25,7 @@ const crypto = require('crypto')
 const dns = require('dns').promises
 // Contractul de eroare: orice non-200 = { error: <română>, code } (lib/aiErrors.js).
 const { aiError, isTimeoutError } = require('./lib/aiErrors')
+const { parseObjectBody } = require('./lib/jsonBody')
 
 function jsonResponse(statusCode, body) {
   return {
@@ -344,7 +345,9 @@ exports.handler = async (event) => {
 
   let body
   try {
-    body = JSON.parse(event.body || '{}')
+    // Un corp care nu e OBIECT JSON (`null`, un tablou…) → `bad_json`, nu o
+    // excepție la destructurare (lib/jsonBody.js).
+    body = parseObjectBody(event.body)
   } catch {
     return aiError(400, 'bad_json')
   }
