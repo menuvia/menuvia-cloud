@@ -7,7 +7,7 @@ import { D } from '../lib/constants'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useToast } from './ui/useToast'
 import { confirm as confirmDialog } from './ui/confirm'
-import { FISCAL_CANCEL_LABEL } from '../lib/fiscalScreens'
+import { FISCAL_CONFIRM } from '../lib/fiscalScreens'
 import { Skeleton } from './ui/Skeleton'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
@@ -381,7 +381,7 @@ function InvoiceRow({ invoice, onAfterAction }: { invoice: Invoice; onAfterActio
       title: `Anulezi factura ${invoice.oblio_series}-${invoice.oblio_number}?`,
       description: `Către ${invoice.customer_name}. Anularea în Menuvia nu emite automat factură de stornare la Oblio — discută cu contabilul tău.`,
       confirmLabel: 'Anulează factura',
-      cancelLabel: FISCAL_CANCEL_LABEL,
+      ...FISCAL_CONFIRM,
       destructive: true,
     })
     if (!ok) return
@@ -618,7 +618,7 @@ function OblioConfigModal({
       title: 'Ștergi configurația Oblio?',
       description: 'Facturile existente rămân, dar nu vei mai putea emite altele noi.',
       confirmLabel: 'Șterge',
-      cancelLabel: FISCAL_CANCEL_LABEL,
+      ...FISCAL_CONFIRM,
       destructive: true,
     })
     if (!ok) return

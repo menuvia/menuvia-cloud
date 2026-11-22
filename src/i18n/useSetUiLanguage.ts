@@ -99,7 +99,7 @@ export interface SetUiLanguage {
 }
 
 export function useSetUiLanguage(): SetUiLanguage {
-  const { user, profile, refreshProfile } = useAuth()
+  const { user, profile, refreshProfile, applyProfileLanguage } = useAuth()
   const { lang, enabled } = useUiLang()
   const tc = useT(commonNs)
   // Limba aleasă cât se salvează (comutatorul o arată); `null` = cea curentă.
@@ -127,6 +127,9 @@ export function useSetUiLanguage(): SetUiLanguage {
         return
       }
       storeDeviceLang(raw)
+      // Profilul din memorie primește limba ÎNAINTE ca `?lang=` să iasă din
+      // adresă: dacă reîncărcarea de mai jos pică, ecranul rămâne pe alegere.
+      applyProfileLanguage?.(raw)
       syncAuthMetadata(raw)
       dropUrlLang()
       await refreshProfile()
