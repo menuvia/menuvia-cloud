@@ -11,7 +11,10 @@
 //   • aceleași căi ÎMPACHETATE într-un parametru: /auth?next=%2Fsef-vanzari%2FTOKEN
 //     (fluxul „cont nou → revino la invitație”), inclusiv codificat de două ori;
 //   • parametri de query/hash cu valori de sesiune sau de unică folosință
-//     (access_token din linkul de resetare a parolei, ?cancel=COD la rezervări).
+//     (access_token din linkul de resetare a parolei, ?cancel=COD la rezervări,
+//     ?payment_intent_client_secret=… pe care Stripe îl pune în URL-ul de
+//     revenire după 3DS / o metodă de plată cu redirecționare) — numele se
+//     compară DECODAT, deci și scrierea `payment%5Fintent_client_secret`.
 //
 // Regula de proiectare: mai bine o redactare în plus (telemetria pierde un
 // detaliu) decât una în minus (un secret iese din aplicație). De aceea căile cu
@@ -30,6 +33,13 @@ export const SENSITIVE_PARAMS: readonly string[] = [
   'token_hash',
   'code',
   'cancel',
+  // Revenirea din Stripe (plata la masă): secretul intentului dă acces la
+  // starea plății; curățarea lui din URL în QrMenuPage e un efect la montare,
+  // deci o cursă cu primul eveniment — nu o garanție.
+  'payment_intent_client_secret',
+  'setup_intent_client_secret',
+  'payment_intent',
+  'setup_intent',
 ]
 
 const REDACTED_TOKEN = ':token'
@@ -41,21 +51,59 @@ const TOKEN_PATH_RE = new RegExp(
   `(${SEP})(${TOKEN_ROUTE_PREFIXES.join('|')})(${SEP})[^/?#&%\\s"'<>\\\\]+`,
   'g',
 )
-const SENSITIVE_PARAM_RE = new RegExp(`([?&#])(${SENSITIVE_PARAMS.join('|')})=[^&#\\s]*`, 'g')
+// Orice parametru `nume=valoare` după `?`, `&` sau `#`; dacă e sensibil se decide
+// pe numele DECODAT (mai jos), nu pe textul lui. Valoarea merge până la `&`/`#`,
+// deci poate conține un `?` necodificat — vezi `scrubParams`.
+const PARAM_RE = /([?&#])([^=&#?\s]+)=([^&#\s]*)/g
+const SENSITIVE_PARAM_SET: ReadonlySet<string> = new Set(SENSITIVE_PARAMS)
+
+/**
+ * Numele parametrului, decodat procent. `URLSearchParams` (deci și
+ * `tablePaymentReturnCleanUrl`) citește `payment%5Fintent_client_secret` exact ca
+ * `payment_intent_client_secret`: o potrivire pe textul literal lăsa secretul să
+ * plece. Se decodează și de două ori (ca separatorii din `SEP`); o secvență
+ * invalidă rămâne cum e.
+ */
+function decodedParamName(raw: string): string {
+  let cur = raw
+  for (let i = 0; i < 3 && cur.includes('%'); i++) {
+    let next: string
+    try {
+      next = decodeURIComponent(cur)
+    } catch {
+      break
+    }
+    if (next === cur) break
+    cur = next
+  }
+  return cur
+}
+
+/**
+ * Parametrii sensibili redactați, cu toată valoarea (inclusiv un `?` din ea). Valoarea
+ * unui parametru NEsensibil se scanează la rândul ei: un `?` necodificat în ea începe
+ * un parametru nou (`?next=/reset-password?access_token=…`, `?lang=ro?cancel=…`), iar o
+ * singură trecere l-ar fi înghițit în potrivirea parametrului dinainte și l-ar fi lăsat
+ * să plece. Un parametru nesensibil iese octet cu octet. Recursivitatea e mărginită:
+ * fiecare nivel lucrează pe un șir strict mai scurt.
+ */
+function scrubParams(input: string): string {
+  return input.replace(PARAM_RE, (_match: string, lead: string, key: string, value: string) => {
+    if (SENSITIVE_PARAM_SET.has(decodedParamName(key))) return `${lead}${key}=${REDACTED_VALUE}`
+    return `${lead}${key}=${value.includes('?') ? scrubParams(value) : value}`
+  })
+}
 
 /** Redactează tokenurile și parametrii sensibili dintr-un URL / o cale / un text. */
 export function scrubTokenPaths(input: string): string {
   if (input === '') return input
-  return input
-    .replace(
+  return scrubParams(
+    input.replace(
       TOKEN_PATH_RE,
       (_match: string, s1: string, prefix: string, s2: string) =>
         `${s1}${prefix}${s2}${REDACTED_TOKEN}`,
-    )
-    .replace(
-      SENSITIVE_PARAM_RE,
-      (_match: string, lead: string, key: string) => `${lead}${key}=${REDACTED_VALUE}`,
-    )
+    ),
+  )
 }
 
 const MAX_DEPTH = 24

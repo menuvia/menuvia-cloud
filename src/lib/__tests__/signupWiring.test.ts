@@ -25,6 +25,11 @@
 //        în `user_metadata.ui_lang` — singura sursă pentru limba șabloanelor Supabase
 //        Auth (docs/AUTH_EMAIL_TEMPLATES.md). Mutația care pică: cheia scoasă din
 //        oricare pagină.
+//   SW10 (PostHog, R6) acordul „Performanță” dat nelogat în pagină trece la contul
+//        NOU chiar după signUp, pe ramura contului nou (identități > 0): cu
+//        confirmarea pornită nu urmează nicio autentificare în pagină, iar contul
+//        deschis din link n-ar fi fost măsurat deloc. Logica: AN39 din
+//        analytics.test.ts. Mutația care pică: apelul scos sau mutat în afara ramurii.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
@@ -129,5 +134,14 @@ describe('înscrierea — cablaj', () => {
     const invCall = INVITE.slice(invAt, INVITE.indexOf('})', invAt))
     expect(invCall).toMatch(/data:\s*\{[^}]*ui_lang:\s*uiLang\b/)
     expect(INVITE).toMatch(/const \{ lang: uiLang \} = useUiLang\(\)/)
+  })
+
+  it('SW10 acordul nelegat trece la contul nou, pe ramura contului nou', () => {
+    const at = AUTH.indexOf('if ((data.user?.identities?.length ?? 0) > 0) {')
+    expect(at, 'ramura contului nou lipsește').toBeGreaterThan(-1)
+    const end = AUTH.indexOf("track('signup_completed'", at)
+    expect(end, 'signup_completed lipsește din ramură').toBeGreaterThan(at)
+    expect(AUTH.slice(at, end)).toMatch(/bindPendingConsentToAccount\(data\.user\.id\)/)
+    expect(AUTH).toMatch(/import \{[^}]*\bbindPendingConsentToAccount\b[^}]*\} from '\.\.\/lib\/analytics'/)
   })
 })

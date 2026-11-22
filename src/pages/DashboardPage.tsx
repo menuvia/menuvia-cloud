@@ -1,7 +1,13 @@
 import { useState, useEffect, useRef, useCallback, useMemo, Suspense, lazy } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { useFeatures } from '../hooks/useFeatures'
-import { countryScopedFeatures, hasFeature, productLimitReason, surfaceTiers } from '../lib/features'
+import {
+  countryScopedFeatures,
+  hasFeature,
+  productLimitReason,
+  surfaceTiers,
+  type RestaurantFeatures,
+} from '../lib/features'
 import { planSurface, planUpsellTarget } from '../lib/planSurface'
 import { browserSite } from '../lib/domain'
 import {
@@ -54,6 +60,7 @@ const WaiterAssignments = lazy(() => import('../components/WaiterAssignments'))
 const AiSettingsTab = lazy(() => import('../components/AiSettingsTab'))
 const AiChatbot = lazy(() => import('../components/AiChatbot'))
 import { isPlatformAdmin } from '../lib/ai'
+import { markAnalyticsInternalUser, setAnalyticsContext, track } from '../lib/analytics'
 import { exitFounderView, clearFounderView, getFounderViewOrigin } from '../lib/founder'
 import { isPartnerTab } from '../lib/partnerAccess'
 import { canAddLocation, hardReloadTo, hasMultipleLocations } from '../lib/locations'
@@ -758,7 +765,11 @@ export default function DashboardPage({
       // null (eroare de verificare) → tratăm ca non-admin AICI: doar ascunde
       // butonul „Panou fondator”, fără consecințe de acces (spre deosebire de
       // FounderPage).
-      if (!cancelled) setIsPlatAdmin(v === true)
+      if (cancelled) return
+      setIsPlatAdmin(v === true)
+      // Traficul fondatorului se marchează `$internal_or_test_user` în PostHog,
+      // ca filtrul de conturi interne să-l scoată din cifre (no-op fără acord).
+      if (v === true && userId) markAnalyticsInternalUser(userId)
     })
     return () => {
       cancelled = true
@@ -951,6 +962,52 @@ export default function DashboardPage({
   useEffect(() => {
     contentScrollRef.current?.scrollTo(0, 0)
   }, [tab])
+
+  // Segmentarea în PostHog (super-proprietăți fără PII, lib/analytics.ts):
+  // localul, nivelul planului (regula 3: `planTier` din useFeatures, nu
+  // `profile.plan`; null cât planul nu e cunoscut) și rolul în local. Fără ele
+  // nu se pot separa proprietarii de ospătari, nici Planul 1 de Planul 2/3.
+  // Declarat ÎNAINTEA evenimentului de tab, ca primul să poarte contextul.
+  //
+  // Planul se publică doar lângă restaurantul pentru care a fost CITIT
+  // (recenzia CodeRabbit pe #385): `useFeatures` își resetează rezultatul abia
+  // în efect, deci prima randare după comutarea localului are încă planul
+  // localului vechi lângă noul `restaurant_id`. Rezultatul se leagă de
+  // restaurantul randării în care a apărut (ajustare în timpul randării, nu
+  // efect — un efect ar întârzia exact cu randarea pe care o reparăm); până se
+  // potrivesc, nivelul e `null` („necunoscut"), ca la planul neîncărcat.
+  const [featuresOwner, setFeaturesOwner] = useState<{
+    data: RestaurantFeatures | null
+    restaurantId: string | null
+  }>(() => ({ data: features.features, restaurantId }))
+  if (featuresOwner.data !== features.features) {
+    setFeaturesOwner({ data: features.features, restaurantId })
+  }
+  const featuresMatchRestaurant =
+    featuresOwner.data === features.features && featuresOwner.restaurantId === restaurantId
+  const analyticsTier = planKnown && featuresMatchRestaurant ? tier : null
+  const analyticsRole = activeRole ?? null
+  useEffect(() => {
+    setAnalyticsContext(
+      restaurantId
+        ? { restaurant_id: restaurantId, plan_tier: analyticsTier, staff_role: analyticsRole }
+        : null,
+    )
+  }, [restaurantId, analyticsTier, analyticsRole])
+  // Ieșirea din panou: evenimentele de după nu mai poartă localul.
+  useEffect(() => () => setAnalyticsContext(null), [])
+  // Ce module se folosesc: `?tab=` nu produce page view-uri (doar calea).
+  // Doar tab-ul chiar RANDAT (recenzia CodeRabbit pe #385): cu `activeGroup`
+  // null conținutul nu se montează (spinner cât planul se încarcă, sau un tab
+  // nepermis pe care efectul de mai jos îl corectează abia după commit), deci
+  // evenimentul ar fi numărat un modul pe care nimeni nu l-a văzut. Cheia e
+  // `null` cât tab-ul nu e afișat, deci același tab, devenit vizibil mai
+  // târziu, se numără atunci.
+  const renderedTab: Tab | null = activeGroup != null ? tab : null
+  useEffect(() => {
+    if (renderedTab == null) return
+    track('dashboard_tab_viewed', { tab: renderedTab })
+  }, [renderedTab])
 
   // Tab devenit inaccesibil (demovare rol, downgrade plan, modul oprit) sau
   // cerut din URL dar nepermis → înapoi Acasă, cu URL-ul corectat (replace —

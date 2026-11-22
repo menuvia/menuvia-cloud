@@ -43,13 +43,18 @@ const RO = {
   confirm_ok: 'Confirmă',
   confirm_cancel: 'Anulează',
   cookie_title: 'Cookies',
+  // Bannerul apare și pe paginile oaspeților (meniul QR, /m/, rezervarea), unde
+  // PostHog nu pornește niciodată (lib/analytics.ts). Acordul e însă per
+  // browser și se aplică apoi și pe site-ul Menuvia, deci textul spune UNDE
+  // rulează statisticile, nu doar ce se întâmplă pe pagina curentă.
   cookie_body:
-    'Folosim cookies strict necesare pentru funcționare. Cu acordul tău, folosim și cookies de performanță (Sentry + analytics) și funcționale (notificări).',
+    'Folosim cookies strict necesare pentru funcționare. Cu acordul tău, folosim și cookies de performanță (Sentry; analytics doar pe site-ul și în panoul Menuvia) și funcționale (notificări).',
   cookie_details: 'Detalii',
   cookie_necessary: 'Strict necesare',
   cookie_necessary_desc: 'Autentificare, sesiune. Nu pot fi dezactivate.',
   cookie_perf: 'Performanță',
-  cookie_perf_desc: 'Sentry (monitorizare erori) + PostHog (analytics anonim).',
+  cookie_perf_desc:
+    'Sentry (monitorizare erori) + PostHog (statistici de utilizare, doar pe site-ul și în panoul Menuvia, nu pe meniul sau rezervarea unui restaurant).',
   cookie_func: 'Funcționale',
   cookie_func_desc: 'Push notifications, temă, preferințe avansate.',
   cookie_accept: 'Acceptă toate',
@@ -95,12 +100,13 @@ export const CHROME_STRINGS: Readonly<Record<ChromeLang, ChromeTable>> = {
     confirm_cancel: 'Cancel',
     cookie_title: 'Cookies',
     cookie_body:
-      'We use strictly necessary cookies to make the site work. With your consent, we also use performance cookies (Sentry + analytics) and functional cookies (notifications).',
+      'We use strictly necessary cookies to make the site work. With your consent, we also use performance cookies (Sentry; analytics only on the Menuvia website and dashboard) and functional cookies (notifications).',
     cookie_details: 'Details (in Romanian)',
     cookie_necessary: 'Strictly necessary',
     cookie_necessary_desc: 'Sign-in and session. They cannot be turned off.',
     cookie_perf: 'Performance',
-    cookie_perf_desc: 'Sentry (error monitoring) + PostHog (anonymous analytics).',
+    cookie_perf_desc:
+      'Sentry (error monitoring) + PostHog (usage analytics, only on the Menuvia website and dashboard, not on a restaurant’s menu or booking page).',
     cookie_func: 'Functional',
     cookie_func_desc: 'Push notifications, theme, advanced preferences.',
     cookie_accept: 'Accept all',
@@ -138,12 +144,13 @@ export const CHROME_STRINGS: Readonly<Record<ChromeLang, ChromeTable>> = {
     confirm_cancel: 'Annuler',
     cookie_title: 'Cookies',
     cookie_body:
-      'Nous utilisons des cookies strictement nécessaires au fonctionnement. Avec votre accord, nous utilisons aussi des cookies de performance (Sentry + statistiques) et fonctionnels (notifications).',
+      'Nous utilisons des cookies strictement nécessaires au fonctionnement. Avec votre accord, nous utilisons aussi des cookies de performance (Sentry ; statistiques uniquement sur le site et l’espace Menuvia) et fonctionnels (notifications).',
     cookie_details: 'Détails (en roumain)',
     cookie_necessary: 'Strictement nécessaires',
     cookie_necessary_desc: 'Connexion et session. Ils ne peuvent pas être désactivés.',
     cookie_perf: 'Performance',
-    cookie_perf_desc: 'Sentry (suivi des erreurs) + PostHog (statistiques anonymes).',
+    cookie_perf_desc:
+      'Sentry (suivi des erreurs) + PostHog (statistiques d’utilisation, uniquement sur le site et l’espace Menuvia, pas sur le menu ni la page de réservation d’un restaurant).',
     cookie_func: 'Fonctionnels',
     cookie_func_desc: 'Notifications push, thème, préférences avancées.',
     cookie_accept: 'Tout accepter',
@@ -183,12 +190,13 @@ export const CHROME_STRINGS: Readonly<Record<ChromeLang, ChromeTable>> = {
     confirm_cancel: 'Abbrechen',
     cookie_title: 'Cookies',
     cookie_body:
-      'Wir verwenden unbedingt erforderliche Cookies für den Betrieb. Mit Ihrer Zustimmung verwenden wir außerdem Leistungs-Cookies (Sentry + Analyse) und funktionale Cookies (Benachrichtigungen).',
+      'Wir verwenden unbedingt erforderliche Cookies für den Betrieb. Mit Ihrer Zustimmung verwenden wir außerdem Leistungs-Cookies (Sentry; Analyse nur auf der Menuvia-Website und im Verwaltungsbereich) und funktionale Cookies (Benachrichtigungen).',
     cookie_details: 'Details (auf Rumänisch)',
     cookie_necessary: 'Unbedingt erforderlich',
     cookie_necessary_desc: 'Anmeldung und Sitzung. Sie können nicht deaktiviert werden.',
     cookie_perf: 'Leistung',
-    cookie_perf_desc: 'Sentry (Fehlerüberwachung) + PostHog (anonyme Analyse).',
+    cookie_perf_desc:
+      'Sentry (Fehlerüberwachung) + PostHog (Nutzungsstatistik, nur auf der Menuvia-Website und im Verwaltungsbereich, nicht auf der Speisekarte oder Reservierungsseite eines Restaurants).',
     cookie_func: 'Funktional',
     cookie_func_desc: 'Push-Benachrichtigungen, Design, erweiterte Einstellungen.',
     cookie_accept: 'Alle akzeptieren',

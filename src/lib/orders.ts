@@ -2,6 +2,7 @@ import { supabase } from './supabase'
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 import { createIdempotencyKeyStore } from './idempotency'
 import { isNetworkError } from './networkError'
+import { track } from './analytics'
 // Doar TIPURI (șterse la compilare): orders.ts e în graful paginilor oaspetelui,
 // iar dicționarul personalului nu are voie să intre acolo (SK4).
 import type { Translator } from '../i18n/core'
@@ -581,6 +582,19 @@ export async function createOrder(args: CreateOrderArgs): Promise<OrderConfirmat
       throw bizErr
     }
 
+    // Comanda e confirmată de SERVER (create_order a întors rândul). DOAR
+    // comenzile PERSONALULUI (ospătar): pe QR și pickup comanda e a oaspetelui,
+    // acolo Menuvia e persoana împuternicită a restaurantului, iar DPA-ul
+    // (menuvia-pack/05 §3.4 + Anexa 2) nu cunoaște PostHog — clichetul AE6.
+    // Coada offline a ospătarului (mai jos) NU se numără: nu e încă o comandă.
+    // Zero PII: fără note, nume, telefon.
+    if (args.source === 'waiter') {
+      track('order_placed', {
+        restaurant_id: args.restaurant_id,
+        item_count: args.cart.reduce((sum, i) => sum + i.quantity, 0),
+        line_count: args.cart.length,
+      })
+    }
     return data as OrderConfirmationPayload
   } catch (err) {
     // Offline sau eroare de rețea + comandă ospătar → salvăm în IndexedDB

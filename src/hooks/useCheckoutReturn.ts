@@ -18,6 +18,7 @@
 // ─────────────────────────────────────────────────────────────
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { clearPlanIntent } from '../lib/planIntent'
+import { takeCheckoutRedirect, track } from '../lib/analytics'
 import {
   checkoutActivated,
   readCheckoutPlanParam,
@@ -82,10 +83,28 @@ export function useCheckoutReturn({
   // când webhook-ul a ajuns ÎNAINTEA paginii; un plan plătit oarecare (ex. unul
   // manual) nu e dovada (`checkoutActivated`).
   const baselineRef = useRef<string | null>(null)
+  // Marcajul redirectului se citește O SINGURĂ dată per întoarcere.
+  const reportedRef = useRef(false)
   useEffect(() => {
     if (status !== 'activating' || plan == null) return
     if (baselineRef.current == null) baselineRef.current = plan
-    if (checkoutActivated(purchased, baselineRef.current, plan)) setStatus('active')
+    if (checkoutActivated(purchased, baselineRef.current, plan)) {
+      setStatus('active')
+      // Bannerul urmează doar planul; evenimentul cere în plus DOVADA că omul a
+      // plecat spre Stripe din acest tab, cu acest cont, pentru acest plan
+      // (`noteCheckoutRedirect` din App.tsx). Potrivirea de plan singură numără
+      // un abonament fals la un reload / semn de carte pe URL-ul de succes al
+      // unui cont deja pe planul respectiv. Marcajul se consumă la citire, deci
+      // întoarcerea se numără o dată, inclusiv când webhook-ul a ajuns înaintea
+      // paginii. Se citește abia aici: `plan` cunoscut = profil încărcat, iar
+      // AuthContext publică contul spre analytics ÎNAINTEA încărcării profilului
+      // (la montare contul e încă necunoscut, iar citirea ar consuma marcajul
+      // degeaba). Include și trialul fără card: abonamentul există.
+      if (!reportedRef.current) {
+        reportedRef.current = true
+        if (takeCheckoutRedirect(plan)) track('subscription_started', { plan })
+      }
+    }
   }, [status, plan, purchased])
 
   // Plafonul de 30 s curge de la întoarcere, indiferent de sesiune: dacă

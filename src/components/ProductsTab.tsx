@@ -2599,7 +2599,7 @@ export default function ProductsTab({
       }
       // Telemetria funelului (audit aug 2026): pasul „introdu meniul" nu era
       // măsurat deloc. track e no-op fără consimțământ analytics; zero PII.
-      track('product_created', { source: 'products_tab' })
+      track('product_created', { ui_source: 'products_tab' })
       toast(t('toast_added'))
       if (!opts?.keepOpen) setModal(null)
       return true
@@ -3418,7 +3418,9 @@ export default function ProductsTab({
             restaurantId={restaurantId}
             // Plafonul planului se verifică ÎNAINTE de salvare (UN singur mesaj).
             remainingSlots={Math.max(0, limits.max_products - products.length)}
-            onImported={(count) => track('product_imported_ai', { count, source: 'products_tab' })}
+            onImported={(count) =>
+              track('product_imported_ai', { count, ui_source: 'products_tab' })
+            }
             // Eroarea AI nu mai e fundătură: ieșiri directe spre CSV / manual.
             onFallbackCsv={() => {
               setAiImportOpen(false)

@@ -13,6 +13,12 @@
 
 [build.environment]
   NODE_VERSION = "22"
+  # PostHog: cheia e GOALĂ explicit în afara producției. Valoarea din fișier bate
+  # UI-ul Netlify doar acolo unde fișierul SETEAZĂ cheia, deci o cheie pusă în UI
+  # pe „toate contextele” ar ajunge altfel în preview-uri. Aici e baza oricărui
+  # context (inclusiv unul nou), suprascrisă doar de producție; fiecare context de
+  # mai jos o repetă. Clichet PE3 (tests/functions/posthog-env.test.js).
+  VITE_POSTHOG_KEY = ""
 
 # Healthcheck extern (dead-man's-switch) — path frumos /health rutat la funcție.
 # TREBUIE înainte de catch-all-ul /* → /index.html (first-match wins), altfel SPA
@@ -167,6 +173,14 @@
 [context.production.environment]
   VITE_APP_ENV    = "production"
   VITE_APP_URL    = "https://menuvia.ro"
+  # PostHog (proiectul 356135, regiunea UE). Cheia `phc_` e PUBLICĂ prin
+  # construcție — ajunge oricum în JS-ul oricărui browser —, deci stă aici, nu
+  # în UI. DOAR în producție: preview-urile, branch deploy-urile, develop și
+  # `netlify dev` au cheia setată explicit GOALĂ, adică fără analytics
+  # (src/lib/analytics.ts). Clichet: tests/functions/posthog-env.test.js
+  # (PE1–PE8). Încărcarea tot cere consimțământul „Performanță”.
+  VITE_POSTHOG_KEY  = "phc_mTaFQdzTfJXSRHvSBAmMXLhuBQpELZqWyr5uSiiXrPGS"
+  VITE_POSTHOG_HOST = "https://eu.i.posthog.com"
   # VITE_SUPABASE_URL și VITE_SUPABASE_ANON_KEY sunt setate în Netlify UI
   # pentru contextul "production" — pointing la project Supabase prod
 
@@ -174,17 +188,25 @@
 [context.branch-deploy.environment]
   VITE_APP_ENV    = "staging"
   VITE_APP_URL    = "https://staging.menuvia.ro"
+  VITE_POSTHOG_KEY = ""
   # VITE_SUPABASE_URL_DEV pointing la project Supabase dev/staging
 
 # Specifically for develop branch
 [context."develop".environment]
   VITE_APP_ENV    = "staging"
   VITE_APP_URL    = "https://staging.menuvia.ro"
+  VITE_POSTHOG_KEY = ""
 
 # ── Deploy previews (PRs) ──────────────────────────────────────
 [context.deploy-preview.environment]
   VITE_APP_ENV    = "preview"
+  VITE_POSTHOG_KEY = ""
   # Folosește implicit URL-ul deploy-preview din Netlify
   # (deploy-preview-N--menuvia.netlify.app)
   # Conectează la Supabase dev — NU la prod, niciodată
 
+# ── Local (`netlify dev`) ──────────────────────────────────────
+# Doar cheia PostHog goală: altfel o cheie pusă în UI pentru contextul local
+# ar trimite în proiectul de producție evenimentele de pe mașina dezvoltatorului.
+[context.dev.environment]
+  VITE_POSTHOG_KEY = ""

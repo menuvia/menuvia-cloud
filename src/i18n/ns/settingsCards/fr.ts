@@ -112,6 +112,10 @@ const fr: Translation<typeof ro> = {
   gdpr_err_cancel: 'L’annulation a échoué. Réessayez.',
   gdpr_err_activeSub:
     'Vous avez un abonnement actif. Résiliez-le via le portail Stripe avant de supprimer le compte.',
+  gdpr_cookiesDesc:
+    'Les statistiques d’utilisation (PostHog) et le signalement des erreurs (Sentry) ne fonctionnent qu’avec ' +
+    'l’accord donné dans le bandeau des cookies, sur ce navigateur. Vous pouvez le modifier ou le retirer à tout moment.',
+  gdpr_cookies: 'Paramètres des cookies',
 
   loc_title: 'Établissements',
   loc_desc:
