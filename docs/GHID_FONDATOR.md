@@ -219,8 +219,28 @@ Webhooks → endpoint-ul de abonamente → „Update details” → „Select ev
 se BIFEAZĂ în plus — un `POST /v1/webhook_endpoints/<id>` cu `enabled_events[]`
 ÎNLOCUIEȘTE lista, deci acolo se trimit toate cele nouă). Stripe îl listează
 „Deprecated” în favoarea lui `refund.updated`/`refund.failed`, dar acelea există
-abia din versiunea `2024-10-28.acacia`; pe endpoint-ul nostru (`2023-10-16`) el e
-singura sursă și se emite în continuare pentru rambursările pe card.
+abia din versiunea `2024-10-28.acacia`, deci pe endpoint-ul nostru (`2023-10-16`)
+nu le avem.
+
+**Ce acoperă și ce NU.** Stripe documentează `charge.refund.updated` doar ca
+emis „pentru anumite metode de plată”, fără să le numească. Ne bazăm pe el pentru
+rambursările pe CARD: azi abonamentele sunt în RON și se plătesc cu cardul
+(checkout-ul nu fixează metodele, deci ele vin din Dashboard → Settings → Payment
+methods; o metodă non-card activată acolo iese din acoperire). Pentru orice altă
+metodă (ex. SEPA, după prețurile EUR de pe .com) un eșec ULTERIOR al rambursării
+poate să nu trimită niciun eveniment, deci webhook-ul poate să nu afle de el
+deloc. Până când pin-ul se mută pe o versiune cu `refund.updated`/`refund.failed`,
+verifică manual, periodic, rambursările de dublură:
+
+```bash
+curl -G https://api.stripe.com/v1/refunds -u "$STRIPE_SECRET_KEY:" -d limit=100
+```
+
+— caută intrările cu `"menuvia_reason": "duplicate_subscription"` în `metadata`
+și `"status": "failed"` sau `"canceled"` (lista începe cu cea mai nouă; pentru
+mai vechi, adaugă `-d starting_after=<id-ul ultimei intrări>`). Pe una găsită,
+restituirea banilor e a ta, ca la un ALERT `refund=manual`; în Dashboard o vezi
+pe plata respectivă (Payments → plata → rambursările ei).
 
 Ce face webhook-ul cu el: reîncearcă AUTOMAT doar un eșec cu motiv `unknown`,
 `declined` sau `insufficient_funds` (ALERT „se reîncearcă automat — NU rambursa
@@ -231,6 +251,33 @@ un eșec pe alt motiv (card expirat/pierdut, dispută, motiv nou) NU se mai
 reîncearcă niciodată (ALERT „rambursare MANUALĂ, FĂRĂ reîncercare automată”):
 din acel moment restituirea banilor e a ta (transfer, credit), iar sistemul nu
 o mai dublează.
+
+**Unde ajung ALERT-urile: DOAR în logurile funcției `stripe-webhook`** (Netlify →
+Logs → Functions, sau `journalctl -u menuvia-functions` pe VPS). Nu există încă
+niciun canal care să ți le trimită (email/Slack), deci până când pui o alertă pe
+log (un log drain Netlify sau o căutare salvată după `ALERT`), uită-te în log
+măcar o dată pe zi cât abonamentele sunt live. Cel mai important e
+`ALERT duplicate cancel MANUAL`: am anulat dublura, dar abonamentul păstrat s-a
+încheiat în aceeași fereastră de milisecunde, deci clientul poate rămâne FĂRĂ
+abonament activ. Contactează-l și refă-i abonamentul.
+
+Alte ALERT-uri din același flux care cer o acțiune de-a ta (le vezi în logurile
+funcției `stripe-webhook`):
+- `ALERT duplicate cancel COLLECTION … kept=<abonament>` — Stripe oprește
+  IMPLICIT încasarea automată pe facturile finalizate ale clientului când anulăm
+  dublura (sau un abonament vechi neplătit, înlocuit de unul nou), deci o factură
+  deschisă a abonamentului PĂSTRAT (ex. unul `past_due`) poate rămâne neîncasată.
+  Sistemul nu schimbă nimic în facturarea clientului: deschide facturile numite
+  în ALERT (Dashboard → Invoices) și repornește încasarea automată pe ele.
+- `ALERT duplicate subscription … replay idempotent … idempotency_key=<cheie>`
+  — o cerere de rambursare a primit de la Stripe o eroare SALVATĂ pe cheia ei:
+  nu se știe dacă rambursarea s-a creat, iar sistemul NU mai încearcă. Verifică
+  plata (Dashboard → Payments → plata → Refunds) și rambursează manual DOAR
+  dacă nu există deja o rambursare.
+- `ALERT replaced subscription NOT canceled … subscription=<abonament>` — un
+  abonament vechi neplătit (`unpaid`/`incomplete`) trebuia anulat când clientul a
+  primit unul nou, dar anularea a eșuat: anulează-l din Dashboard dacă e încă
+  activ, altfel își poate plăti factura deschisă lângă cel nou.
 
 Din fiecare răspuns: câmpul `secret` → `STRIPE_WEBHOOK_SECRET` (primul, **NU**
 `WEBHOOK_SECRET`) și `STRIPE_CONNECT_WEBHOOK_SECRET` (al doilea), în env-ul de

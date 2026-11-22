@@ -49,8 +49,10 @@
 //   SDK12  stripe-webhook, abonament unic la finalizare: profilul ține alt
 //          abonament VIU → pe fir, în ORDINE: citirea dublurii, citirea celui
 //          păstrat, DELETE pe dublură (urma în query, fără cheie), a doua
-//          citire a celui păstrat (verificarea de după anulare), factura,
-//          lista de rambursări (pe payment_intent), POST /v1/refunds cu cheia
+//          citire a celui păstrat (verificarea de după anulare), facturile lui
+//          deschise (GET /v1/invoices?subscription=…&status=open — încasarea
+//          oprită de anulare, runda 2 CodeRabbit), factura dublurii, lista de
+//          rambursări (pe payment_intent), POST /v1/refunds cu cheia
 //          `dupsub_refund_<factură>`; profilul (fake cu WHERE evaluat) neatins.
 //          Fake-ul din tests/functions nu vede metoda HTTP, query-ul sau
 //          antetele. [DE CONFIRMAT ÎN CI — SDK-ul real nu se poate instala în
@@ -528,7 +530,7 @@ describe('SDK12: stripe-webhook — dublura la finalizare, pe SDK-ul real', () =
     state.fromHandlers.lifecycle_events = () => ({ data: null, error: null })
     const profiles = installTable('profiles', [
       { id: 'u1', plan: 'growth', stripe_customer_id: 'cus_1', stripe_subscription_id: 'sub_kept' },
-    ])
+    ], { columns: ['id', 'plan', 'stripe_customer_id', 'stripe_subscription_id'] })
     const sub = (id, extra) => ({
       id, object: 'subscription', status: 'active', metadata: { plan: 'growth' },
       items: { object: 'list', data: [{ id: `si_${id}`, object: 'subscription_item', price: { id: 'price_growth', object: 'price' } }] },
@@ -540,6 +542,7 @@ describe('SDK12: stripe-webhook — dublura la finalizare, pe SDK-ul real', () =
       status: 'canceled', latest_invoice: 'in_dup',
       cancellation_details: { comment: COMMENT, feedback: null, reason: 'cancellation_requested' },
     }) })
+    t.route('GET', '/v1/invoices?', { body: { object: 'list', has_more: false, url: '/v1/invoices', data: [] } })
     t.route('GET', '/v1/invoices/in_dup', { body: {
       id: 'in_dup', object: 'invoice', status: 'paid', amount_paid: 24900, payment_intent: 'pi_dup', charge: 'ch_dup',
     } })
@@ -572,6 +575,8 @@ describe('SDK12: stripe-webhook — dublura la finalizare, pe SDK-ul real', () =
       'DELETE /v1/subscriptions/sub_dup',
       // Verificarea de după anulare (K2): cel păstrat e încă viu.
       'GET /v1/subscriptions/sub_kept',
+      // Facturile lui deschise: încasarea oprită implicit de anulare (runda 2).
+      'GET /v1/invoices',
       'GET /v1/invoices/in_dup',
       'GET /v1/refunds',
       'POST /v1/refunds',
@@ -583,8 +588,10 @@ describe('SDK12: stripe-webhook — dublura la finalizare, pe SDK-ul real', () =
     assert.equal(at(del).searchParams.get('prorate'), 'false')
     assert.equal(del.headers['idempotency-key'], undefined)
 
-    assert.equal(at(reqs[5]).searchParams.get('payment_intent'), 'pi_dup')
-    const post = reqs[6]
+    assert.equal(at(reqs[4]).searchParams.get('subscription'), 'sub_kept')
+    assert.equal(at(reqs[4]).searchParams.get('status'), 'open')
+    assert.equal(at(reqs[6]).searchParams.get('payment_intent'), 'pi_dup')
+    const post = reqs[7]
     assert.equal(post.headers['idempotency-key'], 'dupsub_refund_in_dup')
     const b = form(post)
     assert.equal(b.payment_intent, 'pi_dup')

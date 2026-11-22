@@ -268,7 +268,7 @@ function FakeStripe(key, opts) {
     },
     accountLinks: { create: stripeMethod('accountLinks.create') },
     refunds: { list: stripeMethod('refunds.list'), create: stripeMethod('refunds.create') },
-    invoices: { retrieve: stripeMethod('invoices.retrieve') },
+    invoices: { retrieve: stripeMethod('invoices.retrieve'), list: stripeMethod('invoices.list') },
     charges: { retrieve: stripeMethod('charges.retrieve') },
     webhooks: {
       // constructEvent e SINCRON în stripe-node — nu-l trecem prin stripeMethod
@@ -381,20 +381,30 @@ function parseBody(res) {
 // ÎNAINTEA scanării (compileFilters): validată pe rând, o expresie greșită pe o
 // tabelă goală — sau după un `eq` care exclude tot — ar fi arătat ca „0 rânduri”
 // valid, adică exact rezultatul unui UPDATE condiționat ratat.
+// `columns` (OBLIGATORIU) = coloanele pe care fixtura le poate FILTRA. Orice
+// coloană din `eq`/`is` sau dintr-un termen `or()` care nu e în listă aruncă,
+// tot înaintea scanării (recenzie CodeRabbit pe #386, runda 2): altfel un nume
+// greșit (`stripe_subcription_id`) se citea `undefined`, iar `is.null` îl
+// potrivea pe ORICE rând — PostgREST respinge o coloană necunoscută, deci un
+// test verde aici ar fi ascuns o interogare care pică în producție.
 const TABLE_FILTERS = new Set(['eq', 'is', 'or'])
 const TABLE_VERBS = new Set(['update', 'select', 'single', 'maybeSingle'])
-function parseOrFilter(expr) {
+function assertColumn(columns, col, where) {
+  if (!columns.has(col)) throw new Error(`installTable: coloana '${col}' (${where}) nu e în coloanele fixturii`)
+}
+function parseOrFilter(expr, columns) {
   if (typeof expr !== 'string' || expr === '') throw new Error(`installTable: or() cere o expresie text, nu '${expr}'`)
   return expr.split(',').map((term) => {
     const m = /^([a-z_]+)\.(is|eq)\.(.+)$/.exec(term)
     if (!m) throw new Error(`installTable: termen or() nemodelat: '${term}'`)
     if (m[2] === 'is' && m[3] !== 'null') throw new Error(`installTable: doar is.null e modelat, nu '${term}'`)
+    assertColumn(columns, m[1], `or '${term}'`)
     return { col: m[1], op: m[2], val: m[3] }
   })
 }
 // Lanțul de operații → predicat pe rând. Aruncă pe ORICE formă nemodelată,
 // indiferent dacă vreun rând ar ajunge vreodată să fie evaluat.
-function compileFilters(ops) {
+function compileFilters(ops, columns) {
   const preds = []
   for (const o of ops) {
     if (TABLE_VERBS.has(o.m)) continue
@@ -403,19 +413,24 @@ function compileFilters(ops) {
     if (o.m !== 'or' && (typeof col !== 'string' || col === '')) {
       throw new Error(`installTable: ${o.m}() cere numele coloanei, nu '${col}'`)
     }
+    if (o.m !== 'or') assertColumn(columns, col, o.m)
     if (o.m === 'eq') preds.push((row) => row[col] === val)
     if (o.m === 'is') {
       if (val !== null) throw new Error(`installTable: doar is(col, null) e modelat`)
       preds.push((row) => row[col] == null)
     }
     if (o.m === 'or') {
-      const terms = parseOrFilter(col)
+      const terms = parseOrFilter(col, columns)
       preds.push((row) => terms.some((t) => (t.op === 'is' ? row[t.col] == null : row[t.col] === t.val)))
     }
   }
   return (row) => preds.every((p) => p(row))
 }
-function installTable(name, rows, { defaults = {}, readError = null } = {}) {
+function installTable(name, rows, { columns, defaults = {}, readError = null } = {}) {
+  if (!Array.isArray(columns) || columns.length === 0 || !columns.every((c) => typeof c === 'string' && c !== '')) {
+    throw new Error(`installTable(${name}): lipsește lista explicită de coloane filtrabile (columns)`)
+  }
+  const filterable = new Set(columns)
   const table = {
     rows: rows.map((r) => ({ ...defaults, ...r })),
     // Scrierile EFECTIVE (cel puțin un rând atins), în ordine: payload + id-urile atinse.
@@ -426,7 +441,7 @@ function installTable(name, rows, { defaults = {}, readError = null } = {}) {
   }
   state.fromHandlers[name] = (ops) => {
     // Validare ÎNAINTEA oricărui efect (cârlige, scanare, readError).
-    const matches = compileFilters(ops)
+    const matches = compileFilters(ops, filterable)
     const upd = ops.find((o) => o.m === 'update')
     if (upd) {
       if (table.failNextUpdate) {
