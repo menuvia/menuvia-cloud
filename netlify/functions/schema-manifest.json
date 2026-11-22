@@ -328,6 +328,7 @@
     "migration_327_reservation_email_restaurant_id",
     "migration_328_reservation_guest_language",
     "migration_329_kitchen_ticket_language",
-    "migration_330_staff_error_hints"
+    "migration_330_staff_error_hints",
+    "migration_331_signup_ui_language"
   ]
 }
