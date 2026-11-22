@@ -14,6 +14,9 @@
 //   CR5  modulul nu importă nimic (intră în bundle-ul de intrare).
 //   CR6  chromeFallbackLang (recenzia CodeRabbit pe #357): limba se declară pe
 //        etichetă DOAR când tabelul a căzut pe altă limbă decât a paginii.
+//   CR7  (recenzie pe #385, MY-12) bannerul, montat și pe paginile oaspeților,
+//        spune în fiecare limbă că statisticile PostHog rulează doar pe
+//        site-ul și în panoul Menuvia. Mutația care pică: textul de dinainte.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -76,6 +79,23 @@ describe('cromul comun — limba', () => {
     expect(browserChromeLang()).toBe('fr')
     vi.stubGlobal('navigator', { language: 'ja', languages: ['ja', 'zh'] })
     expect(browserChromeLang()).toBe('en')
+  })
+
+  it('CR7 bannerul nu promite statistici pe paginile oaspeților', () => {
+    // Bannerul e montat și pe meniul QR, /m/ și rezervarea publică, unde PostHog
+    // nu pornește niciodată (lib/analytics.ts). Fiecare limbă spune deci UNDE
+    // rulează statisticile: pe site-ul/panoul Menuvia. Mutația care pică: textul
+    // vechi („(Sentry + analytics)”, „PostHog (statistici de utilizare).”).
+    const scoped = (s: string): boolean => s.includes('Menuvia')
+    // Control pozitiv: textele de dinainte NU erau delimitate.
+    expect(scoped('Sentry (monitorizare erori) + PostHog (statistici de utilizare).')).toBe(false)
+    for (const l of LANGS) {
+      expect(scoped(CHROME_STRINGS[l].cookie_body), `${l}.cookie_body`).toBe(true)
+      expect(scoped(CHROME_STRINGS[l].cookie_perf_desc), `${l}.cookie_perf_desc`).toBe(true)
+    }
+    expect(CHROME_STRINGS.ro.cookie_perf_desc).toBe(
+      'Sentry (monitorizare erori) + PostHog (statistici de utilizare, doar pe site-ul și în panoul Menuvia, nu pe meniul sau rezervarea unui restaurant).',
+    )
   })
 
   it('CR5 modulul nu importă nimic', () => {

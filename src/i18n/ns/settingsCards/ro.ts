@@ -140,6 +140,13 @@ const ro = {
   // Doar în celelalte limbi: refuzul RPC-ului `request_account_deletion` (mig 042).
   gdpr_err_activeSub:
     'Aveți un abonament activ. Anulați-l prin Portal Stripe înainte de a șterge contul.',
+  // Bannerul de cookies redeschis din cont (recenzie pe #385, MY-8): până aici
+  // „Setări cookies” exista doar în subsolul paginilor legale, deci personalul
+  // identificat în statistici n-avea din panou cum să-și retragă acordul.
+  gdpr_cookiesDesc:
+    'Statisticile de utilizare (PostHog) și raportarea erorilor (Sentry) pornesc doar cu acordul tău din ' +
+    'bannerul de cookies, dat în acest browser. Îl poți schimba sau retrage oricând.',
+  gdpr_cookies: 'Setări cookies',
 
   // ── Locația nouă (AddLocationCard + describeCreateLocationErrorT) ──
   loc_title: 'Locații',

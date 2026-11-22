@@ -11,6 +11,10 @@
 // (în română exact `toUserMessage`). Linkul duce tot la Politica de
 // confidențialitate (documentul legal rămâne cum e); doar textul lui se
 // traduce. Data programării se formatează în limba personalului.
+//   - Consimțământul de cookies (recenzie pe #385, MY-8): „Setări cookies”
+//     redeschide bannerul global (CookieBanner ascultă evenimentul de mai jos,
+//     același ca linkul din LegalFooter), ca retragerea acordului pentru
+//     statistici să fie la fel de ușoară din panou ca acordarea lui.
 import { useEffect, useState } from 'react'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
@@ -26,6 +30,9 @@ import { commonNs } from '../i18n/ns/common'
 import { fillNodes } from '../i18n/fillNodes'
 import { isActiveSubscriptionRefusal } from '../lib/accountRefusals'
 import { track } from '../lib/analytics'
+
+/** Evenimentul pe care îl ascultă CookieBanner (redeschiderea preferințelor). */
+const OPEN_COOKIE_SETTINGS_EVENT = 'menuvia:open-cookie-settings'
 
 const btnStyle = (variant: 'neutral' | 'danger' | 'safe'): React.CSSProperties => ({
   background: variant === 'danger' ? D.redA : D.s3,
@@ -199,6 +206,19 @@ export default function GdprCard() {
           {tr.t('gdpr_pendingNote')}
         </p>
       ) : null}
+
+      <div style={{ borderTop: `1px solid ${D.border}`, marginTop: 16, paddingTop: 14 }}>
+        <p style={{ fontSize: '0.78rem', color: D.t2, lineHeight: 1.5, margin: '0 0 10px' }}>
+          {tr.t('gdpr_cookiesDesc')}
+        </p>
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new Event(OPEN_COOKIE_SETTINGS_EVENT))}
+          style={btnStyle('neutral')}
+        >
+          {tr.t('gdpr_cookies')}
+        </button>
+      </div>
     </div>
   )
 }

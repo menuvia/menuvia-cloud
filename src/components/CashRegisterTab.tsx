@@ -106,11 +106,31 @@ function relTime(iso: string): string {
   return 'acum'
 }
 
+// Ce a întors o încărcare, cu restaurantul pentru care a fost cerută.
+interface LoadedCash {
+  restaurantId: string
+  current: CurrentShift | null
+  recent: RecentShift[]
+  notes: SettleNoteRow[]
+}
+// Referințe stabile pentru „fără date" (nu un `[]` nou la fiecare randare).
+const NO_RECENT: RecentShift[] = []
+const NO_NOTES: SettleNoteRow[] = []
+
 // ── Main ──────────────────────────────────────────────────────
 export default function CashRegisterTab({ restaurantId }: Props) {
-  const [current, setCurrent] = useState<CurrentShift | null>(null)
-  const [recent, setRecent] = useState<RecentShift[]>([])
-  const [settleNotes, setSettleNotes] = useState<SettleNoteRow[]>([])
+  // Tura, istoricul și notele țin restaurantul pentru care au fost CITITE
+  // (recenzia CodeRabbit pe #385). Tab-ul nu se remontează la comutarea
+  // localului (DashboardPage nu-i dă `key`), deci până la reîncărcare starea
+  // era cea a localului vechi: „Închide tură" deschidea închiderea turei LUI
+  // sub noul `restaurantId`, iar evenimentul de închidere ajungea pe noul local.
+  // Datele altui restaurant sunt tratate ca absente — nici măcar un răspuns
+  // întârziat al localului vechi nu le mai poate aduce pe ecran.
+  const [loaded, setLoaded] = useState<LoadedCash | null>(null)
+  const own = loaded != null && loaded.restaurantId === restaurantId ? loaded : null
+  const current = own?.current ?? null
+  const recent = own?.recent ?? NO_RECENT
+  const settleNotes = own?.notes ?? NO_NOTES
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
 
@@ -118,6 +138,21 @@ export default function CashRegisterTab({ restaurantId }: Props) {
   const [showClose, setShowClose] = useState(false)
   const [showMovement, setShowMovement] = useState(false)
   const [historySummaryId, setHistorySummaryId] = useState<string | null>(null)
+
+  // La comutarea localului se închid dialogurile și revine spinner-ul (ca la
+  // montare). Ajustare în timpul randării, nu efect: randarea cu dialogul
+  // localului vechi nu ajunge pe ecran nici un cadru, iar un `showClose` rămas
+  // aprins nu deschide singur închiderea turei NOULUI local când sosește.
+  const [shownFor, setShownFor] = useState(restaurantId)
+  if (shownFor !== restaurantId) {
+    setShownFor(restaurantId)
+    setShowOpen(false)
+    setShowClose(false)
+    setShowMovement(false)
+    setHistorySummaryId(null)
+    setErr(null)
+    setLoading(true)
+  }
 
   // Guard de secvență: la schimbarea restaurantului răspunsul unui load vechi nu
   // trebuie să suprascrie tura/istoricul de casă ale restaurantului curent.
@@ -148,9 +183,7 @@ export default function CashRegisterTab({ restaurantId }: Props) {
           listSettleNotes(restaurantId, 30),
         ])
         if (seq !== loadSeqRef.current) return
-        setCurrent(cur)
-        setRecent(hist)
-        setSettleNotes(notes)
+        setLoaded({ restaurantId, current: cur, recent: hist, notes })
       } catch (e) {
         if (seq === loadSeqRef.current) setErr(toUserMessage(e, 'Eroare la încărcare'))
       } finally {
@@ -480,10 +513,11 @@ export default function CashRegisterTab({ restaurantId }: Props) {
         />
       )}
 
-      {showClose && current && (
+      {showClose && own != null && own.current != null && (
         <CloseShiftModal
-          restaurantId={restaurantId}
-          shift={current}
+          // Restaurantul TUREI (cel pentru care a fost citită), nu doar prop-ul.
+          restaurantId={own.restaurantId}
+          shift={own.current}
           onClose={() => setShowClose(false)}
           onDone={() => {
             setShowClose(false)
@@ -992,6 +1026,8 @@ function CloseShiftModal({
       const result = await closeShift(shift.id, countedNum, notes.trim() || null, sendZ)
       // Fără diferența de casă: ar fi o măsură a angajatului care a închis tura.
       // `restaurant_id` ca la `shift_opened`: perechea se poate pune cap la cap.
+      // E restaurantul TUREI (părintele îl trimite din datele ei), nu localul
+      // selectat între timp.
       track('shift_closed', { restaurant_id: restaurantId, z_sent: result.z_sent })
       setConfirmation({
         diff: result.cash_diff,

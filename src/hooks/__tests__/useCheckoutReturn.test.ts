@@ -4,8 +4,22 @@
 // CR13/CR14 (recenzie pe #284): „activ" = profilul are planul CUMPĂRAT, nu
 // „orice plan ≠ free" — un cont cu plan manual îl are pe cel vechi înaintea webhook-ului. Până la acest hook niciun cod din
 // `src/` nu citea parametrul.
+// CR18–CR25 (CR-M1, recenzie pe #385): `subscription_started` cere, pe lângă
+// potrivirea de plan, marcajul `noteCheckoutRedirect` lăsat de App.tsx în ACEST
+// tab, pentru ACEST cont și plan, consumat la citire. Bannerul NU depinde de
+// marcaj. `track` e singurul mock; marcajul, contul și ștergerea lui trec prin
+// implementarea REALĂ din lib/analytics.ts (aceeași stare de modul). Plecarea spre
+// Stripe e o navigare completă: `leaveForStripe` notează marcajul și golește
+// starea modulului, sessionStorage-ul tabului rămâne. Marcajul se scrie doar cu
+// acordul „Performanță” (AN36), deci blocul îl pune în localStorage.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
+
+const { trackMock } = vi.hoisted(() => ({ trackMock: vi.fn() }))
+vi.mock('../../lib/analytics', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/analytics')>()
+  return { ...actual, track: trackMock }
+})
 
 import {
   CHECKOUT_POLL_INTERVAL_MS,
@@ -20,6 +34,12 @@ import {
   stripCheckoutParam,
 } from '../../lib/checkoutReturn'
 import { readPlanIntent, writePlanIntent } from '../../lib/planIntent'
+import {
+  CHECKOUT_REDIRECT_KEY,
+  noteCheckoutRedirect,
+  resetAnalyticsForTests,
+  setAnalyticsUser,
+} from '../../lib/analytics'
 
 function at(path: string): void {
   window.history.replaceState(null, '', path)
@@ -31,11 +51,23 @@ function setup(initial: CheckoutReturnInput) {
   })
 }
 
+/** App.tsx chiar înainte de `window.location.href = url`, apoi pagina pleacă. */
+function leaveForStripe(uid: string | null, plan: string): void {
+  setAnalyticsUser(uid)
+  noteCheckoutRedirect(plan)
+  resetAnalyticsForTests()
+}
+
+const subscriptionEvents = (): unknown[][] =>
+  trackMock.mock.calls.filter((c: unknown[]) => c[0] === 'subscription_started')
+
 describe('useCheckoutReturn', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     localStorage.clear()
     sessionStorage.clear()
+    resetAnalyticsForTests()
+    trackMock.mockClear()
   })
   afterEach(() => {
     vi.useRealTimers()
@@ -230,6 +262,171 @@ describe('useCheckoutReturn', () => {
     })
     expect(refreshProfile).toHaveBeenCalledTimes(2)
     expect(result.current.status).toBe('activating')
+  })
+})
+
+describe('useCheckoutReturn — subscription_started (CR-M1)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    localStorage.clear()
+    sessionStorage.clear()
+    // Marcajul se scrie DOAR cu acordul „Performanță” (servește doar statisticii);
+    // fără acord `subscription_started` nu pleacă oricum.
+    localStorage.setItem(
+      'menuvia_cookie_consent',
+      JSON.stringify({ necessary: true, performance: true, functional: false, timestamp: 1 }),
+    )
+    resetAnalyticsForTests()
+    trackMock.mockClear()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    resetAnalyticsForTests()
+    at('/')
+  })
+
+  it('CR18 checkout pornit din acest tab, webhook-ul scrie planul după încărcare → un singur eveniment', () => {
+    // Controlul pozitiv al lui CR19–CR21: cu marcajul potrivit, evenimentul pleacă.
+    leaveForStripe('u1', 'growth')
+    setAnalyticsUser('u1')
+    at('/dashboard?checkout=success&checkout_plan=growth')
+    const refreshProfile = vi.fn(() => Promise.resolve())
+    const { result, rerender } = setup({ hasUser: true, plan: 'free', refreshProfile })
+    expect(result.current.status).toBe('activating')
+    expect(subscriptionEvents()).toHaveLength(0)
+
+    rerender({ hasUser: true, plan: 'growth', refreshProfile })
+    expect(result.current.status).toBe('active')
+    expect(subscriptionEvents()).toEqual([['subscription_started', { plan: 'growth' }]])
+    // Marcajul e consumat; randările următoare nu mai emit nimic.
+    expect(sessionStorage.getItem(CHECKOUT_REDIRECT_KEY)).toBeNull()
+    rerender({ hasUser: true, plan: 'growth', refreshProfile })
+    expect(subscriptionEvents()).toHaveLength(1)
+  })
+
+  it('CR19 cont deja pe Growth, URL de succes fără checkout din acest tab (reload / semn de carte) → banner activ, ZERO evenimente', () => {
+    // Mutația care pică: `track` pe potrivirea de plan singură (codul de dinainte).
+    setAnalyticsUser('u1')
+    at('/dashboard?checkout=success&checkout_plan=growth')
+    const refreshProfile = vi.fn(() => Promise.resolve())
+    const { result } = setup({ hasUser: true, plan: 'growth', refreshProfile })
+    // Bannerul rămâne neschimbat: nu e analytics.
+    expect(result.current.status).toBe('active')
+    expect(subscriptionEvents()).toHaveLength(0)
+  })
+
+  it('CR20 webhook-ul a câștigat cursa → numărat o dată; reîncărcarea aceluiași URL în tab nu mai numără', () => {
+    // Mutația care pică: citirea marcajului fără să-l consume (a doua încărcare
+    // l-ar găsi din nou și ar număra al doilea abonament).
+    leaveForStripe('u1', 'growth')
+    setAnalyticsUser('u1')
+    at('/dashboard?checkout=success&checkout_plan=growth')
+    const refreshProfile = vi.fn(() => Promise.resolve())
+    const first = setup({ hasUser: true, plan: 'growth', refreshProfile })
+    expect(first.result.current.status).toBe('active')
+    expect(subscriptionEvents()).toHaveLength(1)
+    first.unmount()
+
+    // Încărcare nouă a documentului cu URL-ul de succes intact (replaceState
+    // eșuat, sau un semn de carte deschis în același tab).
+    resetAnalyticsForTests()
+    setAnalyticsUser('u1')
+    at('/dashboard?checkout=success&checkout_plan=growth')
+    const second = setup({ hasUser: true, plan: 'growth', refreshProfile })
+    expect(second.result.current.status).toBe('active')
+    expect(subscriptionEvents()).toHaveLength(1)
+  })
+
+  it('CR21 marcajul altui cont sau al altui plan din același tab nu e dovada', () => {
+    // Mutația care pică: verificarea doar a EXISTENȚEI marcajului (fără plan/cont).
+    // Dispozitiv comun: A pleacă spre Stripe, B (deja pe Growth) deschide URL-ul.
+    leaveForStripe('uA', 'growth')
+    setAnalyticsUser('uB')
+    at('/dashboard?checkout=success&checkout_plan=growth')
+    const refreshProfile = vi.fn(() => Promise.resolve())
+    const other = setup({ hasUser: true, plan: 'growth', refreshProfile })
+    expect(other.result.current.status).toBe('active')
+    other.unmount()
+
+    // Același cont, alt plan decât cel pentru care a plecat.
+    resetAnalyticsForTests()
+    leaveForStripe('uB', 'pro')
+    setAnalyticsUser('uB')
+    at('/dashboard?checkout=success&checkout_plan=growth')
+    const wrongPlan = setup({ hasUser: true, plan: 'growth', refreshProfile })
+    expect(wrongPlan.result.current.status).toBe('active')
+    expect(subscriptionEvents()).toHaveLength(0)
+  })
+
+  it('CR22 contul se publică DUPĂ montare (getSession asincron) → marcajul se citește abia la activare', () => {
+    // Mutația care pică: citirea marcajului la montare — contul e încă necunoscut,
+    // potrivirea pică și marcajul e consumat degeaba.
+    leaveForStripe('u1', 'growth')
+    at('/dashboard?checkout=success&checkout_plan=growth')
+    const refreshProfile = vi.fn(() => Promise.resolve())
+    const { result, rerender } = setup({ hasUser: false, plan: null, refreshProfile })
+    expect(result.current.status).toBe('activating')
+    // Ordinea din AuthContext: contul spre analytics, apoi profilul.
+    setAnalyticsUser('u1')
+    rerender({ hasUser: true, plan: null, refreshProfile })
+    rerender({ hasUser: true, plan: 'free', refreshProfile })
+    expect(subscriptionEvents()).toHaveLength(0)
+    rerender({ hasUser: true, plan: 'growth', refreshProfile })
+    expect(result.current.status).toBe('active')
+    expect(subscriptionEvents()).toEqual([['subscription_started', { plan: 'growth' }]])
+  })
+
+  it('CR23 anularea nu consumă marcajul: înapoi în Stripe și plata tot se numără o dată', () => {
+    // Mutația care pică: ștergerea marcajului pe `?checkout=cancelled`.
+    leaveForStripe('u1', 'growth')
+    setAnalyticsUser('u1')
+    at('/pricing?checkout=cancelled')
+    const refreshProfile = vi.fn(() => Promise.resolve())
+    const cancelled = setup({ hasUser: true, plan: 'free', refreshProfile })
+    expect(cancelled.result.current.status).toBe('cancelled')
+    expect(subscriptionEvents()).toHaveLength(0)
+    expect(sessionStorage.getItem(CHECKOUT_REDIRECT_KEY)).not.toBeNull()
+    cancelled.unmount()
+
+    // Butonul Înapoi duce în sesiunea Stripe încă deschisă; omul plătește.
+    resetAnalyticsForTests()
+    setAnalyticsUser('u1')
+    at('/dashboard?checkout=success&checkout_plan=growth')
+    const { result, rerender } = setup({ hasUser: true, plan: 'free', refreshProfile })
+    rerender({ hasUser: true, plan: 'growth', refreshProfile })
+    expect(result.current.status).toBe('active')
+    expect(subscriptionEvents()).toHaveLength(1)
+  })
+
+  it('CR24 storage care ARUNCĂ (Safari „Block All Cookies") → banner activ, fără eveniment, fără excepție', () => {
+    // Mutația care pică: citirea marcajului direct din sessionStorage, fără gardă.
+    const boom = (): never => {
+      throw new DOMException('blocked', 'SecurityError')
+    }
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(boom)
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(boom)
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(boom)
+    leaveForStripe('u1', 'growth')
+    setAnalyticsUser('u1')
+    at('/dashboard?checkout=success&checkout_plan=growth')
+    const refreshProfile = vi.fn(() => Promise.resolve())
+    const { result } = setup({ hasUser: true, plan: 'growth', refreshProfile })
+    expect(result.current.status).toBe('active')
+    expect(subscriptionEvents()).toHaveLength(0)
+  })
+
+  it('CR25 URL fără `checkout_plan` (funcție veche): schimbarea de plan + marcajul → numărat cu planul NOU', () => {
+    // Mutația care pică: marcajul citit pe planul din URL (`purchased`, aici null)
+    // în loc de planul activat.
+    leaveForStripe('u1', 'growth')
+    setAnalyticsUser('u1')
+    at('/dashboard?checkout=success')
+    const refreshProfile = vi.fn(() => Promise.resolve())
+    const { result, rerender } = setup({ hasUser: true, plan: 'free', refreshProfile })
+    rerender({ hasUser: true, plan: 'growth', refreshProfile })
+    expect(result.current.status).toBe('active')
+    expect(subscriptionEvents()).toEqual([['subscription_started', { plan: 'growth' }]])
   })
 })
 

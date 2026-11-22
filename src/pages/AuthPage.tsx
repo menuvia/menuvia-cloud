@@ -16,7 +16,7 @@ import { supabase } from '../lib/supabase'
 import { getPlanByInternalId } from '../lib/plans'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { Icon } from '../components/ui/Icon'
-import { track } from '../lib/analytics'
+import { bindPendingConsentToAccount, track } from '../lib/analytics'
 import { authRedirectBase } from '../lib/domain'
 import { nextFromSearch } from '../lib/authRedirect'
 // Versiunea de Termeni (mig 042) și consemnarea trăiesc în `lib/terms` —
@@ -324,6 +324,10 @@ function AuthScreen({ onSuccess }: AuthPageProps) {
       // pornită: GoTrue întoarce un user OBFUSCAT, fără identități și fără
       // sesiune. Nu e un cont nou, deci nu intră în pâlnie.
       if ((data.user?.identities?.length ?? 0) > 0) {
+        // Acordul „Performanță” dat în această pagină FĂRĂ cont devine al contului
+        // nou: cu confirmarea pornită nu urmează nicio autentificare aici, iar
+        // contul se deschide din link într-un document nou (lib/analytics.ts).
+        if (data.user) bindPendingConsentToAccount(data.user.id)
         track('signup_completed', {
           email_confirmation_required: !data.session,
           plan_intent: planIntent,
@@ -353,23 +357,35 @@ function AuthScreen({ onSuccess }: AuthPageProps) {
     // după parolă e doar aal1 — cerem codul înainte de onSuccess. Orice eroare
     // aici lasă fluxul să continue: enforcement-ul REAL e server-side
     // (is_platform_admin cere aal2), pasul din UI e doar drumul prietenos.
+    // Telemetria NU urmează fallback-ul: varianta „fără MFA" se emite doar
+    // când verificarea a CONFIRMAT că nu urmează niciun pas MFA. Pe o eroare a
+    // verificării, sau pe un pas MFA fără factor TOTP găsit, omul intră oricum,
+    // dar intrarea nu se numără — altfel un cont cu MFA nefăcut ar umfla
+    // „conturi fără MFA" (recenzia CodeRabbit pe #385).
+    let noMfaStepPending = false
     try {
-      const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-      if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
-        const { data: factors } = await supabase.auth.mfa.listFactors()
-        const totp = (factors?.totp ?? []).find((f) => f.status === 'verified')
-        if (totp) {
-          setMfaFactorId(totp.id)
-          setMfaCode('')
-          setLoading(false)
-          return
+      const { data: aal, error: aalErr } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+      if (!aalErr && aal) {
+        if (aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
+          const { data: factors } = await supabase.auth.mfa.listFactors()
+          const totp = (factors?.totp ?? []).find((f) => f.status === 'verified')
+          if (totp) {
+            setMfaFactorId(totp.id)
+            setMfaCode('')
+            setLoading(false)
+            return
+          }
+        } else if (aal.currentLevel != null) {
+          // Un nivel curent citit (sesiunea există) și niciun nivel următor
+          // peste el: confirmarea pe care o cere evenimentul.
+          noMfaStepPending = true
         }
       }
     } catch {
       /* fallback: continuăm fără pasul MFA din UI */
     }
-    // După ce serverul a acceptat parola (fără pas MFA) — zero PII.
-    track('login_completed', { mfa: false })
+    // După ce serverul a acceptat parola, fără pas MFA confirmat — zero PII.
+    if (noMfaStepPending) track('login_completed', { mfa: false })
     onSuccess(email)
   }
 

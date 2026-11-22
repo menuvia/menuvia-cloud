@@ -10,13 +10,21 @@
 //   TS7  parcurgere profundă: obiecte, array-uri, câmpuri imbricate; netextul rămâne
 //   TS8  referință circulară nu blochează și nu scurge
 //   TS9  forma evenimentelor reale (Sentry, PostHog) — fiecare câmp cu URL
-//   TS10 CABLAJUL: Sentry (beforeSend, beforeSendSpan, beforeBreadcrumb) și PostHog
-//        (before_send → minimizeCaptureResult) trec prin scrubTokenPathsDeep — funcția pură
-//        nu ajută dacă nu e chemată
+//   TS10 CABLAJUL Sentry: beforeSend, beforeSendSpan, beforeBreadcrumb trec prin
+//        scrubTokenPathsDeep — funcția pură nu ajută dacă nu e chemată. Cablajul PostHog NU
+//        se mai verifică aici pe text-sursă (dubla AN3/AN4 și pica pe un comentariu, recenzia
+//        CodeRabbit pe #385): AN3 (__tests__/analytics.test.ts) îngheață configurația
+//        EFECTIVĂ primită de `posthog.init` — `before_send` ESTE `minimizeCaptureResult`,
+//        `capture_heatmaps: false` —, iar AN4 îi exersează redactarea. (TS12 retras din
+//        același motiv.)
 //   TS11 CHEILE obiectelor se redactează (heatmap-ul PostHog pune URL-ul curent drept cheie);
 //        două chei care devin identice după redactare își îmbină array-urile
-//   TS12 PostHog pornește cu `capture_heatmaps: false` (nu decide comutatorul din dashboard),
-//        prin POSTHOG_PRIVACY_CONFIG întins în `posthog.init`
+//   TS13 numele parametrului se potrivește DECODAT: `payment%5Fintent_client_secret` e
+//        citit de URLSearchParams ca secretul intentului, deci se redactează la fel;
+//        parametrii nesensibili (redirect_status) rămân neatinși
+//   TS14 un `?` NECODIFICAT în valoarea unui parametru nesensibil
+//        (`?next=/reset-password?access_token=…`) începe un parametru nou, care se
+//        verifică și el; valorile nesensibile rămân octet cu octet
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
@@ -94,15 +102,87 @@ describe('scrubTokenPaths', () => {
     ).toBe(
       '/q/:token?payment_intent=[redacted]&payment_intent_client_secret=[redacted]&redirect_status=succeeded',
     )
-    expect(scrubTokenPaths('/x?setup_intent=seti_1&setup_intent_client_secret=seti_1_secret_Y')).toBe(
-      '/x?setup_intent=[redacted]&setup_intent_client_secret=[redacted]',
-    )
+    expect(
+      scrubTokenPaths('/x?setup_intent=seti_1&setup_intent_client_secret=seti_1_secret_Y'),
+    ).toBe('/x?setup_intent=[redacted]&setup_intent_client_secret=[redacted]')
   })
 
   it('TS6: idempotent', () => {
     const s = `https://menuvia.ro/auth?next=%2Fsef-vanzari%2F${TOKEN}#access_token=q`
     const once = scrubTokenPaths(s)
     expect(scrubTokenPaths(once)).toBe(once)
+  })
+
+  it('TS13: numele codificat procent se potrivește DECODAT, ca în URLSearchParams', () => {
+    // Mutația care pică: potrivirea pe textul literal al numelui (regex-ul vechi
+    // lăsa `pi_1_secret_X` în URL-ul trimis la Sentry/PostHog).
+    const tail = 'intent_client_secret=pi_1_secret_X&redirect_status=succeeded'
+    const literal = `/q/T?payment_intent=pi_1&payment_${tail}`
+    const encoded = `/q/T?payment_intent=pi_1&payment%5F${tail}`
+    // Premisa: aplicația citește ambele scrieri ca ACELAȘI parametru.
+    for (const u of [literal, encoded]) {
+      expect(new URL(u, 'https://site.test').searchParams.get('payment_intent_client_secret')).toBe(
+        'pi_1_secret_X',
+      )
+    }
+    expect(scrubTokenPaths(literal)).toBe(
+      '/q/:token?payment_intent=[redacted]&payment_intent_client_secret=[redacted]&redirect_status=succeeded',
+    )
+    expect(scrubTokenPaths(encoded)).toBe(
+      '/q/:token?payment_intent=[redacted]&payment%5Fintent_client_secret=[redacted]&redirect_status=succeeded',
+    )
+    expect(scrubTokenPaths(scrubTokenPaths(encoded))).toBe(scrubTokenPaths(encoded))
+    // Escape cu litere mici, altă literă codificată, codificare dublă.
+    expect(scrubTokenPaths('/x?payment%5fintent_client_secret=S')).toBe(
+      '/x?payment%5fintent_client_secret=[redacted]',
+    )
+    expect(scrubTokenPaths('/reset-password#%61ccess_token=abc&type=recovery')).toBe(
+      '/reset-password#%61ccess_token=[redacted]&type=recovery',
+    )
+    expect(scrubTokenPaths('/x?setup%255Fintent=seti_2')).toBe('/x?setup%255Fintent=[redacted]')
+    // Control: ce nu e sensibil rămâne byte-identic — și codificat, și cu o
+    // secvență invalidă, și un nume care doar CONȚINE un cuvânt sensibil.
+    for (const s of [
+      '/q/:token?redirect%5Fstatus=succeeded&lang=ro',
+      '/x?tab%3D=1&lang=ro',
+      '/x?%E0%A4%A=1&tab=billing',
+      '/x?zip%63ode=1234',
+    ]) {
+      expect(scrubTokenPaths(s)).toBe(s)
+    }
+  })
+
+  it('TS14: un `?` necodificat în valoarea unui parametru nesensibil începe un parametru nou', () => {
+    // Mutația care pică: o singură trecere în care valoarea unui parametru
+    // nesensibil merge până la `&`/`#` (prima variantă a potrivirii decodate):
+    // `?next=/reset-password?access_token=…` ieșea întreg, cu tokenul în el.
+    expect(scrubTokenPaths('https://menuvia.ro/auth?next=/reset-password?access_token=ABC')).toBe(
+      'https://menuvia.ro/auth?next=/reset-password?access_token=[redacted]',
+    )
+    expect(scrubTokenPaths('https://menuvia.ro/rezervare/x?lang=ro?cancel=K7Q2')).toBe(
+      'https://menuvia.ro/rezervare/x?lang=ro?cancel=[redacted]',
+    )
+    expect(scrubTokenPaths('/q/T?ref=a?payment_intent_client_secret=pi_1_secret_X')).toBe(
+      '/q/:token?ref=a?payment_intent_client_secret=[redacted]',
+    )
+    expect(scrubTokenPaths('/x?ref=a?payment%5Fintent_client_secret=S')).toBe(
+      '/x?ref=a?payment%5Fintent_client_secret=[redacted]',
+    )
+    // Pe mai multe niveluri, și cu parametri după.
+    expect(scrubTokenPaths('/a?x=1?y=2?code=Z&lang=ro')).toBe('/a?x=1?y=2?code=[redacted]&lang=ro')
+    // Valoarea unui parametru SENSIBIL se redactează toată, cu `?` cu tot.
+    expect(scrubTokenPaths('/r?cancel=AB?CD&lang=ro')).toBe('/r?cancel=[redacted]&lang=ro')
+    const nested = 'https://menuvia.ro/auth?next=/reset-password?access_token=ABC'
+    expect(scrubTokenPaths(scrubTokenPaths(nested))).toBe(scrubTokenPaths(nested))
+    // Control: un `?` în valori nesensibile rămâne octet cu octet.
+    for (const s of [
+      '/x?ref=a?b=1&lang=ro',
+      '/auth?next=/dashboard?tab=billing',
+      '/x?a=?&b=c?',
+      '/x?a=1??b',
+    ]) {
+      expect(scrubTokenPaths(s)).toBe(s)
+    }
   })
 })
 
@@ -214,7 +294,7 @@ describe('scrubTokenPathsDeep', () => {
 describe('cablajul telemetriei', () => {
   const read = (rel: string): string => readFileSync(resolve(process.cwd(), rel), 'utf8')
 
-  it('TS10: Sentry și PostHog trec prin scrubTokenPathsDeep', () => {
+  it('TS10: hook-urile Sentry trec prin scrubTokenPathsDeep', () => {
     const main = read('src/main.tsx')
     for (const hook of [
       'beforeSend(event)',
@@ -231,39 +311,5 @@ describe('cablajul telemetriei', () => {
       const body = main.slice(start, end)
       expect(body).toContain('return scrubTokenPathsDeep(')
     }
-    // PostHog: `before_send` e `minimizeCaptureResult` (filtrul oaspeților +
-    // `$geoip_disable`, lib/analytics.ts), iar corpul ei trece prin scrubber.
-    // Comportamentul îl ține AN4; aici, cablajul (AN3 cere identitatea funcției).
-    const analytics = read('src/lib/analytics.ts')
-    const at = analytics.indexOf('before_send:')
-    expect(at).toBeGreaterThan(-1)
-    expect(analytics.slice(at, at + 60)).toContain('before_send: minimizeCaptureResult,')
-    const fnStart = analytics.indexOf('export function minimizeCaptureResult(')
-    expect(fnStart).toBeGreaterThan(-1)
-    const fnEnd = analytics.indexOf('\n}\n', fnStart)
-    expect(fnEnd).toBeGreaterThan(fnStart)
-    expect(analytics.slice(fnStart, fnEnd)).toContain('scrubTokenPathsDeep(result)')
-  })
-
-  it('TS12: PostHog pornește cu heatmap-urile OPRITE explicit', () => {
-    // Fără cheie, `isEnabled` cade pe comutatorul din proiectul PostHog (remote
-    // config). Mutațiile „linia ștearsă” și `capture_heatmaps: true` pică aici.
-    // Din integrarea PostHog (nov 2026) opțiunile stau în POSTHOG_PRIVACY_CONFIG,
-    // întins în `posthog.init(...)`; valorile EFECTIVE primite de init le
-    // îngheață comportamental AN3 (__tests__/analytics.test.ts).
-    const analytics = read('src/lib/analytics.ts')
-    const cfgStart = analytics.indexOf('export const POSTHOG_PRIVACY_CONFIG = {')
-    expect(cfgStart).toBeGreaterThan(-1)
-    const cfgEnd = analytics.indexOf('\n} as const', cfgStart)
-    expect(cfgEnd).toBeGreaterThan(cfgStart)
-    expect(analytics.slice(cfgStart, cfgEnd)).toMatch(/\n\s*capture_heatmaps: false,/)
-    const start = analytics.indexOf('posthog.init(')
-    expect(start).toBeGreaterThan(-1)
-    // corpul apelului: până la închiderea lui (`  })` la începutul liniei)
-    const end = analytics.indexOf('\n  })', start)
-    expect(end).toBeGreaterThan(start)
-    const init = analytics.slice(start, end)
-    expect(init).toContain('...POSTHOG_PRIVACY_CONFIG,')
-    expect(analytics).not.toMatch(/enable_heatmaps:\s*true|capture_heatmaps:\s*true/)
   })
 })

@@ -106,6 +106,10 @@ const en: Translation<typeof ro> = {
   gdpr_err_cancel: 'The cancellation failed. Try again.',
   gdpr_err_activeSub:
     'You have an active subscription. Cancel it in the Stripe portal before deleting the account.',
+  gdpr_cookiesDesc:
+    'Usage analytics (PostHog) and error reporting (Sentry) only run with the consent you gave in the ' +
+    'cookie banner on this browser. You can change or withdraw it at any time.',
+  gdpr_cookies: 'Cookie settings',
 
   loc_title: 'Locations',
   loc_desc:

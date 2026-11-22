@@ -37,7 +37,7 @@ vi.mock('../../hooks/useSignupAgentCode', () => ({
     problem: null,
   }),
 }))
-vi.mock('../../lib/analytics', () => ({ track: vi.fn() }))
+vi.mock('../../lib/analytics', () => ({ track: vi.fn(), bindPendingConsentToAccount: vi.fn() }))
 // AuthPage preîncarcă panoul la evaluarea modulului; aici n-are ce căuta.
 vi.mock('../DashboardPage', () => ({ default: () => null }))
 

@@ -415,7 +415,13 @@ export default function ReservePage({
       {!resolveHideBranding(restaurant.theme_settings) && (
         <div style={{ marginTop: 40, fontSize: 12, color: PUB.text3 }}>
           {T(lang, 'powered_by')}{' '}
-          <a href="/" style={{ color: accent, textDecoration: 'none', fontWeight: 600 }}>
+          {/* `noreferrer`, ca badge-ul de pe /m/ și QR: pagina site-ului nu
+              primește adresa rezervării (cu `?cancel=` în ea) drept proveniență. */}
+          <a
+            href="/"
+            rel="noreferrer"
+            style={{ color: accent, textDecoration: 'none', fontWeight: 600 }}
+          >
             Menuvia
           </a>
         </div>

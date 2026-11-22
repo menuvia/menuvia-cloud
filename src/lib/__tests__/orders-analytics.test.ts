@@ -55,7 +55,13 @@ function makeArgs(overrides: Partial<Args> = {}): Args {
   }
 }
 
-const payload = { id: 'o1', short_id: 'A1', status: 'new', total: 39, created_at: '2026-11-18T10:00:00Z' }
+const payload = {
+  id: 'o1',
+  short_id: 'A1',
+  status: 'new',
+  total: 39,
+  created_at: '2026-11-18T10:00:00Z',
+}
 
 beforeEach(() => {
   rpcMock.mockReset()
@@ -82,11 +88,31 @@ describe('createOrder — order_placed doar pentru personal', () => {
 
   it('OA2 comanda oaspetelui (QR, ridicare) nu emite nimic', async () => {
     const { createOrder } = await import('../orders')
-    for (const source of ['qr', 'pickup'] as const) {
+    // Ridicarea are forma REALĂ din PickupCheckoutSheet: fără masă, fără token QR
+    // și fără sesiune — deci doar `source` o deosebește de comanda ospătarului
+    // (OA1 are tot `qr_token_id: null`). Mutația care pică: garda din createOrder
+    // pusă pe token (`!args.qr_token_id`) în loc de `source === 'waiter'`.
+    const pickup = makeArgs({
+      source: 'pickup',
+      table_id: null,
+      qr_token_id: null,
+      session_id: null,
+      notes: null,
+      pickup_time: '2026-11-18T12:30:00Z',
+      customer_name: 'Ana',
+      customer_phone: '+40722000000',
+    })
+    for (const args of [makeArgs({ source: 'qr' }), pickup]) {
       rpcMock.mockResolvedValueOnce({ data: payload, error: null })
-      await createOrder(makeArgs({ source }))
+      await createOrder(args)
     }
     expect(rpcMock).toHaveBeenCalledTimes(2)
+    // Controlul fixturii: a doua cerere chiar a plecat ca ridicare FĂRĂ token.
+    expect(rpcMock.mock.calls[1]?.[1]).toMatchObject({
+      p_source: 'pickup',
+      p_qr_token_id: null,
+      p_table_id: null,
+    })
     expect(trackMock).not.toHaveBeenCalled()
   })
 
