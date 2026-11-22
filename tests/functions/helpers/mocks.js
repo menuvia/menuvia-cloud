@@ -370,34 +370,50 @@ function parseBody(res) {
 // ca să tragă la FIECARE UPDATE.
 // `readError`: orice citire `.single()` / `.maybeSingle()` întoarce eroarea
 // (blip de infra), scrierile rămân pe magazin.
+// `table.failNextRead` / `table.failNextUpdate` (o singură dată, se pot arma și
+// din interiorul unui cârlig): URMĂTOAREA citire `.single()`/`.maybeSingle()`,
+// respectiv URMĂTORUL UPDATE, întoarce `{ data: null, error }` — blip de infra pe
+// O SINGURĂ operație, fără să strice citirile/scrierile dinainte (cum ar face
+// `readError`). UPDATE-ul eșuat nu atinge niciun rând și nu consumă cârligele
+// (instrucțiunea n-a rulat); validarea filtrelor vine tot înaintea lor.
 // Un filtru sau o operație nemodelată ARUNCĂ: testul pică zgomotos în loc să
-// treacă pe o semantică inventată.
+// treacă pe o semantică inventată. Lista de operații se VALIDEAZĂ o dată,
+// ÎNAINTEA scanării (compileFilters): validată pe rând, o expresie greșită pe o
+// tabelă goală — sau după un `eq` care exclude tot — ar fi arătat ca „0 rânduri”
+// valid, adică exact rezultatul unui UPDATE condiționat ratat.
 const TABLE_FILTERS = new Set(['eq', 'is', 'or'])
 const TABLE_VERBS = new Set(['update', 'select', 'single', 'maybeSingle'])
 function parseOrFilter(expr) {
-  return String(expr).split(',').map((term) => {
+  if (typeof expr !== 'string' || expr === '') throw new Error(`installTable: or() cere o expresie text, nu '${expr}'`)
+  return expr.split(',').map((term) => {
     const m = /^([a-z_]+)\.(is|eq)\.(.+)$/.exec(term)
     if (!m) throw new Error(`installTable: termen or() nemodelat: '${term}'`)
     if (m[2] === 'is' && m[3] !== 'null') throw new Error(`installTable: doar is.null e modelat, nu '${term}'`)
     return { col: m[1], op: m[2], val: m[3] }
   })
 }
-function rowMatches(row, ops) {
+// Lanțul de operații → predicat pe rând. Aruncă pe ORICE formă nemodelată,
+// indiferent dacă vreun rând ar ajunge vreodată să fie evaluat.
+function compileFilters(ops) {
+  const preds = []
   for (const o of ops) {
     if (TABLE_VERBS.has(o.m)) continue
     if (!TABLE_FILTERS.has(o.m)) throw new Error(`installTable: operația '${o.m}' nu e modelată`)
     const [col, val] = o.args
-    if (o.m === 'eq' && row[col] !== val) return false
+    if (o.m !== 'or' && (typeof col !== 'string' || col === '')) {
+      throw new Error(`installTable: ${o.m}() cere numele coloanei, nu '${col}'`)
+    }
+    if (o.m === 'eq') preds.push((row) => row[col] === val)
     if (o.m === 'is') {
       if (val !== null) throw new Error(`installTable: doar is(col, null) e modelat`)
-      if (row[col] != null) return false
+      preds.push((row) => row[col] == null)
     }
     if (o.m === 'or') {
-      const ok = parseOrFilter(col).some((t) => (t.op === 'is' ? row[t.col] == null : row[t.col] === t.val))
-      if (!ok) return false
+      const terms = parseOrFilter(col)
+      preds.push((row) => terms.some((t) => (t.op === 'is' ? row[t.col] == null : row[t.col] === t.val)))
     }
   }
-  return true
+  return (row) => preds.every((p) => p(row))
 }
 function installTable(name, rows, { defaults = {}, readError = null } = {}) {
   const table = {
@@ -405,14 +421,23 @@ function installTable(name, rows, { defaults = {}, readError = null } = {}) {
     // Scrierile EFECTIVE (cel puțin un rând atins), în ordine: payload + id-urile atinse.
     writes: [],
     hooks: { beforeUpdate: null, afterUpdate: null },
+    failNextRead: null,
+    failNextUpdate: null,
   }
   state.fromHandlers[name] = (ops) => {
+    // Validare ÎNAINTEA oricărui efect (cârlige, scanare, readError).
+    const matches = compileFilters(ops)
     const upd = ops.find((o) => o.m === 'update')
     if (upd) {
+      if (table.failNextUpdate) {
+        const error = table.failNextUpdate
+        table.failNextUpdate = null
+        return { data: null, error }
+      }
       const hook = table.hooks.beforeUpdate
       table.hooks.beforeUpdate = null
       if (hook) hook(table.rows)
-      const hit = table.rows.filter((r) => rowMatches(r, ops))
+      const hit = table.rows.filter(matches)
       for (const r of hit) Object.assign(r, upd.args[0])
       if (hit.length) table.writes.push({ payload: { ...upd.args[0] }, ids: hit.map((r) => r.id) })
       // RETURNING-ul se ia ÎNAINTEA cârligului: e ce a văzut UPDATE-ul, nu ce
@@ -425,8 +450,13 @@ function installTable(name, rows, { defaults = {}, readError = null } = {}) {
     }
     if (!hasOp(ops, 'select')) throw new Error(`installTable(${name}): doar select/update sunt modelate`)
     const single = hasOp(ops, 'single') || hasOp(ops, 'maybeSingle')
+    if (single && table.failNextRead) {
+      const error = table.failNextRead
+      table.failNextRead = null
+      return { data: null, error }
+    }
     if (single && readError) return { data: null, error: readError }
-    const hit = table.rows.filter((r) => rowMatches(r, ops))
+    const hit = table.rows.filter(matches)
     if (!single) return { data: hit.map((r) => ({ ...r })), error: null }
     if (hit.length === 1) return { data: { ...hit[0] }, error: null }
     if (hit.length === 0 && hasOp(ops, 'maybeSingle')) return { data: null, error: null }

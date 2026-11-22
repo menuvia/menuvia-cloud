@@ -86,8 +86,16 @@ comportamentul e byte-identic cu azi.**
 - `stripe-webhook.js`: când `subscription.metadata.restaurant_id` există,
   scrie **și** în `restaurant_subscriptions` (upsert pe restaurant_id) **și**
   în `profiles.plan` (compat, cât există fallback-ul). Fără metadata →
-  comportamentul de azi, neatins. Anti-stale guard-ul de la `:291-294`
-  se mută pe `stripe_subscription_id` al rândului per-restaurant.
+  comportamentul de azi, neatins. Garda de abonament unic (lotul #61) se mută
+  pe `stripe_subscription_id` al rândului PER-RESTAURANT, nu pe profil:
+  revendicarea condiționată din `claimProfileSubscription` (`UPDATE … WHERE
+  stripe_subscription_id IS NULL OR = <abonament>`), compare-and-swap-ul pe
+  valoarea veche când abonamentul ținut s-a încheiat, re-validarea deținătorului
+  înaintea anulării dublurii și același WHERE din `customer.subscription.updated`/
+  `deleted` (inclusiv revenirea condiționată de după scriere) operează toate pe
+  rândul din `restaurant_subscriptions` al restaurantului din metadata — altfel
+  două restaurante ale aceluiași owner, cu câte un abonament legitim, s-ar vedea
+  unul pe altul ca „dublură” și al doilea ar fi anulat și rambursat.
 
 ### Faza 1 — backfill + cutover founder
 - Backfill idempotent: pentru fiecare profil cu `plan != 'free'` și

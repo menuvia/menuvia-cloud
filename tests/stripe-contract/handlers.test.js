@@ -48,7 +48,8 @@
 //          eveniment LIVE pe cheia de TEST → ignorat cu semnătură reală (livemode)
 //   SDK12  stripe-webhook, abonament unic la finalizare: profilul ține alt
 //          abonament VIU → pe fir, în ORDINE: citirea dublurii, citirea celui
-//          păstrat, DELETE pe dublură (urma în query, fără cheie), factura,
+//          păstrat, DELETE pe dublură (urma în query, fără cheie), a doua
+//          citire a celui păstrat (verificarea de după anulare), factura,
 //          lista de rambursări (pe payment_intent), POST /v1/refunds cu cheia
 //          `dupsub_refund_<factură>`; profilul (fake cu WHERE evaluat) neatins.
 //          Fake-ul din tests/functions nu vede metoda HTTP, query-ul sau
@@ -569,6 +570,8 @@ describe('SDK12: stripe-webhook — dublura la finalizare, pe SDK-ul real', () =
       'GET /v1/subscriptions/sub_dup',
       'GET /v1/subscriptions/sub_kept',
       'DELETE /v1/subscriptions/sub_dup',
+      // Verificarea de după anulare (K2): cel păstrat e încă viu.
+      'GET /v1/subscriptions/sub_kept',
       'GET /v1/invoices/in_dup',
       'GET /v1/refunds',
       'POST /v1/refunds',
@@ -580,8 +583,8 @@ describe('SDK12: stripe-webhook — dublura la finalizare, pe SDK-ul real', () =
     assert.equal(at(del).searchParams.get('prorate'), 'false')
     assert.equal(del.headers['idempotency-key'], undefined)
 
-    assert.equal(at(reqs[4]).searchParams.get('payment_intent'), 'pi_dup')
-    const post = reqs[5]
+    assert.equal(at(reqs[5]).searchParams.get('payment_intent'), 'pi_dup')
+    const post = reqs[6]
     assert.equal(post.headers['idempotency-key'], 'dupsub_refund_in_dup')
     const b = form(post)
     assert.equal(b.payment_intent, 'pi_dup')

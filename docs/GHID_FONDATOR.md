@@ -197,7 +197,8 @@ curl https://api.stripe.com/v1/webhook_endpoints -u "$STRIPE_SECRET_KEY:" \
   -d "enabled_events[]=customer.subscription.deleted" \
   -d "enabled_events[]=customer.subscription.trial_will_end" \
   -d "enabled_events[]=invoice.paid" -d "enabled_events[]=invoice.payment_failed" \
-  -d "enabled_events[]=charge.refunded" -d "enabled_events[]=charge.dispute.closed"
+  -d "enabled_events[]=charge.refunded" -d "enabled_events[]=charge.dispute.closed" \
+  -d "enabled_events[]=charge.refund.updated"
 
 curl https://api.stripe.com/v1/webhook_endpoints -u "$STRIPE_SECRET_KEY:" \
   -d url=https://menuvia.ro/.netlify/functions/stripe-connect-webhook \
@@ -207,6 +208,29 @@ curl https://api.stripe.com/v1/webhook_endpoints -u "$STRIPE_SECRET_KEY:" \
   -d "enabled_events[]=payment_intent.canceled" \
   -d "enabled_events[]=account.application.deauthorized"
 ```
+
+**`charge.refund.updated` e OBLIGATORIU, nu opțional.** El aduce eșecul ULTERIOR
+al rambursării unui abonament DUBLURĂ (lotul #61): o rambursare creată `pending`
+care devine `failed`, dar și una creată `succeeded` care eșuează mai târziu (pe
+card, până la 30 de zile după postare). Fără el, al doilea caz nu lasă NICIUN
+semnal (log-ul spune `refund=refunded`), iar primul rămâne doar în ALERT-ul
+`pending`. Pe un endpoint DEJA creat, evenimentul se adaugă din Dashboard →
+Webhooks → endpoint-ul de abonamente → „Update details” → „Select events” (lista
+se BIFEAZĂ în plus — un `POST /v1/webhook_endpoints/<id>` cu `enabled_events[]`
+ÎNLOCUIEȘTE lista, deci acolo se trimit toate cele nouă). Stripe îl listează
+„Deprecated” în favoarea lui `refund.updated`/`refund.failed`, dar acelea există
+abia din versiunea `2024-10-28.acacia`; pe endpoint-ul nostru (`2023-10-16`) el e
+singura sursă și se emite în continuare pentru rambursările pe card.
+
+Ce face webhook-ul cu el: reîncearcă AUTOMAT doar un eșec cu motiv `unknown`,
+`declined` sau `insufficient_funds` (ALERT „se reîncearcă automat — NU rambursa
+manual decât dacă linia de rezultat spune refund=manual”; `refund=manual` apare
+după 3 rambursări eșuate pe aceeași plată sau când Stripe refuză definitiv
+rambursarea — atunci restituirea e a ta). O rambursare pe care o ANULEZI tu din Dashboard („Cancel refund”) sau
+un eșec pe alt motiv (card expirat/pierdut, dispută, motiv nou) NU se mai
+reîncearcă niciodată (ALERT „rambursare MANUALĂ, FĂRĂ reîncercare automată”):
+din acel moment restituirea banilor e a ta (transfer, credit), iar sistemul nu
+o mai dublează.
 
 Din fiecare răspuns: câmpul `secret` → `STRIPE_WEBHOOK_SECRET` (primul, **NU**
 `WEBHOOK_SECRET`) și `STRIPE_CONNECT_WEBHOOK_SECRET` (al doilea), în env-ul de
