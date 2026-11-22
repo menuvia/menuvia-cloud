@@ -501,6 +501,30 @@ describe('stripe-webhook: checkout.session.completed', () => {
 //          emailul + atribuirea; control pozitiv (viu → revendicat)
 //          [PICĂ: fără skip înaintea scrierii; fără revenire după; revenire doar
 //          pe profil gol; ambele]
+//   Runda 3 CodeRabbit pe #386:
+//   DUP37 (b2) updated oprit după citire, deleted legitim pe profilul gol,
+//          updated reluat → un singur subscription_cancelled, fără plan_changed
+//          [PICĂ: fără revenirea pe abonamentul încheiat — și cu (b) dezactivat]
+//   DUP38  deținătorul neplătit își plătește factura între citire și CAS →
+//          reconcilierea de după CAS o rambursează (cheia dublurii; invoice.paid
+//          ulterior = already_refunded; și după calea obișnuită, cu comision);
+//          reconcilierea eșuată → ALERT REFUND CHECK, 200
+//          [PICĂ: fără reconciliere; reconcilierea care aruncă]
+//   DUP3/DUP3b (extinse) reluarea unui CAS eșuat după anulare → verificarea
+//          încasării + reconcilierea rulează pe urma `kept=<nou>;replaced=…`;
+//          nimic pe un deținător neanulat de noi / anulat pentru altul (`kept=sub_C`);
+//          reconcilierea DUPĂ CAS  [PICĂ: fără reluarea pe urmă; urma fără
+//          verificarea `kept`; orice deținător încheiat = anulat de noi; starea din
+//          urmă ignorată; reconcilierea înaintea CAS-ului; fără reconciliere]
+//          Ordinea REALISTĂ: `deleted`-ul celui vechi golește profilul înaintea
+//          reluării (sau între anulare și CAS, în aceeași livrare) → `deleted` face
+//          verificările EXACT o dată (factura plătită în fereastră → rambursată),
+//          reluarea / iterația următoare nu le repetă; DUP26: nimic pe golirea unei
+//          dubluri și nimic pe profil deja gol  [PICĂ: fără verificările în
+//          deleted; urma fără `replaced=` acceptată; fără condiția golirii;
+//          verificările purtate între iterații]
+//   DUP33 (c2) facturi oprite pe prima pagină + has_more → ALERT-ul le numește ȘI
+//          spune trunchierea  [PICĂ: trunchierea doar fără facturi oprite]
 describe('stripe-webhook: abonament unic la finalizare (DUP)', () => {
   const clone = (x) => (x === undefined ? x : JSON.parse(JSON.stringify(x)))
   const MARKER = 'menuvia:duplicate_subscription'
@@ -830,6 +854,10 @@ describe('stripe-webhook: abonament unic la finalizare (DUP)', () => {
       assert.equal(started().length, 1, label)
       assert.equal(cancels().length, 0, label)
       assert.equal(refundsCreated().length, 0, label)
+      // Nimic anulat DE NOI pentru sub_B → nicio verificare de după anulare
+      // (încasarea celui nou, factura celui vechi), nici pe o reluare.
+      assert.equal(stripeCallsFor('invoices.list').length, 0, `${label}: nimic anulat → fără verificarea încasării`)
+      assert.equal(stripeCallsFor('invoices.retrieve').length, 0, `${label}: nimic anulat → fără reconcilierea facturii`)
     }
   }
 
@@ -840,6 +868,11 @@ describe('stripe-webhook: abonament unic la finalizare (DUP)', () => {
     // (runda 3: mutația care o scotea lăsa toată suita verde). Un încheiat nu se
     // anulează (Stripe ar refuza; ALERT de anulare MANUALĂ pe un abonament mort).
     await assertHolderReplaced([paidSub('in_A', { status: 'canceled' }), paidSub('in_A', { status: 'incomplete_expired' })])
+    // Anulat de NOI, dar pentru ALT abonament (urma `kept=sub_C`) → nu e reluarea
+    // înlocuirii lui sub_B: fără verificările de după anulare (runda 3 CodeRabbit).
+    await assertHolderReplaced([paidSub('in_A', {
+      status: 'canceled', cancellation_details: { comment: `${MARKER};kept=sub_C;replaced=unpaid` },
+    })])
   })
 
   it('DUP3b: holder Menuvia FACTURABIL dar neviu (unpaid / incomplete) + abonament nou VIU → holder ANULAT cu urma dublurii ÎNAINTEA înlocuirii; plata lui ulterioară se rambursează; anulare eșuată nu blochează; reziduuri: holder străin / nou doar incomplete', async () => {
@@ -871,6 +904,10 @@ describe('stripe-webhook: abonament unic la finalizare (DUP)', () => {
       let heldAtList = null
       const listImpl = state.stripeImpls['invoices.list']
       state.stripeImpls['invoices.list'] = async (...a) => { heldAtList = t.rows[0].stripe_subscription_id; return listImpl(...a) }
+      // La fel reconcilierea facturii celui vechi (runda 3 CodeRabbit pe #386).
+      let heldAtReconcile = null
+      const retrieveImpl = state.stripeImpls['invoices.retrieve']
+      state.stripeImpls['invoices.retrieve'] = async (...a) => { heldAtReconcile = heldAtReconcile || t.rows[0].stripe_subscription_id; return retrieveImpl(...a) }
       const label = `${status}→${endAs}`
       const r = await withLogs(() => checkout('sub_B'))
       assert.equal(r.out.statusCode, 200, `${label}: ${r.out.body}`)
@@ -885,12 +922,17 @@ describe('stripe-webhook: abonament unic la finalizare (DUP)', () => {
       }]], label)
       assert.equal(heldAtCancel, 'sub_A', `${label}: anularea vine înaintea înlocuirii`)
       assert.equal(heldAtList, 'sub_B', `${label}: verificarea încasării vine după CAS`)
+      assert.equal(heldAtReconcile, 'sub_B', `${label}: reconcilierea facturii vine după CAS`)
       assert.equal(w.subs.sub_A.status, endAs, label)
       assert.equal(w.subs.sub_B.status, 'active', label)
       assert.equal(refundsCreated().length, 0, `${label}: factura lui e neplătită, nimic de rambursat`)
       assert.ok(r.lines.some((l) => l.includes('ALERT replaced subscription user=u1 canceled=sub_A') && l.includes(status) &&
         l.includes('kept=sub_B')), `${label}: ${r.lines.join('\n')}`)
       assert.deepEqual(stripeCallsFor('invoices.list').map((c) => c.args[0].subscription), ['sub_B'], `${label}: încasarea celui nou verificată`)
+      // Factura văzută la decizie, reconciliată după CAS: încă NEPLĂTITĂ → nimic
+      // rambursat (runda 3 CodeRabbit pe #386; plata ei, mai jos, o ia invoice.paid).
+      assert.deepEqual(stripeCallsFor('invoices.retrieve').map((c) => c.args[0]), ['in_A'], `${label}: factura celui vechi reconciliată`)
+      assert.ok(r.logs.some((l) => l.includes('replaced subscription sub_A reconciled: refund=pending_payment invoice=in_A')), `${label}: ${r.logs.join('\n')}`)
       assert.ok(r.logs.some((l) => l.includes('înlocuiește abonamentul') && l.includes('sub_A, anulat')), `${label}: ${r.logs.join('\n')}`)
 
       // Factura deschisă a celui vechi se plătește DUPĂ anulare → garda dublurii
@@ -930,29 +972,117 @@ describe('stripe-webhook: abonament unic la finalizare (DUP)', () => {
     // (runda 3): cu garda pe `canceled` strict, `deleted`-ul lui trecea pe calea
     // obișnuită — atribuirea `canceled` (terminală) și emailul de anulare pentru
     // un client care tocmai a plătit abonamentul nou.
-    for (const [status, endAs] of [['unpaid', 'canceled'], ['incomplete', 'incomplete_expired']]) {
+    // Ordinea REALISTĂ (runda 3 CodeRabbit pe #386): `deleted`-ul nostru sosește
+    // în secunde, reluarea finalizării după backoff, pe profilul gol — deci
+    // verificările de după anulare (încasarea celui nou, factura celui vechi)
+    // le face `deleted`, EXACT o dată; reluarea nu le mai repetă. Varianta
+    // `paid`: factura celui vechi plătită în fereastră și procesată pe calea
+    // obișnuită → `deleted` o rambursează (cheia dublurii).
+    for (const [status, endAs, inAPaid] of [['unpaid', 'canceled', false], ['incomplete', 'incomplete_expired', false], ['unpaid', 'canceled', true]]) {
       resetMocks(); setEnv()
       const events = stripeEventsTable()
       const t = useProfiles([{ id: 'u1', plan: 'free', stripe_subscription_id: 'sub_A' }])
-      w = stripeWorld({ subs: { sub_A: paidSub('in_A', { status }), sub_B: paidSub('in_B') }, invoices: { in_B: paidInvoice('pi_B') } })
+      w = stripeWorld({
+        subs: { sub_A: paidSub('in_A', { status }), sub_B: paidSub('in_B') },
+        invoices: {
+          in_A: { status: 'open', amount_paid: 0, amount_due: 24900, payment_intent: 'pi_A', subscription: 'sub_A' },
+          in_B: paidInvoice('pi_B'),
+        },
+      })
       w.cancelTo = () => endAs
       w.beforeCancel.sub_A = () => { t.failNextUpdate = { code: 'XX000', message: 'blip' } }
-      const label = `${status}→${endAs}`
+      const label = `${status}→${endAs}${inAPaid ? ' (in_A plătită)' : ''}`
       r = await withLogs(() => checkout('sub_B'))
       assert.equal(r.out.statusCode, 500, `${label}: ${r.out.body}`)
       assert.equal(events.get('evt_sub_B').status, 'failed', label)
       assert.deepEqual([row().stripe_subscription_id, w.subs.sub_A.status], ['sub_A', endAs], label)
       assert.equal(stripeCallsFor('invoices.list').length, 0, `${label}: fără CAS reușit, fără verificarea încasării`)
+      assert.equal(stripeCallsFor('invoices.retrieve').length, 0, `${label}: fără CAS reușit, fără reconciliere`)
+      if (inAPaid) Object.assign(w.invoices.in_A, { status: 'paid', amount_paid: 24900 })
       r = await withLogs(() => fire('customer.subscription.deleted', { ...clone(w.subs.sub_A), id: 'sub_A', customer: 'cus_1' }, { eventId: 'evt_del_A' }))
       assert.equal(r.out.statusCode, 200, `${label}: ${r.out.body}`)
       assert.deepEqual([row().stripe_subscription_id, row().plan], [null, 'free'], label)
       assert.equal(rpcCallsFor('set_affiliate_attribution_status').length, 0, label)
       assert.equal(lifecycleInserts().length, 0, label)
+      assert.deepEqual(stripeCallsFor('invoices.list').map((c) => c.args[0].subscription), ['sub_B'], `${label}: deleted verifică încasarea celui nou`)
+      assert.deepEqual(stripeCallsFor('invoices.retrieve').map((c) => c.args[0]), ['in_A'], `${label}: deleted reconciliază factura celui vechi`)
+      assert.ok(r.logs.some((l) => l.includes(`replaced subscription sub_A reconciled: refund=${inAPaid ? 'refunded' : 'pending_payment'} invoice=in_A`)),
+        `${label}: ${r.logs.join('\n')}`)
+      assert.deepEqual(refundsCreated().map((c) => [c.args[0].payment_intent, c.args[1].idempotencyKey]),
+        inAPaid ? [['pi_A', 'dupsub_refund_in_A']] : [], label)
       r = await withLogs(() => checkout('sub_B'))
       assert.equal(r.out.statusCode, 200, `${label}: ${r.out.body}`)
       assert.deepEqual([row().stripe_subscription_id, row().plan], ['sub_B', 'growth'], label)
       assert.equal(cancels().length, 1, `${label}: anularea nu se repetă`)
       assert.equal(started().length, 1, label)
+      assert.equal(stripeCallsFor('invoices.list').length, 1, `${label}: reluarea nu repetă verificarea încasării`)
+      assert.equal(stripeCallsFor('invoices.retrieve').length, 1, `${label}: reluarea nu repetă reconcilierea`)
+      assert.equal(refundsCreated().length, inAPaid ? 1 : 0, label)
+    }
+
+    // Aceeași ordine ÎN ACEEAȘI livrare: `deleted`-ul e procesat între anulare și
+    // CAS → golește profilul și face verificările; CAS-ul atinge 0 rânduri, bucla
+    // scrie pe profilul gol fără să le repete (nimic purtat între iterații).
+    {
+      resetMocks(); setEnv()
+      stripeEventsTable()
+      useProfiles([{ id: 'u1', plan: 'free', stripe_subscription_id: 'sub_A' }])
+      w = stripeWorld({
+        subs: { sub_A: paidSub('in_A', { status: 'unpaid' }), sub_B: paidSub('in_B') },
+        invoices: {
+          in_A: { status: 'open', amount_paid: 0, amount_due: 24900, payment_intent: 'pi_A', subscription: 'sub_A' },
+          in_B: paidInvoice('pi_B'),
+        },
+      })
+      const cancelImpl = state.stripeImpls['subscriptions.cancel']
+      state.stripeImpls['subscriptions.cancel'] = async (...a) => {
+        const out = await cancelImpl(...a)
+        const del = await fire('customer.subscription.deleted', { ...clone(w.subs.sub_A), id: 'sub_A', customer: 'cus_1' }, { eventId: 'evt_del_A' })
+        assert.equal(del.statusCode, 200, del.body)
+        return out
+      }
+      r = await withLogs(() => checkout('sub_B'))
+      assert.equal(r.out.statusCode, 200, r.out.body)
+      assert.deepEqual([row().stripe_subscription_id, row().plan], ['sub_B', 'growth'])
+      assert.equal(cancels().length, 1)
+      assert.equal(started().length, 1)
+      assert.deepEqual(stripeCallsFor('invoices.list').map((c) => c.args[0].subscription), ['sub_B'], 'o singură verificare a încasării')
+      assert.deepEqual(stripeCallsFor('invoices.retrieve').map((c) => c.args[0]), ['in_A'], 'o singură reconciliere')
+      assert.equal(rpcCallsFor('set_affiliate_attribution_status').length, 0)
+    }
+
+    // Aceeași oprire ÎNTRE anulare și CAS, dar FĂRĂ `deleted` între ele (runda 3
+    // CodeRabbit pe #386): profilul ține încă deținătorul, anulat de NOI pentru
+    // sub_B (urma `kept=sub_B;replaced=…`) → reluarea nu-l mai anulează, dar
+    // rulează verificările de după CAS: încasarea celui nou și factura celui vechi.
+    for (const status of ['unpaid', 'incomplete']) {
+      resetMocks(); setEnv()
+      const events = stripeEventsTable()
+      const t = useProfiles([{ id: 'u1', plan: 'free', stripe_subscription_id: 'sub_A' }])
+      w = stripeWorld({
+        subs: { sub_A: paidSub('in_A', { status }), sub_B: paidSub('in_B') },
+        invoices: {
+          in_A: { status: 'open', amount_paid: 0, amount_due: 24900, payment_intent: 'pi_A', subscription: 'sub_A' },
+          in_B: paidInvoice('pi_B'),
+        },
+      })
+      w.beforeCancel.sub_A = () => { t.failNextUpdate = { code: 'XX000', message: 'blip' } }
+      r = await withLogs(() => checkout('sub_B'))
+      assert.equal(r.out.statusCode, 500, `${status}: ${r.out.body}`)
+      assert.equal(events.get('evt_sub_B').status, 'failed', status)
+      assert.deepEqual([row().stripe_subscription_id, w.subs.sub_A.status], ['sub_A', 'canceled'], status)
+      assert.equal(stripeCallsFor('invoices.list').length, 0, `${status}: fără CAS reușit, fără verificări`)
+      assert.equal(stripeCallsFor('invoices.retrieve').length, 0, status)
+      r = await withLogs(() => checkout('sub_B'))
+      assert.equal(r.out.statusCode, 200, `${status}: ${r.out.body}`)
+      assert.equal(events.get('evt_sub_B').status, 'completed', status)
+      assert.deepEqual([row().stripe_subscription_id, row().plan], ['sub_B', 'growth'], status)
+      assert.equal(cancels().length, 1, `${status}: anularea nu se repetă`)
+      assert.deepEqual(stripeCallsFor('invoices.list').map((c) => c.args[0].subscription), ['sub_B'], `${status}: încasarea celui nou verificată la reluare`)
+      assert.deepEqual(stripeCallsFor('invoices.retrieve').map((c) => c.args[0]), ['in_A'], `${status}: factura celui vechi reconciliată la reluare`)
+      assert.equal(refundsCreated().length, 0, `${status}: încă neplătită`)
+      assert.ok(r.logs.some((l) => l.includes('înlocuiește abonamentul') && l.includes(`${status} sub_A, anulat`)), `${status}: ${r.logs.join('\n')}`)
+      assert.equal(started().length, 1, status)
     }
 
     // REZIDUURI, înghețate ca atare: un holder STRĂIN (fără contul în metadata,
@@ -1586,6 +1716,20 @@ describe('stripe-webhook: abonament unic la finalizare (DUP)', () => {
     assert.deepEqual(state.stripeCalls.map((c) => c.name).filter((n) => n !== 'webhooks.constructEvent'), [],
       'fără apel Stripe: urma vine din payload')
 
+    // (a2) Deținătorul ÎNLOCUIT (urma `replaced=`), profil gol → la fel, fără
+    //      niciun apel Stripe: verificările de după anulare rulează doar pe
+    //      golirea REUȘITĂ (runda 3 CodeRabbit pe #386, DUP3b), deci un `deleted`
+    //      pe un profil deja golit nu le repetă.
+    resetMocks(); setEnv()
+    useProfiles([{ id: 'u1', plan: 'free', stripe_subscription_id: null }])
+    res = (await withLogs(() => fire('customer.subscription.deleted', {
+      ...marked, latest_invoice: 'in_B',
+      cancellation_details: { ...marked.cancellation_details, comment: `${MARKER};kept=sub_A;replaced=unpaid` },
+    }))).out
+    assert.equal(res.statusCode, 200, res.body)
+    assert.deepEqual(state.stripeCalls.map((c) => c.name).filter((n) => n !== 'webhooks.constructEvent'), [],
+      'profil gol: fără verificările de după anulare')
+
     // (b) Control POZITIV: un abonament fără urma noastră, profil gol → ca înainte.
     resetMocks(); setEnv()
     useProfiles([{ id: 'u1', plan: 'free', stripe_subscription_id: null }])
@@ -1612,6 +1756,11 @@ describe('stripe-webhook: abonament unic la finalizare (DUP)', () => {
     assert.ok(clear.ops.some((o) => o.m === 'eq' && o.args[0] === 'stripe_subscription_id' && o.args[1] === 'sub_B'),
       'golirea atinge doar un rând care ține ÎNCĂ dublura')
     assert.ok(held.logs.some((l) => l.includes('Skip deleted pentru dublura anulată sub_B') && l.includes('golit')), held.logs.join('\n'))
+    // O DUBLURĂ (urma fără `replaced=`) și-a făcut verificările la decontare
+    // (settleDuplicateSubscription) → golirea ei nu cheamă Stripe; doar
+    // deținătorul ÎNLOCUIT le are aici (runda 3 CodeRabbit pe #386, DUP3b).
+    assert.deepEqual(state.stripeCalls.map((c) => c.name).filter((n) => n !== 'webhooks.constructEvent'), [],
+      'dublura golită: fără verificările deținătorului înlocuit')
 
     // (e) Golirea pică (blip DB) → 500, rândul `failed`, nimic altceva; aceeași
     //     livrare relivrată golește — tot fără email și fără atribuire.
@@ -2257,6 +2406,29 @@ describe('stripe-webhook: abonament unic la finalizare (DUP)', () => {
       assert.ok(r.logs.some((l) => l.includes('settled: cancel=now collection=CHECK refund=refunded')), `${label}: ${r.logs.join('\n')}`)
     }
 
+    // (c2) Prima pagină are DEJA facturi oprite ȘI lista e trunchiată (runda 3
+    //      CodeRabbit pe #386) → ALERT-ul le numește pe cele văzute ȘI spune că
+    //      mai sunt pagini (înainte, avertismentul de trunchiere dispărea).
+    resetMocks(); setEnv()
+    stripeEventsTable()
+    useProfiles([{ id: 'u1', plan: 'growth', stripe_subscription_id: 'sub_A' }])
+    stripeWorld({ subs: { sub_A: paidSub('in_A'), sub_B: paidSub('in_B') }, invoices: { in_B: paidInvoice('pi_B') } })
+    state.stripeImpls['invoices.list'] = async () => ({
+      object: 'list', has_more: true,
+      data: [
+        { id: 'in_A7', status: 'open', amount_due: 24900, auto_advance: false, subscription: 'sub_A' },
+        { id: 'in_A8', status: 'open', amount_due: 9900, auto_advance: true, subscription: 'sub_A' },
+      ],
+    })
+    r = await withLogs(() => checkout('sub_B'))
+    assert.equal(r.out.statusCode, 200, r.out.body)
+    const both = r.lines.find((l) => l.includes('ALERT duplicate cancel COLLECTION'))
+    assert.ok(both, r.lines.join('\n'))
+    for (const f of ['in_A7(24900)', 'reactivează încasarea automată', 'lista e trunchiată', 'după prima pagină']) {
+      assert.ok(both.includes(f), `lipsește ${f} din ${both}`)
+    }
+    assert.ok(!both.includes('in_A8'), 'o factură cu încasarea pornită nu se raportează')
+
     // (d) Livrarea se oprește ÎNTRE anulare și verificări (răspunsul DELETE
     //     pierdut) → reluarea nu mai trece prin anulare, dar verifică facturile.
     resetMocks(); setEnv()
@@ -2401,6 +2573,46 @@ describe('stripe-webhook: abonament unic la finalizare (DUP)', () => {
       'revenirea atinge doar un rând care ține ÎNCĂ abonamentul')
     assert.equal(planChanged().length, 0)
 
+    // (b2) Aceeași fereastră, cu `deleted`-ul PROCESAT în ea (runda 3 CodeRabbit
+    //      pe #386, nit): updated se oprește după citirea dinaintea scrierii,
+    //      deleted-ul legitim rulează pe profilul gol (golire + atribuire +
+    //      email), apoi updated reia: scrierea revendică, verificarea revine.
+    //      EXACT un subscription_cancelled (al lui deleted), fără plan_changed.
+    resetMocks(); setEnv()
+    stripeEventsTable()
+    useProfiles([{ id: 'u1', plan: 'free', stripe_subscription_id: null }])
+    w = stripeWorld({ subs: { sub_A: proSub() } })
+    {
+      const read = state.stripeImpls['subscriptions.retrieve']
+      let reached
+      let release
+      const atRead = new Promise((res) => { reached = res })
+      const resume = new Promise((res) => { release = res })
+      let paused = false
+      state.stripeImpls['subscriptions.retrieve'] = async (id) => {
+        const out = await read(id)
+        if (!paused) { paused = true; reached(); await resume }
+        return out
+      }
+      r = await withLogs(async () => {
+        const upd = fire('customer.subscription.updated', stale, { eventId: 'evt_upd_paused' })
+        await atRead
+        w.subs.sub_A.status = 'canceled'
+        const del = await fire('customer.subscription.deleted', { id: 'sub_A', customer: 'cus_1', status: 'canceled' }, { eventId: 'evt_del_paused' })
+        assert.equal(del.statusCode, 200, del.body)
+        assert.deepEqual([row().stripe_subscription_id, row().plan], [null, 'free'], 'deleted pe profilul gol')
+        release()
+        return upd
+      })
+    }
+    assert.equal(r.out.statusCode, 200, r.out.body)
+    assert.deepEqual([row().stripe_subscription_id, row().plan], [null, 'free'], 'fără Planul 3 pe un abonament încheiat')
+    assert.equal(profileUpdates().length, 3, 'golirea lui deleted + scrierea lui updated + revenirea')
+    assert.deepEqual(lifecycleInserts().map((l) => l.event_type), ['subscription_cancelled'], 'un singur email de anulare')
+    assert.equal(rpcCallsFor('set_affiliate_attribution_status').length, 1, 'atribuirea o singură dată')
+    assert.equal(planChanged().length, 0)
+    assert.deepEqual(stripeCallsFor('subscriptions.retrieve').map((c) => c.args[0]), ['sub_A', 'sub_A'], 'citirea dinainte + cea de după scriere')
+
     // (c) Verificarea de după scriere pică (500, rândul `failed`, tranziția
     //     purtată); abonamentul se încheie apoi în Stripe, dar deleted-ul lui n-a
     //     sosit încă → reluarea (profilul îl ține: nu e „gol”) revine, fără
@@ -2437,6 +2649,80 @@ describe('stripe-webhook: abonament unic la finalizare (DUP)', () => {
     assert.deepEqual([row().stripe_subscription_id, row().plan], ['sub_A', 'pro'])
     assert.deepEqual(planChanged().map((l) => [l.event_data.from, l.event_data.to]), [['free', 'pro']])
     assert.deepEqual(stripeCallsFor('subscriptions.retrieve').map((c) => c.args[0]), ['sub_A', 'sub_A'])
+  })
+
+  it('DUP38: deținătorul neplătit își PLĂTEȘTE factura în fereastra dintre citirea stării și CAS → factura văzută la decizie, reconciliată după CAS, se rambursează (plată dublă), fără a doua rambursare la invoice.paid; reconcilierea eșuată = ALERT, nu 500', async () => {
+    // Runda 3 CodeRabbit pe #386. Citirea stării e ultima operație înaintea
+    // anulării, dar plata poate sosi în latența ei: Stripe face abonamentul
+    // `active`, iar noi anulăm unul abia plătit. Garda din invoice.paid nu-l
+    // vede cât profilul îl ține încă („cel urmărit”), deci fără reconciliere
+    // banii rămâneau încasați pe un abonament anulat, lângă cel nou.
+    const pay = (w) => () => {
+      Object.assign(w.invoices.in_A, { status: 'paid', amount_paid: 24900, amount_due: 24900 })
+      w.subs.sub_A.status = 'active'
+    }
+    const setup = () => {
+      resetMocks(); setEnv()
+      const events = stripeEventsTable()
+      useProfiles([{ id: 'u1', plan: 'free', stripe_subscription_id: 'sub_A' }])
+      const w = stripeWorld({
+        subs: { sub_A: paidSub('in_A', { status: 'unpaid' }), sub_B: paidSub('in_B') },
+        invoices: {
+          in_A: { status: 'open', amount_paid: 0, amount_due: 24900, payment_intent: 'pi_A', subscription: 'sub_A' },
+          in_B: paidInvoice('pi_B'),
+        },
+      })
+      w.afterRetrieve.sub_A = pay(w)
+      return { events, w }
+    }
+
+    // (a) Plata sosește imediat după citire; invoice.paid-ul ei vine DUPĂ CAS.
+    let { events, w } = setup()
+    let r = await withLogs(() => checkout('sub_B'))
+    assert.equal(r.out.statusCode, 200, r.out.body)
+    assert.equal(events.get('evt_sub_B').status, 'completed')
+    assert.deepEqual([row().stripe_subscription_id, row().plan], ['sub_B', 'growth'])
+    assert.equal(w.subs.sub_A.status, 'canceled')
+    assert.deepEqual(refundsCreated().map((c) => [c.args[0].payment_intent, c.args[0].metadata.menuvia_subscription, c.args[1].idempotencyKey]),
+      [['pi_A', 'sub_A', 'dupsub_refund_in_A']], 'plata dublă, rambursată cu cheia dublurii')
+    assert.ok(r.logs.some((l) => l.includes('replaced subscription sub_A reconciled: refund=refunded invoice=in_A')), r.logs.join('\n'))
+    r = await withLogs(() => invoicePaid('in_A', 'sub_A'))
+    assert.equal(r.out.statusCode, 200, r.out.body)
+    assert.equal(refundsCreated().length, 1, 'invoice.paid găsește rambursarea: fără a doua')
+    assert.ok(r.logs.some((l) => l.includes('refund=already_refunded')), r.logs.join('\n'))
+    assert.equal(commissions().length, 0)
+
+    // (b) invoice.paid-ul plății e procesat ÎN fereastră (între citire și
+    //     anulare, profilul îl ține încă) → calea obișnuită: lifecycle + comision.
+    //     Reconcilierea de după CAS o rambursează oricum (comisionul se stornează
+    //     prin charge.refunded, clawback-ul existent).
+    ;({ events, w } = setup())
+    const cancelImpl = state.stripeImpls['subscriptions.cancel']
+    state.stripeImpls['subscriptions.cancel'] = async (...a) => {
+      const paid = await invoicePaid('in_A', 'sub_A')
+      assert.equal(paid.statusCode, 200, paid.body)
+      return cancelImpl(...a)
+    }
+    r = await withLogs(() => checkout('sub_B'))
+    assert.equal(r.out.statusCode, 200, r.out.body)
+    assert.equal(commissions().length, 1, 'procesat cât profilul ținea sub_A: calea obișnuită')
+    assert.deepEqual(refundsCreated().map((c) => [c.args[0].payment_intent, c.args[1].idempotencyKey]), [['pi_A', 'dupsub_refund_in_A']])
+    assert.deepEqual([row().stripe_subscription_id, row().plan], ['sub_B', 'growth'])
+
+    // (c) Reconcilierea nu poate citi factura → ALERT pentru verificare MANUALĂ,
+    //     200: o reluare ar găsi profilul pe sub_B și n-ar mai ajunge aici.
+    ;({ events, w } = setup())
+    state.stripeImpls['invoices.retrieve'] = async () => { throw stripeErr('timeout', { type: 'StripeConnectionError' }) }
+    r = await withLogs(() => checkout('sub_B'))
+    assert.equal(r.out.statusCode, 200, r.out.body)
+    assert.equal(events.get('evt_sub_B').status, 'completed')
+    assert.deepEqual([row().stripe_subscription_id, row().plan], ['sub_B', 'growth'])
+    assert.equal(refundsCreated().length, 0)
+    const alert = r.lines.find((l) => l.includes('ALERT replaced subscription REFUND CHECK'))
+    assert.ok(alert, r.lines.join('\n'))
+    for (const f of ['user=u1', 'canceled=sub_A', 'kept=sub_B', 'invoice=in_A', 'MANUAL']) {
+      assert.ok(alert.includes(f), `lipsește ${f} din ${alert}`)
+    }
   })
 
   it('DUP36: rambursarea dublurii primește o eroare SALVATĂ de Stripe pe cheia ei (500 reluat, `idempotent-replayed`) → la reluare: refund=manual + ALERT cu factura, abonamentul și cheia, 200 (nu 500 în buclă), NICIO rambursare creată; prima eroare (ne-reluată) rămâne 500', async () => {

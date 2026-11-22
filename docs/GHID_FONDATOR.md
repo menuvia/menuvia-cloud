@@ -238,9 +238,19 @@ curl -G https://api.stripe.com/v1/refunds -u "$STRIPE_SECRET_KEY:" -d limit=100
 
 — caută intrările cu `"menuvia_reason": "duplicate_subscription"` în `metadata`
 și `"status": "failed"` sau `"canceled"` (lista începe cu cea mai nouă; pentru
-mai vechi, adaugă `-d starting_after=<id-ul ultimei intrări>`). Pe una găsită,
-restituirea banilor e a ta, ca la un ALERT `refund=manual`; în Dashboard o vezi
-pe plata respectivă (Payments → plata → rambursările ei).
+mai vechi, adaugă `-d starting_after=<id-ul ultimei intrări>`). O intrare găsită
+e un CANDIDAT de verificat, nu un ordin de plată: sistemul poate să fi pornit deja
+o rambursare nouă pe aceeași plată, iar tu poate ai returnat deja banii pe altă
+cale. Înainte de orice restituire, deschide plata în Dashboard (Payments → plata
+→ rambursările ei) și adună TOATE rambursările de pe ea, plus orice restituire
+făcută de tine în afara Stripe (transfer, credit):
+- dacă vreuna e încă `pending` sau `requires_action`, NU restitui nimic acum:
+  așteaptă să se încheie și verifică din nou;
+- altfel, restituie DOAR restul neacoperit: suma plății minus rambursările
+  `succeeded` minus ce ai returnat deja pe altă cale. Dacă restul e zero, nu
+  faci nimic.
+
+Aceeași regulă la orice ALERT `refund=manual`.
 
 Ce face webhook-ul cu el: reîncearcă AUTOMAT doar un eșec cu motiv `unknown`,
 `declined` sau `insufficient_funds` (ALERT „se reîncearcă automat — NU rambursa
@@ -249,8 +259,46 @@ după 3 rambursări eșuate pe aceeași plată sau când Stripe refuză definiti
 rambursarea — atunci restituirea e a ta). O rambursare pe care o ANULEZI tu din Dashboard („Cancel refund”) sau
 un eșec pe alt motiv (card expirat/pierdut, dispută, motiv nou) NU se mai
 reîncearcă niciodată (ALERT „rambursare MANUALĂ, FĂRĂ reîncercare automată”):
-din acel moment restituirea banilor e a ta (transfer, credit), iar sistemul nu
-o mai dublează.
+din acel moment restituirea banilor e a ta (transfer, credit — doar restul
+neacoperit, după verificarea de mai sus), iar sistemul nu o mai dublează.
+
+**De verificat o dată în test mode** (offline nu se poate): o rambursare pe CARD
+care eșuează DUPĂ creare chiar ajunge la webhook pe versiunea noastră. Cardul de
+test `4000 0000 0000 5126` face exact asta: plata reușește, rambursarea pornește
+`succeeded` și după câteva minute devine `failed`. Documentația Stripe de azi
+spune că atunci se trimite `refund.failed` — eveniment care NU există pe
+endpoint-ul nostru (`2023-10-16`), deci nu se știe dacă Stripe trimite acolo
+`charge.refund.updated`. Verificarea NU cere o dublură reală, iar două taburi nu
+produc una: al doilea checkout reia sesiunea deschisă a primului (același plan)
+sau o închide (alt plan), deci se plătește o singură dată. Rambursarea se
+creează direct, cu exact câmpurile pe care webhook-ul le pune pe una de dublură.
+Pașii, pe un cont de test dedicat, cu cheia de TEST (`sk_test_…`):
+1. fă un abonament normal din aplicație (Prețuri → un plan) și plătește-l cu
+   cardul `4000 0000 0000 5126`;
+2. în Dashboard → Customers → clientul → abonamentul, notează id-ul
+   abonamentului `sub_…`, al facturii plătite `in_…` și al plății ei `pi_…`;
+3. creează rambursarea:
+
+```bash
+curl https://api.stripe.com/v1/refunds -u "$STRIPE_SECRET_KEY:" \
+  -d payment_intent=pi_… -d reason=duplicate \
+  -d "metadata[menuvia_reason]=duplicate_subscription" \
+  -d "metadata[menuvia_subscription]=sub_…" \
+  -d "metadata[menuvia_invoice]=in_…"
+```
+
+4. după câteva minute, în Dashboard → Webhooks → endpoint-ul de abonamente →
+   evenimente, trebuie să apară un `charge.refund.updated` al cărui obiect are
+   `id`-ul rambursării de la pasul 3, `"status": "failed"` și `metadata` de mai
+   sus; în log, ALERT-ul `duplicate refund failed`, urmat de reîncercare (o
+   rambursare nouă cu cheia `…_retry1`, care pe acest card probabil eșuează la
+   fel, până la plafonul de 3 → `refund=manual`) sau de ALERT-ul MANUAL, după
+   `failure_reason`. Totul e în test mode: banii nu sunt reali, iar abonamentul
+   contului de test nu se schimbă.
+
+Dacă evenimentul NU apare, eșecul ulterior pe card nu are semnal automat:
+verificarea manuală cu `GET /v1/refunds` de mai sus devine obligatorie și pentru
+card, până la mutarea pin-ului pe o versiune cu `refund.failed`.
 
 **Unde ajung ALERT-urile: DOAR în logurile funcției `stripe-webhook`** (Netlify →
 Logs → Functions, sau `journalctl -u menuvia-functions` pe VPS). Nu există încă
@@ -278,6 +326,12 @@ funcției `stripe-webhook`):
   abonament vechi neplătit (`unpaid`/`incomplete`) trebuia anulat când clientul a
   primit unul nou, dar anularea a eșuat: anulează-l din Dashboard dacă e încă
   activ, altfel își poate plăti factura deschisă lângă cel nou.
+- `ALERT replaced subscription REFUND CHECK … canceled=<vechi> … invoice=<factură>`
+  — abonamentul vechi a fost anulat, dar factura lui văzută la decizie nu s-a
+  putut verifica (dacă a fost plătită chiar atunci, e o plată dublă). Deschide
+  factura (Dashboard → Invoices): dacă e plătită, aplică regula de mai sus
+  (toate rambursările plății + ce ai returnat pe altă cale; restituie doar
+  restul, și nimic cât o rambursare e încă în curs).
 
 Din fiecare răspuns: câmpul `secret` → `STRIPE_WEBHOOK_SECRET` (primul, **NU**
 `WEBHOOK_SECRET`) și `STRIPE_CONNECT_WEBHOOK_SECRET` (al doilea), în env-ul de

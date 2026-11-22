@@ -680,6 +680,23 @@ exports.handler = async (event) => {
             `[stripe-webhook] Skip deleted pentru dublura anulată ${subscription.id} ` +
             `(${cleared && cleared.length ? 'profilul o ținea: golit, plan free' : 'profil gol'}; fără email, atribuirea neatinsă)`,
           )
+          // Deținătorul ÎNLOCUIT (urma `kept=<nou>;replaced=<stare>`), golit AICI =
+          // finalizarea care l-a anulat n-a ajuns la CAS (500 sau oprită între
+          // anulare și CAS; runda 3 CodeRabbit pe #386). Ordinea obișnuită:
+          // `deleted`-ul nostru sosește în secunde, reluarea finalizării abia după
+          // backoff, pe profilul gol — scrie direct, fără să mai vadă deținătorul,
+          // deci verificările de după anulare rulează aici. Doar pe golirea
+          // reușită: cu profilul deja mutat pe cel nou, finalizarea le-a făcut
+          // după CAS (ieșirea „stale” de mai sus), deci nimic nu rulează de două
+          // ori. Ambele sunt best-effort (nu aruncă) și idempotente.
+          const replacedKept = keptFromCancelMarker(subscription)
+          if (cleared && cleared.length > 0 && replacedKept && replacedFromCancelMarker(subscription, replacedKept)) {
+            await checkKeptCollectionAfterCancel(stripe, { userId: profile.id, subscriptionId: subscription.id, keptSubscriptionId: replacedKept })
+            await reconcileReplacedInvoice(stripe, {
+              userId: profile.id, subscriptionId: subscription.id, keptSubscriptionId: replacedKept,
+              invoiceId: refId(subscription.latest_invoice),
+            })
+          }
           break
         }
         const { data: downgraded, error } = await supabase
@@ -1414,6 +1431,14 @@ async function claimProfileSubscription(supabase, stripe, { userId, customerId, 
     // Înaintea CAS-ului, nu după: o livrare oprită între ele se reia cu cel vechi
     // deja încheiat (calea DUP3), pe când după CAS reluarea ar vedea profilul pe
     // cel nou și l-ar uita.
+    // Starea folosită pentru decizie e citirea de mai sus: între ea și anulare nu
+    // mai e niciun apel, deci o a doua citire ar reproduce aceeași fereastră
+    // (latența citire → anulare). În ea, deținătorul își poate plăti factura
+    // (runda 3 CodeRabbit pe #386), iar `invoice.paid`-ul ei, procesat cât
+    // profilul îl ține încă, trece pe calea obișnuită (fără rambursare). De aceea
+    // se reține factura văzută acum (`latest_invoice`, cea a cărei neplată îl
+    // face neviu) și se reconciliază DUPĂ CAS (reconcileReplacedInvoice).
+    const holderInvoice = refId(holder.sub && holder.sub.latest_invoice)
     let replacedCanceled = null
     if (live && BILLABLE_SUB_STATUSES.includes(holder.status) && holder.sub &&
         isMenuviaPlanSubscription(holder.sub, userId, planByPrice)) {
@@ -1437,6 +1462,16 @@ async function claimProfileSubscription(supabase, stripe, { userId, customerId, 
         )
       }
     }
+    // Reluare după un 500 între anulare și CAS (runda 3 CodeRabbit pe #386):
+    // deținătorul e deja încheiat, deci ramura de mai sus nu-l mai anulează, dar
+    // urma spune că L-AM anulat noi pentru ACEST abonament. Verificările de după
+    // CAS rulează și atunci — niciodată pe un deținător pe care nu l-am anulat.
+    // Asta e ordinea RARĂ (reluarea înaintea `deleted`-ului lui); în cea
+    // obișnuită `deleted` golește profilul întâi și face el verificările, iar
+    // reluarea scrie direct pe profilul gol (aceeași cale când `deleted` e
+    // procesat între anulare și CAS, în aceeași livrare: CAS-ul atinge 0 rânduri,
+    // iar iterația următoare nu le repetă — nimic purtat între iterații).
+    const canceledFor = replacedCanceled || replacedFromCancelMarker(holder.sub, subscriptionId)
     // Abonamentul nou îl înlocuiește — doar dacă profilul ține ÎNCĂ acea valoare.
     // Imediat după anulare, fără niciun apel Stripe între ele (runda 3 pe
     // #386, recenzia proprie): cât profilul ține încă abonamentul anulat, garda din
@@ -1452,13 +1487,17 @@ async function claimProfileSubscription(supabase, stripe, { userId, customerId, 
     if (replaced && replaced.length > 0) {
       // Anularea oprește implicit încasarea pe facturile finalizate ale clientului
       // — inclusiv ale celui nou (de regulă fără facturi deschise: e abia plătit).
-      // DUPĂ CAS: verificarea e doar informativă (nu aruncă), deci n-are de ce să
-      // lărgească fereastra de mai sus; o livrare oprită după CAS o pierde, ceea
-      // ce nu costă nimic pe un abonament abia plătit.
-      if (replacedCanceled) {
+      // DUPĂ CAS: ambele verificări sunt best-effort (nu aruncă), deci n-au de ce
+      // să lărgească fereastra de mai sus. O livrare oprită DUPĂ CAS, înaintea
+      // lor, le pierde: reluarea găsește profilul pe cel nou și nu mai ajunge
+      // aici, iar `deleted`-ul celui vechi iese „stale” (reziduu în CLAUDE.md);
+      // din acel moment, o plată a celui vechi trece prin garda din invoice.paid,
+      // care o rambursează.
+      if (canceledFor) {
         await checkKeptCollectionAfterCancel(stripe, { userId, subscriptionId: current, keptSubscriptionId: subscriptionId })
+        await reconcileReplacedInvoice(stripe, { userId, subscriptionId: current, keptSubscriptionId: subscriptionId, invoiceId: holderInvoice })
       }
-      return { outcome: 'written', replaced: current, replacedCanceled }
+      return { outcome: 'written', replaced: current, replacedCanceled: canceledFor }
     }
     // Altcineva a scris între citire și CAS → re-evaluăm de la capăt.
   }
@@ -1519,6 +1558,47 @@ function isOurDuplicateCancel(sub) {
 function keptFromCancelMarker(sub) {
   const m = /;kept=(sub_[A-Za-z0-9_]+)/.exec(String(sub.cancellation_details.comment))
   return m ? m[1] : null
+}
+// Deținătorul înlocuit, anulat DE NOI pentru `keptSubscriptionId` (urma
+// `kept=<nou>;replaced=<stare>`, scrisă doar de claimProfileSubscription) →
+// starea lui de atunci; orice altceva (fără urmă, urma unei dubluri, alt
+// abonament păstrat) → null.
+function replacedFromCancelMarker(sub, keptSubscriptionId) {
+  if (!isOurDuplicateCancel(sub) || keptFromCancelMarker(sub) !== keptSubscriptionId) return null
+  const m = /;replaced=([a-z_]+)/.exec(String(sub.cancellation_details.comment))
+  return m ? m[1] : null
+}
+
+/**
+ * Factura deținătorului înlocuit, văzută la decizie, reconciliată DUPĂ CAS
+ * (runda 3 CodeRabbit pe #386). Între citirea stării și CAS, deținătorul își
+ * poate plăti factura, iar `invoice.paid`-ul ei, procesat cât profilul îl ține
+ * încă, trece pe calea obișnuită (lifecycle + comision, fără rambursare). După
+ * CAS, garda din invoice.paid acoperă orice plată ULTERIOARĂ; aceasta acoperă
+ * plata deja sosită. Aceeași decizie ca la dublură (refundDuplicateInvoice): o
+ * factură devenită `paid` e o plată dublă și se rambursează, cu aceleași chei de
+ * idempotență (`dupsub_refund_<factură>`, deci un `invoice.paid` concurent nu
+ * dublează rambursarea), iar una încă neplătită nu produce nimic. Comisionul scris
+ * pe calea obișnuită se stornează prin `charge.refunded` (clawback-ul existent).
+ * Best-effort: rulează după CAS (sau din `deleted`-ul celui vechi, când acesta a
+ * golit profilul înaintea CAS-ului), iar o reluare nu mai ajunge aici, deci un
+ * 500 n-ar reîncerca nimic — eroarea e ALERT MANUAL.
+ */
+async function reconcileReplacedInvoice(stripe, { userId, subscriptionId, keptSubscriptionId, invoiceId }) {
+  if (!invoiceId) return null
+  try {
+    const r = await refundDuplicateInvoice(stripe, invoiceId, subscriptionId)
+    logDuplicateRefund(`replaced subscription ${subscriptionId} reconciled:`, subscriptionId, r)
+    return r
+  } catch (e) {
+    console.error(
+      `[stripe-webhook] ALERT replaced subscription REFUND CHECK user=${userId} canceled=${subscriptionId} ` +
+      `kept=${keptSubscriptionId} invoice=${invoiceId}: ${e?.message || String(e)} — abonamentul vechi e anulat; ` +
+      'verifică factura în Dashboard: dacă e plătită, reconciliază rambursările plății și rambursează MANUAL doar ' +
+      'restul neacoperit (o plată ulterioară o rambursează automat invoice.paid)',
+    )
+    return null
+  }
 }
 
 // Abonamentul facturii e o dublură pe care AM anulat-o noi (urma pe ea)? Un id
@@ -1730,15 +1810,25 @@ async function checkKeptCollectionAfterCancel(stripe, { userId, subscriptionId, 
   }
   const open = ((page && page.data) || []).filter(Boolean)
   const paused = open.filter((i) => i.auto_advance === false)
-  if (paused.length === 0 && !(page && page.has_more)) return true
-  console.error(
-    `${head}: ` +
-    (paused.length
-      ? `încasarea automată e OPRITĂ pe ${paused.map((i) => `${i.id}(${Number.isInteger(i.amount_due) ? i.amount_due : '?'})`).join(', ')} — ` +
-        'anularea dublurii o oprește implicit pe facturile finalizate ale clientului; reactivează încasarea automată ' +
-        'din Dashboard pe aceste facturi (nimic nu s-a schimbat automat)'
-      : 'peste 100 de facturi deschise, lista e trunchiată — verifică încasarea automată în Dashboard'),
-  )
+  const truncated = !!(page && page.has_more)
+  if (paused.length === 0 && !truncated) return true
+  // Trunchierea se spune ORICÂND `has_more` (runda 3 CodeRabbit pe #386): pe
+  // prima pagină pot fi deja facturi oprite, iar restul nu le-am văzut.
+  const parts = []
+  if (paused.length) {
+    parts.push(
+      `încasarea automată e OPRITĂ pe ${paused.map((i) => `${i.id}(${Number.isInteger(i.amount_due) ? i.amount_due : '?'})`).join(', ')} — ` +
+      'anularea dublurii o oprește implicit pe facturile finalizate ale clientului; reactivează încasarea automată ' +
+      'din Dashboard pe aceste facturi (nimic nu s-a schimbat automat)',
+    )
+  }
+  if (truncated) {
+    parts.push(
+      'peste 100 de facturi deschise, lista e trunchiată — verifică în Dashboard încasarea automată și pe facturile ' +
+      'deschise de după prima pagină (pot fi altele oprite)',
+    )
+  }
+  console.error(`${head}: ${parts.join('; ')}`)
   return false
 }
 
