@@ -53,7 +53,9 @@
 //     browser lega istoricul de dinainte de revocare de cel de după), iar urmele
 //     `ph_*` se șterg din browser, și când PostHog nu e încărcat în pagină.
 //     Fără loturi în SDK (`request_batching: false`): un lot neplecat ar fi ieșit
-//     la timer sau la închiderea paginii, DUPĂ retragere;
+//     la timer sau la închiderea paginii, DUPĂ retragere; fără comprimare
+//     (`disable_compression: true`): gzip-ul asincron amâna pornirea cererii
+//     după retragere;
 //   • acordul schimbat în ALT tab se aude (evenimentul `storage` + verificarea
 //     acordului înaintea oricărui apel care poate face reset()): o retragere
 //     oprește captura și aici, o acordare o pornește, iar o retragere urmată de
@@ -253,6 +255,11 @@ export const POSTHOG_PRIVACY_CONFIG = {
   // pleca la timer sau la închiderea paginii FĂRĂ să reverifice acordul, deci
   // după o retragere mai ieșeau evenimentele capturate înaintea ei.
   request_batching: false,
+  // Fără comprimare: cu gzip (CompressionStream) SDK-ul comprimă ASINCRON, iar
+  // cererea pornea după comprimare, fără să reverifice acordul — deci o retragere
+  // în acea fereastră lăsa evenimentul să plece. Necomprimat, cererea pleacă în
+  // același pas cu `capture` (volumul nostru e mic, costul e neglijabil).
+  disable_compression: true,
   // Page view-uri: cel inițial + fiecare schimbare de cale din SPA
   // (`navigate()` din App face pushState; SDK-ul îl interceptează și
   // deduplică pe pathname, deci page view-ul inițial nu se dublează).

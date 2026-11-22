@@ -323,6 +323,7 @@ const EXPECTED_PRIVACY: Record<string, unknown> = {
   opt_out_persistence_by_default: true,
   respect_dnt: true,
   request_batching: false,
+  disable_compression: true,
   capture_pageview: 'history_change',
   capture_pageleave: true,
   disable_capture_url_hashes: true,
@@ -1211,6 +1212,8 @@ describe('analytics — coada, retragerea și celelalte tab-uri', () => {
     await startAnonymousCapture()
     // Fără loturi: niciun eveniment capturat înainte nu mai așteaptă în SDK.
     expect(initConfig().request_batching).toBe(false)
+    // Fără comprimare asincronă: cererea nu mai poate porni DUPĂ retragere.
+    expect(initConfig().disable_compression).toBe(true)
     const pageview = () => a.minimizeCaptureResult(ev('$pageview', { $pathname: '/pricing' }))
     expect(pageview()).not.toBeNull()
     announce(false)

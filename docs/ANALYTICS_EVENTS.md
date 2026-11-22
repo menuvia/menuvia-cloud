@@ -26,7 +26,9 @@ confirmat acțiunea și în tabel — altfel CI-ul pică.
   `posthog-js` se importă dinamic abia la acord. Fără loturi (`request_batching:
   false`, AN3): fiecare eveniment pleacă în momentul capturii, deci după o
   retragere nu mai rămâne în SDK niciun lot care să plece la timer sau la
-  închiderea paginii (AN28); `before_send` aruncă oricum orice eveniment cât
+  închiderea paginii (AN28); fără comprimare (`disable_compression: true`, AN3):
+  gzip-ul asincron al SDK-ului pornea cererea abia după comprimare, fără să
+  reverifice acordul; `before_send` aruncă oricum orice eveniment cât
   captura nu e pornită de modul. Revocarea face `reset(true)` și apoi
   `opt_out_capturing()`, în ordinea asta (testul AN8 explică de ce), ori de câte
   ori instanța TRĂIEȘTE în pagină, nu doar cu captura pornită aici (un `doInit`
@@ -360,8 +362,10 @@ componenta unică de upsell), `support_link_clicked` (un click, nu un rezultat),
   parte din urmele șterse la retragere; politica de cookies îl listează în 04 §3.2
   (PostHog), nu printre cele strict necesare. Un acord dat abia la întoarcere nu
   numără abonamentul (marcajul lipsește).
-- O cerere care a EȘUAT în rețea înainte de retragere stă în coada de reîncercare
-  a SDK-ului (RetryQueue), care nu reverifică acordul.
+- O cerere PORNITĂ înainte de retragere care eșuează (înainte sau după retragere)
+  intră în coada de reîncercare a SDK-ului (RetryQueue), care o retrimite fără să
+  reverifice acordul; golirea cozii cere API intern al SDK-ului. Fereastra e doar a
+  cererilor deja pornite: nimic capturat după retragere nu mai trece de `before_send`.
 - O salvare nouă a acordului în ALT tab, chiar fără retragere, schimbă identitatea
   SDK a acestui tab (fail-closed, deliberat: tab-ul nu poate deosebi o salvare
   simplă de o retragere urmată de reacordare).
