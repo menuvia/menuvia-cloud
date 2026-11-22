@@ -36,6 +36,10 @@
 //        care vede ecranul în franceză își poate salva franceza; un cont deja
 //        pe franceză, pe ecranul în franceză, nu face nicio cerere. Mutația
 //        care pică: garda veche `raw === lang`.
+//   UC11 limba salvată intră în profilul din MEMORIE înaintea reîncărcării
+//        (`applyProfileLanguage`): dacă `refreshProfile` pică, ecranul rămâne
+//        pe alegere (recenzia CodeRabbit pe #388). Mutația care pică: apelul
+//        scos sau mutat după `refreshProfile`.
 import { Suspense } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -87,6 +91,9 @@ vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({
     user: { id: 'u1' },
     profile: { ui_language: h.profileLang },
+    applyProfileLanguage: (l: string) => {
+      h.calls.push(`apply:${l}`)
+    },
     refreshProfile: async () => {
       h.calls.push('refreshProfile')
       h.storedAtRefresh.push(window.localStorage.getItem('menuvia_ui_lang'))
@@ -296,5 +303,14 @@ describe('UiLanguageCard — limba interfeței', () => {
     render(tree)
     await userEvent.setup().click(await screen.findByRole('button', { name: 'pick' }))
     expect(h.calls).toEqual([])
+  })
+
+  it('UC11: limba intră în profilul din memorie înaintea reîncărcării', async () => {
+    renderCard('ro', ALL)
+    await userEvent.setup().selectOptions(select(), 'de')
+    await waitFor(() => expect(h.calls).toContain('refreshProfile'))
+    const apply = h.calls.indexOf('apply:de')
+    expect(apply).toBeGreaterThan(-1)
+    expect(apply).toBeLessThan(h.calls.indexOf('refreshProfile'))
   })
 })

@@ -55,6 +55,9 @@ export function ConfirmRoot() {
   // confirmare (autoFocus), deci „Enter = confirmă" rămâne valabil cât timp
   // utilizatorul nu a mutat focusul.
   if (!state.open || typeof document === 'undefined') return null
+  // Cu o limbă declarată de apelant, etichetele IMPLICITE (în limba cromului)
+  // își declară limba lor dacă diferă de a dialogului.
+  const defaultLabelLang = state.lang ? (state.lang !== lang ? lang : undefined) : fallback
 
   return createPortal(
     <div className="confirm-backdrop" onClick={() => close(false)} role="presentation">
@@ -63,6 +66,7 @@ export function ConfirmRoot() {
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
+        lang={state.lang}
         aria-labelledby="confirm-title"
         aria-describedby={state.description ? 'confirm-desc' : undefined}
       >
@@ -77,14 +81,14 @@ export function ConfirmRoot() {
         )}
         <div className="confirm-dialog__actions">
           <Button variant="ghost" onClick={() => close(false)}>
-            {state.cancelLabel ?? <span lang={fallback}>{chromeT(lang, 'confirm_cancel')}</span>}
+            {state.cancelLabel ?? <span lang={defaultLabelLang}>{chromeT(lang, 'confirm_cancel')}</span>}
           </Button>
           <Button
             variant={state.destructive ? 'danger' : 'primary'}
             onClick={() => close(true)}
             autoFocus
           >
-            {state.confirmLabel ?? <span lang={fallback}>{chromeT(lang, 'confirm_ok')}</span>}
+            {state.confirmLabel ?? <span lang={defaultLabelLang}>{chromeT(lang, 'confirm_ok')}</span>}
           </Button>
         </div>
       </div>

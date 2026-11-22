@@ -119,7 +119,7 @@ describe('slug-ul mesei', () => {
       expect(bulkTableSlug(n)).toBe(`masa-${n}`)
       expect(bulkTableNumber(bulkTableSlug(n))).toBe(n)
     }
-    for (const s of ['masa-1a', 'masa-', '', null, undefined, 'Masa-3', 'tavolo-1', 'table-', 'tisch-x'])
+    for (const s of ['masa-1a', 'masa-', '', null, undefined, 'Masa-3', 'stol-1', 'table-', 'tisch-x'])
       expect(bulkTableNumber(s)).toBeNull()
     for (const n of [1, 7, 80]) expect(bulkTableName(n)).toBe(`Masa ${n}`)
     const tm = read('src/components/TablesManager.tsx')
@@ -139,10 +139,13 @@ describe('slug-ul mesei', () => {
     expect(bulkTableNumber('tisch-12')).toBe(12)
     // Seria localului: cea mai folosită; egalitate → masa, table, tisch.
     expect(bulkTableSeries(['tisch-1', 'tisch-2', 'masa-3', 'bar'], 'ro')).toBe('tisch')
-    expect(bulkTableSeries(['table-1', 'tisch-1'], 'de')).toBe('table')
-    expect(bulkTableSeries(['masa-1', 'table-2'], 'en')).toBe('masa')
+    // Egalitate: seria limbii de bază, dacă e printre cele la egalitate.
+    expect(bulkTableSeries(['table-1', 'tisch-1'], 'de')).toBe('tisch')
+    expect(bulkTableSeries(['table-1', 'tisch-1'], 'ro')).toBe('table')
+    expect(bulkTableSeries(['masa-1', 'table-2'], 'en')).toBe('table')
+    expect(bulkTableSeries(['masa-1', 'table-2'], 'xx')).toBe('masa')
     // Fără mese numerotate: limba de bază (necunoscută → masa, ca înainte).
-    for (const [lang, series] of [['ro', 'masa'], ['en', 'table'], ['fr', 'table'], ['de', 'tisch'], ['it', 'masa'], [null, 'masa']] as const)
+    for (const [lang, series] of [['ro', 'masa'], ['en', 'table'], ['fr', 'table'], ['de', 'tisch'], ['it', 'tavolo'], ['hu', 'asztal'], ['es', 'mesa'], [null, 'masa']] as const)
       expect(bulkTableSeries(['terasa', null], lang), String(lang)).toBe(series)
     // Numele și slug-ul fiecărei serii = cele scrise de onboarding.
     const onboarding = { ro: onbRo, en: onbEn, fr: onbFr, de: onbDe } as const

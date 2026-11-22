@@ -31,6 +31,13 @@ interface AuthContextValue {
   loading: boolean
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
+  /**
+   * Limba tocmai SALVATĂ în cont, pusă imediat și în profilul din memorie
+   * (`useSetUiLanguage`): dacă reîncărcarea profilului de după salvare pică,
+   * ecranul rămâne în limba aleasă, nu revine pe cea veche (recenzia CodeRabbit
+   * pe #388). Opțional: mock-urile de test vechi nu îl au.
+   */
+  applyProfileLanguage?: (lang: string) => void
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -39,6 +46,7 @@ const AuthContext = createContext<AuthContextValue>({
   loading: true,
   signOut: async () => {},
   refreshProfile: async () => {},
+  applyProfileLanguage: () => {},
 })
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -163,9 +171,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshProfile = async () => {
     if (user) await loadProfile(user.id)
   }
+  const applyProfileLanguage = (lang: string) => {
+    setProfile((p) => (p && p.id === lastUserIdRef.current ? { ...p, ui_language: lang } : p))
+  }
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ user, profile, loading, signOut, refreshProfile, applyProfileLanguage }}>
       {children}
     </AuthContext.Provider>
   )

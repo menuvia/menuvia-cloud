@@ -11,6 +11,13 @@ export interface ConfirmOptions {
   cancelLabel?: string
   /** Pentru acțiuni distructive (șterge / anulează) — buton roșu. */
   destructive?: boolean
+  /**
+   * Limba textelor date de apelant (titlu, descriere, etichete explicite),
+   * când diferă de a paginii — ecranele fiscale rămân în română pe un panou în
+   * altă limbă (lib/fiscalScreens.ts). Se pune pe dialog: acesta e portalat în
+   * `document.body`, deci nu moștenește `lang` din ecranul care l-a deschis.
+   */
+  lang?: string
 }
 
 // State module-level partajat cu ConfirmRoot. Singura instanță vie a

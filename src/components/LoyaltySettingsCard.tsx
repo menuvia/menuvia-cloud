@@ -6,8 +6,8 @@
 // Limba (lotul L6b): textele vin din `settingsCards` (același chunk cu fila
 // Setări), „Reîncearcă” din `common`; erorile serverului prin
 // `describeStaffError` (în română exact `toUserMessage`). Recompensa
-// IMPLICITĂ rămâne românească: e o valoare a meniului (o vede oaspetele), nu
-// un text al personalului.
+// IMPLICITĂ e o valoare a meniului (o vede oaspetele), nu un text al
+// personalului: vine din limba de BAZĂ a meniului (`loyaltyDefaultReward`).
 import { useEffect, useId, useState, type CSSProperties } from 'react'
 import { D, PLAN_LABELS } from '../lib/constants'
 import { planTier } from '../lib/features'
