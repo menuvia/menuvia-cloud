@@ -36,6 +36,12 @@
 //        `toUserMessage` nu mai e chemat direct (doar prin
 //        `describeStaffError`). Mutația care pică: `useT(settingsCardsNs)`
 //        scos din SettingsTab, sau `message: st.t('sugg_msgPh')` la pornire.
+//   TW14 DATELE implicite văzute de oaspete (mesajul sugestiilor la coș,
+//        recompensa fidelizării) urmează limba de BAZĂ a meniului, nu a
+//        personalului: româna EXACT textul de dinainte, cele 7 limbi ale
+//        meniului au textul lor, o limbă necunoscută cade pe română, iar
+//        LoyaltySettingsCard pornește din `loyaltyDefaultReward(baseLang)`.
+//        Mutația care pică: tabelul cu româna pe toate limbile.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
@@ -53,12 +59,15 @@ import {
   ACCENT_KEYS,
   AMENITY_KEYS,
   CHECKOUT_SUGGESTION_DEFAULT_MESSAGE,
+  LOYALTY_DEFAULT_REWARD,
   THEME_KEYS,
   WEEK_DAY_KEYS,
   WEEK_DAY_LABELS,
   accentName,
   amenityLabel,
+  checkoutSuggestionDefaultMessage,
   countryLabel,
+  loyaltyDefaultReward,
   themeDescription,
   themeName,
   weekDayLabel,
@@ -67,6 +76,7 @@ import { AMENITIES } from '../constants'
 import { THEMES } from '../themes'
 import { ACCENT_SWATCHES } from '../accentPalette'
 import { COUNTRIES } from '../countries'
+import { MENU_LANGS } from '../i18nMenu'
 
 const STATES = [true, false, null] as const
 const FLIPBOOK = [true, false] as const
@@ -233,12 +243,44 @@ describe('precondiția L4b/L4c (Setări)', () => {
       expect(lib, f).toContain("import type settingsRo from '../i18n/ns/settings/ro'")
       expect(lib, f).not.toMatch(/^import (?!type)[^\n]*i18n\/ns\//m)
     }
-    // Mesajul IMPLICIT salvat la pornirea sugestiilor e o dată a meniului.
+    // Mesajul IMPLICIT salvat la pornirea sugestiilor e o dată a meniului: în
+    // limba de BAZĂ a meniului (româna = textul de dinainte), nu a personalului.
     expect(CHECKOUT_SUGGESTION_DEFAULT_MESSAGE).toBe('🍰 Înainte să trimiți... ai vrea ceva în plus?')
-    expect(src).toContain('message: CHECKOUT_SUGGESTION_DEFAULT_MESSAGE,')
+    expect(src).toContain('message: checkoutSuggestionDefaultMessage(menuBaseLang(form.language)),')
     expect(src).not.toMatch(/message: st\.t\(/)
     // Erorile trec doar prin describeStaffError (în română = toUserMessage).
     expect(src).not.toMatch(/\btoUserMessage\(/)
     expect(src).toContain('describeStaffError(')
+  })
+})
+
+describe('TW14 datele implicite văzute de oaspete', () => {
+  it('TW14 urmează limba de bază a meniului; româna e textul de dinainte', () => {
+    expect(checkoutSuggestionDefaultMessage('ro')).toBe('🍰 Înainte să trimiți... ai vrea ceva în plus?')
+    expect(loyaltyDefaultReward('ro')).toBe('Un desert din partea casei')
+    expect(LOYALTY_DEFAULT_REWARD).toBe('Un desert din partea casei')
+    const ROMANIAN = /[ăâîșțĂÂÎȘȚ]|\b(desert|casei|trimiți|plus)\b/
+    const seenMsg = new Set<string>()
+    const seenReward = new Set<string>()
+    for (const { code } of MENU_LANGS) {
+      const msg = checkoutSuggestionDefaultMessage(code)
+      const reward = loyaltyDefaultReward(code)
+      expect(msg.startsWith('🍰 '), code).toBe(true)
+      seenMsg.add(msg)
+      seenReward.add(reward)
+      if (code !== 'ro') {
+        expect(msg, code).not.toMatch(ROMANIAN)
+        expect(reward, code).not.toMatch(ROMANIAN)
+      }
+    }
+    // Fiecare limbă a meniului are textul EI (nu româna copiată).
+    expect(seenMsg.size).toBe(MENU_LANGS.length)
+    expect(seenReward.size).toBe(MENU_LANGS.length)
+    // Necunoscută → română.
+    expect(checkoutSuggestionDefaultMessage('xx')).toBe(CHECKOUT_SUGGESTION_DEFAULT_MESSAGE)
+    expect(loyaltyDefaultReward('')).toBe(LOYALTY_DEFAULT_REWARD)
+    // Cardul pornește din limba de bază primită de la SettingsTab.
+    expect(read('src/components/LoyaltySettingsCard.tsx')).toContain('useState<string>(() => loyaltyDefaultReward(baseLang))')
+    expect(read('src/components/SettingsTab.tsx')).toContain('baseLang={menuBaseLang(form.language)}')
   })
 })

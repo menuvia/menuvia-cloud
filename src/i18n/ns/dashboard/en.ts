@@ -113,6 +113,7 @@ const en: Translation<typeof ro> = {
   unsaved_addLocationConfirm: 'Continue without saving',
 
   upgrade_title: 'Unlock more',
+  upgrade_productLimit: 'You’ve reached the product limit on the {plan} plan ({n} products).',
   upgrade_rowQrMenu: 'QR menu',
   upgrade_rowProducts: 'Products',
   upgrade_rowTables: 'Tables + QR',

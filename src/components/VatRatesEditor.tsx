@@ -7,6 +7,7 @@ import { useToast } from './ui/useToast'
 import { fetchVatRates, updateVatRate } from '../lib/vat'
 import type { VatRate } from '../lib/vat'
 import { confirm as confirmDialog } from './ui/confirm'
+import { FISCAL_CANCEL_LABEL } from '../lib/fiscalScreens'
 import { VAT_PRESETS, applyVatPreset, describeVatPresetError } from '../lib/quickSetup'
 import { toUserMessage } from '../lib/userMessages'
 
@@ -116,6 +117,7 @@ export default function VatRatesEditor({ restaurantId }: Props) {
         `Grupele primesc cotele din Legea 141/2025 (${LEGAL_RATES_TEXT}) și etichetele ` +
         'implicite. Produsele își păstrează grupa, iar maparea pe casa de marcat rămâne neatinsă.',
       confirmLabel: 'Aplică cotele legale',
+      cancelLabel: FISCAL_CANCEL_LABEL,
     })
     if (!ok) return
     setApplyingPreset(true)

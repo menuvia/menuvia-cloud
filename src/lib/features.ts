@@ -251,12 +251,15 @@ export const PLAN_NAMES: Record<string, string> = Object.fromEntries(
   Object.entries(PLAN_LABELS).map(([plan, label]) => [plan, (PLAN_EMOJI[plan] ?? '') + label]),
 )
 
-// Mesajul de limită de produse, pe planul REAL al restaurantului. Înainte
-// DashboardPage scria „planul Gratuit (15 produse)" hardcodat și pe starter
-// (300) — o limită și un nume de plan pe care clientul plătitor nu le avea.
-// Numele vine din PLAN_LABELS (sursa unică), limita din plan_limits.
-export function productLimitReason(plan: string, maxProducts: number): string {
-  const name = PLAN_LABELS[plan] ?? plan
-  return `Ai atins limita de produse pe planul ${name} (${maxProducts.toLocaleString('ro-RO')} produse).`
+// Datele mesajului de limită de produse, pe planul REAL al restaurantului.
+// Înainte DashboardPage scria „planul Gratuit (15 produse)" hardcodat și pe
+// starter (300) — o limită și un nume de plan pe care clientul plătitor nu le
+// avea. Numele vine din PLAN_LABELS (sursa unică — nume proprii, neschimbate
+// în nicio limbă), limita din plan_limits, formatată în limba ecranului
+// (`locale` = `staffLocale(lang)`). Textul e cheia `upgrade_productLimit` din
+// dicționarul `dashboard`, în limba personalului (precondiția B5 a activării:
+// înainte, singura frază românească dintr-un modal altfel tradus).
+export function productLimitVars(plan: string, maxProducts: number, locale: string): { plan: string; n: string } {
+  return { plan: PLAN_LABELS[plan] ?? plan, n: maxProducts.toLocaleString(locale) }
 }
 

@@ -7,33 +7,31 @@
 import { useAuth } from '../contexts/AuthContext'
 import { useCheckoutReturn, type CheckoutReturnStatus } from '../hooks/useCheckoutReturn'
 import { D } from '../lib/constants'
+import { chromeT, type ChromeKey } from '../i18n/chrome'
+import { useChrome } from '../i18n/useChromeLang'
 
 // Copy NEUTRU pe bani: pe Meniu Digital / Meniu + Comenzi primele 30 de zile
 // sunt GRATUITE (trial), deci la întoarcerea din Stripe nu s-a încasat nimic —
 // „Plata a fost primită" ar fi fost fals exact pe planurile cu trial. Testul
-// CB1 păzește clasa (orice formulare care pretinde o încasare).
-
-const COPY: Record<Exclude<CheckoutReturnStatus, 'idle'>, { title: string; body: string }> = {
-  activating: {
-    title: 'Activăm planul…',
-    body: 'Abonamentul a fost înregistrat — activăm planul în contul tău, durează câteva secunde.',
-  },
-  active: {
-    title: 'Planul tău e activ',
-    body: 'Mulțumim! Funcțiile noului plan sunt disponibile de acum.',
-  },
-  slow: {
-    title: 'Activarea durează mai mult decât de obicei',
-    body: 'Abonamentul a fost înregistrat, dar planul nu apare încă în cont. Reîncarcă pagina peste un minut; dacă nu se schimbă, scrie-ne.',
-  },
-  cancelled: {
-    title: 'Plata a fost anulată',
-    body: 'Nu s-a încasat nimic. Poți alege un plan oricând de pe această pagină.',
-  },
+// CB1 păzește clasa (orice formulare care pretinde o încasare), în toate
+// limbile.
+//
+// Textele stau în `chrome.ts` (micro-tabelul fără importuri al intrării), nu
+// într-un namespace din `src/i18n/ns/`: bannerul e montat global, deci în
+// graful intrării (SK4). Limba e a PAGINII (`<html lang>`): pe /dashboard o
+// pune `StaffDocumentLang` (limba personalului — Stripe Checkout urmează deja
+// `ui_lang`, deci omul se întoarce din plata în germană pe un banner în
+// germană), pe /pricing rămâne a site-ului.
+const COPY: Record<Exclude<CheckoutReturnStatus, 'idle'>, { title: ChromeKey; body: ChromeKey }> = {
+  activating: { title: 'checkout_activating_title', body: 'checkout_activating_body' },
+  active: { title: 'checkout_active_title', body: 'checkout_active_body' },
+  slow: { title: 'checkout_slow_title', body: 'checkout_slow_body' },
+  cancelled: { title: 'checkout_cancelled_title', body: 'checkout_cancelled_body' },
 }
 
 export default function CheckoutReturnBanner() {
   const { user, profile, refreshProfile } = useAuth()
+  const { lang, fallback } = useChrome()
   const { status, dismiss } = useCheckoutReturn({
     hasUser: user != null,
     plan: profile?.plan ?? null,
@@ -54,6 +52,7 @@ export default function CheckoutReturnBanner() {
       role="status"
       aria-live="polite"
       data-testid="checkout-return-banner"
+      lang={fallback}
       style={{
         position: 'fixed',
         top: 12,
@@ -75,15 +74,15 @@ export default function CheckoutReturnBanner() {
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ color: D.t1, fontWeight: 700, fontSize: '0.95rem' }}>{copy.title}</div>
+        <div style={{ color: D.t1, fontWeight: 700, fontSize: '0.95rem' }}>{chromeT(lang, copy.title)}</div>
         <div style={{ color: D.t2, fontSize: '0.85rem', marginTop: 2, lineHeight: 1.45 }}>
-          {copy.body}
+          {chromeT(lang, copy.body)}
         </div>
       </div>
       <button
         type="button"
         onClick={dismiss}
-        aria-label="Închide mesajul"
+        aria-label={chromeT(lang, 'checkout_close')}
         style={{
           background: 'transparent',
           border: 'none',

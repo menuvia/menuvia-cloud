@@ -9,6 +9,7 @@ import { fetchRestaurantFeatures, getLimit, getLimitDetailed, hasFeature } from 
 import { track } from '../lib/analytics'
 import { browserSite, publicBaseUrl, siteHost } from '../lib/domain'
 import { COUNTRIES, restaurantCountryPatch } from '../lib/countries'
+import type { MenuCurrency } from '../lib/currency'
 import { clearPendingCountry, storePendingCountry } from '../lib/pendingCountry'
 import { slugify } from '../lib/slug'
 import type { PlanIntentId } from '../lib/planIntent'
@@ -21,7 +22,6 @@ import {
   type SummaryKey,
   type TablesOutcome,
 } from '../lib/onboardingSummary'
-import { toUserMessage } from '../lib/userMessages'
 import { FunnelLangProvider } from '../i18n/UiLangContext'
 import { useT } from '../i18n/useT'
 import { commonNs } from '../i18n/ns/common'
@@ -277,7 +277,9 @@ function Shell({ children }: { children: React.ReactNode }) {
 function Step1Restaurant({
   onNext,
 }: {
-  onNext: (restaurantId: string, slug: string, name: string) => void
+  // `currency` = moneda propusă pentru țara aleasă (RON pe România): pasul 2
+  // o arată la eticheta prețului, ca un local francez să nu vadă „(RON)”.
+  onNext: (restaurantId: string, slug: string, name: string, currency: MenuCurrency) => void
 }) {
   const { t } = useT(onboardingNs)
   const tc = useT(commonNs)
@@ -356,7 +358,7 @@ function Step1Restaurant({
           console.warn('[onboarding] preset rezervari eșuat (continuăm):', presetErr)
         }
       }
-      onNext(created.restaurant_id, created.restaurant_slug, name.trim())
+      onNext(created.restaurant_id, created.restaurant_slug, name.trim(), patch?.currency ?? 'RON')
     } catch (err) {
       // Mesajul brut e doar un SEMNAL (alocarea slug-ului), nu se afișează:
       // `create_restaurant` refuză cu text românesc (plafonul de locații), iar
@@ -475,14 +477,21 @@ function Step1Restaurant({
 // ═══════════════════════════════════════════════════════════════
 function Step2Menu({
   restaurantId,
+  currency = 'RON',
   onNext,
   onSkip,
 }: {
   restaurantId: string
+  /** Moneda localului (pasul 1); doar pentru eticheta prețului. */
+  currency?: MenuCurrency
   onNext: (outcome: MenuOutcome) => void
   onSkip: () => void
 }) {
-  const { t } = useT(onboardingNs)
+  const { t, lang } = useT(onboardingNs)
+  // Erorile salvării vin de la PostgREST/RLS: în română exact `toUserMessage`
+  // (`describeStaffError` o dă neschimbată), în altă limbă clasa erorii sau
+  // textul de rezervă — ca la pasul 1, nu mesajul brut al serverului.
+  const tc = useT(commonNs)
   // <string> explicit: fără el, tipurile React inferează LITERALUL din
   // `as const` („Feluri principale" | „Main Courses") → setCatName(e.target.value)
   // pică pe Netlify cu TS2345 (invizibil pe tsc-ul standalone — capcana din
@@ -565,7 +574,7 @@ function Step2Menu({
         .select('id')
         .single()
       if (catErr) {
-        setError(toUserMessage(catErr))
+        setError(describeStaffError(catErr, tc, { fallback: t('step2_saveFailed') }))
         setSaving(false)
         return
       }
@@ -583,7 +592,7 @@ function Step2Menu({
       display_order: 0,
     })
     if (prodErr) {
-      setError(toUserMessage(prodErr))
+      setError(describeStaffError(prodErr, tc, { fallback: t('step2_saveFailed') }))
       setSaving(false)
       return
     }
@@ -719,7 +728,10 @@ function Step2Menu({
         </div>
         <div>
           <label htmlFor="ob-prod-price" style={label}>
-            {t('step2_priceLabel')}
+            {t('step2_priceLabel', {
+              // Româna păstrează „lei” pe RON (textul de dinainte); altfel codul monedei.
+              currency: lang === 'ro' && currency === 'RON' ? 'lei' : currency,
+            })}
           </label>
           <input
             id="ob-prod-price"
@@ -1551,6 +1563,7 @@ interface OnboardingState {
   restaurantId: string | null
   slug: string | null
   name: string
+  currency: MenuCurrency
   // Rezultatele REALE ale pașilor 2 și 3 (ecranul final bifează după ele).
   menu: MenuOutcome
   tables: TablesOutcome
@@ -1573,6 +1586,7 @@ function OnboardingFlow({
     restaurantId: null,
     slug: null,
     name: '',
+    currency: 'RON',
     menu: { kind: 'skipped' },
     tables: { kind: 'skipped' },
   })
@@ -1589,9 +1603,9 @@ function OnboardingFlow({
   if (state.step === 1) {
     return (
       <Step1Restaurant
-        onNext={(restaurantId, slug, name) => {
+        onNext={(restaurantId, slug, name, currency) => {
           completeStep(1)
-          setState((s) => ({ ...s, step: 2, restaurantId, slug, name }))
+          setState((s) => ({ ...s, step: 2, restaurantId, slug, name, currency }))
         }}
       />
     )
@@ -1601,6 +1615,7 @@ function OnboardingFlow({
     return (
       <Step2Menu
         restaurantId={state.restaurantId!}
+        currency={state.currency}
         onNext={(outcome) => {
           completeStep(2)
           setState((s) => ({ ...s, step: 3, menu: outcome }))

@@ -4,7 +4,7 @@ import { useFeatures } from '../hooks/useFeatures'
 import {
   countryScopedFeatures,
   hasFeature,
-  productLimitReason,
+  productLimitVars,
   surfaceTiers,
   type RestaurantFeatures,
 } from '../lib/features'
@@ -91,6 +91,12 @@ import { useT } from '../i18n/useT'
 import { dashboardNs } from '../i18n/ns/dashboard'
 import { commonNs } from '../i18n/ns/common'
 import { navGroupLabelKey, navLabelKey } from '../i18n/navLabels'
+import { staffLocale } from '../i18n/format'
+
+interface ProductLimitReason {
+  plan: string
+  max: number
+}
 
 // ── Upgrade Modal ─────────────────────────────────────────────
 // Shown when user hits a plan limit — stays in dashboard context
@@ -99,17 +105,18 @@ function UpgradeModal({
   onClose,
   onGoToPricing,
 }: {
-  // Textul limitei atinse (productLimitReason). Singurul deschizător al
-  // modalului e limita de produse — varianta „informativă" (banda planului
-  // gratuit, planUsageReason) a ieșit în lotul P.
-  reason: string
+  // Limita atinsă: planul REAL + maximul lui (productLimitVars); fraza se
+  // compune aici, în limba personalului. Singurul deschizător al modalului e
+  // limita de produse — varianta „informativă" (banda planului gratuit,
+  // planUsageReason) a ieșit în lotul P.
+  reason: ProductLimitReason
   onClose: () => void
   onGoToPricing: () => void
 }) {
   // Comparația comercială citește limitele DIRECT din plans.ts ca să nu
   // diverge de pagina de pricing. Numele coloanelor = numele comerciale.
   useBodyScrollLock(true)
-  const { t } = useT(dashboardNs)
+  const { t, lang } = useT(dashboardNs)
   const starter = getCommercialPlan('starter')
   const growth = getCommercialPlan('growth')
   const COMPARE = [
@@ -206,7 +213,7 @@ function UpgradeModal({
               padding: '8px 12px',
             }}
           >
-            {reason}
+            {t('upgrade_productLimit', productLimitVars(reason.plan, reason.max, staffLocale(lang)))}
           </div>
         </div>
 
@@ -726,7 +733,7 @@ export default function DashboardPage({
     setTab('home')
   }
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [upgradeReason, setUpgradeReason] = useState<string | null>(null)
+  const [upgradeReason, setUpgradeReason] = useState<ProductLimitReason | null>(null)
   const [isPlatAdmin, setIsPlatAdmin] = useState(false)
   const isMobile = useIsMobile()
 
@@ -1814,7 +1821,7 @@ export default function DashboardPage({
                         void features.reload()
                         return
                       }
-                      setUpgradeReason(productLimitReason(plan, planLimits.max_products))
+                      setUpgradeReason({ plan, max: planLimits.max_products })
                     }}
                     userId={user?.id || ''}
                     menuLanguages={restaurant.menu_languages ?? []}
@@ -1902,6 +1909,7 @@ export default function DashboardPage({
                       })
                     }
                     timeZone={localTz}
+                    baseLang={menuBaseLang(restaurant.language)}
                   />
                 </Suspense>
               )}
@@ -1930,12 +1938,18 @@ export default function DashboardPage({
               )}
               {tab === 'tva' && hasFeature(scopedFeatures, 'reports_vat') && (
                 <Suspense fallback={<InlineSpinner label={t('loading_vatReport')} />}>
-                  <VatReportTab restaurantId={restaurant.id} />
+                  {/* Ecran fiscal: în română prin lege (lib/fiscalScreens.ts). */}
+                  <div lang="ro">
+                    <VatReportTab restaurantId={restaurant.id} />
+                  </div>
                 </Suspense>
               )}
               {tab === 'casa-tura' && hasFeature(scopedFeatures, 'shifts') && (
                 <Suspense fallback={<InlineSpinner label={t('loading_generic')} />}>
-                  <CashRegisterTab restaurantId={restaurant.id} />
+                  {/* Ecran fiscal: în română prin lege (lib/fiscalScreens.ts). */}
+                  <div lang="ro">
+                    <CashRegisterTab restaurantId={restaurant.id} />
+                  </div>
                 </Suspense>
               )}
               {tab === 'happy-hour' && (
@@ -1945,7 +1959,10 @@ export default function DashboardPage({
               )}
               {tab === 'invoices' && fiscalSurface && (
                 <Suspense fallback={<InlineSpinner label={t('loading_invoices')} />}>
-                  <InvoicesTab restaurantId={restaurant.id} restaurantName={restaurant.name} />
+                  {/* Ecran fiscal: în română prin lege (lib/fiscalScreens.ts). */}
+                  <div lang="ro">
+                    <InvoicesTab restaurantId={restaurant.id} restaurantName={restaurant.name} />
+                  </div>
                 </Suspense>
               )}
               {tab === 'reservations' &&
@@ -1984,7 +2001,10 @@ export default function DashboardPage({
                   adaugă secțiunile fiscale. Fila e minTier 2 în NAV_GROUPS. */}
               {tab === 'casa-marcat' && (
                 <Suspense fallback={<InlineSpinner label={t('loading_generic')} />}>
-                  <BridgeTab restaurantId={restaurant.id} fiscalEnabled={fiscalSurface} />
+                  {/* Ecran fiscal: în română prin lege (lib/fiscalScreens.ts). */}
+                  <div lang="ro">
+                    <BridgeTab restaurantId={restaurant.id} fiscalEnabled={fiscalSurface} />
+                  </div>
                 </Suspense>
               )}
               {settingsSection != null && (
@@ -2062,7 +2082,12 @@ export default function DashboardPage({
             e configurat — componenta gestionează singură erorile/cota). */}
         {restaurant && canUseAi && (
           <Suspense fallback={null}>
-            <AiChatbot restaurantId={restaurant.id} restaurantName={restaurant.name} />
+            <AiChatbot
+              restaurantId={restaurant.id}
+              restaurantName={restaurant.name}
+              menuLang={menuBaseLang(restaurant.language)}
+              currency={restaurant.currency}
+            />
           </Suspense>
         )}
 

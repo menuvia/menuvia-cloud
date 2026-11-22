@@ -104,6 +104,13 @@ export default function OnlinePaymentsCard({
     }
   }
 
+  // În afara României cardul NU se randează (precondiția activării limbilor):
+  // îl vedea un local pe Planul 3 (`planSurface.payments` e pe planul GENERAL),
+  // adică personal care, de regulă, nu citește româna, iar cardul e o suprafață
+  // de bani deliberat în română. Restricția e deja explicată, tradus, sub
+  // câmpul „Țara” din Setări → Restaurant (`country_descRo`).
+  if (eligibility === 'country') return null
+
   const connected = status?.connected === true
   const chargesReady = status?.charges_enabled === true
 
@@ -138,17 +145,8 @@ export default function OnlinePaymentsCard({
             color: D.t2,
           }}
         >
-          {eligibility === 'country' ? (
-            <>
-              Disponibil doar pentru restaurantele din România — plata online e legată de bonul
-              fiscal emis pe casa de marcat românească.
-            </>
-          ) : (
-            <>
-              Disponibil pe planul <strong style={{ color: D.gold }}>Fiscalizare</strong> — plata
-              online atinge banii și bonul fiscal, deci cere planul complet.
-            </>
-          )}
+          Disponibil pe planul <strong style={{ color: D.gold }}>Fiscalizare</strong> — plata
+          online atinge banii și bonul fiscal, deci cere planul complet.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

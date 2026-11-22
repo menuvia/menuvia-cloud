@@ -12,6 +12,11 @@
 //        `resolveFunnelLang` care trece `navigatorLangs` mai departe.
 //   FL3  FUNNEL_LANGS = româna + engleza + tot ce s-a activat pentru personal;
 //        franceza și germana NU, cât timp panoul nu le are.
+//   FL4  indiciul `?hl=` din linkul invitației (limba emailului, precondiția B2
+//        a activării): după `?lang=` și după cont, ÎNAINTEA stocării
+//        dispozitivului; o limbă inactivă se sare. Mutația care pică: indiciul
+//        pus după stocare (omul cu emailul în engleză ateriza pe un formular în
+//        română pe tableta localului).
 import { describe, it, expect } from 'vitest'
 import { resolveFunnelLang, resolveUiLang } from '../resolveLang'
 import { ENABLED_STAFF_LANGS, FUNNEL_LANGS, type StaffLang } from '../langs'
@@ -70,5 +75,18 @@ describe('resolveFunnelLang', () => {
       expect(FUNNEL_LANGS.includes(l)).toBe(ENABLED_STAFF_LANGS.includes(l))
       if (!ENABLED_STAFF_LANGS.includes(l)) expect(resolveFunnelLang({ urlLang: l, storedLang: l })).toBe('ro')
     }
+  })
+})
+
+describe('FL4 indiciul din linkul invitației', () => {
+  it('FL4 după URL și cont, înaintea stocării; inactiv → sărit', () => {
+    const all = (inp: Parameters<typeof resolveUiLang>[0]) => resolveUiLang({ ...inp, enabled: ALL })
+    expect(all({ hintLang: 'fr', storedLang: 'ro', siteLang: 'ro' })).toBe('fr')
+    expect(all({ profileLang: 'de', hintLang: 'fr', storedLang: 'ro' })).toBe('de')
+    expect(all({ urlLang: 'en', hintLang: 'fr' })).toBe('en')
+    expect(resolveUiLang({ hintLang: 'fr', storedLang: 'en', enabled: ['ro', 'en'] })).toBe('en')
+    // Funnel-ul de azi (ro + en): engleza din indiciu trece, peste stocarea română.
+    expect(resolveFunnelLang({ hintLang: 'en', storedLang: 'ro', siteLang: 'ro' })).toBe('en')
+    expect(resolveFunnelLang({ profileLang: 'ro', hintLang: 'en' })).toBe('ro')
   })
 })

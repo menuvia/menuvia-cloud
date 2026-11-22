@@ -24,6 +24,15 @@
 //        oricum în cont, fără alertă. Mutația care pică: try/catch scos.
 //   UC8  în germană: textele cardului din dicționar, numele limbilor rămân
 //        fiecare în limba lui.
+//   UC9  (activarea limbilor) după o salvare reușită: `?lang=` iese din adresă
+//        (restul parametrilor rămân), ruta se anunță (ROUTE_CHANGE_EVENT), iar
+//        limba intră și în `user_metadata.ui_lang` (șabloanele Supabase Auth).
+//        Pe eroare, nici adresa, nici metadata nu se ating. Mutațiile care
+//        pică: `dropUrlLang` / `syncAuthMetadata` scoase.
+//   UC10 „aceeași limbă” se judecă față de CONT: un cont fără limbă salvată
+//        care vede ecranul în franceză își poate salva franceza; un cont deja
+//        pe franceză, pe ecranul în franceză, nu face nicio cerere. Mutația
+//        care pică: garda veche `raw === lang`.
 import { Suspense } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -36,6 +45,8 @@ type UpdateResult = {
 
 const h = vi.hoisted(() => ({
   calls: [] as string[],
+  authCalls: [] as string[],
+  profileLang: null as string | null,
   result: { data: [{ id: 'u1' }], error: null } as UpdateResult,
   hold: null as Promise<void> | null,
   storedAtRefresh: [] as (string | null)[],
@@ -43,6 +54,12 @@ const h = vi.hoisted(() => ({
 
 vi.mock('../../lib/supabase', () => ({
   supabase: {
+    auth: {
+      updateUser: (p: unknown) => {
+        h.authCalls.push(JSON.stringify(p))
+        return Promise.resolve({ data: {}, error: null })
+      },
+    },
     from: (table: string) => ({
       update: (payload: unknown) => {
         h.calls.push(`update:${table}:${JSON.stringify(payload)}`)
@@ -66,6 +83,7 @@ vi.mock('../../lib/supabase', () => ({
 vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({
     user: { id: 'u1' },
+    profile: { ui_language: h.profileLang },
     refreshProfile: async () => {
       h.calls.push('refreshProfile')
       h.storedAtRefresh.push(window.localStorage.getItem('menuvia_ui_lang'))
@@ -74,6 +92,8 @@ vi.mock('../../contexts/AuthContext', () => ({
 }))
 
 import UiLanguageCard from '../UiLanguageCard'
+import { useSetUiLanguage } from '../../i18n/useSetUiLanguage'
+import { ROUTE_CHANGE_EVENT } from '../../lib/routeEvents'
 import { UiLangScope } from '../../i18n/UiLangContext'
 import { preloadNamespace } from '../../i18n/core'
 import { dashboardNs } from '../../i18n/ns/dashboard'
@@ -92,6 +112,8 @@ beforeAll(async () => {
 
 beforeEach(() => {
   h.calls = []
+  h.authCalls = []
+  h.profileLang = null
   h.result = { data: [{ id: 'u1' }], error: null }
   h.hold = null
   h.storedAtRefresh = []
@@ -213,5 +235,63 @@ describe('UiLanguageCard — limba interfeței', () => {
       NAMES,
     )
     expect(document.body.textContent ?? '').not.toMatch(/Limba interfeței|panoului/)
+  })
+
+  it('UC9: după salvare, `?lang=` iese din adresă, ruta se anunță, metadata primește limba', async () => {
+    window.history.replaceState(null, '', '/dashboard?lang=de&tab=billing')
+    const routes = vi.fn()
+    window.addEventListener(ROUTE_CHANGE_EVENT, routes)
+    try {
+      renderCard('ro', ALL)
+      await userEvent.setup().selectOptions(select(), 'en')
+      await waitFor(() => expect(h.calls).toContain('refreshProfile'))
+      expect(window.location.pathname).toBe('/dashboard')
+      expect(window.location.search).toBe('?tab=billing')
+      expect(routes).toHaveBeenCalled()
+      expect(h.authCalls).toEqual([JSON.stringify({ data: { ui_lang: 'en' } })])
+
+      // Pe eroare: adresa și metadata rămân neatinse.
+      window.history.replaceState(null, '', '/dashboard?lang=de')
+      h.authCalls = []
+      h.result = { data: null, error: { code: 'XX000', message: 'boom' } }
+      await userEvent.setup().selectOptions(select(), 'fr')
+      expect(await screen.findByRole('alert')).toBeInTheDocument()
+      expect(window.location.search).toBe('?lang=de')
+      expect(h.authCalls).toEqual([])
+    } finally {
+      window.removeEventListener(ROUTE_CHANGE_EVENT, routes)
+      window.history.replaceState(null, '', '/')
+    }
+  })
+
+  it('UC10: aceeași limbă se judecă față de cont, nu doar față de ecran', async () => {
+    function Pick({ lang }: { lang: StaffLang }) {
+      const s = useSetUiLanguage()
+      return (
+        <button type="button" onClick={() => void s.choose(lang)}>
+          pick
+        </button>
+      )
+    }
+    const tree = (
+      <UiLangScope lang="fr" enabled={ALL}>
+        <Suspense fallback={null}>
+          <Pick lang="fr" />
+        </Suspense>
+      </UiLangScope>
+    )
+    // Cont fără limbă salvată, ecran în franceză (browserul): franceza se salvează.
+    const first = render(tree)
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'pick' }))
+    await waitFor(() => expect(h.calls).toContain('refreshProfile'))
+    expect(h.calls[0]).toBe('update:profiles:{"ui_language":"fr"}')
+    first.unmount()
+
+    // Cont deja pe franceză, ecran în franceză: nicio cerere.
+    h.calls = []
+    h.profileLang = 'fr'
+    render(tree)
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'pick' }))
+    expect(h.calls).toEqual([])
   })
 })

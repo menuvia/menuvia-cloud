@@ -75,6 +75,19 @@ const RO = {
   pwa_install_body: 'Folosește aplicația direct de pe ecranul principal.',
   pwa_install_action: 'Instalează',
   pwa_close: 'Închide',
+  // Bannerul de întoarcere din Stripe (CheckoutReturnBanner, montat global).
+  // Copy NEUTRU pe bani: pe planurile cu trial nu s-a încasat nimic la
+  // întoarcere — CB1 păzește orice formulare care pretinde o încasare.
+  checkout_activating_title: 'Activăm planul…',
+  checkout_activating_body: 'Abonamentul a fost înregistrat — activăm planul în contul tău, durează câteva secunde.',
+  checkout_active_title: 'Planul tău e activ',
+  checkout_active_body: 'Mulțumim! Funcțiile noului plan sunt disponibile de acum.',
+  checkout_slow_title: 'Activarea durează mai mult decât de obicei',
+  checkout_slow_body:
+    'Abonamentul a fost înregistrat, dar planul nu apare încă în cont. Reîncarcă pagina peste un minut; dacă nu se schimbă, scrie-ne.',
+  checkout_cancelled_title: 'Plata a fost anulată',
+  checkout_cancelled_body: 'Nu s-a încasat nimic. Poți alege un plan oricând de pe această pagină.',
+  checkout_close: 'Închide mesajul',
 } as const
 
 export type ChromeKey = keyof typeof RO
@@ -127,6 +140,17 @@ export const CHROME_STRINGS: Readonly<Record<ChromeLang, ChromeTable>> = {
     pwa_install_body: 'Use the app straight from your home screen.',
     pwa_install_action: 'Install',
     pwa_close: 'Close',
+    checkout_activating_title: 'Activating your plan…',
+    checkout_activating_body:
+      'Your subscription has been recorded — we’re activating the plan on your account, it takes a few seconds.',
+    checkout_active_title: 'Your plan is active',
+    checkout_active_body: 'Thank you! The new plan’s features are available now.',
+    checkout_slow_title: 'Activation is taking longer than usual',
+    checkout_slow_body:
+      'Your subscription has been recorded, but the plan doesn’t show on your account yet. Reload the page in a minute; if nothing changes, contact us.',
+    checkout_cancelled_title: 'The payment was cancelled',
+    checkout_cancelled_body: 'Nothing was charged. You can choose a plan any time from this page.',
+    checkout_close: 'Close message',
   },
   fr: {
     loading: 'Chargement…',
@@ -172,6 +196,17 @@ export const CHROME_STRINGS: Readonly<Record<ChromeLang, ChromeTable>> = {
     pwa_install_body: 'Utilisez l’application directement depuis l’écran d’accueil.',
     pwa_install_action: 'Installer',
     pwa_close: 'Fermer',
+    checkout_activating_title: 'Activation de votre formule…',
+    checkout_activating_body:
+      'Votre abonnement a été enregistré — nous activons la formule sur votre compte, cela prend quelques secondes.',
+    checkout_active_title: 'Votre formule est active',
+    checkout_active_body: 'Merci ! Les fonctionnalités de la nouvelle formule sont disponibles dès maintenant.',
+    checkout_slow_title: 'L’activation prend plus de temps que d’habitude',
+    checkout_slow_body:
+      'Votre abonnement a été enregistré, mais la formule n’apparaît pas encore sur votre compte. Rechargez la page dans une minute ; si rien ne change, contactez-nous.',
+    checkout_cancelled_title: 'Le paiement a été annulé',
+    checkout_cancelled_body: 'Rien n’a été prélevé. Vous pouvez choisir une formule à tout moment depuis cette page.',
+    checkout_close: 'Fermer le message',
   },
   de: {
     loading: 'Wird geladen…',
@@ -218,6 +253,17 @@ export const CHROME_STRINGS: Readonly<Record<ChromeLang, ChromeTable>> = {
     pwa_install_body: 'Nutzen Sie die App direkt vom Startbildschirm aus.',
     pwa_install_action: 'Installieren',
     pwa_close: 'Schließen',
+    checkout_activating_title: 'Ihr Tarif wird aktiviert…',
+    checkout_activating_body:
+      'Ihr Abonnement wurde erfasst — wir aktivieren den Tarif in Ihrem Konto, das dauert einige Sekunden.',
+    checkout_active_title: 'Ihr Tarif ist aktiv',
+    checkout_active_body: 'Vielen Dank! Die Funktionen des neuen Tarifs stehen ab sofort zur Verfügung.',
+    checkout_slow_title: 'Die Aktivierung dauert länger als üblich',
+    checkout_slow_body:
+      'Ihr Abonnement wurde erfasst, aber der Tarif erscheint noch nicht in Ihrem Konto. Laden Sie die Seite in einer Minute neu; wenn sich nichts ändert, schreiben Sie uns.',
+    checkout_cancelled_title: 'Die Zahlung wurde abgebrochen',
+    checkout_cancelled_body: 'Es wurde nichts abgebucht. Sie können jederzeit auf dieser Seite einen Tarif wählen.',
+    checkout_close: 'Meldung schließen',
   },
 }
 

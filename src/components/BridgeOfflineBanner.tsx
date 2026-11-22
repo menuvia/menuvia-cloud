@@ -5,6 +5,8 @@
 import { D } from '../lib/constants'
 import { Icon } from './ui/Icon'
 import type { BridgeConnectionStatus } from '../lib/bridgeStatus'
+import { useT } from '../i18n/useT'
+import { commonNs } from '../i18n/ns/common'
 
 /**
  * Avertizare operațională pentru planurile cu bon fiscal: comenzile se
@@ -28,14 +30,15 @@ export function BridgeOfflineBanner({
   /** Deschide tab-ul „Casă de marcat"; lipsă pe ecranele fără navigație (Ospătar). */
   onOpenBridge?: () => void
 }) {
+  // Sus, înaintea return-ului timpuriu (regula hook-urilor). Textul e în limba
+  // PERSONALULUI (precondiția B8 a activării limbilor): e o alertă operațională
+  // pe ecranul ospătarului, nu un document fiscal; fila Casă de marcat spre
+  // care trimite butonul rămâne în română, ca toate ecranele fiscale.
+  const { t } = useT(commonNs)
   if (status == null || status.connected) return null
 
-  const titlu = status.registered
-    ? 'Fiscalizare activă, casa nu e conectată'
-    : 'Fiscalizare activă, nicio casă înregistrată'
-  const detaliu = status.registered
-    ? 'Bridge-ul nu a mai răspuns de câteva minute. Comenzile se încasează normal, dar NU se emite niciun bon fiscal până revine.'
-    : 'Planul include bon fiscal, dar nu există niciun dispozitiv bridge înregistrat. Până îl conectezi, comenzile plătite rămân fără bon.'
+  const titlu = status.registered ? t('bridgeOff_titleDown') : t('bridgeOff_titleNone')
+  const detaliu = status.registered ? t('bridgeOff_detailDown') : t('bridgeOff_detailNone')
 
   return (
     <div
@@ -83,7 +86,7 @@ export function BridgeOfflineBanner({
             whiteSpace: 'nowrap',
           }}
         >
-          Deschide Casa de marcat
+          {t('bridgeOff_open')}
         </button>
       )}
     </div>

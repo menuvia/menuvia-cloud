@@ -56,10 +56,44 @@ export function effectiveLang<D extends Dict>(ns: Namespace<D>, lang: StaffLang)
   return ns.loaders.en ? 'en' : 'ro'
 }
 
+/** Reîncercările în fundal după o încărcare eșuată (ms de la eșec). */
+export const NAMESPACE_RETRY_DELAYS_MS = [5_000, 30_000, 120_000] as const
+
+/**
+ * După un eșec, dicționarul se reîncearcă în FUNDAL (la revenirea rețelei sau
+ * după câteva secunde, de cel mult trei ori), fără să suspende nimic: cache-ul
+ * ține deja româna, deci ecranul rămâne randat, iar următoarea randare (o
+ * comandă nouă, o navigare) îl preia în limba cerută. Fără asta, o singură
+ * cădere de rețea la deschiderea Bucătăriei lăsa ecranul în română până la
+ * reîncărcarea paginii. Gărzile pe `window` contează: un temporizator care se
+ * declanșează după demontarea mediului de test (jsdom) nu are voie să arunce.
+ */
+function scheduleRetry<D extends Dict>(ns: Namespace<D>, eff: LoadedLang, loader: Loader<D>, attempt: number): void {
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return
+  if (attempt >= NAMESPACE_RETRY_DELAYS_MS.length) return
+  let started = false
+  const run = (): void => {
+    if (started || typeof window === 'undefined') return
+    started = true
+    window.removeEventListener('online', run)
+    clearTimeout(timer)
+    loader().then(
+      (m) => {
+        // Doar dacă locul ține încă rezerva românească (nimeni n-a pus altceva).
+        if (ns.cache.get(eff) === (ns.ro as unknown)) ns.cache.set(eff, m.default)
+      },
+      () => scheduleRetry(ns, eff, loader, attempt + 1),
+    )
+  }
+  const timer = setTimeout(run, NAMESPACE_RETRY_DELAYS_MS[attempt])
+  window.addEventListener('online', run)
+}
+
 /**
  * Dicționarul gata de folosit, sau promisiunea care îl încarcă (pentru
  * Suspense). O încărcare eșuată (chunk indisponibil, rețea) cade pe română:
- * un ecran în limba sursă e mai bun decât unul agățat pe spinner.
+ * un ecran în limba sursă e mai bun decât unul agățat pe spinner. Încărcarea
+ * se reîncearcă apoi în fundal (`scheduleRetry`).
  */
 export function readNamespace<D extends Dict>(
   ns: Namespace<D>,
@@ -81,6 +115,7 @@ export function readNamespace<D extends Dict>(
     (err: unknown) => {
       console.warn(`[i18n] namespace „${ns.name}” (${eff}) nu s-a încărcat; rămâne în română`, err)
       ns.cache.set(eff, ns.ro as unknown as Translation<D>)
+      scheduleRetry(ns, eff, loader, 0)
     },
   )
   ns.cache.set(eff, p)

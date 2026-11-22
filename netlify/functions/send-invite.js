@@ -20,7 +20,12 @@
 // limbile ACTIVE pentru personal. Nimic din body (anti-relay, SEC-06). Linkul
 // NU primește `?lang=`: pe pagina de acceptare `?lang=` devine preferința
 // DISPOZITIVULUI invitatului, iar un patron englez ar muta pe engleză
-// telefonul unui ospătar român; pagina își rezolvă singură limba.
+// telefonul unui ospătar român. Primește în schimb, DOAR în afara românei,
+// `?hl=<limba emailului>` — un INDICIU nepersistent (precondiția B2 a
+// activării limbilor): pagina îl folosește după limba contului și înaintea
+// preferinței dispozitivului, fără să-l scrie nicăieri, ca omul care a primit
+// emailul în franceză să nu aterizeze pe un formular în română. Pe română
+// linkul e cel de dinainte (INV9).
 
 const { createClient } = require('@supabase/supabase-js')
 const { siteAppUrl, FROM_HELLO, LEGACY_NETLIFY_URL } = require('./lib/appUrl')
@@ -255,7 +260,7 @@ exports.handler = async (event) => {
   // cheia + fallback-ul de dinainte, EXACT (VITE_APP_URL → menuvia.netlify.app).
   // Linkul NU pleacă niciodată spre domeniul .com (nu ne aparține — D3).
   const appUrl   = siteAppUrl(site, { keys: ['VITE_APP_URL'], fallback: LEGACY_NETLIFY_URL })
-  const acceptUrl = `${appUrl}/invite/${invite.token}`
+  const acceptUrl = `${appUrl}/invite/${invite.token}${emailLang !== 'ro' ? `?hl=${emailLang}` : ''}`
   const rendered = renderInviteEmail(emailLang, { restaurantName, invitedByName, roleKey: role, acceptUrl })
 
   // Send email via Resend
