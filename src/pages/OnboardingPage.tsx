@@ -527,7 +527,7 @@ function Step2Menu({
   const handleImportClosed = async () => {
     setAiImportOpen(false)
     if (importedCountRef.current > 0) {
-      track('product_imported_ai', { count: importedCountRef.current, source: 'onboarding' })
+      track('product_imported_ai', { count: importedCountRef.current, ui_source: 'onboarding' })
       await markOnboarding(restaurantId, { menu_created: true })
       onNext({ kind: 'products', count: importedCountRef.current })
     }
@@ -588,7 +588,7 @@ function Step2Menu({
       return
     }
     // Telemetria funelului (audit aug 2026) — no-op fără consimțământ, zero PII.
-    track('product_created', { source: 'onboarding' })
+    track('product_created', { ui_source: 'onboarding' })
 
     // Mark onboarding
     await markOnboarding(restaurantId, { menu_created: true })

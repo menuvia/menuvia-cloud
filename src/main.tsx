@@ -2,7 +2,11 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import { hasConsent } from './lib/cookieConsent'
-import { initAnalytics } from './lib/analytics'
+import {
+  initAnalytics,
+  installAnalyticsConsentListener,
+  rememberEntryCampaign,
+} from './lib/analytics'
 import { captureReferralFromUrl } from './lib/affiliate'
 import { scrubTokenPathsDeep } from './lib/telemetryScrub'
 // Doar valori + un `import type` din @sentry/react (șters la compilare): nu trage
@@ -14,6 +18,12 @@ import { chromeT, documentChromeLang, type ChromeLang } from './i18n/chrome'
 import './styles/tokens.css'
 import './styles/global.css'
 import './styles/animations.css'
+
+// Parametrii `utm_*` ai paginii de INTRARE, în memorie (lib/analytics.ts):
+// `navigate()` din App păstrează doar calea, deci fără instantaneul ăsta o
+// navigare de dinaintea acordului ștergea canalul de achiziție. Nu pleacă
+// nicăieri fără consimțământ.
+rememberEntryCampaign(window.location.search)
 
 // Captură referral DE AFILIERE înainte de orice randare: `/r/:cod` (rescris la
 // `/`) sau `?ref=cod` pe orice rută (destinația se păstrează). Trebuie să ruleze
@@ -110,16 +120,25 @@ const scheduleIdle: IdleScheduler =
 if (hasConsent('performance')) {
   scheduleIdle(() => {
     void initSentry()
-    initAnalytics()
   })
 }
+// Ascultătorul de consimțământ al analytics se instalează SINCRON (nu descarcă
+// nimic): un acord sau o revocare dată înaintea idle-ului trebuie auzită —
+// un ascultător adăugat în timpul dispecerizării nu primește evenimentul
+// curent. Acordul și revocarea le tratează integral lib/analytics.ts (inclusiv
+// legarea acordului de contul logat). Înainte ascultătorul se instala doar pe
+// ramura fără acord, deci cine accepta la o vizită și debifa „Performanță” la
+// următoarea rămânea urmărit până la reîncărcare.
+installAnalyticsConsentListener()
+// Pornirea PostHog cu acord DEJA dat: la idle (și abia după ce AuthContext a
+// răspuns — lib/analytics.ts așteaptă primul `setAnalyticsUser`).
+scheduleIdle(initAnalytics)
 
-// Re-inițializare când utilizatorul schimbă consent — fără defer, e răspuns
-// direct la acțiunea utilizatorului
+// Re-inițializare Sentry când utilizatorul schimbă consent — fără defer, e
+// răspuns direct la acțiunea utilizatorului.
 window.addEventListener('consent-updated', () => {
   if (hasConsent('performance')) {
     void initSentry()
-    initAnalytics()
   }
 })
 

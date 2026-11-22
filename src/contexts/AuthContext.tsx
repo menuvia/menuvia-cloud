@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
+import { setAnalyticsAuthUnresolved, setAnalyticsUser } from '../lib/analytics'
 
 export interface Profile {
   id: string
@@ -88,19 +89,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     supabase.auth
       .getSession()
-      .then(({ data: { session: s } }) => {
+      .then(({ data: { session: s }, error }) => {
         setUser(s?.user ?? null)
         lastUserIdRef.current = s?.user?.id ?? null
+        // Identitatea de analytics = DOAR id-ul intern al contului (pseudonim);
+        // fără consimțământ „Performanță” nu ajunge nicăieri (lib/analytics.ts).
+        // „Nimeni logat” se anunță DOAR pe un răspuns reușit fără sesiune: un
+        // refresh de token căzut (rețea) întoarce `session: null` + `error`, iar
+        // un `null` publicat atunci ar face reset() și un page view anonim pentru
+        // contul încă logat. Pe eroare analytics rămâne nerezolvat (nu pornește)
+        // până la evenimentul de autentificare următor, dar află că ecranul arată
+        // „nimeni logat”: ce se emite de acum nu e preluat de contul care intră
+        // apoi (alt om, pe aceeași tabletă).
+        if (s?.user) setAnalyticsUser(s.user.id)
+        else if (!error) setAnalyticsUser(null)
+        else setAnalyticsAuthUnresolved()
         if (s?.user) void loadProfile(s.user.id)
         setLoading(false)
       })
       .catch(() => {
+        setAnalyticsAuthUnresolved()
         setLoading(false)
       })
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, s) => {
+    } = supabase.auth.onAuthStateChange((event, s) => {
       // OPT-3/OPT-R2: TOKEN_REFRESHED (~orar) emite un obiect user NOU cu același id —
       // identitatea nouă redeclanșa efectele pe [user] din useData/RestaurantContext
       // (cascadă de refetch-uri + remount pe ecranele POS la fiecare ~55 min).
@@ -114,12 +128,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // „necunoscut" e singurul răspuns onest, iar gate-urile tristate
         // (Termeni, plan) sunt construite exact pentru asta.
         setProfile(null)
-        if (next) void loadProfile(next.id)
-        // La ieșire, o încărcare încă în zbor pentru contul vechi nu mai are voie
-        // să repună profilul (recenzia L0b: reîncercarea fără coloană pe o bază
-        // dinainte de mig 323 lungea fereastra la două cereri).
-        else profileReqRef.current = null
+        if (next) {
+          // Alt cont / sesiune nouă: PostHog face reset() înainte de noua
+          // identitate, ca profilul vechi să nu primească evenimentele noului.
+          setAnalyticsUser(next.id)
+          void loadProfile(next.id)
+        } else {
+          // La ieșire, o încărcare încă în zbor pentru contul vechi nu mai are
+          // voie să repună profilul (recenzia L0b: reîncercarea fără coloană pe
+          // o bază dinainte de mig 323 lungea fereastra la două cereri).
+          profileReqRef.current = null
+        }
       }
+      // „Nimeni logat” pentru analytics DOAR pe ieșirea confirmată de Supabase —
+      // și când contul era deja necunoscut aici (getSession eșuat, mai sus).
+      if (event === 'SIGNED_OUT') setAnalyticsUser(null)
       setUser((prev) => (prev?.id === next?.id ? prev : next))
       setLoading(false)
     })
@@ -133,6 +156,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     const { error } = await supabase.auth.signOut()
     if (error) throw error
+    // Și explicit, nu doar prin SIGNED_OUT: ieșirea confirmată golește
+    // identitatea de analytics (idempotent cu ramura din onAuthStateChange).
+    setAnalyticsUser(null)
   }
   const refreshProfile = async () => {
     if (user) await loadProfile(user.id)

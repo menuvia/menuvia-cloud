@@ -111,6 +111,10 @@ const de: Translation<typeof ro> = {
   gdpr_err_cancel: 'Der Abbruch ist fehlgeschlagen. Bitte erneut versuchen.',
   gdpr_err_activeSub:
     'Sie haben ein aktives Abonnement. Kündigen Sie es im Stripe-Portal, bevor Sie das Konto löschen.',
+  gdpr_cookiesDesc:
+    'Nutzungsstatistik (PostHog) und Fehlerberichte (Sentry) laufen nur mit der Zustimmung, die Sie im ' +
+    'Cookie-Banner in diesem Browser gegeben haben. Sie können sie jederzeit ändern oder widerrufen.',
+  gdpr_cookies: 'Cookie-Einstellungen öffnen',
 
   loc_title: 'Standorte',
   loc_desc:
