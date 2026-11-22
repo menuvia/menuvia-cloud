@@ -11,10 +11,11 @@
 //        lista trunchiată cu 500, eroarea cu detaliul în paranteză, coloanele,
 //        pașii („Confirmă” / „Marchează în pregătire” / „Gata”), sursele
 //        („QR” / „Pickup” / „Ospătar”), „Fără masă”, vârsta „5m”, „Ieși din cont”; comutatorul de
-//        limbă NU apare (o singură limbă activă). Mutația care pică: o cheie din
+//        limbă APARE în antet (din activarea limbilor, `ENABLED_STAFF_LANGS`
+//        are toate patru), pe română. Mutația care pică: o cheie din
 //        `kitchen/ro.ts` cu textul schimbat (ex. „Se conectează…”).
 //   LB2  în engleză: aceleași locuri traduse, comutatorul compact apare în
-//        antet (două limbi active în UiLangScope) și NICIUN text românesc al
+//        antet (cele patru limbi active) și NICIUN text românesc al
 //        namespace-ului `kitchen` sau al cuvintelor luate din `orders`.
 //        Mutația care pică: un literal românesc lăsat în pagină (ex. „Ospătar”
 //        scris în cod, sau coloana „Comenzi noi” folosită ca cheie de stare).
@@ -226,8 +227,9 @@ describe('Bucătăria în limba personalului', () => {
     expect(screen.getAllByText('Fără masă')).toHaveLength(2)
     expect(screen.getByText('5m')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Ieși din cont' })).toBeInTheDocument()
-    // O singură limbă activă (azi): comutatorul nu se vede.
-    expect(screen.queryByRole('combobox', { name: 'Limba interfeței' })).toBeNull()
+    // Din activarea limbilor: comutatorul compact e în antet, pe română.
+    const sel = screen.getByRole('combobox', { name: 'Limba interfeței' }) as HTMLSelectElement
+    expect(sel.value).toBe('ro')
   })
 
   it('LB2: în engleză — textele traduse, comutatorul în antet, fără resturi românești', () => {
@@ -265,10 +267,15 @@ describe('Bucătăria în limba personalului', () => {
     expect(screen.getAllByText('Waiter')).toHaveLength(2)
     expect(screen.getAllByText('No table')).toHaveLength(2)
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
-    // Comutatorul compact (două limbi active în UiLangScope): numele limbilor în limba lor.
+    // Comutatorul compact (cele patru limbi active): numele limbilor în limba lor.
     const sel = screen.getByRole('combobox', { name: 'Interface language' }) as HTMLSelectElement
     expect(sel.value).toBe('en')
-    expect(within(sel).getAllByRole('option').map((o) => o.textContent)).toEqual(['Română', 'English'])
+    expect(within(sel).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Română',
+      'English',
+      'Français',
+      'Deutsch',
+    ])
 
     const text = container.textContent ?? ''
     expect(romanianLeftovers(text, kitchenEn as Dict)).toEqual([])

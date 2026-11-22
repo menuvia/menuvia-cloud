@@ -13,9 +13,9 @@
 // Limba e cea a PAGINII: `<html lang>`. Paginile oaspetelui o setează după
 // limba afișată (`useDocumentLang`); din lotul L4d o setează și rutele
 // personalului (`StaffDocumentLang`: panoul, ospătarul, bucătăria — limba
-// personalului, azi mereu „ro”, fiindcă `ENABLED_STAFF_LANGS = ['ro']`) și ale
+// personalului, oricare dintre cele patru din activarea limbilor) și ale
 // funnel-ului (`FunnelLangProvider`: autentificarea, onboarding-ul, parola
-// nouă, invitația — limba funnel-ului, care poate fi deja engleza). Cromul îl
+// nouă, invitația — limba funnel-ului). Cromul îl
 // urmează fără altă schimbare.
 //
 // Tot din L4d stau aici și textele de crom scrise înainte direct în

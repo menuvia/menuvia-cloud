@@ -1,9 +1,12 @@
 // Comutatorul „Limba interfeței” din Setări → Abonament & cont (lotul L3b).
 // Prefixul e UC, nu UL: UL1–UL5 sunt deja asserțiile SQL ale coloanei
 // (`tests/sql/auto/323_profile_ui_language.sql`).
-//   UC1  o singură limbă activă (azi: `ENABLED_STAFF_LANGS = ['ro']`, și fără
-//        provider) → cardul NU se randează deloc. Mutația care pică: garda
-//        `enabled.length < 2` scoasă (comutatorul ar apărea cu o singură opțiune).
+//   UC1  o singură limbă activă → cardul NU se randează deloc; fără provider
+//        (valoarea implicită a contextului = `ENABLED_STAFF_LANGS`, toate patru
+//        din activarea limbilor) cardul APARE, în română, cu cele patru limbi.
+//        Mutațiile care pică: garda `enabled.length < 2` scoasă (comutatorul
+//        ar apărea cu o singură opțiune) și `ENABLED_STAFF_LANGS` readus la
+//        `['ro']` (cardul ar dispărea fără provider).
 //   UC2  patru limbi active, interfața în franceză: select-ul cu numele
 //        accesibil din dicționar, limba curentă aleasă, fiecare limbă în limba
 //        EI și cu `lang` propriu; UC2b: în română, „Limba interfeței”.
@@ -137,17 +140,17 @@ function renderCard(lang: StaffLang, enabled: readonly StaffLang[]) {
 const select = () => screen.getByRole('combobox', { name: 'Limba interfeței' }) as HTMLSelectElement
 
 describe('UiLanguageCard — limba interfeței', () => {
-  it('UC1: o singură limbă activă (și fără provider) → nimic randat', () => {
+  it('UC1: o singură limbă activă → nimic randat; fără provider → cele patru limbi', () => {
     const scoped = renderCard('ro', ['ro'])
     expect(scoped.container.textContent).toBe('')
     expect(screen.queryByRole('combobox')).toBeNull()
     scoped.unmount()
-    // Fără provider = valoarea implicită a contextului, adică starea de AZI
-    // (`ENABLED_STAFF_LANGS = ['ro']`): lotul care activează a doua limbă
-    // schimbă și această aserțiune, conștient.
-    const bare = render(<UiLanguageCard />)
-    expect(bare.container.textContent).toBe('')
-    expect(screen.queryByRole('combobox')).toBeNull()
+    // Fără provider = valoarea implicită a contextului: din activarea limbilor,
+    // `ENABLED_STAFF_LANGS` are toate patru, deci cardul apare, în română.
+    render(<UiLanguageCard />)
+    const sel = select()
+    expect(sel.value).toBe('ro')
+    expect((within(sel).getAllByRole('option') as HTMLOptionElement[]).map((o) => o.textContent)).toEqual(NAMES)
   })
 
   it('UC2: patru limbi → select-ul cu limba curentă și numele în limba lor', () => {

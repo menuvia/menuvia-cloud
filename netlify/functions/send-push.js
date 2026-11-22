@@ -21,8 +21,8 @@ const { ENABLED_STAFF_LANGS, isUuid, staffEmailLang, fetchUiLanguages } = requir
 // ── Textele notificării (lotul L8b) ─────────────────────────────
 // Destinatarul e PERSONALUL: fiecare abonament primește textul în
 // `profiles.ui_language` al user-ului lui, DOAR dacă limba e activă pentru
-// personal (ENABLED_STAFF_LANGS, oglinda src/i18n/langs.ts) — azi doar româna,
-// deci textul e cel de dinainte. Cuvintele mesei / pickup-ului sunt EXACT cele
+// personal (ENABLED_STAFF_LANGS, oglinda src/i18n/langs.ts — din activarea
+// limbilor, toate patru); pe română textul e cel de dinainte. Cuvintele mesei / pickup-ului sunt EXACT cele
 // din ns/orders (`tableLabel`, `noTable`, `card_srcPickup`), iar numărul de
 // produse e EXACT pluralul `items_count` din ns/common (cu formele lui:
 // româna are „{n} de produse” de la 20, franceza „{n} de produits” pe `many`),

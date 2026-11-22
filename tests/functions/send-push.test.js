@@ -15,9 +15,9 @@
 //        pickup-ul → „Pickup · 1 produs” (singular); fără masă și fără pickup →
 //        „Fără masă”.
 //   PU4  limba fiecărui abonat: EXACT o interogare pe `profiles` cu user_id-urile
-//        abonaților; în producție (ENABLED = ['ro']) un user cu
-//        `ui_language = 'en'` primește tot româna (gate-ul panoului).
-//        [PICĂ: gate-ul scos (engleza ar pleca nelivrată în panou)]
+//        abonaților; prin handler, din activarea limbilor (toate patru), U1 'ro'
+//        primește româna și U2 'en' engleza, pe endpoint-ul lui.
+//        [PICĂ: limba ignorată în handler; limba primului abonat dată tuturor]
 //   PU5  textele în celelalte 3 limbi ale personalului (pentru ziua activării):
 //        aceleași chei peste tot, placeholderele păstrate, nicio rezervă
 //        românească scăpată într-o altă limbă.
@@ -37,10 +37,12 @@
 //        (fail-closed), fără niciun apel web-push.
 //        [PICĂ: filtrul scos (ospătarul scos primește masa și produsele);
 //         eroarea tratată ca „toți membri”]
-//   PU10 limba FIECĂRUI abonat, cu a doua limbă activată (`enabled` injectat,
-//        ca EW7): U1 'ro' și U2 'en' pe același lot → fiecare endpoint primește
-//        textul lui; un text per limbă, nu per abonat.
-//        [PICĂ: limba fixată pe 'ro'; limba primului abonat dată tuturor]
+//   PU10 limba FIECĂRUI abonat (`enabled` injectat, ca EW7): U1 'ro' și U2 'en'
+//        pe același lot → fiecare endpoint primește textul lui; un text per
+//        limbă, nu per abonat; implicit (toate patru) la fel; GATE: cu
+//        `['ro', 'en']`, un abonat 'fr' primește româna.
+//        [PICĂ: limba fixată pe 'ro'; limba primului abonat dată tuturor;
+//         gate-ul scos (cazul 'fr')]
 //   PU11 cuvintele = glosarul personalului: formele `items_count` (ns/common) și
 //        `tableLabel`/`noTable`/`card_srcPickup` (ns/orders), citite din
 //        src/i18n, sunt EXACT cele din PUSH_STRINGS; pluralul urmează
@@ -202,7 +204,7 @@ describe('PU2–PU3: corpul din datele reale', () => {
 })
 
 describe('PU4: limba fiecărui abonat', () => {
-  it('o interogare pe profiles; în producție (doar ro activă) engleza NU pleacă', async () => {
+  it('o interogare pe profiles; fiecare abonat în limba lui, prin handler', async () => {
     scriptDb({
       subs: [
         { id: 'p1', subscription: { endpoint: 'https://push.test/1' }, user_id: U1 },
@@ -216,7 +218,12 @@ describe('PU4: limba fiecărui abonat', () => {
     const pc = calls('profiles')
     assert.equal(pc.length, 1, 'o interogare per abonat')
     assert.deepEqual([...pc[0].ops.find((o) => o.m === 'in').args[1]].sort(), [U1, U2].sort())
-    for (const c of state.webpushCalls) assert.equal(c.payload.title, '🔔 Comandă nouă', c.subscription.endpoint)
+    const titles = Object.fromEntries(state.webpushCalls.map((c) => [c.subscription.endpoint, c.payload.title]))
+    assert.deepEqual(titles, {
+      'https://push.test/1': '🔔 Comandă nouă',
+      'https://push.test/2': '🔔 New order',
+      'https://push.test/3': '🔔 Comandă nouă',
+    })
   })
 })
 
@@ -392,9 +399,25 @@ describe('PU10: limba fiecărui abonat, cu a doua limbă activă', () => {
     assert.deepEqual(two.targets.map((x) => x.lang), ['ro', 'en', 'ro'])
     assert.equal(new Set(two.targets.map((x) => x.payload)).size, 2, 'un text per limbă')
 
-    // Producția (implicit ENABLED_STAFF_LANGS = ['ro']): același lot, toți în română.
+    // Producția (implicit ENABLED_STAFF_LANGS, toate patru din activare): același rezultat.
     const { res: prod } = await run(null)
-    assert.deepEqual(prod.targets.map((x) => x.lang), ['ro', 'ro', 'ro'])
+    assert.deepEqual(prod.targets.map((x) => x.lang), ['ro', 'en', 'ro'])
+  })
+
+  it('gate: o limbă care nu e activă pentru personal cade pe română', async () => {
+    scriptDb({
+      subs: [{ id: 'p1', subscription: { endpoint: 'https://push.test/1' }, user_id: U1 }],
+      profiles: { [U1]: 'fr' },
+    })
+    const { resolvePushTargets } = loadFunction(REL)
+    const { createClient } = require('@supabase/supabase-js')
+    const supabase = createClient('https://sb.example', 'service')
+    const subs = state.fromHandlers.push_subscriptions([])
+    const { res: gated } = await quiet(() => resolvePushTargets(supabase, ORDER, subs.data, { enabled: ['ro', 'en'] }))
+    assert.deepEqual(gated.targets.map((x) => x.lang), ['ro'])
+    // Control: implicit (franceza activă) aceeași persoană primește franceza.
+    const { res: open } = await quiet(() => resolvePushTargets(supabase, ORDER, subs.data))
+    assert.deepEqual(open.targets.map((x) => x.lang), ['fr'])
   })
 })
 

@@ -16,8 +16,12 @@ La înscriere, aplicația pune limba ecranului în `user_metadata.ui_lang`:
 
 Cheia e citită **doar** de aceste șabloane, niciodată la autorizare. Conturile
 create înainte de lotul L8a n-o au, deci primesc ramura **română**.
-`fr` și `de` sunt gata, dar nu pot apărea până când franceza și germana intră
-în funnel (`FUNNEL_LANGS` din `src/i18n/langs.ts`).
+`fr` și `de` apar din activarea limbilor personalului (nov 2026): franceza și
+germana sunt în funnel (`FUNNEL_LANGS` din `src/i18n/langs.ts`), iar
+comutatorul din panou scrie limba aleasă și în `user_metadata.ui_lang`.
+**Pas de fondator**: șabloanele „Confirm signup” și „Reset password” din
+Supabase Dashboard trebuie să aibă ramurile `fr` și `de` de mai jos — fără
+ele, un cont în franceză primește emailul de confirmare în română.
 
 ## Forma condiției (de ce `printf`)
 

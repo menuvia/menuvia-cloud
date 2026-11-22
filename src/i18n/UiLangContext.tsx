@@ -235,8 +235,8 @@ export function FunnelDocumentLang({ children }: { children: ReactNode }) {
 /**
  * Rutele PERSONALULUI (panoul, ospătarul, bucătăria — App.tsx): `<html lang>`
  * și titlul tab-ului urmează limba personalului (lotul L4d), deci și cromul
- * comun. Azi `ENABLED_STAFF_LANGS = ['ro']`, deci limba e mereu „ro”, ca
- * `index.html`: nimic vizibil. NU se montează deasupra paginilor oaspetelui
+ * comun (din activarea limbilor: oricare dintre cele patru; pe română, ca
+ * `index.html`). NU se montează deasupra paginilor oaspetelui
  * (vezi `useScreenDocument`): acolo limba e a meniului.
  */
 export function StaffDocumentLang({ children }: { children: ReactNode }) {

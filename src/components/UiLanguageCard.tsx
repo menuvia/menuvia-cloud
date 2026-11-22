@@ -7,7 +7,8 @@
 //
 // Cardul NU apare cât timp e activă o singură limbă (`ENABLED_STAFF_LANGS`):
 // comutatorul apare abia când panoul, ospătarul și bucătăria sunt complete în
-// limba nouă (decizia din plan) — azi nu se vede nimic schimbat.
+// limba nouă (decizia din plan) — din activarea limbilor (nov 2026) sunt
+// patru, deci cardul se vede.
 //
 // Salvarea (UPDATE pe profil, stocarea locală, `refreshProfile`, erorile —
 // inclusiv 42703 și zero rânduri) stă în `useSetUiLanguage` (lotul L4c), hook

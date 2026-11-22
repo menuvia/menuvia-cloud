@@ -35,7 +35,8 @@
 //         (`toISOString().slice(0, 10)` sau `zonedYmd(now, 'UTC')`) → „mâine”
 //         la 22:30Z; procentul inserat brut → „23.5 %” în de/fr]
 //   EL4  rezolvarea limbii: personal doar pe limbile ACTIVE, oaspete pe cele 7,
-//        funnel pe ro/en, invitație invitat > invitator > ro.
+//        funnel pe ro/en + limbile activate (din activare, toate patru),
+//        invitație invitat > invitator > ro; control negativ cu `['ro']`.
 //        [PICĂ: gate-ul scos; ordinea invitației inversată]
 //   EL5  oglinzi: STAFF/ENABLED/FUNNEL == src/i18n/langs.ts; GUEST_LANGS ==
 //        CHECK-ul din mig 298 == MENU_LANGS; LOCALES (4) == DEFAULT_LOCALE din
@@ -350,7 +351,12 @@ describe('EL3: orele și zilele pe fusul localului', () => {
 // ── EL4 ──────────────────────────────────────────────────────────────────────
 describe('EL4: rezolvarea limbii', () => {
   it('personalul: doar limbile ACTIVE', () => {
-    assert.equal(lang.staffEmailLang('en'), 'ro', 'engleza nu e încă activă pentru personal')
+    // Din activarea limbilor: implicit toate patru.
+    assert.equal(lang.staffEmailLang('en'), 'en')
+    assert.equal(lang.staffEmailLang('fr'), 'fr')
+    assert.equal(lang.staffEmailLang('it'), 'ro', 'o limbă din afara celor patru cade pe română')
+    // Control negativ: cu româna singură activă (starea de dinainte), totul dă română.
+    assert.equal(lang.staffEmailLang('en', ['ro']), 'ro')
     assert.equal(lang.staffEmailLang('en', ['ro', 'en']), 'en')
     for (const v of [null, undefined, '', 'xx', 42, {}]) assert.equal(lang.staffEmailLang(v, ['ro', 'en']), 'ro')
     assert.equal(lang.staffEmailLang('EN', ['ro', 'en']), 'en')
@@ -365,10 +371,11 @@ describe('EL4: rezolvarea limbii', () => {
     assert.equal(lang.guestEmailLang(null), 'ro')
   })
 
-  it('funnel-ul (welcome-email): ro + en azi', () => {
+  it('funnel-ul (welcome-email): ro + en + limbile activate (toate patru)', () => {
     assert.equal(lang.funnelEmailLang('en'), 'en')
-    assert.equal(lang.funnelEmailLang('fr'), 'ro')
-    assert.equal(lang.funnelEmailLang('de'), 'ro')
+    assert.equal(lang.funnelEmailLang('fr'), 'fr')
+    assert.equal(lang.funnelEmailLang('de'), 'de')
+    assert.equal(lang.funnelEmailLang('it'), 'ro')
     assert.equal(lang.funnelEmailLang(undefined), 'ro')
   })
 
@@ -378,7 +385,8 @@ describe('EL4: rezolvarea limbii', () => {
     assert.equal(lang.resolveInviteLang({ invitee: 'ro', inviter: 'en' }, en), 'ro', 'alegerea explicită „ro” a invitatului câștigă')
     assert.equal(lang.resolveInviteLang({ invitee: null, inviter: 'en' }, en), 'en')
     assert.equal(lang.resolveInviteLang({ invitee: 'de', inviter: 'xx' }, en), 'ro')
-    assert.equal(lang.resolveInviteLang({ invitee: 'en', inviter: 'en' }), 'ro', 'implicit: doar româna e activă')
+    assert.equal(lang.resolveInviteLang({ invitee: 'en', inviter: 'en' }), 'en', 'implicit: toate patru active')
+    assert.equal(lang.resolveInviteLang({ invitee: 'en', inviter: 'en' }, ['ro']), 'ro', 'control: doar româna activă')
   })
 
   it('locale: română mereu ro-RO; altfel limbă-ȚARĂ doar pe potrivire exactă', () => {

@@ -2,8 +2,10 @@
 // (lotul L4c) — tiparul UC1–UC8 al cardului din Setări (UiLanguageCard.test),
 // pe aceeași salvare: hook-ul comun `useSetUiLanguage`. Prefixul e LU (verificat
 // cu grep, nefolosit înainte; UC = cardul, UL = asserțiile SQL ale coloanei).
-//   LU1  o singură limbă activă (azi `ENABLED_STAFF_LANGS = ['ro']`, și fără
-//        provider) → nimic randat. Mutația care pică: garda `visible` scoasă.
+//   LU1  o singură limbă activă → nimic randat; fără provider (implicit
+//        `ENABLED_STAFF_LANGS`, toate patru din activarea limbilor) → select-ul
+//        apare, în română, cu cele patru limbi. Mutațiile care pică: garda
+//        `visible` scoasă; `ENABLED_STAFF_LANGS` readus la `['ro']`.
 //   LU2  patru limbi, interfața în franceză: select-ul cu numele accesibil din
 //        `common`, limba curentă aleasă, fiecare limbă în limba EI, cu `lang`.
 //   LU3  alegerea: UPDATE pe `profiles` cu `{ ui_language }` și `.select('id')`,
@@ -112,16 +114,16 @@ function renderSelect(lang: StaffLang, enabled: readonly StaffLang[]) {
 const select = () => screen.getByRole('combobox', { name: 'Limba interfeței' }) as HTMLSelectElement
 
 describe('UiLanguageSelect — comutatorul compact', () => {
-  it('LU1: o singură limbă activă (și fără provider) → nimic randat', () => {
+  it('LU1: o singură limbă activă → nimic randat; fără provider → cele patru limbi', () => {
     const scoped = renderSelect('ro', ['ro'])
     expect(scoped.container.textContent).toBe('')
     expect(screen.queryByRole('combobox')).toBeNull()
     scoped.unmount()
-    // Fără provider = starea de AZI (`ENABLED_STAFF_LANGS = ['ro']`): lotul care
-    // activează a doua limbă schimbă și această aserțiune, conștient.
-    const bare = render(<UiLanguageSelect />)
-    expect(bare.container.textContent).toBe('')
-    expect(screen.queryByRole('combobox')).toBeNull()
+    // Fără provider = valoarea implicită: din activare, toate patru limbile.
+    render(<UiLanguageSelect />)
+    const sel = select()
+    expect(sel.value).toBe('ro')
+    expect((within(sel).getAllByRole('option') as HTMLOptionElement[]).map((o) => o.textContent)).toEqual(NAMES)
   })
 
   it('LU2: patru limbi → limba curentă și numele în limba lor', () => {

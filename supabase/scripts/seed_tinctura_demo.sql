@@ -101,6 +101,13 @@ begin
            terms_accepted_version = coalesce(terms_accepted_version, '1.0')
      where id = v_owner_id;
 
+    -- Limba interfeței fixată pe română (activarea limbilor personalului,
+    -- nov 2026): userul E2E e creat prin GoTrue admin, fără `ui_lang` în
+    -- metadata, deci ar urma browserul. Spec-urile caută textele românești;
+    -- `playwright.config.ts` pune deja `locale: 'ro-RO'`, iar asta e plasa de
+    -- siguranță pe orice proiect de browser care n-ar respecta locale-ul.
+    update public.profiles set ui_language = 'ro' where id = v_owner_id;
+
     insert into public.restaurant_memberships (restaurant_id, user_id, role)
       values (v_rest_id, v_owner_id, 'owner')
       on conflict (restaurant_id, user_id) do nothing;
