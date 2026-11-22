@@ -521,7 +521,9 @@ function decodeParam(raw: string): string | null {
  */
 function stripRejectedCampaignParams(value: string): string {
   const q = value.indexOf('?')
-  if (q < 0 || !/utm/i.test(value)) return value
+  // Fără pre-verificare pe „utm” literal: un nume codificat (`%75%74%6d_content`)
+  // ar sări-o, deși, decodat, e `utm_content`. Decizia se ia pe numele DECODAT.
+  if (q < 0) return value
   const hash = value.indexOf('#', q)
   const end = hash < 0 ? value.length : hash
   const pairs = value.slice(q + 1, end).split('&')

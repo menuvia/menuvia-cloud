@@ -1157,6 +1157,15 @@ describe('analytics — câmpurile derivate și campania (before_send)', () => {
       }),
     )
     expect(url?.properties.$current_url).toBe('https://site.test/pricing?plan=growth')
+    // Numele parametrului CODIFICAT (`%75%74%6d` = `utm`): decis pe numele decodat,
+    // nu pe textul literal. Mutația care pică: pre-verificarea `/utm/i` înaintea decodării.
+    const encoded = a.minimizeCaptureResult(
+      ev('$pageview', {
+        $pathname: '/pricing',
+        $current_url: 'https://site.test/pricing?%75%74%6d_content=ion.pop%40mail.ro&plan=growth',
+      }),
+    )
+    expect(encoded?.properties.$current_url).toBe('https://site.test/pricing?plan=growth')
   })
 })
 

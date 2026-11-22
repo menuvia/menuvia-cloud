@@ -157,6 +157,13 @@ function constInitializers(nodes: readonly ts.Node[]): ConstMap {
         init = n.initializer
     } else if ((ts.isParameter(n) || ts.isBindingElement(n)) && ts.isIdentifier(n.name)) {
       name = n.name.text
+    } else if (ts.isImportSpecifier(n) || ts.isNamespaceImport(n)) {
+      // Un nume IMPORTAT n-are valoare cunoscută în fișier: îl înregistrăm fără
+      // inițializator, ca o constantă locală omonimă (alt domeniu) să nu-i dea
+      // valoarea ei — altfel `[field]` cu `field` importat ar ieși cheia locală.
+      name = n.name.text
+    } else if (ts.isImportClause(n) && n.name) {
+      name = n.name.text
     }
     if (name !== null) out.set(name, out.has(name) ? null : init)
   }
@@ -772,6 +779,20 @@ describe('clichet: evenimentele de analytics', () => {
       'cheie calculată nedeterminabilă static: [dyn]',
       'cheie calculată nedeterminabilă static: [`a_${dyn}`]',
     ])
+
+    // Un nume IMPORTAT umbrit de o constantă locală din alt domeniu NU se rezolvă
+    // la valoarea locală (recenzia CodeRabbit pe #385): cheia rămâne nedeterminabilă.
+    // Control: fără import, constanta de nivel fișier se rezolvă.
+    const shadowed = [
+      "import { field } from './field'",
+      "function local() { const field = 'item_count'; return field }",
+      "track('order_placed', { [field]: phone })",
+    ].join('\n')
+    expect(violations(findTrackCalls('sample.ts', shadowed)).map((v) => v.why)).toEqual([
+      'cheie calculată nedeterminabilă static: [field]',
+    ])
+    const notImported = ["const field = 'item_count'", "track('order_placed', { [field]: n })"].join('\n')
+    expect(findTrackCalls('sample.ts', notImported).map((c) => c.keys)).toEqual([['item_count']])
 
     // Comentariile și șirurile NU sunt apeluri (CR-m8): apelul unic COMENTAT nu
     // ține în viață evenimentul (AE1 pică), apelul activ da (AE1 trece).

@@ -87,8 +87,22 @@ describe('feature-urile românești urmează țara', () => {
     ]) {
       expect(dash, use).toContain(use)
     }
-    // Nicio citire directă a cache-ului în afara măștii.
-    const direct = dash.match(/features\.features/g) ?? []
+    // Nicio citire directă a cache-ului în afara măștii. Excepția numită: legătura
+    // feature-uri ↔ restaurant pentru contextul de analytics (`featuresOwner`, #385)
+    // compară doar IDENTITATEA obiectului, nu citește niciun feature; liniile ei
+    // nu au voie să conțină altceva decât identitatea (verificat mai jos).
+    const ownershipLines = dash
+      .split('\n')
+      .filter((l) => /featuresOwner|data: features\.features/.test(l))
+    expect(ownershipLines.length).toBeGreaterThan(0)
+    for (const l of ownershipLines) {
+      expect(l, l).not.toMatch(/features\.features\??\.(features|plan)|hasFeature|surfaceTiers|planSurface/)
+    }
+    const outsideOwnership = dash
+      .split('\n')
+      .filter((l) => !/featuresOwner|data: features\.features/.test(l))
+      .join('\n')
+    const direct = outsideOwnership.match(/features\.features/g) ?? []
     expect(direct.length).toBe(2)
     expect(dash).not.toMatch(/features\.has\(/)
   })
