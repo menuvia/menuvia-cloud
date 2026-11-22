@@ -24,17 +24,22 @@
 --      'FR', '', număr JSON, metadata ne-obiect, cheie lipsă) → `null`, ca
 --      înainte. Garda e în expresie, NU în CHECK: o valoare invalidă care ar
 --      ajunge la CHECK ar face INSERT-ul să pice, adică SIGNUP-ul să pice.
---   2. Backfill: conturile cu `ui_language` null primesc limba din metadata
---      (aceeași regulă), altfel 'ro' — intenția declarată a lui 323 pentru
---      conturile existente. Pe producție (la 291 la scriere) 323 și 331 se
---      aplică împreună, deci backfill-ul e practic un NO-OP; contează pe orice
---      bază unde 323 a stat aplicată singură.
+--   2. Backfill, DOAR la PRIMA aplicare: conturile cu `ui_language` null
+--      primesc limba din metadata (aceeași regulă), altfel 'ro' — intenția
+--      declarată a lui 323 pentru conturile existente. Pe producție (la 291 la
+--      scriere) 323 și 331 se aplică împreună, deci backfill-ul e practic un
+--      NO-OP; contează pe orice bază unde 323 a stat aplicată singură. „Prima
+--      aplicare” = `handle_new_user` NU citește încă `ui_lang` (starea se
+--      reține ÎNAINTEA lui `create or replace`, ca la `menuvia.mig323_fresh`):
+--      la o RE-aplicare (replay, `supabase db push` peste o aplicare prin MCP)
+--      conturile create DUPĂ 331 cu `null` legitim (fără metadata, revenite la
+--      „nealeasă”) nu au voie să fie rescrise în 'ro' (recenzia adversarială).
 --
 -- `null` rămâne o stare LEGITIMĂ după migrație: contul poate reveni la
 -- „nealeasă” (UL1), iar un cont creat fără metadata (alt client, admin API)
 -- pornește tot cu null (UL5 din 323 rămâne adevărat). De aceea NU există un
 -- invariant permanent „zero null”; asserția de mai jos verifică backfill-ul o
--- singură dată, la aplicare.
+-- singură dată, la prima aplicare.
 --
 -- Backfill-ul e un UPDATE simplu, FĂRĂ trigger dezactivat (RP7 cere zero
 -- trigger-e dezactivate, și n-ar avea ce proteja). Pe profiles trag la UPDATE
@@ -60,6 +65,12 @@ begin;
 
 set local lock_timeout      = '10s';
 set local statement_timeout = '120s';
+
+-- Prima aplicare? Reținut ÎNAINTEA lui `create or replace` (vezi antetul).
+select set_config('menuvia.mig331_fresh',
+  (position($q$raw_user_meta_data->>'ui_lang'$q$ in
+            pg_get_functiondef('public.handle_new_user()'::regprocedure)) = 0)::text,
+  true);
 
 -- ── 1. handle_new_user (schema de bază → 331) ───────────────────────────────
 create or replace function public.handle_new_user()
@@ -87,11 +98,16 @@ $$;
 
 revoke execute on function public.handle_new_user() from public, anon, authenticated;
 
--- ── 2. Backfill: conturile fără limbă ───────────────────────────────────────
+-- ── 2. Backfill (doar la prima aplicare): conturile fără limbă ──────────────
 -- Lacătul (SHARE ROW EXCLUSIVE, până la COMMIT) oprește pentru câteva
--- milisecunde scrierile pe profiles: fără el, un signup comis între UPDATE și
--- asserția de mai jos (prin funcția VECHE, încă vizibilă altor tranzacții) ar
--- lăsa un rând null și ar pica migrația din motive de cursă, nu de cod.
+-- milisecunde scrierile pe profiles, ca asserția de mai jos să vadă exact
+-- rândurile pe care le-a atins backfill-ul. Rezidual CONSEMNAT, acceptat: un
+-- signup al cărui trigger a pornit cu funcția VECHE (încă vizibilă altor
+-- tranzacții până la COMMIT) își așteaptă INSERT-ul în profiles la lacăt și
+-- se termină după COMMIT tot cu `null` (reprodus în recenzia adversarială).
+-- Efectul e comportamentul de dinainte de 331 (contul urmează clientul), pe o
+-- fereastră de milisecunde; fără lacăt, același signup ar fi picat asserția,
+-- adică întreaga migrație.
 lock table public.profiles in share row exclusive mode;
 
 -- `profiles.id` referă `auth.users(id)` (schema de bază), deci join-ul acoperă
@@ -105,7 +121,8 @@ update public.profiles p
          'ro')
   from auth.users u
  where u.id = p.id
-   and p.ui_language is null;
+   and p.ui_language is null
+   and current_setting('menuvia.mig331_fresh', true) = 'true';
 
 -- ── Asserții fail-closed ────────────────────────────────────────────────────
 do $$
@@ -122,8 +139,13 @@ begin
   if v_def is null then
     raise exception 'mig 331: handle_new_user() lipsește';
   end if;
-  if position('ui_lang' in v_def) = 0 or position('ui_language' in v_def) = 0 then
-    raise exception 'mig 331: handle_new_user nu copiază ui_lang în ui_language';
+  -- Ancorat pe EXPRESIA din cod (citirea metadata), nu pe identificator:
+  -- 'ui_lang' e prefix al lui 'ui_language', iar un corp care ar insera o
+  -- constantă în coloană ar fi trecut o verificare pe nume (recenzia
+  -- adversarială). Comportamentul îl ține NU1, permanent.
+  if position($q$raw_user_meta_data->>'ui_lang'$q$ in v_def) = 0
+     or position('ui_language' in v_def) = 0 then
+    raise exception 'mig 331: handle_new_user nu copiază ui_lang din metadata în ui_language';
   end if;
   -- Corpul vechi e păstrat: numele din metadata cu rezerva pe email.
   if position($q$split_part(new.email, '@', 1)$q$ in v_def) = 0 then
@@ -148,9 +170,11 @@ begin
     raise exception 'mig 331: trigger-ul on_auth_user_created lipsește sau e dezactivat';
   end if;
 
-  select count(*) into v_null from public.profiles where ui_language is null;
-  if v_null > 0 then
-    raise exception 'mig 331: % conturi au rămas fără limbă după backfill', v_null;
+  if current_setting('menuvia.mig331_fresh', true) = 'true' then
+    select count(*) into v_null from public.profiles where ui_language is null;
+    if v_null > 0 then
+      raise exception 'mig 331: % conturi au rămas fără limbă după backfill', v_null;
+    end if;
   end if;
 end;
 $$;
