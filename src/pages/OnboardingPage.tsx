@@ -488,10 +488,13 @@ function Step2Menu({
   onSkip: () => void
 }) {
   const { t, lang } = useT(onboardingNs)
-  // Erorile salvării vin de la PostgREST/RLS: în română exact `toUserMessage`
-  // (`describeStaffError` o dă neschimbată), în altă limbă clasa erorii sau
-  // textul de rezervă — ca la pasul 1, nu mesajul brut al serverului.
+  // Erorile salvării vin de la PostgREST/RLS: în română EXACT `toUserMessage`
+  // de dinainte (fără rezervă proprie, deci textul generic pe o eroare
+  // necunoscută — recenzia adversarială pe #388), în altă limbă clasa erorii
+  // sau rezerva tradusă a pasului (categoria sau produsul), nu mesajul brut.
   const tc = useT(commonNs)
+  const saveFallback = (key: 'step2_categorySaveFailed' | 'step2_productSaveFailed') =>
+    tc.lang === 'ro' ? undefined : t(key)
   // <string> explicit: fără el, tipurile React inferează LITERALUL din
   // `as const` („Feluri principale" | „Main Courses") → setCatName(e.target.value)
   // pică pe Netlify cu TS2345 (invizibil pe tsc-ul standalone — capcana din
@@ -574,7 +577,7 @@ function Step2Menu({
         .select('id')
         .single()
       if (catErr) {
-        setError(describeStaffError(catErr, tc, { fallback: t('step2_saveFailed') }))
+        setError(describeStaffError(catErr, tc, { fallback: saveFallback('step2_categorySaveFailed') }))
         setSaving(false)
         return
       }
@@ -592,7 +595,7 @@ function Step2Menu({
       display_order: 0,
     })
     if (prodErr) {
-      setError(describeStaffError(prodErr, tc, { fallback: t('step2_saveFailed') }))
+      setError(describeStaffError(prodErr, tc, { fallback: saveFallback('step2_productSaveFailed') }))
       setSaving(false)
       return
     }

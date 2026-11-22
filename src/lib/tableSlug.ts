@@ -15,19 +15,37 @@
 // „generează până la 8” crea „Masa 1…3” — numere DUBLATE și două limbi pe
 // ecranul ospătarului, pe tichetul de bucătărie și pe cardurile tipărite.
 // Acum: un număr e ocupat în ORICARE serie, iar mesele noi continuă seria
-// localului (cea mai folosită; la egalitate, ordinea din SERIES); fără nicio
-// masă numerotată, seria vine din limba de BAZĂ a meniului (ro → Masa, en/fr
-// → Table, de → Tisch, oricare alta → Masa, ca înainte).
+// localului (cea mai folosită; la egalitate, a limbii de bază dacă e printre
+// ele, altfel ordinea din SERIES); fără nicio masă numerotată, seria vine din
+// limba de BAZĂ a meniului (ro → Masa, en/fr → Table, de → Tisch, it →
+// Tavolo, hu → Asztal, es → Mesa; necunoscută → Masa, ca înainte). Cele trei
+// din urmă nu le scrie onboarding-ul (are doar patru limbi), dar limba de bază
+// a meniului poate fi oricare dintre cele 7 (recenzia adversarială pe #388).
 // ─────────────────────────────────────────────────────────────
 
 const PREFIX = 'masa'
 /** Seriile de mese numerotate, cu numele lor (slug-ul = cheia). */
-const SERIES = { masa: 'Masa', table: 'Table', tisch: 'Tisch' } as const
+const SERIES = {
+  masa: 'Masa',
+  table: 'Table',
+  tisch: 'Tisch',
+  tavolo: 'Tavolo',
+  asztal: 'Asztal',
+  mesa: 'Mesa',
+} as const
 export type TableSeries = keyof typeof SERIES
 const SERIES_ORDER = Object.keys(SERIES) as TableSeries[]
-const BULK_RE = /^(masa|table|tisch)-(\d+)$/
+const BULK_RE = /^(masa|table|tisch|tavolo|asztal|mesa)-(\d+)$/
 /** Limba de bază a meniului → seria implicită (aceleași cuvinte ca onboarding-ul). */
-const SERIES_BY_LANG: Readonly<Record<string, TableSeries>> = { ro: 'masa', en: 'table', fr: 'table', de: 'tisch' }
+const SERIES_BY_LANG: Readonly<Record<string, TableSeries>> = {
+  ro: 'masa',
+  en: 'table',
+  fr: 'table',
+  de: 'tisch',
+  it: 'tavolo',
+  hu: 'asztal',
+  es: 'mesa',
+}
 
 /** Numele mesei → slug (litere mici, cratime); gol → `masa`. */
 export function slugifyTable(s: string): string {
@@ -62,8 +80,9 @@ export function bulkTableNumber(slug: string | null | undefined): number | null 
 
 /**
  * Seria în care continuă generarea rapidă: cea mai folosită dintre mesele
- * numerotate existente (egalitate → ordinea `masa`, `table`, `tisch`); fără
- * nicio masă numerotată, cea a limbii de bază a meniului (necunoscută → `masa`).
+ * numerotate existente (egalitate → seria limbii de bază, dacă e printre cele
+ * la egalitate, altfel ordinea din SERIES); fără nicio masă numerotată, cea a
+ * limbii de bază a meniului (necunoscută → `masa`).
  */
 export function bulkTableSeries(
   slugs: readonly (string | null | undefined)[],
@@ -74,10 +93,13 @@ export function bulkTableSeries(
     const hit = parseBulk(s)
     if (hit) counts.set(hit.series, (counts.get(hit.series) ?? 0) + 1)
   }
+  const preferred = SERIES_BY_LANG[baseLang ?? ''] ?? null
   let best: TableSeries | null = null
   for (const series of SERIES_ORDER) {
     const c = counts.get(series) ?? 0
-    if (c > 0 && (best === null || c > (counts.get(best) ?? 0))) best = series
+    if (c === 0) continue
+    const bestCount = best === null ? 0 : (counts.get(best) ?? 0)
+    if (best === null || c > bestCount || (c === bestCount && series === preferred)) best = series
   }
-  return best ?? SERIES_BY_LANG[baseLang ?? ''] ?? 'masa'
+  return best ?? preferred ?? 'masa'
 }

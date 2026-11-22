@@ -40,7 +40,10 @@ const ro = {
   step2_prodEmojiAriaLabel: 'Emoji produs',
   step2_prodNamePlaceholder: 'Spaghete Carbonara',
   step2_priceLabel: 'Preț ({currency}) *',
-  step2_saveFailed: 'Nu am putut salva produsul. Reîncearcă.',
+  // Rezervele salvării de la pasul 2 — folosite doar în afara românei (în
+  // română rămâne textul generic de dinainte, `MSG_GENERIC`).
+  step2_categorySaveFailed: 'Nu am putut salva categoria. Reîncearcă.',
+  step2_productSaveFailed: 'Nu am putut salva produsul. Reîncearcă.',
   step2_pricePlaceholder: '32',
   step2_categoryNameRequiredError: 'Numele categoriei este obligatoriu.',
   step2_productNameRequiredError: 'Numele produsului este obligatoriu.',

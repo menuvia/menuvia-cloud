@@ -28,9 +28,22 @@ function readStoredLang(): string | null {
   }
 }
 
-function storeLang(lang: StaffLang): void {
+/** Copia limbii CONTULUI, pe cont (nu preferința dispozitivului): o citește
+ *  doar rezolvarea personalului, pentru ACEST cont, cât profilul se încarcă. */
+const ACCOUNT_LANG_PREFIX = 'menuvia_ui_lang_acct:'
+
+function readAccountLang(uid: string): string | null {
   try {
-    if (window.localStorage.getItem(UI_LANG_STORAGE_KEY) !== lang) window.localStorage.setItem(UI_LANG_STORAGE_KEY, lang)
+    return window.localStorage.getItem(ACCOUNT_LANG_PREFIX + uid)
+  } catch {
+    return null
+  }
+}
+
+function storeAccountLang(uid: string, lang: StaffLang): void {
+  try {
+    const key = ACCOUNT_LANG_PREFIX + uid
+    if (window.localStorage.getItem(key) !== lang) window.localStorage.setItem(key, lang)
   } catch {
     /* Safari „Block All Cookies”: limba rămâne doar în cont */
   }
@@ -62,8 +75,18 @@ export function UiLangProvider({
   lang?: StaffLang
   enabled?: readonly StaffLang[]
 }) {
-  const { profile } = useAuth()
-  const profileLang = profile?.ui_language ?? null
+  const { user, profile } = useAuth()
+  const uid = user?.id ?? null
+  // Cât profilul se încarcă (AuthContext termină `loading` ÎNAINTEA lui), limba
+  // contului vine din copia locală a ACESTUI cont; altfel un cont în română pe
+  // un browser în engleză ar vedea la FIECARE deschidere câteva cadre în
+  // engleză (și ar descărca dicționarele englezești). Copia e pe cont, nu
+  // `menuvia_ui_lang`: preferința dispozitivului (pe care o citește și
+  // funnel-ul, scrisă de /en și de `?lang=`) nu se rescrie implicit —
+  // recenzia adversarială pe #388: un „ro” pus automat de mig 323 contului
+  // vechi ar fi mutat pe română /auth-ul unui dispozitiv ales pe engleză.
+  const profileLang =
+    profile != null ? (profile.ui_language ?? null) : uid != null ? readAccountLang(uid) : null
   // `?lang=` se RECITEȘTE la fiecare navigare (precondiția B3 a activării):
   // providerul stă deasupra routerului și nu se remontează, deci o valoare
   // citită doar în memo îngheța limba linkului de intrare — butonul de login
@@ -82,15 +105,12 @@ export function UiLangProvider({
       window.removeEventListener(ROUTE_CHANGE_EVENT, sync)
     }
   }, [])
-  // Limba CONTULUI devine și preferința DISPOZITIVULUI: profilul sosește abia
-  // după prima randare (AuthContext termină `loading` înaintea profilului),
-  // deci fără copie locală un cont în română pe un browser în engleză ar vedea
-  // la FIECARE deschidere câteva cadre în engleză (și ar descărca dicționarele
-  // englezești) până la profil. Cu copia, doar prima deschidere pe un
-  // dispozitiv nou trece prin limba browserului.
+  // Copia pe cont se actualizează la fiecare profil încărcat cu limbă.
+  const loadedLang = profile?.ui_language ?? null
+  const loadedUid = profile?.id ?? null
   useEffect(() => {
-    if (profileLang && isStaffLang(profileLang)) storeLang(profileLang)
-  }, [profileLang])
+    if (loadedUid && loadedLang && isStaffLang(loadedLang)) storeAccountLang(loadedUid, loadedLang)
+  }, [loadedUid, loadedLang])
   const value = useMemo<UiLangValue>(() => {
     const lang =
       forced ??

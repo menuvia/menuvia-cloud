@@ -67,15 +67,24 @@ export const NAMESPACE_RETRY_DELAYS_MS = [5_000, 30_000, 120_000] as const
  * cădere de rețea la deschiderea Bucătăriei lăsa ecranul în română până la
  * reîncărcarea paginii. Gărzile pe `window` contează: un temporizator care se
  * declanșează după demontarea mediului de test (jsdom) nu are voie să arunce.
+ * Rezidual consemnat: unele motoare (WebKit) țin minte un `import()` eșuat
+ * pentru aceeași adresă și resping reîncercarea pe loc — acolo cele trei
+ * încercări pică inofensiv și ecranul rămâne în română până la reîncărcare,
+ * exact comportamentul de dinainte (recenzia adversarială pe #388).
  */
 function scheduleRetry<D extends Dict>(ns: Namespace<D>, eff: LoadedLang, loader: Loader<D>, attempt: number): void {
   if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return
   if (attempt >= NAMESPACE_RETRY_DELAYS_MS.length) return
   let started = false
-  const run = (): void => {
+  const run = (fromTimer: boolean): void => {
     if (started || typeof window === 'undefined') return
+    // Offline, temporizatorul NU consumă o încercare (ar fi pică sigur): se
+    // așteaptă doar evenimentul `online` — altfel o pană de Wi-Fi mai lungă de
+    // ~2,5 minute epuiza cele trei încercări și dicționarul nu mai revenea
+    // (recenzia adversarială pe #388).
+    if (fromTimer && typeof navigator !== 'undefined' && navigator.onLine === false) return
     started = true
-    window.removeEventListener('online', run)
+    window.removeEventListener('online', onOnline)
     clearTimeout(timer)
     loader().then(
       (m) => {
@@ -85,8 +94,9 @@ function scheduleRetry<D extends Dict>(ns: Namespace<D>, eff: LoadedLang, loader
       () => scheduleRetry(ns, eff, loader, attempt + 1),
     )
   }
-  const timer = setTimeout(run, NAMESPACE_RETRY_DELAYS_MS[attempt])
-  window.addEventListener('online', run)
+  const onOnline = (): void => run(false)
+  const timer = setTimeout(() => run(true), NAMESPACE_RETRY_DELAYS_MS[attempt])
+  window.addEventListener('online', onOnline)
 }
 
 /**
