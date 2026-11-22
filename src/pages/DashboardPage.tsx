@@ -92,6 +92,7 @@ import { dashboardNs } from '../i18n/ns/dashboard'
 import { commonNs } from '../i18n/ns/common'
 import { navGroupLabelKey, navLabelKey } from '../i18n/navLabels'
 import { staffLocale } from '../i18n/format'
+import { useUiLang } from '../i18n/UiLangContext'
 
 interface ProductLimitReason {
   plan: string
@@ -116,7 +117,10 @@ function UpgradeModal({
   // Comparația comercială citește limitele DIRECT din plans.ts ca să nu
   // diverge de pagina de pricing. Numele coloanelor = numele comerciale.
   useBodyScrollLock(true)
-  const { t, lang } = useT(dashboardNs)
+  const { t } = useT(dashboardNs)
+  // Numărul se formatează în limba UTILIZATORULUI, nu a dicționarului servit
+  // (clichetul LF2: la un chunk eșuat dicționarul cade pe română).
+  const { lang: uiLang } = useUiLang()
   const starter = getCommercialPlan('starter')
   const growth = getCommercialPlan('growth')
   const COMPARE = [
@@ -213,7 +217,7 @@ function UpgradeModal({
               padding: '8px 12px',
             }}
           >
-            {t('upgrade_productLimit', productLimitVars(reason.plan, reason.max, staffLocale(lang)))}
+            {t('upgrade_productLimit', productLimitVars(reason.plan, reason.max, staffLocale(uiLang)))}
           </div>
         </div>
 
