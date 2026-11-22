@@ -92,6 +92,8 @@ const CHAIN_METHODS = [
   'delete',
   'ilike',
   'maybeSingle',
+  // stripe-webhook: UPDATE condiționat pe profil (abonament unic la finalizare).
+  'or',
 ]
 
 function makeBuilder(table) {
@@ -184,6 +186,7 @@ const STRIPE_OPTIONS_KEYS = [
   'additionalHeaders', 'streaming',
 ]
 const STRIPE_ID_METHODS = new Set([
+  'subscriptions.cancel', 'invoices.retrieve',
   'paymentIntents.cancel', 'paymentIntents.retrieve', 'subscriptions.retrieve',
   'customers.del', 'customers.retrieve', 'charges.retrieve', 'accounts.retrieve',
   'checkout.sessions.expire', 'checkout.sessions.retrieve',
@@ -219,6 +222,7 @@ function FakeStripe(key, opts) {
     },
     subscriptions: {
       retrieve: stripeMethod('subscriptions.retrieve'),
+      cancel: stripeMethod('subscriptions.cancel'),
       // `list()` NU e async în stripe-node: întoarce un obiect paginabil, iar
       // stripe-checkout cheamă `.autoPagingToArray({limit})` pe el. Impl-ul
       // scriptat primește argumentele listei + opțiunile de paginare.
@@ -263,7 +267,8 @@ function FakeStripe(key, opts) {
       retrieve: stripeMethod('accounts.retrieve'),
     },
     accountLinks: { create: stripeMethod('accountLinks.create') },
-    refunds: { list: stripeMethod('refunds.list') },
+    refunds: { list: stripeMethod('refunds.list'), create: stripeMethod('refunds.create') },
+    invoices: { retrieve: stripeMethod('invoices.retrieve'), list: stripeMethod('invoices.list') },
     charges: { retrieve: stripeMethod('charges.retrieve') },
     webhooks: {
       // constructEvent e SINCRON în stripe-node — nu-l trecem prin stripeMethod
@@ -341,6 +346,140 @@ function parseBody(res) {
   return JSON.parse(res.body)
 }
 
+// ── Tabelă cu STARE și semantica WHERE a PostgREST ───────────────────────────
+// installTable(name, rows) înlocuiește handler-ul tabelei cu un magazin de
+// rânduri. Filtrele `eq` / `is(col, null)` / `or('a.is.null,a.eq.x')` se
+// EVALUEAZĂ pe rânduri, iar `update(...).select()` întoarce DOAR rândurile
+// atinse — exact ce citește un UPDATE condiționat. Un handler scriptat care
+// întoarce „succes” orice ar fi WHERE-ul face orice test pe o gardă de
+// concurență VACUU: condiția ar putea lipsi și testul tot ar trece.
+//
+// Evaluarea unei operații e SINCRONĂ (se face când handler-ul face `await` pe
+// lanț, într-un singur pas al buclei de evenimente), deci două handler-e
+// pornite în paralel se SERIALIZEAZĂ pe fiecare operație ca sub lacătul de rând
+// din Postgres: al doilea UPDATE vede rândul scris de primul și își
+// re-evaluează WHERE-ul pe el (EvalPlanQual, READ COMMITTED).
+//
+// `hooks.beforeUpdate` (o singură dată) rulează IMEDIAT înaintea următorului
+// UPDATE: modelează o scriere concurentă COMISĂ între citirea și scrierea unui
+// handler (read-then-write), deterministic.
+// `hooks.afterUpdate` (o singură dată) rulează imediat DUPĂ evaluarea
+// următorului UPDATE, înaintea oricărei alte operații: modelează o scriere
+// concurentă comisă între un UPDATE condiționat ratat și citirea de după.
+// Un cârlig se poate re-arma singur (`table.hooks.x = fn` din interiorul lui),
+// ca să tragă la FIECARE UPDATE.
+// `readError`: orice citire `.single()` / `.maybeSingle()` întoarce eroarea
+// (blip de infra), scrierile rămân pe magazin.
+// `table.failNextRead` / `table.failNextUpdate` (o singură dată, se pot arma și
+// din interiorul unui cârlig): URMĂTOAREA citire `.single()`/`.maybeSingle()`,
+// respectiv URMĂTORUL UPDATE, întoarce `{ data: null, error }` — blip de infra pe
+// O SINGURĂ operație, fără să strice citirile/scrierile dinainte (cum ar face
+// `readError`). UPDATE-ul eșuat nu atinge niciun rând și nu consumă cârligele
+// (instrucțiunea n-a rulat); validarea filtrelor vine tot înaintea lor.
+// Un filtru sau o operație nemodelată ARUNCĂ: testul pică zgomotos în loc să
+// treacă pe o semantică inventată. Lista de operații se VALIDEAZĂ o dată,
+// ÎNAINTEA scanării (compileFilters): validată pe rând, o expresie greșită pe o
+// tabelă goală — sau după un `eq` care exclude tot — ar fi arătat ca „0 rânduri”
+// valid, adică exact rezultatul unui UPDATE condiționat ratat.
+// `columns` (OBLIGATORIU) = coloanele pe care fixtura le poate FILTRA. Orice
+// coloană din `eq`/`is` sau dintr-un termen `or()` care nu e în listă aruncă,
+// tot înaintea scanării (recenzie CodeRabbit pe #386, runda 2): altfel un nume
+// greșit (`stripe_subcription_id`) se citea `undefined`, iar `is.null` îl
+// potrivea pe ORICE rând — PostgREST respinge o coloană necunoscută, deci un
+// test verde aici ar fi ascuns o interogare care pică în producție.
+const TABLE_FILTERS = new Set(['eq', 'is', 'or'])
+const TABLE_VERBS = new Set(['update', 'select', 'single', 'maybeSingle'])
+function assertColumn(columns, col, where) {
+  if (!columns.has(col)) throw new Error(`installTable: coloana '${col}' (${where}) nu e în coloanele fixturii`)
+}
+function parseOrFilter(expr, columns) {
+  if (typeof expr !== 'string' || expr === '') throw new Error(`installTable: or() cere o expresie text, nu '${expr}'`)
+  return expr.split(',').map((term) => {
+    const m = /^([a-z_]+)\.(is|eq)\.(.+)$/.exec(term)
+    if (!m) throw new Error(`installTable: termen or() nemodelat: '${term}'`)
+    if (m[2] === 'is' && m[3] !== 'null') throw new Error(`installTable: doar is.null e modelat, nu '${term}'`)
+    assertColumn(columns, m[1], `or '${term}'`)
+    return { col: m[1], op: m[2], val: m[3] }
+  })
+}
+// Lanțul de operații → predicat pe rând. Aruncă pe ORICE formă nemodelată,
+// indiferent dacă vreun rând ar ajunge vreodată să fie evaluat.
+function compileFilters(ops, columns) {
+  const preds = []
+  for (const o of ops) {
+    if (TABLE_VERBS.has(o.m)) continue
+    if (!TABLE_FILTERS.has(o.m)) throw new Error(`installTable: operația '${o.m}' nu e modelată`)
+    const [col, val] = o.args
+    if (o.m !== 'or' && (typeof col !== 'string' || col === '')) {
+      throw new Error(`installTable: ${o.m}() cere numele coloanei, nu '${col}'`)
+    }
+    if (o.m !== 'or') assertColumn(columns, col, o.m)
+    if (o.m === 'eq') preds.push((row) => row[col] === val)
+    if (o.m === 'is') {
+      if (val !== null) throw new Error(`installTable: doar is(col, null) e modelat`)
+      preds.push((row) => row[col] == null)
+    }
+    if (o.m === 'or') {
+      const terms = parseOrFilter(col, columns)
+      preds.push((row) => terms.some((t) => (t.op === 'is' ? row[t.col] == null : row[t.col] === t.val)))
+    }
+  }
+  return (row) => preds.every((p) => p(row))
+}
+function installTable(name, rows, { columns, defaults = {}, readError = null } = {}) {
+  if (!Array.isArray(columns) || columns.length === 0 || !columns.every((c) => typeof c === 'string' && c !== '')) {
+    throw new Error(`installTable(${name}): lipsește lista explicită de coloane filtrabile (columns)`)
+  }
+  const filterable = new Set(columns)
+  const table = {
+    rows: rows.map((r) => ({ ...defaults, ...r })),
+    // Scrierile EFECTIVE (cel puțin un rând atins), în ordine: payload + id-urile atinse.
+    writes: [],
+    hooks: { beforeUpdate: null, afterUpdate: null },
+    failNextRead: null,
+    failNextUpdate: null,
+  }
+  state.fromHandlers[name] = (ops) => {
+    // Validare ÎNAINTEA oricărui efect (cârlige, scanare, readError).
+    const matches = compileFilters(ops, filterable)
+    const upd = ops.find((o) => o.m === 'update')
+    if (upd) {
+      if (table.failNextUpdate) {
+        const error = table.failNextUpdate
+        table.failNextUpdate = null
+        return { data: null, error }
+      }
+      const hook = table.hooks.beforeUpdate
+      table.hooks.beforeUpdate = null
+      if (hook) hook(table.rows)
+      const hit = table.rows.filter(matches)
+      for (const r of hit) Object.assign(r, upd.args[0])
+      if (hit.length) table.writes.push({ payload: { ...upd.args[0] }, ids: hit.map((r) => r.id) })
+      // RETURNING-ul se ia ÎNAINTEA cârligului: e ce a văzut UPDATE-ul, nu ce
+      // a scris concurentul după el.
+      const returned = hasOp(ops, 'select') ? hit.map((r) => ({ ...r })) : null
+      const after = table.hooks.afterUpdate
+      table.hooks.afterUpdate = null
+      if (after) after(table.rows)
+      return { data: returned, error: null }
+    }
+    if (!hasOp(ops, 'select')) throw new Error(`installTable(${name}): doar select/update sunt modelate`)
+    const single = hasOp(ops, 'single') || hasOp(ops, 'maybeSingle')
+    if (single && table.failNextRead) {
+      const error = table.failNextRead
+      table.failNextRead = null
+      return { data: null, error }
+    }
+    if (single && readError) return { data: null, error: readError }
+    const hit = table.rows.filter(matches)
+    if (!single) return { data: hit.map((r) => ({ ...r })), error: null }
+    if (hit.length === 1) return { data: { ...hit[0] }, error: null }
+    if (hit.length === 0 && hasOp(ops, 'maybeSingle')) return { data: null, error: null }
+    return { data: null, error: { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' } }
+  }
+  return table
+}
+
 module.exports = {
   state,
   resetMocks,
@@ -351,4 +490,5 @@ module.exports = {
   opArg,
   hasOp,
   parseBody,
+  installTable,
 }

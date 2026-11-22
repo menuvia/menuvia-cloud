@@ -16,6 +16,7 @@
 //        o pagină `de` nimic nu-și declară limba (moștenește). Mutația care
 //        pică: `lang` pus pe tot dialogul (titlul italian marcat engleză) sau
 //        deloc.
+//   CL6  temporizatorul de afișare al bannerului se oprește la demontare.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen, within } from '@testing-library/react'
 import CookieBanner from '../CookieBanner'
@@ -219,5 +220,25 @@ describe('cromul comun — limba declarată pe etichetele căzute pe engleză', 
     const region = screen.getByRole('region', { name: 'Benachrichtigungen' })
     expect(region).not.toHaveAttribute('lang')
     expect(within(region).getByText('salut')).not.toHaveAttribute('lang')
+  })
+})
+
+// CL6  temporizatorul de afișare (800 ms) se oprește la demontare. Fără
+//      clearTimeout, setState rula după demontare, iar la finalul fișierului
+//      (jsdom deja demontat) vitest raporta „window is not defined” ca eroare
+//      neprinsă, intermitent, în funcție de cât dura fișierul (CI roșu pe #386).
+//      Control: înainte de demontare temporizatorul EXISTĂ (fără consimțământ).
+//      Mutația care pică: cleanup fără `clearTimeout(showTimer)`.
+describe('bannerul de cookies — temporizatorul de afișare', () => {
+  it('CL6 temporizatorul e oprit la demontare', () => {
+    const setSpy = vi.spyOn(window, 'setTimeout')
+    const clearSpy = vi.spyOn(window, 'clearTimeout')
+    const view = render(<CookieBanner />)
+    const idx = setSpy.mock.calls.findIndex((c) => c[1] === 800)
+    expect(idx).toBeGreaterThanOrEqual(0)
+    const timerId = setSpy.mock.results[idx]?.value
+    expect(clearSpy).not.toHaveBeenCalledWith(timerId)
+    view.unmount()
+    expect(clearSpy).toHaveBeenCalledWith(timerId)
   })
 })

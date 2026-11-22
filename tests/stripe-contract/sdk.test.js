@@ -15,6 +15,23 @@
 //         pleacă cu antet Stripe-Account; forma veche îl pune în CORP (defectul)
 //   SDK6  codarea form a sesiunii de checkout + Idempotency-Key + Stripe-Version
 //   SDK7  maparea erorilor pe câmpurile pe care le citim (code, statusCode, payment_intent)
+//   SDK11 abonament unic la finalizare (stripe-webhook) — CARACTERIZARE a SDK-ului,
+//         nu gardă pe handler: fixează forma pe fir a apelurilor pe care le face
+//         handler-ul, cu argumentele scrise AICI (nu se încarcă stripe-webhook.js,
+//         deci nicio mutație a handler-ului nu-l poate face să pice). Anularea
+//         dublurii pleacă DELETE cu parametrii în QUERY (urma din
+//         cancellation_details ajunge la Stripe) și FĂRĂ Idempotency-Key (Stripe
+//         îl ignoră pe DELETE); rambursarea pleacă POST form cu cheia dată de noi;
+//         `charge_already_refunded` ajunge în `e.code`; un 500 SALVAT de Stripe
+//         pe cheie (replay) ajunge cu `e.statusCode` 500 și antetul
+//         `e.headers['idempotent-replayed'] === 'true'` (litere mici) — singurul
+//         semn după care handler-ul predă omului în loc să bucleze (DUP36);
+//         `invoices.list({ subscription, status: 'open', limit })` pleacă GET cu
+//         filtrele în query, iar `auto_advance` se citește înapoi (DUP33). Gărzile
+//         pe handler: DUP2 (argumentele cancel/refund/list), DUP8c
+//         (`charge_already_refunded`), DUP33, DUP36 în tests/functions și SDK12
+//         (pe fir). De confirmat în CI: SDK-ul real nu se poate instala în
+//         sesiunea agentului.
 
 'use strict'
 
@@ -119,6 +136,11 @@ describe('SDK4: clichet de descoperire pe apelurile din netlify/functions', () =
     'checkout.sessions.expire', 'checkout.sessions.list', 'checkout.sessions.retrieve',
     'customers.create', 'customers.del', 'paymentIntents.cancel', 'paymentIntents.create',
     'refunds.list', 'subscriptions.list', 'subscriptions.retrieve', 'webhooks.constructEvent',
+    // Abonament unic la finalizare (stripe-webhook; pe fir: SDK11, SDK12).
+    'invoices.retrieve', 'refunds.create', 'subscriptions.cancel',
+    // Runda 2 CodeRabbit pe #386: facturile deschise ale celui PĂSTRAT după
+    // anularea dublurii (încasarea oprită implicit; pe fir: SDK11, SDK12).
+    'invoices.list',
   ]
 
   it('clienții se numesc stripe / stripeX (altfel descoperirea de mai jos e oarbă)', () => {
@@ -250,6 +272,105 @@ describe('SDK7: erorile păstrează câmpurile citite de handler-e', () => {
     })
     const stripe = new Stripe('sk_test_x', OPTS)
     await assert.rejects(stripe.charges.retrieve('ch_gone'), (e) => e.code === 'resource_missing' && e.statusCode === 404)
+  })
+})
+
+describe('SDK11: abonament unic — anularea și rambursarea dublurii, pe fir', () => {
+  const COMMENT = 'menuvia:duplicate_subscription;kept=sub_kept'
+
+  it('subscriptions.cancel(id, params) → DELETE, parametrii în query (cu urma), fără Idempotency-Key', async () => {
+    t.route('DELETE', '/v1/subscriptions/sub_dup', { body: {
+      id: 'sub_dup', object: 'subscription', status: 'canceled',
+      cancellation_details: { comment: COMMENT, feedback: null, reason: 'cancellation_requested' },
+    } })
+    const stripe = new Stripe('sk_test_x', OPTS)
+    const s = await stripe.subscriptions.cancel('sub_dup', {
+      prorate: false, invoice_now: false, cancellation_details: { comment: COMMENT },
+    })
+    assert.equal(s.status, 'canceled')
+    assert.equal(s.cancellation_details.comment, COMMENT, 'urma se citește înapoi la reluare')
+    const req = t.requests()[0]
+    assert.equal(req.method, 'DELETE')
+    assert.equal(req.headers['stripe-version'], PIN)
+    const url = new URL(req.path, 'https://api.stripe.com')
+    assert.equal(url.pathname, '/v1/subscriptions/sub_dup')
+    assert.equal(url.searchParams.get('cancellation_details[comment]'), COMMENT)
+    assert.equal(url.searchParams.get('prorate'), 'false')
+    assert.equal(url.searchParams.get('invoice_now'), 'false')
+    assert.equal(form(req)['cancellation_details[comment]'], undefined, 'pe DELETE parametrii NU sunt în corp')
+    assert.equal(req.headers['idempotency-key'], undefined, 'fără cheie pe DELETE (Stripe o ignoră)')
+  })
+
+  it('refunds.create(params, { idempotencyKey }) → POST /v1/refunds, corp form, cheia NOASTRĂ', async () => {
+    t.route('POST', '/v1/refunds', { body: { id: 're_dup', object: 'refund', amount: 24900, status: 'succeeded' } })
+    const stripe = new Stripe('sk_test_x', OPTS)
+    const r = await stripe.refunds.create({
+      payment_intent: 'pi_dup', reason: 'duplicate',
+      metadata: { menuvia_reason: 'duplicate_subscription', menuvia_subscription: 'sub_dup', menuvia_invoice: 'in_dup' },
+    }, { idempotencyKey: 'dupsub_refund_in_dup' })
+    assert.equal(r.amount, 24900)
+    const req = t.requests()[0]
+    assert.equal(req.method, 'POST')
+    assert.equal(req.path, '/v1/refunds')
+    assert.equal(req.headers['idempotency-key'], 'dupsub_refund_in_dup')
+    assert.equal(req.headers['stripe-version'], PIN)
+    const b = form(req)
+    assert.equal(b.payment_intent, 'pi_dup')
+    assert.equal(b.reason, 'duplicate')
+    assert.equal(b['metadata[menuvia_invoice]'], 'in_dup')
+    assert.equal(b.amount, undefined, 'fără sumă = restul nerambursat')
+  })
+
+  it('400 charge_already_refunded → e.code (handler-ul îl tratează ca rambursare deja făcută)', async () => {
+    t.route('POST', '/v1/refunds', { status: 400, body: { error: {
+      type: 'invalid_request_error', code: 'charge_already_refunded', message: 'Charge ch_dup has already been refunded.',
+    } } })
+    const stripe = new Stripe('sk_test_x', OPTS)
+    await assert.rejects(
+      stripe.refunds.create({ charge: 'ch_dup' }, { idempotencyKey: 'k' }),
+      (e) => e.code === 'charge_already_refunded' && e.statusCode === 400,
+    )
+  })
+
+  it('500 SALVAT pe cheie (Idempotent-Replayed: true) → e.statusCode 500 + e.headers[\'idempotent-replayed\'] === \'true\'', async () => {
+    t.route('POST', '/v1/refunds', {
+      status: 500,
+      headers: { 'idempotent-replayed': 'true', 'original-request': 'req_first' },
+      body: { error: { type: 'api_error', message: 'An unknown error occurred' } },
+    })
+    const stripe = new Stripe('sk_test_x', OPTS)
+    await assert.rejects(
+      stripe.refunds.create({ payment_intent: 'pi_dup' }, { idempotencyKey: 'dupsub_refund_in_dup_retry1' }),
+      (e) => e.statusCode === 500 && !!e.headers && e.headers['idempotent-replayed'] === 'true',
+    )
+    assert.equal(t.requests().length, 1, 'maxNetworkRetries: 0 — o singură cerere, fără reîncercare a SDK-ului')
+  })
+
+  it('500 NE-salvat (fără antet) → e.headers fără idempotent-replayed (handler-ul aruncă → 500 → Stripe retrimite)', async () => {
+    t.route('POST', '/v1/refunds', { status: 500, body: { error: { type: 'api_error', message: 'An unknown error occurred' } } })
+    const stripe = new Stripe('sk_test_x', OPTS)
+    await assert.rejects(
+      stripe.refunds.create({ payment_intent: 'pi_dup' }, { idempotencyKey: 'dupsub_refund_in_dup' }),
+      (e) => e.statusCode === 500 && !(e.headers && e.headers['idempotent-replayed'] === 'true'),
+    )
+  })
+
+  it('invoices.list({ subscription, status: open, limit }) → GET /v1/invoices cu filtrele în query; auto_advance citit înapoi', async () => {
+    t.route('GET', '/v1/invoices?', { body: { object: 'list', has_more: false, url: '/v1/invoices', data: [
+      { id: 'in_kept2', object: 'invoice', status: 'open', auto_advance: false, amount_due: 24900, subscription: 'sub_kept' },
+    ] } })
+    const stripe = new Stripe('sk_test_x', OPTS)
+    const page = await stripe.invoices.list({ subscription: 'sub_kept', status: 'open', limit: 100 })
+    assert.equal(page.data[0].auto_advance, false)
+    assert.equal(page.has_more, false)
+    const req = t.requests()[0]
+    assert.equal(req.method, 'GET')
+    assert.equal(req.headers['stripe-version'], PIN)
+    const url = new URL(req.path, 'https://api.stripe.com')
+    assert.equal(url.pathname, '/v1/invoices')
+    assert.equal(url.searchParams.get('subscription'), 'sub_kept')
+    assert.equal(url.searchParams.get('status'), 'open')
+    assert.equal(url.searchParams.get('limit'), '100')
   })
 })
 

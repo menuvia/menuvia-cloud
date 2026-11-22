@@ -25,10 +25,10 @@ export default function CookieBanner() {
   useEffect(() => {
     // Arată banner-ul doar dacă nu a fost setat consimțământ
     const existing = getConsent()
-    if (!existing) {
-      // Mic delay pentru UX (nu apare instant)
-      setTimeout(() => setVisible(true), 800)
-    }
+    // Mic delay pentru UX (nu apare instant). Temporizatorul se oprește la
+    // demontare: altfel setState rulează pe o componentă demontată, iar în
+    // teste (jsdom deja demontat) aruncă „window is not defined” după final.
+    const showTimer = existing ? undefined : window.setTimeout(() => setVisible(true), 800)
     // Redeschidere la cerere („Setări cookies" din LegalFooter): /cookies promite
     // retragerea consimțământului „prin banner", deci bannerul trebuie să poată fi
     // rechemat după alegere — altfel promisiunea era falsă (GDPR).
@@ -42,7 +42,10 @@ export default function CookieBanner() {
       setVisible(true)
     }
     window.addEventListener('menuvia:open-cookie-settings', reopen)
-    return () => window.removeEventListener('menuvia:open-cookie-settings', reopen)
+    return () => {
+      window.removeEventListener('menuvia:open-cookie-settings', reopen)
+      if (showTimer !== undefined) window.clearTimeout(showTimer)
+    }
   }, [])
 
   function acceptAll() {

@@ -49,6 +49,81 @@ function invoiceSubscriptionId(inv) {
     refId(inv.parent && inv.parent.subscription_details && inv.parent.subscription_details.subscription)
 }
 
+// ── Abonament unic la finalizare (lotul #61) ────────────────────────
+// Stările în care un abonament ține planul VIU: aceeași listă ca resolvePlan și
+// customer.subscription.updated (past_due = grace de dunning, nu downgrade).
+const LIVE_SUB_STATUSES = ['active', 'trialing', 'past_due']
+// Stările din care un abonament încă POATE factura: cele vii + `unpaid`
+// (factura rămâne deschisă și se poate plăti) + `incomplete` (prima plată se
+// mai poate confirma ~23 h). Oglinda `hasLive` din stripe-checkout.js. Decide
+// dacă un abonament NOU, găsit lângă altul viu, trebuie ANULAT: unul lăsat în
+// aceste stări fără să-l mai urmărească profilul ar putea începe să încaseze.
+const BILLABLE_SUB_STATUSES = ['active', 'trialing', 'past_due', 'unpaid', 'incomplete']
+// Stările TERMINALE: un abonament încheiat nu mai emite niciun eveniment care să
+// corecteze profilul. Ambele, nu doar `canceled` (runda 3 pe #386 —
+// recenzia proprie de după runda 2 CodeRabbit): anulăm și abonamente `incomplete` (o dublură, un deținător înlocuit),
+// iar starea pe care o produce DELETE-ul pe unul `incomplete` nu se poate
+// verifica offline — dacă e `incomplete_expired`, o gardă care cerea `canceled`
+// nu-și mai recunoștea propria anulare (plata ulterioară nerambursată, cu
+// comision; `deleted`-ul lui pe calea obișnuită: email + atribuire terminală).
+const ENDED_SUB_STATUSES = ['canceled', 'incomplete_expired']
+// Id-ul ajunge într-un filtru PostgREST `or(...)`, unde virgula, punctul,
+// două-punctele, parantezele și ghilimelele sunt sintaxă: intră doar forma Stripe
+// (`sub_` + alfanumerice; `_` e acceptat, nu e sintaxă PostgREST).
+const SUB_ID_RE = /^sub_[A-Za-z0-9_]{1,250}$/
+const isSubscriptionId = (x) => typeof x === 'string' && SUB_ID_RE.test(x)
+// Profilul e LIBER sau ține deja ACEST abonament (relivrare) — ceea ce un
+// singur UPDATE decide sub lacătul rândului.
+const freeOrSameSubscription = (subId) =>
+  `stripe_subscription_id.is.null,stripe_subscription_id.eq.${subId}`
+// Urma pusă pe duplicatul anulat (cancellation_details.comment, persistă pe
+// abonamentul anulat). La o reluare după un 500, abonamentul NOU e deja
+// `canceled`; fără urmă n-am distinge „l-am anulat noi ca duplicat, mai e de
+// rambursat” de un replay al unui abonament vechi încheiat legitim.
+const DUPLICATE_CANCEL_MARKER = 'menuvia:duplicate_subscription'
+const CLAIM_ATTEMPTS = 3
+// Rambursarea dublurii poartă `metadata.menuvia_reason` = această valoare (plus
+// abonamentul și factura): singurul mod de a recunoaște, într-un
+// `charge.refund.updated`, o rambursare pornită de NOI — cheia de idempotență nu
+// apare pe obiectul Refund.
+const DUPLICATE_REFUND_REASON = 'duplicate_subscription'
+// Câte rambursări EȘUATE (pe un motiv reîncercabil, mai jos) pe aceeași plată
+// acceptăm înainte de a preda omului: fiecare reîncercare e o rambursare nouă
+// (cheie nouă), iar o metodă de plată care nu poate primi bani înapoi ar eșua la
+// nesfârșit.
+const DUPLICATE_REFUND_MAX_ATTEMPTS = 3
+// Motivele de eșec după care o rambursare NOUĂ pe aceeași plată e reîncercată
+// automat (recenzie pe #386, R1). Orice altceva e FINAL și trece la om, fără
+// nicio rambursare nouă: `canceled` = o anulare făcută de un OM (codul nostru
+// nu apelează refunds.cancel, o rambursare pe card se anulează doar din
+// Dashboard, iar un `requires_action` neonorat devine `failed`, nu `canceled` —
+// docs.stripe.com/refunds), iar pentru `merchant_request`,
+// `expired_or_canceled_card`, `lost_or_stolen_card` și
+// `charge_for_pending_refund_disputed` Stripe cere altă cale de restituire, pe
+// care fondatorul, avertizat de ALERT, o poate porni deja — o reîncercare
+// automată ar putea plăti a doua oară. Un motiv pe care nu-l cunoaștem (adăugat
+// de Stripe ulterior) e tot final: fail-closed pe bani. Un `failed` fără motiv
+// e tratat ca `unknown` (categoria de rezervă a Stripe; nu poartă semnul unei
+// decizii umane).
+const RETRYABLE_REFUND_FAILURES = ['unknown', 'declined', 'insufficient_funds']
+// null = rambursarea nu e moartă (succeeded/pending/requires_action/necunoscut);
+// 'retryable' / 'final' după regula de mai sus.
+function deadRefundKind(r) {
+  if (!r) return null
+  if (r.status === 'canceled') return 'final'
+  if (r.status !== 'failed') return null
+  return RETRYABLE_REFUND_FAILURES.includes(r.failure_reason || 'unknown') ? 'retryable' : 'final'
+}
+const INVOICE_ID_RE = /^in_[A-Za-z0-9_]{1,250}$/
+// Răspunsul unei cereri e cel SALVAT al primei cereri cu aceeași cheie de
+// idempotență: Stripe pune `Idempotent-Replayed: true`, iar stripe-node expune
+// antetele răspunsului pe eroare (`e.headers`, chei cu litere mici, ca pe fir —
+// caracterizat în tests/stripe-contract, SDK11).
+function isIdempotentReplay(e) {
+  const h = e && e.headers
+  return !!h && typeof h === 'object' && String(h['idempotent-replayed']).toLowerCase() === 'true'
+}
+
 function jsonResponse(statusCode, body) {
   return {
     statusCode,
@@ -134,6 +209,18 @@ exports.handler = async (event) => {
   // `data.object`. Pentru subscription.updated, `previous_attributes` e
   // singura sursă a tranziției de plan (ex. Plan 3 → Plan 2) — necesară
   // pentru reconstrucția corectă a comisioanelor de afiliere downstream.
+  // `reprocessing` = rândul exista și a fost redeschis (Stripe retrimite după un
+  // 500). Unele verificări se fac DOAR atunci, ca să nu coste nimic pe calea
+  // obișnuită (vezi customer.subscription.updated).
+  let reprocessing = false
+  // Tranziția de plan ORIGINALĂ a unui `customer.subscription.updated`, purtată
+  // peste reluări (recenzie CodeRabbit pe #386, runda 2): dacă verificarea de
+  // după scriere pică, profilul ține deja planul nou, iar fără ea reluarea ar
+  // compara planul scris cu el însuși și n-ar mai emite `plan_changed`. Stă în
+  // `stripe_events.payload` (cheia `menuvia_pending_plan_changed`, lângă
+  // `object`/`previous_attributes`) — nimeni altcineva nu citește coloana, iar
+  // `lifecycle_events` n-are cheie de dedup (fără migrație).
+  let planChangeCarry = null
   const { error: dedupErr } = await supabase
     .from('stripe_events')
     .insert({
@@ -162,7 +249,7 @@ exports.handler = async (event) => {
         .update({ status: 'processing', error_info: null })
         .eq('event_id', stripeEvent.id)
         .neq('status', 'completed')
-        .select('status')
+        .select('status, payload')
 
       if (reopenErr) {
         console.error('[stripe-webhook] Dedup reopen error:', reopenErr.message)
@@ -176,6 +263,9 @@ exports.handler = async (event) => {
         return jsonResponse(200, { received: true, duplicate: true })
       }
 
+      reprocessing = true
+      const carried = reopened[0] && reopened[0].payload && reopened[0].payload.menuvia_pending_plan_changed
+      if (carried && typeof carried === 'object' && typeof carried.from === 'string') planChangeCarry = { from: carried.from }
       console.log(`[stripe-webhook] Reprocessing event ${stripeEvent.id}`)
     } else {
       console.error('[stripe-webhook] Dedup table error:', dedupErr.message)
@@ -222,8 +312,10 @@ exports.handler = async (event) => {
         // Gardă POZITIVĂ: doar sesiunile de ABONAMENT ating profiles.plan.
         // Fără ea, orice sesiune mode='payment' ne-recunoscută ca ai_credits
         // (metadata.type absent/redenumit) ar cădea în logica de abonament cu
-        // subscription=null → resolvePlan('free') → DOWNGRADE tăcut al unui
-        // plătitor care tocmai a cumpărat credite AI (același client_reference_id).
+        // subscription=null — înainte resolvePlan('free') → DOWNGRADE tăcut al
+        // unui plătitor care tocmai a cumpărat credite AI (același
+        // client_reference_id); azi validarea abonamentului de mai jos ar da 500
+        // la nesfârșit pe o plată reușită.
         if (session.mode !== 'subscription') {
           console.warn(`[stripe-webhook] checkout.session.completed mode='${session.mode}' neabonament, ignorat (${session.id})`)
           break
@@ -231,10 +323,19 @@ exports.handler = async (event) => {
 
         const refUserId = session.client_reference_id
         const customerId = session.customer
-        const subscriptionId = session.subscription
+        const subscriptionId = refId(session.subscription)
 
         if (!refUserId) throw new Error('No client_reference_id in session')
         userId = refUserId
+
+        // O sesiune de ABONAMENT finalizată poartă mereu abonamentul. Lipsa lui
+        // (sau o formă necunoscută) e o formă de payload pe care n-o știm citi:
+        // 500 → Stripe retrimite, rândul rămâne 'failed', vizibil. Înainte se
+        // scria planul 'free' cu stripe_subscription_id NULL — profilul pierdea
+        // abonamentul pe care îl urmărea.
+        if (!isSubscriptionId(subscriptionId)) {
+          throw new Error(`checkout ${session.id || '?'}: abonament lipsă sau cu formă necunoscută`)
+        }
 
         // Citește planul REAL din metadata subscription-ului (setat la
         // checkout). Fără asta, toate abonamentele deveneau 'pro' hardcodat.
@@ -243,8 +344,9 @@ exports.handler = async (event) => {
         // pe un client care tocmai a plătit: lăsăm planul curent neschimbat și
         // logăm clar (best-effort alert dacă există un mecanism; altfel console.error).
         let finalPlan
+        let subscription
         try {
-          finalPlan = await resolvePlan(stripe, subscriptionId, PLAN_BY_PRICE)
+          ({ plan: finalPlan, subscription } = await resolvePlan(stripe, subscriptionId, PLAN_BY_PRICE))
         } catch (e) {
           // resolvePlan aruncă DOAR pe eroare Stripe tranzitorie (o subscripție
           // anulată real nu aruncă — retrieve întoarce status='canceled' →
@@ -262,47 +364,90 @@ exports.handler = async (event) => {
           break
         }
 
-        // ★ Anti-clobber pe replay (review audit v3): un checkout.session.completed
-        // ÎNTÂRZIAT pentru un abonament VECHI deja terminal (rezolvat 'free' mai
-        // sus) nu are voie să suprascrie profilul care referă deja un abonament
-        // MAI NOU (clientul a re-cumpărat între timp) — altfel replay-ul ar
-        // retrograda un plătitor activ și ar reinstala abonamentul mort ca
-        // „curent". Aceeași disciplină ca skip-ul de subscripție stale din
-        // customer.subscription.updated/deleted. Un abonament VIU diferit de cel
-        // curent e un checkout legitim nou → se scrie normal.
-        if (finalPlan === 'free') {
-          const { data: currentProfile, error: profileErr } = await supabase
-            .from('profiles')
-            .select('stripe_subscription_id')
-            .eq('id', refUserId)
-            .single()
-          // PGRST116 = profil inexistent (0 rânduri) — nu e un blocaj: scriem normal.
-          if (profileErr && profileErr.code !== 'PGRST116') {
-            throw new Error(`Profile lookup failed: ${profileErr.message}`)
-          }
-          const currentSub = currentProfile?.stripe_subscription_id
-          if (currentSub && currentSub !== subscriptionId) {
-            console.log(`[stripe-webhook] Skip stale checkout for terminal subscription ${subscriptionId} (current: ${currentSub})`)
-            break
-          }
+        // ★ Abonament UNIC la finalizare (lotul #61). Mai multe sesiuni Checkout
+        // pot ajunge să fie finalizate pentru același cont: chei de idempotență
+        // diferite (prefix schimbat la un deploy, granița ferestrei de 30 min,
+        // alt cod de afiliere, două planuri în două taburi) sau două cereri
+        // simultane care trec AMÂNDOUĂ de verificarea `subscription_exists`
+        // înainte ca vreuna să existe. Rezultatul ar fi DOUĂ abonamente vii,
+        // facturate amândouă. Înainte, al doilea checkout suprascria
+        // necondiționat `stripe_subscription_id`, iar primul rămânea viu și
+        // facturat fără ca aplicația să-l mai urmărească (updated/deleted îl sar
+        // ca „stale”). Decizia e acum în DATE, nu într-o citire: vezi
+        // claimProfileSubscription. Tot acolo stă și vechiul anti-clobber pe
+        // replay (abonament vechi deja terminal → nu suprascrie unul mai nou).
+        const claim = await claimProfileSubscription(supabase, stripe, {
+          userId: refUserId,
+          customerId,
+          subscriptionId,
+          subscription,
+          plan: finalPlan,
+          menuvia: isMenuviaPlanSubscription(subscription, refUserId, PLAN_BY_PRICE),
+          planByPrice: PLAN_BY_PRICE,
+        })
+
+        if (claim.outcome === 'no_profile') {
+          console.warn(`[stripe-webhook] checkout ${session.id || '?'}: profil inexistent pentru user ${refUserId} (abonament ${subscriptionId})`)
+          break
         }
-
-        const { error } = await supabase
-          .from('profiles')
-          .update({
-            plan: finalPlan,
-            stripe_customer_id: customerId,
-            stripe_subscription_id: subscriptionId,
+        if (claim.outcome === 'stale') {
+          console.log(`[stripe-webhook] Skip stale checkout for terminal subscription ${subscriptionId} (current: ${claim.current})`)
+          break
+        }
+        if (claim.outcome === 'foreign') {
+          // Profilul ține deja un abonament, iar acesta NU e un abonament de plan
+          // Menuvia (nici metadata `supabase_user_id` a contului, nici un price din
+          // PLAN_BY_PRICE): nu-l anulăm și nu-l rambursăm — poate fi al altui
+          // produs pe același cont Stripe (docs/ECOSISTEM.md §4). Profilul rămâne
+          // neatins, ca înaintea lotului #61; omul decide din ALERT.
+          console.error(
+            `[stripe-webhook] ALERT foreign subscription user=${refUserId} ` +
+            `current=${claim.current || '?'} subscription=${subscriptionId} status=${subscription.status} — ` +
+            'nu e abonament de plan Menuvia, neatins',
+          )
+          break
+        }
+        if (claim.outcome === 'duplicate') {
+          // Primul abonament înregistrat RĂMÂNE, al doilea se anulează (și se
+          // rambursează dacă a încasat). De ce primul: stripe-checkout refuză cu
+          // `subscription_exists` orice checkout nou cât există un abonament viu,
+          // iar schimbarea de plan se face din Portalul de facturare, pe ACELAȘI
+          // abonament — deci un al doilea abonament viu e mereu un accident de
+          // cursă, nu o intenție. „Primul” e decis de UPDATE-ul condiționat din
+          // claimProfileSubscription (lacătul rândului), deci e determinist și
+          // coincide cu ce arată deja aplicația; profilul NU se atinge, fără
+          // subscription_started.
+          // Alarma pleacă ÎNAINTEA apelurilor Stripe: dacă anularea sau
+          // rambursarea pică (500 → reluare), dublura rămâne vizibilă în log.
+          console.error(
+            `[stripe-webhook] ALERT duplicate subscription user=${refUserId} ` +
+            `kept=${claim.current || '?'} duplicate=${subscriptionId} status=${subscription.status}`,
+          )
+          const settled = await settleDuplicateSubscription(stripe, supabase, subscription, {
+            userId: refUserId,
+            subscriptionId,
+            keptSubscriptionId: claim.current,
+            reprocessing,
           })
-          .eq('id', refUserId)
-
-        if (error) throw new Error(`Profile update failed: ${error.message}`)
+          logDuplicateRefund(`duplicate subscription ${subscriptionId} settled: ` +
+            `cancel=${settled.canceledNow ? 'now' : 'already'}` +
+            (settled.keptVerified === false ? ' kept=UNVERIFIED' : '') +
+            (settled.collectionOk === false ? ' collection=CHECK' : ''), subscriptionId, settled.refund)
+          break
+        }
 
         await safeInsertLifecycleEvent(supabase, refUserId, 'subscription_started', {
           plan: finalPlan, subscription_id: subscriptionId,
         })
 
-        console.log(`[stripe-webhook] User ${refUserId} upgraded to ${finalPlan}`)
+        console.log(
+          `[stripe-webhook] User ${refUserId} upgraded to ${finalPlan}` +
+          (claim.replaced
+            ? claim.replacedCanceled
+              ? ` (înlocuiește abonamentul ${claim.replacedCanceled} ${claim.replaced}, anulat)`
+              : ` (înlocuiește abonamentul ${claim.replaced}, neviu)`
+            : ''),
+        )
         break
       }
 
@@ -340,21 +485,141 @@ exports.handler = async (event) => {
         // Grace în dunning: past_due ține abonamentul VIU la Stripe (reîncearcă plata) — nu
         // retrogradăm la 'free' (l-ar bloca + checkout-ul nou e respins 409 → utilizator captiv).
         // Downgrade real doar la status terminal (canceled/unpaid/incomplete_expired).
-        const activePlan = ['active', 'trialing', 'past_due'].includes(status) ? subPlan : 'free'
+        const activePlan = LIVE_SUB_STATUSES.includes(status) ? subPlan : 'free'
 
-        const { error } = await supabase
+        // Scrierea e CONDIȚIONATĂ, nu doar verificarea de mai sus: între citire
+        // și UPDATE, checkout-ul altui abonament poate înregistra profilul
+        // (claimProfileSubscription). Un UPDATE necondiționat l-ar suprascrie, iar
+        // abonamentul înregistrat ar rămâne viu și neurmărit — exact dublura pe
+        // care o previne finalizarea. Același WHERE ca acolo, sub lacătul rândului.
+        if (!isSubscriptionId(subscription.id)) {
+          throw new Error(`customer.subscription.updated: id de abonament cu formă necunoscută`)
+        }
+        // Profil GOL: evenimentul l-ar revendica pe baza INSTANTANEULUI din
+        // payload. O dublură anulată de noi (lotul #61) poate avea încă în zbor
+        // un `updated` de DINAINTEA anulării (status `active`), relivrat după ce
+        // abonamentul păstrat s-a încheiat și profilul s-a golit; fără citirea
+        // din Stripe, profilul ar primi un plan PLĂTIT pe un abonament anulat,
+        // care nu mai emite niciun eveniment — pe termen nelimitat. Se citește
+        // DOAR pe profilul gol: pe calea obișnuită profilul ține deja abonamentul
+        // evenimentului. O eroare Stripe aruncă (500 → Stripe retrimite).
+        // Aceeași citire decide și pentru un abonament încheiat FĂRĂ urma noastră
+        // (runda 3 pe #386, recenzia proprie; clasa MF-07): un `updated` vechi,
+        // relivrat (Resend din Dashboard după o pană, sau reîncercarea unui 500
+        // în fereastra de 3 zile) DUPĂ `deleted`-ul legitim, revendica profilul
+        // golit cu planul plătit din instantaneu — pe un abonament încheiat, care
+        // nu mai emite nimic. Un abonament încheiat nu revendică un profil gol.
+        const claimsEmptyProfile = !profile.stripe_subscription_id
+        if (claimsEmptyProfile) {
+          const before = await readHolderSubscription(stripe, subscription.id)
+          if (isOurDuplicateCancel(before.sub)) {
+            console.log(`[stripe-webhook] Skip updated pentru dublura anulată ${subscription.id} (profil gol, instantaneu dinaintea anulării)`)
+            break
+          }
+          if (ENDED_SUB_STATUSES.includes(before.status)) {
+            console.log(
+              `[stripe-webhook] Skip stale updated ${subscription.id} (profil gol; abonamentul e ${before.status} în Stripe, ` +
+              `instantaneul ${status} e mai vechi)`,
+            )
+            break
+          }
+        }
+        const { data: written, error } = await supabase
           .from('profiles')
           .update({
             plan: activePlan,
             stripe_subscription_id: subscription.id,
           })
           .eq('id', profile.id)
+          .or(freeOrSameSubscription(subscription.id))
+          .select('id')
 
         if (error) throw new Error(`Subscription update failed: ${error.message}`)
+        if (!written || written.length === 0) {
+          console.log(`[stripe-webhook] Skip stale subscription ${subscription.id} (profilul a primit alt abonament între citire și scriere)`)
+          break
+        }
+        // Planul DINAINTEA primei scrieri a acestui eveniment: la o reluare,
+        // profilul ține deja planul scris de livrarea anterioară, deci tranziția
+        // vine din payload-ul rândului (planChangeCarry). Se reține ÎNAINTEA
+        // verificării: dacă ea pică (500), eșecul o persistă pentru reluare.
+        const fromPlan = planChangeCarry ? planChangeCarry.from : profile.plan
+        planChangeCarry = { from: fromPlan }
 
-        if (profile.plan !== activePlan) {
+        // Verificarea de DUPĂ scriere (recenzie CodeRabbit pe #386, K1). Citirea
+        // de mai sus e înaintea UPDATE-ului: finalizarea poate anula dublura între
+        // ele, iar `deleted`-ul ei, sosit cât profilul încă era gol, a fost sărit
+        // (DUP26). Fără a doua citire, scrierea ar lăsa profilul pe un abonament
+        // anulat cu plan plătit, fără niciun eveniment care să-l mai corecteze.
+        // Deci starea de după scriere se aliniază cu starea abonamentului din
+        // ACEST moment, indiferent de ordinea webhook-urilor. Rulează doar când
+        // evenimentul a revendicat un profil GOL (citirea se plătea deja) sau la
+        // o REPROCESARE: dacă citirea de aici pică după scriere, la reluare
+        // profilul ține deja abonamentul, iar fără `reprocessing` reluarea ar sări
+        // verificarea și ar fixa starea greșită. Pe calea obișnuită (profilul ține
+        // abonamentul, prima livrare) nu se citește nimic.
+        // Tot aici, un abonament încheiat FĂRĂ urmă (runda 3): `deleted`-ul lui a
+        // golit profilul între citire și scriere, iar scrierea l-a revendicat din
+        // nou cu planul din instantaneu. Revenirea e aceeași; emailul și
+        // atribuirea rămân ale lui `deleted` (deja procesat — sau, dacă vine
+        // după, găsește profilul gol și le face el).
+        if (claimsEmptyProfile || reprocessing) {
+          let canceledDup
+          let endedStatus = null
+          try {
+            const after = await readHolderSubscription(stripe, subscription.id)
+            canceledDup = isOurDuplicateCancel(after.sub)
+            if (ENDED_SUB_STATUSES.includes(after.status)) endedStatus = after.status
+          } catch (e) {
+            processingError = `customer.subscription.updated ${subscription.id}: verificarea de după scriere ` +
+              `n-a putut citi abonamentul: ${e?.message || String(e)}`
+            console.error(`[stripe-webhook] ALERTĂ (retry): ${processingError}`)
+            break
+          }
+          if (canceledDup) {
+            // Revenire CONDIȚIONATĂ: atinge doar un rând care ține ÎNCĂ dublura.
+            // Dacă între timp profilul a primit alt abonament (finalizarea unui
+            // abonament nou, care înlocuiește unul anulat prin CAS), nu-l șterge.
+            // `free`, ca `customer.subscription.deleted` pe un profil care ține
+            // abonamentul încheiat; fără email și fără tranziția atribuirii — nu e
+            // abonamentul clientului.
+            const { data: reverted, error: revertErr } = await supabase
+              .from('profiles')
+              .update({ plan: 'free', stripe_subscription_id: null })
+              .eq('id', profile.id)
+              .eq('stripe_subscription_id', subscription.id)
+              .select('id')
+            if (revertErr) throw new Error(`Revert după dublura anulată ${subscription.id} eșuat: ${revertErr.message}`)
+            console.error(
+              `[stripe-webhook] ALERT updated pe dublura anulată ${subscription.id} (anulată între citire și scriere) ` +
+              `user=${profile.id} — scrierea ${reverted && reverted.length ? 'revenită: profil gol, plan free' : 'nu mai e în profil (golit de deleted-ul dublurii sau înlocuit de alt abonament), neatinsă'}`,
+            )
+            break
+          }
+          if (endedStatus) {
+            // Aceeași revenire condiționată, fără email/atribuire (ale lui
+            // `deleted`) și fără `plan_changed`: abonamentul s-a încheiat, deci
+            // tranziția din instantaneu n-a avut loc.
+            const { data: reverted, error: revertErr } = await supabase
+              .from('profiles')
+              .update({ plan: 'free', stripe_subscription_id: null })
+              .eq('id', profile.id)
+              .eq('stripe_subscription_id', subscription.id)
+              .select('id')
+            if (revertErr) throw new Error(`Revert după abonamentul încheiat ${subscription.id} eșuat: ${revertErr.message}`)
+            console.log(
+              `[stripe-webhook] Skip stale updated ${subscription.id} (abonamentul e ${endedStatus} în Stripe) user=${profile.id} — ` +
+              `scrierea ${reverted && reverted.length ? 'revenită: profil gol, plan free' : 'nu mai e în profil, neatinsă'}`,
+            )
+            break
+          }
+        }
+
+        // Doar după verificare: o dublură anulată a ieșit mai sus (revenire, fără
+        // `plan_changed`), indiferent de tranziția purtată.
+        if (fromPlan !== activePlan) {
           await safeInsertLifecycleEvent(supabase, profile.id, 'plan_changed', {
-            from: profile.plan, to: activePlan, status,
+            from: fromPlan, to: activePlan, status,
           })
         }
 
@@ -385,15 +650,70 @@ exports.handler = async (event) => {
           break
         }
 
-        const { error } = await supabase
+        // Condiționat, ca la updated: dacă între citire și scriere checkout-ul
+        // unui abonament NOU a înlocuit unul încheiat (claimProfileSubscription),
+        // un downgrade necondiționat ar șterge abonamentul nou din profil — viu,
+        // facturat și neurmărit.
+        if (!isSubscriptionId(subscription.id)) {
+          throw new Error(`customer.subscription.deleted: id de abonament cu formă necunoscută`)
+        }
+        // Abonament anulat de NOI ca dublură (sau ca deținător neviu înlocuit):
+        // nu e abonamentul clientului — fără email de anulare și fără tranziția
+        // atribuirii (terminală, ireversibilă: ar opri comisioanele și accesul de
+        // partener pentru un client care rămâne abonat pe cel păstrat). Payload-ul
+        // lui `deleted` e instantaneul DE DUPĂ anulare, deci poartă urma (fără
+        // citire Stripe). Profilul e gol (cel păstrat s-a încheiat între timp) sau
+        // ține TRANZITORIU chiar dublura (un `updated` întârziat, DUP27; o
+        // înlocuire oprită între anulare și CAS, DUP3b) — recenzie CodeRabbit pe
+        // #386, runda 2: înainte, al doilea caz trecea pe calea obișnuită. Se
+        // golește doar un profil care o ține ÎNCĂ (scriere condiționată), apoi
+        // ieșire.
+        if (isOurDuplicateCancel(subscription)) {
+          const { data: cleared, error: clearErr } = await supabase
+            .from('profiles')
+            .update({ plan: 'free', stripe_subscription_id: null })
+            .eq('id', profile.id)
+            .eq('stripe_subscription_id', subscription.id)
+            .select('id')
+          if (clearErr) throw new Error(`Clear dublura anulată ${subscription.id} eșuat: ${clearErr.message}`)
+          console.log(
+            `[stripe-webhook] Skip deleted pentru dublura anulată ${subscription.id} ` +
+            `(${cleared && cleared.length ? 'profilul o ținea: golit, plan free' : 'profil gol'}; fără email, atribuirea neatinsă)`,
+          )
+          // Deținătorul ÎNLOCUIT (urma `kept=<nou>;replaced=<stare>`), golit AICI =
+          // finalizarea care l-a anulat n-a ajuns la CAS (500 sau oprită între
+          // anulare și CAS; runda 3 CodeRabbit pe #386). Ordinea obișnuită:
+          // `deleted`-ul nostru sosește în secunde, reluarea finalizării abia după
+          // backoff, pe profilul gol — scrie direct, fără să mai vadă deținătorul,
+          // deci verificările de după anulare rulează aici. Doar pe golirea
+          // reușită: cu profilul deja mutat pe cel nou, finalizarea le-a făcut
+          // după CAS (ieșirea „stale” de mai sus), deci nimic nu rulează de două
+          // ori. Ambele sunt best-effort (nu aruncă) și idempotente.
+          const replacedKept = keptFromCancelMarker(subscription)
+          if (cleared && cleared.length > 0 && replacedKept && replacedFromCancelMarker(subscription, replacedKept)) {
+            await checkKeptCollectionAfterCancel(stripe, { userId: profile.id, subscriptionId: subscription.id, keptSubscriptionId: replacedKept })
+            await reconcileReplacedInvoice(stripe, {
+              userId: profile.id, subscriptionId: subscription.id, keptSubscriptionId: replacedKept,
+              invoiceId: refId(subscription.latest_invoice),
+            })
+          }
+          break
+        }
+        const { data: downgraded, error } = await supabase
           .from('profiles')
           .update({
             plan: 'free',
             stripe_subscription_id: null,
           })
           .eq('id', profile.id)
+          .or(freeOrSameSubscription(subscription.id))
+          .select('id')
 
         if (error) throw new Error(`Downgrade failed: ${error.message}`)
+        if (!downgraded || downgraded.length === 0) {
+          console.log(`[stripe-webhook] Skip stale deleted subscription ${subscription.id} (profilul a primit alt abonament între citire și scriere)`)
+          break
+        }
 
         // Afiliere (mig 293): abonamentul S-A ÎNCHEIAT → atribuirea `canceled`
         // (fără comisioane noi, fără acces de partener — poarta 193). Acesta e
@@ -499,7 +819,7 @@ exports.handler = async (event) => {
 
         const { data: profile, error: lookupErr } = await supabase
           .from('profiles')
-          .select('id')
+          .select('id, stripe_subscription_id')
           .eq('stripe_customer_id', customerId)
           .single()
         // Fără log, un lookup eșuat (blip DB) făcea evenimentul să dispară TĂCUT:
@@ -521,15 +841,64 @@ exports.handler = async (event) => {
             `[stripe-webhook] ${stripeEvent.type}: profil inexistent pentru customer ${customerId}`
           )
         }
+        if (profile) userId = profile.id
+        const invoiceSubId = invoiceSubscriptionId(invoice)
+
+        // ── Factura DUBLURII anulate de noi (lotul #61) ───────────────────────
+        // Banii pot ajunge pe dublură DUPĂ ce am anulat-o la finalizare: o metodă
+        // cu decontare întârziată (SEPA, transfer) ține abonamentul `active` cu
+        // PaymentIntent `processing`, anularea nu oprește o plată deja în
+        // procesare, iar factura devine `paid` mai târziu — fără nicio
+        // rambursare (la decontare factura era `open`, nu `paid`). Tot aici
+        // ajunge și un `invoice.paid` al dublurii RELUAT după rambursare (500 la
+        // prima încercare): fără gardă, ar scrie comision de afiliere pe bani
+        // deja returnați, pe care `charge.refunded` (consumat înaintea lui) nu-l
+        // mai stornează niciodată. Deci: rambursăm FACTURA EVENIMENTULUI
+        // (idempotent: refunds.list + aceeași cheie ca la decontare) și sărim
+        // lifecycle-ul și comisionul — factura dublurii nu e a clientului.
+        // Fără citire Stripe pe calea obișnuită: claimProfileSubscription nu
+        // scrie niciodată o dublură în profil, iar `customer.subscription.updated`
+        // pe profil gol citește abonamentul și sare dublura anulată (DUP25) — iar
+        // dacă a scris-o totuși într-o cursă, verificarea de după scriere revine
+        // (DUP27; profilul o poate ține doar TRANZITORIU, rezidual în CLAUDE.md) —,
+        // deci factura abonamentului urmărit nu se verifică.
+        // ORDINEA contează: un `invoice.paid` al dublurii procesat ÎNAINTEA
+        // finalizării ei (abonamentul încă viu, fără urmă) trece pe calea
+        // obișnuită — lifecycle + comision —, iar rambursarea de la finalizare
+        // emite `charge.refunded` → clawback (DUP24; reziduuri în CLAUDE.md).
+        if (invoice.amount_paid > 0 && isSubscriptionId(invoiceSubId) &&
+            !(profile && profile.stripe_subscription_id === invoiceSubId)) {
+          let duplicate
+          try {
+            duplicate = await isCanceledDuplicate(stripe, invoiceSubId)
+          } catch (e) {
+            processingError = `invoice.paid ${invoice.id}: abonamentul ${invoiceSubId} nu se poate citi: ${e?.message || String(e)}`
+            console.error(`[stripe-webhook] ALERTĂ (retry): ${processingError}`)
+            break
+          }
+          if (duplicate) {
+            console.error(
+              `[stripe-webhook] ALERT invoice.paid pe abonamentul DUBLURĂ ${invoiceSubId} (anulat la finalizare) ` +
+              `invoice=${invoice.id} amount_paid=${invoice.amount_paid} — se rambursează, fără comision`,
+            )
+            try {
+              const r = await refundDuplicateInvoice(stripe, invoice.id, invoiceSubId)
+              logDuplicateRefund(`duplicate subscription ${invoiceSubId} invoice.paid`, invoiceSubId, r)
+            } catch (e) {
+              processingError = `invoice.paid ${invoice.id}: rambursarea dublurii ${invoiceSubId} a eșuat: ${e?.message || String(e)}`
+              console.error(`[stripe-webhook] ALERTĂ (retry): ${processingError}`)
+            }
+            break
+          }
+        }
 
         if (profile) {
-          userId = profile.id
           await safeInsertLifecycleEvent(supabase, profile.id, 'invoice_paid', {
             billing_reason:  billingReason,
             amount_paid:     invoice.amount_paid,
             currency:        invoice.currency,
             invoice_id:      invoice.id,
-            subscription_id: invoiceSubscriptionId(invoice),
+            subscription_id: invoiceSubId,
           })
           // Dunning — recuperare: attempt_count>1 ⇒ factura a eșuat cel puțin o
           // dată înainte să reușească (clientul a primit deja emailul alarmant
@@ -597,7 +966,6 @@ exports.handler = async (event) => {
             // RPC-ul refuză comisionul (fail-closed pe Plan 3).
             const billedPriceId = linePriceId(subLine)
             const billedPlan = PLAN_BY_PRICE[billedPriceId] || null
-            const invoiceSubId = invoiceSubscriptionId(invoice)
             // Bani reali pe un abonament, dar NICIO linie cu price lizibil = o
             // formă de payload pe care n-o știm citi (nu un plan necunoscut).
             // Tăcerea ar pierde comisionul definitiv; 500 → Stripe retrimite și
@@ -692,6 +1060,88 @@ exports.handler = async (event) => {
         break
       }
 
+      case 'charge.refund.updated': {
+        // ── Rambursarea DUBLURII a eșuat după creare (lotul #61, K3) ──────────
+        // refunds.create poate întoarce `pending`/`requires_action`, iar
+        // rambursarea poate deveni `failed`/`canceled` ulterior (ex. contul
+        // destinație închis) — inclusiv una născută `succeeded`: o rambursare
+        // pe card poate eșua și după ce a fost postată, până la 30 de zile.
+        // Stripe anunță asta prin acest eveniment (endpoint-ul trebuie ABONAT la
+        // el — pas de fondator OBLIGATORIU, GHID_FONDATOR PASUL 5: fără el, un
+        // eșec după un `succeeded` nu lasă NICIUN semnal). Evenimentul e marcat
+        // Deprecated la Stripe în favoarea lui `refund.updated`/`refund.failed`,
+        // care există abia din 2024-10-28.acacia. Stripe îl documentează doar ca
+        // emis „pentru anumite metode de plată”, fără să le numească: ne bazăm
+        // pe el pentru rambursările pe CARD (singura metodă a abonamentelor de
+        // azi, în RON). Pentru orice altă metodă (ex. SEPA, după .com/EUR) un
+        // eșec ulterior poate să nu ajungă aici — verificarea e manuală
+        // (GHID_FONDATOR PASUL 5: `GET /v1/refunds`, rambursările de dublură cu
+        // `status` failed/canceled) până la mutarea pin-ului pe `refund.*`. Ne
+        // ocupăm DOAR de rambursările pornite de noi pentru o dublură (metadata
+        // `menuvia_reason`); orice altă rambursare (ex. una făcută manual din
+        // Dashboard) nu e a noastră de reîncercat. Clawback-ul de afiliere
+        // rămâne pe `charge.refunded`, neatins.
+        const refund = stripeEvent.data.object || {}
+        const meta = refund.metadata || {}
+        if (meta.menuvia_reason !== DUPLICATE_REFUND_REASON) {
+          console.log(`[stripe-webhook] charge.refund.updated ${refund.id || '?'}: nu e o rambursare de dublură, ignorat`)
+          break
+        }
+        const dupInvoiceId = meta.menuvia_invoice
+        const dupSubId = meta.menuvia_subscription
+        if (typeof dupInvoiceId !== 'string' || !INVOICE_ID_RE.test(dupInvoiceId) || !isSubscriptionId(dupSubId)) {
+          // Metadata NOASTRĂ cu formă necunoscută = nu știm ce să rambursăm: 500,
+          // vizibil, nu tăcere.
+          throw new Error(`charge.refund.updated ${refund.id || '?'}: metadata de dublură cu formă necunoscută`)
+        }
+        const deadKind = deadRefundKind(refund)
+        if (!deadKind) {
+          console.log(`[stripe-webhook] charge.refund.updated ${refund.id}: rambursarea dublurii ${dupSubId} e ${refund.status}, nimic de făcut`)
+          break
+        }
+        if (deadKind === 'final') {
+          // Anulată de un om, sau un eșec pentru care Stripe cere altă cale de
+          // restituire (RETRYABLE_REFUND_FAILURES): NICIO rambursare nouă și
+          // nicio citire — decizia se ia pe obiectul din eveniment, deci nu
+          // depinde de ce mai arată lista. Omul verifică și decide.
+          console.error(
+            `[stripe-webhook] ALERT duplicate refund ${refund.status} refund=${refund.id} subscription=${dupSubId} ` +
+            `invoice=${dupInvoiceId} amount=${refund.amount} failure_reason=${refund.failure_reason || '?'} — ` +
+            'rambursare MANUALĂ, FĂRĂ reîncercare automată: o rambursare anulată e decizia unui om, iar pentru ' +
+            'acest motiv Stripe cere altă cale de restituire (o reîncercare ar putea plăti a doua oară); ' +
+            'verifică plata în Dashboard',
+          )
+          break
+        }
+        console.error(
+          `[stripe-webhook] ALERT duplicate refund ${refund.status} refund=${refund.id} subscription=${dupSubId} ` +
+          `invoice=${dupInvoiceId} amount=${refund.amount} failure_reason=${refund.failure_reason || '?'} — ` +
+          // Rezultatul reîncercării vine în linia `refund retry … refund=<stare>` de
+          // mai jos: plafonul atins sau un refuz permanent al plății îl fac
+          // `refund=manual` (cu ALERT propriu), deci mesajul nu promite că
+          // reîncercarea rulează.
+          'se reîncearcă automat (NU rambursa manual decât dacă linia de rezultat spune refund=manual)',
+        )
+        // Reîncercarea trece prin ACEEAȘI decizie ca decontarea: factura e încă
+        // plătită, `refunds.list` arată că restul NU e rambursat (o reîncercare
+        // deja reușită → `already_refunded`, în curs → `refund_pending`) și că
+        // nicio rambursare de pe plată nu e finală, iar cheia derivă din
+        // numărul de rambursări moarte — deci NOUĂ față de cea eșuată și
+        // identică pentru două livrări ale aceluiași eșec. O eroare Stripe aruncă
+        // (500 → Stripe retrimite evenimentul).
+        const retried = await refundDuplicateInvoice(stripe, dupInvoiceId, dupSubId)
+        logDuplicateRefund(`duplicate subscription ${dupSubId} refund retry after ${refund.id} ${refund.status}:`, dupSubId, retried)
+        if (!['refunded', 'refund_pending', 'already_refunded', 'manual'].includes(retried.status)) {
+          // nothing_paid / pending_payment pe o factură a cărei rambursare a
+          // eșuat: starea nu se potrivește cu nimic cunoscut → omul verifică.
+          console.error(
+            `[stripe-webhook] ALERT duplicate refund ${refund.id}: factura ${dupInvoiceId} nu mai e rambursabilă ` +
+            `(${retried.status}) — verificare MANUALĂ`,
+          )
+        }
+        break
+      }
+
       case 'charge.dispute.closed': {
         // Dispute PIERDUTĂ = clawback total (ca un refund). Câștigată = no-op
         // (comisionul rămâne; pe durata disputei payout-ul e manual + în hold).
@@ -772,9 +1222,18 @@ exports.handler = async (event) => {
     // retrimite, dar dedup-ul pe event_id rămâne ancora durabilă —
     // procesarea idempotentă se face per-efect (ON CONFLICT), nu prin
     // ștergerea rândului de dedup.
+    // Tranziția purtată (planChangeCarry) se scrie în payload, lângă `data`
+    // ÎNTREG; fără ea, UPDATE-ul nu atinge `payload`, deci o tranziție scrisă de o
+    // livrare anterioară rămâne pentru următoarea reluare.
     await supabase
       .from('stripe_events')
-      .update({ status: 'failed', error_info: processingError })
+      .update({
+        status: 'failed',
+        error_info: processingError,
+        ...(planChangeCarry
+          ? { payload: { ...(stripeEvent.data || {}), menuvia_pending_plan_changed: planChangeCarry } }
+          : {}),
+      })
       .eq('event_id', stripeEvent.id)
     return jsonResponse(500, { error: 'Processing failed', detail: processingError })
   }
@@ -839,14 +1298,20 @@ function normalizePlan(plan) {
  * validă (audit HIGH). O eroare Stripe (ex. timeout tranzitoriu de rețea) NU
  * înseamnă „plan free" — înseamnă „nu știm" → aruncăm mai departe ca
  * apelantul să NU aplice niciun downgrade pe un client care a plătit efectiv.
+ * Întoarce și abonamentul citit: finalizarea îi folosește starea, factura și
+ * urma de anulare (claimProfileSubscription / settleDuplicateSubscription), fără
+ * a-l citi a doua oară.
  * @param {import('stripe')} stripe clientul Stripe
- * @param {string|null|undefined} subscriptionId id-ul abonamentului din sesiune
+ * @param {string} subscriptionId id-ul abonamentului din sesiune (validat de apelant)
  * @param {Record<string,string>} [planByPrice] mapă price.id → plan canonic
- * @returns {Promise<'free'|'starter'|'growth'|'pro'|'enterprise'>}
+ * @returns {Promise<{ plan: 'free'|'starter'|'growth'|'pro'|'enterprise', subscription: object }>}
  */
 async function resolvePlan(stripe, subscriptionId, planByPrice = {}) {
-  if (!subscriptionId) return 'free'
   const sub = await stripe.subscriptions.retrieve(subscriptionId)
+  return { plan: planForSubscription(sub, planByPrice), subscription: sub }
+}
+
+function planForSubscription(sub, planByPrice) {
   // ★ audit v3 (MF-07): un abonament deja TERMINAL la momentul livrării
   // evenimentului NU acordă plan plătit. Cazul real: webhook mort >3 zile
   // (env Netlify șters), founder-ul retrimite din Stripe Dashboard
@@ -854,7 +1319,7 @@ async function resolvePlan(stripe, subscriptionId, planByPrice = {}) {
   // abonament canceled nu mai emite niciun eveniment, deci planul ar fi rămas
   // 'pro' pe termen nelimitat. Aceeași listă de statusuri VII ca la
   // customer.subscription.updated (past_due = grace de dunning, nu downgrade).
-  if (!['active', 'trialing', 'past_due'].includes(sub.status)) return 'free'
+  if (!LIVE_SUB_STATUSES.includes(sub && sub.status)) return 'free'
   // Planul din price.id-ul FACTURAT are prioritate (sursa de adevăr folosită
   // și de subscription.updated); metadata.plan rămâne fallback pentru
   // abonamentele fără price mapat (fail-closed prin normalizePlan).
@@ -862,6 +1327,648 @@ async function resolvePlan(stripe, subscriptionId, planByPrice = {}) {
   const priced = items.find((i) => i?.price?.id && planByPrice[i.price.id])
   if (priced) return planByPrice[priced.price.id]
   return normalizePlan(sub.metadata?.plan)
+}
+
+// ── Abonament unic la finalizare (lotul #61) ──────────────────────
+/**
+ * Leagă abonamentul unei sesiuni finalizate de profil, ATOMIC, și spune ce s-a
+ * întâmplat:
+ *   written    profilul era liber / avea deja ACEST abonament (relivrare) /
+ *              avea unul care nu mai e VIU → scris; `replaced` = cel vechi. „Nu
+ *              mai e viu” = încheiat (deleted pierdut / necunoscut lui Stripe)
+ *              SAU `unpaid`/`incomplete`: în al doilea caz cel vechi își mai
+ *              poate plăti factura deschisă, deci, dacă e de plan Menuvia și cel
+ *              NOU e viu, se ANULEAZĂ înaintea înlocuirii, cu urma dublurii
+ *              (`replacedCanceled`; DUP3b). Altfel (străin, sau cel nou doar
+ *              `incomplete`) rămâne rezidualul consemnat în CLAUDE.md
+ *   stale      abonamentul sesiunii nu mai poate factura și profilul ține altul
+ *              (replay întârziat al unui abonament vechi) → nimic de făcut
+ *   foreign    profilul ține alt abonament, iar acesta NU e un abonament de plan
+ *              Menuvia (`menuvia` false) → nimic de făcut, nici anulare
+ *   duplicate  profilul ține ALT abonament VIU, iar acesta e de plan Menuvia → e
+ *              dublura; `current` = cel păstrat
+ *   no_profile contul nu (mai) există
+ *
+ * De ce un UPDATE condiționat și nu o citire: două webhook-uri concurente pot
+ * citi AMÂNDOUĂ profilul liber înainte ca vreunul să scrie. Un singur
+ * `UPDATE profiles … WHERE id = $1 AND (stripe_subscription_id IS NULL OR
+ * stripe_subscription_id = $2)` (ce trimite PostgREST pentru lanțul de mai jos,
+ * într-o singură instrucțiune) ia lacătul rândului; sub READ COMMITTED, al doilea
+ * UPDATE așteaptă lacătul și își RE-EVALUEAZĂ WHERE-ul pe rândul deja scris de
+ * primul, deci primește 0 rânduri. Garanția vine din Postgres, nu din cod, și
+ * nu cere o migrație (un RPC DEFINER ar face exact același UPDATE … RETURNING).
+ * Înlocuirea unui abonament încheiat e un compare-and-swap pe valoarea VECHE,
+ * cu aceeași semantică: dintre doi concurenți, unul singur o găsește.
+ */
+async function claimProfileSubscription(supabase, stripe, { userId, customerId, subscriptionId, subscription, plan, menuvia, planByPrice = {} }) {
+  // Reluare după un 500 la mijlocul decontării unei dubluri: abonamentul e deja
+  // anulat DE NOI (urma de pe el); profilul nu se atinge, decontarea continuă.
+  if (isOurDuplicateCancel(subscription)) {
+    return { outcome: 'duplicate', current: keptFromCancelMarker(subscription) }
+  }
+  // Decizia „poate factura” e pe STAREA abonamentului, nu pe planul rezolvat:
+  // un abonament viu cu price nemapat rezolvă 'free', dar încasează.
+  const billable = BILLABLE_SUB_STATUSES.includes(subscription && subscription.status)
+  const live = LIVE_SUB_STATUSES.includes(subscription && subscription.status)
+  const payload = { plan, stripe_customer_id: customerId, stripe_subscription_id: subscriptionId }
+
+  for (let attempt = 0; attempt < CLAIM_ATTEMPTS; attempt++) {
+    const { data: claimed, error: claimErr } = await supabase
+      .from('profiles')
+      .update(payload)
+      .eq('id', userId)
+      .or(freeOrSameSubscription(subscriptionId))
+      .select('id')
+    if (claimErr) throw new Error(`Profile update failed: ${claimErr.message}`)
+    if (claimed && claimed.length > 0) return { outcome: 'written', replaced: null }
+
+    const prof = await readProfileSubscription(supabase, userId)
+    if (!prof.exists) return { outcome: 'no_profile' }
+    const current = prof.current
+    // Profilul s-a eliberat / a primit chiar acest abonament între cele două
+    // instrucțiuni → încă o încercare de înregistrare.
+    if (!current || current === subscriptionId) continue
+    if (!billable) return { outcome: 'stale', current }
+    // Anularea + rambursarea sunt ireversibile: le facem doar pe un abonament
+    // creat de checkout-ul NOSTRU. Unul străin (alt produs pe același cont
+    // Stripe) nu e „dublura” noastră și nici nu înlocuiește abonamentul din
+    // profil — se lasă neatins.
+    if (!menuvia) return { outcome: 'foreign', current }
+    const holder = await readHolderSubscription(stripe, current)
+    if (LIVE_SUB_STATUSES.includes(holder.status)) {
+      // Re-validarea deținătorului IMEDIAT înaintea anulării (recenzie CodeRabbit
+      // pe #386, K2): citirea din Stripe de mai sus durează, iar între timp
+      // `customer.subscription.deleted` al celui păstrat poate goli profilul
+      // (sau altă finalizare îl poate înlocui). Anularea + rambursarea ar lăsa
+      // atunci contul FĂRĂ niciun abonament viu — mai rău decât înaintea lotului,
+      // când aceeași ordine lăsa abonamentul nou înregistrat. Dacă profilul nu
+      // mai ține abonamentul citit viu, decizia se reia prin bucla de revendicare
+      // (UPDATE-ul condiționat), mărginită de CLAIM_ATTEMPTS. Între această
+      // citire și anulare rămâne doar latența cererii de anulare; acea fereastră
+      // se DETECTEAZĂ după anulare (verifyKeptAfterCancel), nu se poate închide:
+      // un abonament anulat nu se mai reactivează.
+      const again = await readProfileSubscription(supabase, userId)
+      if (!again.exists) return { outcome: 'no_profile' }
+      if (again.current === current) return { outcome: 'duplicate', current }
+      continue
+    }
+
+    // Cel din profil nu mai e VIU, dar încă POATE factura (`unpaid` — factura
+    // deschisă se mai poate plăti; `incomplete` — prima plată se mai poate
+    // confirma ~23 h): înlocuit fără anulare, ar rămâne neurmărit și ar putea
+    // încasa lângă cel nou (recenzie CodeRabbit pe #386, runda 2; înainte,
+    // rezidualul DUP3b). Se anulează ÎNAINTEA înlocuirii, cu aceeași urmă ca o
+    // dublură (`kept=` = cel nou), deci toate gărzile dublurii se aplică singure
+    // (în oricare stare terminală îl lasă DELETE-ul, ENDED_SUB_STATUSES):
+    // o plată sosită pe el după anulare se rambursează (invoice.paid), iar
+    // updated/deleted lui nu ating profilul. Fără rambursare acum: un abonament
+    // nu-i VIU tocmai pentru că factura lui curentă e neplătită. Doar dacă e un
+    // abonament de plan MENUVIA (unul străin nu se anulează, ca la finalizare) și
+    // doar dacă cel NOU e viu (cu cel nou doar `incomplete`, contul ar putea
+    // rămâne fără niciun abonament). Anularea e BEST-EFFORT: abonamentul nou e
+    // plătit și trebuie scris, deci o anulare eșuată nu-l blochează (cu 500 în
+    // buclă, clientul ar rămâne fără plan 3 zile) — ALERT pentru anulare MANUALĂ.
+    // Înaintea CAS-ului, nu după: o livrare oprită între ele se reia cu cel vechi
+    // deja încheiat (calea DUP3), pe când după CAS reluarea ar vedea profilul pe
+    // cel nou și l-ar uita.
+    // Starea folosită pentru decizie e citirea de mai sus: între ea și anulare nu
+    // mai e niciun apel, deci o a doua citire ar reproduce aceeași fereastră
+    // (latența citire → anulare). În ea, deținătorul își poate plăti factura
+    // (runda 3 CodeRabbit pe #386), iar `invoice.paid`-ul ei, procesat cât
+    // profilul îl ține încă, trece pe calea obișnuită (fără rambursare). De aceea
+    // se reține factura văzută acum (`latest_invoice`, cea a cărei neplată îl
+    // face neviu) și se reconciliază DUPĂ CAS (reconcileReplacedInvoice).
+    const holderInvoice = refId(holder.sub && holder.sub.latest_invoice)
+    let replacedCanceled = null
+    if (live && BILLABLE_SUB_STATUSES.includes(holder.status) && holder.sub &&
+        isMenuviaPlanSubscription(holder.sub, userId, planByPrice)) {
+      try {
+        await stripe.subscriptions.cancel(current, {
+          prorate: false,
+          invoice_now: false,
+          cancellation_details: { comment: `${DUPLICATE_CANCEL_MARKER};kept=${subscriptionId};replaced=${holder.status}` },
+        })
+        replacedCanceled = holder.status
+        console.error(
+          `[stripe-webhook] ALERT replaced subscription user=${userId} canceled=${current} (${holder.status}) ` +
+          `kept=${subscriptionId} — abonamentul vechi, facturabil dar neviu, anulat înaintea înlocuirii; o plată ` +
+          'sosită pe el după anulare se rambursează automat (invoice.paid)',
+        )
+      } catch (e) {
+        console.error(
+          `[stripe-webhook] ALERT replaced subscription NOT canceled user=${userId} subscription=${current} ` +
+          `(${holder.status}) kept=${subscriptionId}: ${e?.message || String(e)} — anulează-l MANUAL din Dashboard dacă ` +
+          'e încă activ (altfel își poate plăti factura deschisă neurmărit); abonamentul nou se înregistrează oricum',
+        )
+      }
+    }
+    // Reluare după un 500 între anulare și CAS (runda 3 CodeRabbit pe #386):
+    // deținătorul e deja încheiat, deci ramura de mai sus nu-l mai anulează, dar
+    // urma spune că L-AM anulat noi pentru ACEST abonament. Verificările de după
+    // CAS rulează și atunci — niciodată pe un deținător pe care nu l-am anulat.
+    // Asta e ordinea RARĂ (reluarea înaintea `deleted`-ului lui); în cea
+    // obișnuită `deleted` golește profilul întâi și face el verificările, iar
+    // reluarea scrie direct pe profilul gol (aceeași cale când `deleted` e
+    // procesat între anulare și CAS, în aceeași livrare: CAS-ul atinge 0 rânduri,
+    // iar iterația următoare nu le repetă — nimic purtat între iterații).
+    const canceledFor = replacedCanceled || replacedFromCancelMarker(holder.sub, subscriptionId)
+    // Abonamentul nou îl înlocuiește — doar dacă profilul ține ÎNCĂ acea valoare.
+    // Imediat după anulare, fără niciun apel Stripe între ele (runda 3 pe
+    // #386, recenzia proprie): cât profilul ține încă abonamentul anulat, garda din
+    // invoice.paid nu-l citește (e „cel urmărit”), deci o plată a lui procesată
+    // atunci ar trece pe calea obișnuită (comision, fără rambursare).
+    const { data: replaced, error: casErr } = await supabase
+      .from('profiles')
+      .update(payload)
+      .eq('id', userId)
+      .eq('stripe_subscription_id', current)
+      .select('id')
+    if (casErr) throw new Error(`Profile update failed: ${casErr.message}`)
+    if (replaced && replaced.length > 0) {
+      // Anularea oprește implicit încasarea pe facturile finalizate ale clientului
+      // — inclusiv ale celui nou (de regulă fără facturi deschise: e abia plătit).
+      // DUPĂ CAS: ambele verificări sunt best-effort (nu aruncă), deci n-au de ce
+      // să lărgească fereastra de mai sus. O livrare oprită DUPĂ CAS, înaintea
+      // lor, le pierde: reluarea găsește profilul pe cel nou și nu mai ajunge
+      // aici, iar `deleted`-ul celui vechi iese „stale” (reziduu în CLAUDE.md);
+      // din acel moment, o plată a celui vechi trece prin garda din invoice.paid,
+      // care o rambursează.
+      if (canceledFor) {
+        await checkKeptCollectionAfterCancel(stripe, { userId, subscriptionId: current, keptSubscriptionId: subscriptionId })
+        await reconcileReplacedInvoice(stripe, { userId, subscriptionId: current, keptSubscriptionId: subscriptionId, invoiceId: holderInvoice })
+      }
+      return { outcome: 'written', replaced: current, replacedCanceled: canceledFor }
+    }
+    // Altcineva a scris între citire și CAS → re-evaluăm de la capăt.
+  }
+  // 500 → Stripe retrimite; la reluare decizia se ia din nou, pe starea de atunci.
+  throw new Error(`profilul ${userId}: abonamentul s-a schimbat concurent de ${CLAIM_ATTEMPTS} ori`)
+}
+
+// Abonamentul ținut acum de profil. PGRST116 (zero rânduri) = contul nu (mai)
+// există; orice altă eroare e de infra și urcă (500).
+async function readProfileSubscription(supabase, userId) {
+  const { data: prof, error } = await supabase
+    .from('profiles')
+    .select('stripe_subscription_id')
+    .eq('id', userId)
+    .single()
+  if (error && error.code !== 'PGRST116') throw new Error(`Profile lookup failed: ${error.message}`)
+  return prof ? { exists: true, current: prof.stripe_subscription_id || null } : { exists: false, current: null }
+}
+
+// Abonamentul ținut de profil, cu starea lui. „Viu” = aceeași regulă ca
+// resolvePlan (LIVE_SUB_STATUSES). Un id pe care Stripe nu-l cunoaște
+// (resource_missing — ex. rămas din modul de test) nu poate factura în acest mod
+// → tratat ca încheiat (`sub` null). Orice altă eroare e tranzitorie și urcă
+// (500): fără răspuns nu decidem nimic.
+async function readHolderSubscription(stripe, subscriptionId) {
+  try {
+    const s = await stripe.subscriptions.retrieve(subscriptionId)
+    return { sub: s || null, status: (s && s.status) || null }
+  } catch (e) {
+    if (e && (e.code === 'resource_missing' || e.statusCode === 404)) return { sub: null, status: 'resource_missing' }
+    throw e
+  }
+}
+
+// Abonament de plan Menuvia = creat de stripe-checkout.js, care pune pe FIECARE
+// abonament `metadata.supabase_user_id` (contul) — sau, pentru abonamentele fără
+// acea metadata, un price din PLAN_BY_PRICE. Orice altceva cu același
+// client_reference_id (alt produs pe același cont Stripe, un Payment Link) NU e
+// al nostru de anulat.
+function isMenuviaPlanSubscription(sub, userId, planByPrice) {
+  const owner = sub && sub.metadata && sub.metadata.supabase_user_id
+  if (typeof owner === 'string' && owner !== '' && owner === userId) return true
+  const items = (sub && sub.items && sub.items.data) || []
+  return items.some((i) => {
+    const p = refId(i && i.price)
+    return !!p && Object.prototype.hasOwnProperty.call(planByPrice, p)
+  })
+}
+
+// Anulat DE NOI = încheiat (oricare dintre stările terminale — vezi
+// ENDED_SUB_STATUSES) ȘI cu urma noastră. Urma o scrie doar anularea din acest
+// fișier, deci a doua stare nu aduce fals-pozitive.
+function isOurDuplicateCancel(sub) {
+  const comment = sub && sub.cancellation_details && sub.cancellation_details.comment
+  return !!sub && ENDED_SUB_STATUSES.includes(sub.status) &&
+    typeof comment === 'string' && comment.startsWith(DUPLICATE_CANCEL_MARKER)
+}
+function keptFromCancelMarker(sub) {
+  const m = /;kept=(sub_[A-Za-z0-9_]+)/.exec(String(sub.cancellation_details.comment))
+  return m ? m[1] : null
+}
+// Deținătorul înlocuit, anulat DE NOI pentru `keptSubscriptionId` (urma
+// `kept=<nou>;replaced=<stare>`, scrisă doar de claimProfileSubscription) →
+// starea lui de atunci; orice altceva (fără urmă, urma unei dubluri, alt
+// abonament păstrat) → null.
+function replacedFromCancelMarker(sub, keptSubscriptionId) {
+  if (!isOurDuplicateCancel(sub) || keptFromCancelMarker(sub) !== keptSubscriptionId) return null
+  const m = /;replaced=([a-z_]+)/.exec(String(sub.cancellation_details.comment))
+  return m ? m[1] : null
+}
+
+/**
+ * Factura deținătorului înlocuit, văzută la decizie, reconciliată DUPĂ CAS
+ * (runda 3 CodeRabbit pe #386). Între citirea stării și CAS, deținătorul își
+ * poate plăti factura, iar `invoice.paid`-ul ei, procesat cât profilul îl ține
+ * încă, trece pe calea obișnuită (lifecycle + comision, fără rambursare). După
+ * CAS, garda din invoice.paid acoperă orice plată ULTERIOARĂ; aceasta acoperă
+ * plata deja sosită. Aceeași decizie ca la dublură (refundDuplicateInvoice): o
+ * factură devenită `paid` e o plată dublă și se rambursează, cu aceleași chei de
+ * idempotență (`dupsub_refund_<factură>`, deci un `invoice.paid` concurent nu
+ * dublează rambursarea), iar una încă neplătită nu produce nimic. Comisionul scris
+ * pe calea obișnuită se stornează prin `charge.refunded` (clawback-ul existent).
+ * Best-effort: rulează după CAS (sau din `deleted`-ul celui vechi, când acesta a
+ * golit profilul înaintea CAS-ului), iar o reluare nu mai ajunge aici, deci un
+ * 500 n-ar reîncerca nimic — eroarea e ALERT MANUAL.
+ */
+async function reconcileReplacedInvoice(stripe, { userId, subscriptionId, keptSubscriptionId, invoiceId }) {
+  if (!invoiceId) return null
+  try {
+    const r = await refundDuplicateInvoice(stripe, invoiceId, subscriptionId)
+    logDuplicateRefund(`replaced subscription ${subscriptionId} reconciled:`, subscriptionId, r)
+    return r
+  } catch (e) {
+    console.error(
+      `[stripe-webhook] ALERT replaced subscription REFUND CHECK user=${userId} canceled=${subscriptionId} ` +
+      `kept=${keptSubscriptionId} invoice=${invoiceId}: ${e?.message || String(e)} — abonamentul vechi e anulat; ` +
+      'verifică factura în Dashboard: dacă e plătită, reconciliază rambursările plății și rambursează MANUAL doar ' +
+      'restul neacoperit (o plată ulterioară o rambursează automat invoice.paid)',
+    )
+    return null
+  }
+}
+
+// Abonamentul facturii e o dublură pe care AM anulat-o noi (urma pe ea)? Un id
+// pe care Stripe nu-l cunoaște (resource_missing) nu e dublura noastră. Orice
+// altă eroare e tranzitorie și urcă (500): fără răspuns nu decidem nimic.
+async function isCanceledDuplicate(stripe, subscriptionId) {
+  try {
+    return isOurDuplicateCancel(await stripe.subscriptions.retrieve(subscriptionId))
+  } catch (e) {
+    if (e && (e.code === 'resource_missing' || e.statusCode === 404)) return false
+    throw e
+  }
+}
+
+// O linie de log per decontare (finalizare sau invoice.paid), aceeași formă.
+function logDuplicateRefund(prefix, subscriptionId, r) {
+  console.log(
+    `[stripe-webhook] ${prefix} refund=${r.status}` +
+    (r.invoiceId ? ` invoice=${r.invoiceId}` : '') +
+    (Number.isInteger(r.amount) ? ` amount=${r.amount}` : '') +
+    (Number.isInteger(r.amountDue) ? ` amount_due=${r.amountDue}` : '') +
+    (r.refundId ? ` refund_id=${r.refundId}` : '') +
+    (r.refundState ? ` refund_state=${r.refundState}` : ''),
+  )
+  if (r.status === 'manual') {
+    const why = r.replayed
+      ? `nu are rambursare confirmată: cererea cu cheia ${r.idempotencyKey} a întors o eroare SALVATĂ de Stripe ` +
+        `(replay idempotent, ${r.replayed}), deci nu se știe dacă rambursarea s-a creat, iar aceeași cheie ` +
+        'întoarce aceeași eroare 24 h; verifică plata în Dashboard (Payments → plata → Refunds) și rambursează ' +
+        'DOAR dacă nu există deja o rambursare'
+      : r.finalRefund
+        ? `are rambursarea ${r.refundId || '?'} ${r.finalRefund} (anulată de un om / Stripe cere altă cale de ` +
+          'restituire), FĂRĂ reîncercare automată'
+        : r.failedAttempts
+          ? `${r.failedAttempts} rambursări eșuate pe plată (plafonul reîncercărilor)`
+          : r.reason
+            ? `Stripe refuză rambursarea (${r.reason})`
+            : 'plătită în afara Stripe'
+    console.error(
+      `[stripe-webhook] ALERT duplicate subscription ${subscriptionId}: factura ${r.invoiceId} ${why} — rambursare MANUALĂ` +
+      (Number.isInteger(r.amount) ? ` (${r.amount})` : '') +
+      (r.idempotencyKey ? ` idempotency_key=${r.idempotencyKey}` : ''),
+    )
+  }
+  if (r.status === 'refund_pending') {
+    // Banii NU sunt încă înapoi: rambursarea poate eșua ulterior. Eșecul vine ca
+    // `charge.refund.updated` (endpoint-ul trebuie abonat la el — pas de
+    // fondator), iar ramura lui reîncearcă cu o cheie nouă (motiv reîncercabil)
+    // sau predă omului (anulare / motiv final).
+    console.error(
+      `[stripe-webhook] ALERT duplicate subscription ${subscriptionId}: rambursarea ${r.refundId || '?'} a facturii ` +
+      `${r.invoiceId} e ${r.refundState} (încă neîncasată înapoi) — dacă eșuează, charge.refund.updated o ` +
+      'reîncearcă (motiv tranzitoriu) sau cere rambursare MANUALĂ',
+    )
+  }
+  if (r.status === 'pending_payment') {
+    // Factura e deschisă cu plata încă în procesare (decontare întârziată):
+    // anularea nu oprește o plată deja pornită. Dacă se încasează, ramura
+    // invoice.paid o rambursează automat; dacă eșuează, nu e nimic de returnat.
+    console.log(
+      `[stripe-webhook] duplicate subscription ${subscriptionId}: factura ${r.invoiceId} e deschisă — ` +
+      'dacă se încasează după anulare, invoice.paid o rambursează',
+    )
+  }
+}
+
+/**
+ * Anulează abonamentul DUBLURĂ și îi rambursează factura plătită. Ordinea e
+ * deliberată: întâi anularea (oprește facturarea VIITOARE), apoi verificarea că
+ * abonamentul păstrat e încă ținut și viu (verifyKeptAfterCancel), apoi
+ * rambursarea.
+ * Fiecare pas verifică starea înainte să acționeze, deci o reluare după un 500
+ * între pași ajunge la aceeași stare finală fără dubluri:
+ *   - anularea rulează doar cât abonamentul încă poate factura. DELETE-ul nu
+ *     primește cheie de idempotență: Stripe o ignoră pe DELETE („idempotent by
+ *     definition”, docs.stripe.com/api/idempotent_requests), deci idempotența
+ *     vine din verificarea stării + urma din `cancellation_details`, care
+ *     supraviețuiește pe abonamentul anulat (răspuns pierdut → la reluare
+ *     abonamentul e deja `canceled` CU urmă → se sare direct la rambursare);
+ *   - rambursarea: refunds.list înainte (o cheie de idempotență expiră după
+ *     24 h, iar Stripe retrimite webhook-ul până la 3 zile) + cheie derivată din
+ *     factură (dublu-apel în aceeași fereastră) + `charge_already_refunded`.
+ * Un eșec Stripe ARUNCĂ → 500 → Stripe retrimite (paritate cu restul fișierului).
+ * `prorate`/`invoice_now` false: fără factură finală și fără credit — banii
+ * facturii se întorc integral prin rambursare.
+ */
+async function settleDuplicateSubscription(stripe, supabase, sub, { userId, subscriptionId, keptSubscriptionId, reprocessing = false }) {
+  let canceledNow = false
+  let keptVerified = null
+  let collectionOk = null
+  if (BILLABLE_SUB_STATUSES.includes(sub && sub.status)) {
+    await stripe.subscriptions.cancel(subscriptionId, {
+      prorate: false,
+      invoice_now: false,
+      cancellation_details: { comment: `${DUPLICATE_CANCEL_MARKER};kept=${keptSubscriptionId || 'unknown'}` },
+    })
+    canceledNow = true
+    // Imediat după anulare, ÎNAINTEA rambursării: dacă rambursarea pică (500),
+    // verificarea a rulat deja la această livrare.
+    keptVerified = await verifyKeptAfterCancel(supabase, stripe, { userId, subscriptionId, keptSubscriptionId })
+    collectionOk = await checkKeptCollectionAfterCancel(stripe, { userId, subscriptionId, keptSubscriptionId })
+  } else if (reprocessing && isOurDuplicateCancel(sub)) {
+    // Reluare după un 500 (recenzie pe #386, R7): anularea s-a aplicat la o
+    // livrare anterioară, dar acea livrare se poate să se fi oprit ÎNAINTEA
+    // verificării — răspunsul DELETE pierdut după scriere, limita de timp a
+    // funcției. Reluarea vede dublura deja anulată și nu mai trece prin ramura
+    // de mai sus, deci fără acest pas fereastra K2 rămânea nesemnalată pentru
+    // totdeauna. Costă o citire DB + una Stripe, DOAR pe reprocesare (o
+    // livrare nouă cu urma deja pusă — ex. un replay de test — nu plătește
+    // nimic). Dacă verificarea rulase deja (500 la rambursare), o repetă:
+    // aceeași concluzie, cel mult un ALERT repetat.
+    keptVerified = await verifyKeptAfterCancel(supabase, stripe, { userId, subscriptionId, keptSubscriptionId, onRetry: true })
+    collectionOk = await checkKeptCollectionAfterCancel(stripe, { userId, subscriptionId, keptSubscriptionId })
+  }
+  // Factura de rambursat la finalizare: `latest_invoice` al dublurii (abia
+  // creată de Checkout → prima ei factură).
+  const invoiceId = refId(sub && sub.latest_invoice)
+  const refund = invoiceId
+    ? await refundDuplicateInvoice(stripe, invoiceId, subscriptionId)
+    : { status: 'no_invoice' }
+  return { canceledNow, keptVerified, collectionOk, refund }
+}
+
+/**
+ * Fereastra reziduală a re-validării din claimProfileSubscription (K2): între
+ * ultima citire a profilului și anulare, abonamentul păstrat se poate încheia
+ * (sau profilul se poate goli / schimba). Un abonament anulat nu se poate
+ * reactiva, deci aici doar DETECTĂM și semnalăm: profilul trebuie să țină încă
+ * abonamentul păstrat ȘI acesta trebuie să fie viu în Stripe. Altfel contul
+ * poate fi rămas FĂRĂ abonament viu → ALERT pentru acțiune manuală (clientul
+ * reface checkout-ul; rambursarea dublurii continuă: banii unui abonament anulat
+ * nu se păstrează). Nu aruncă: o eroare de citire e ea însăși un motiv de
+ * verificare manuală, iar un 500 ar amâna rambursarea unui abonament deja anulat
+ * (DUP29: ambele citiri au câte un caz de eroare). `onRetry` = reverificarea de
+ * la reluare (settleDuplicateSubscription): anularea e de la o livrare
+ * anterioară, deci un păstrat încheiat DUPĂ ea poate fi o încheiere obișnuită —
+ * ALERT-ul o spune.
+ * @returns {Promise<boolean>} true = păstratul e ținut de profil și viu
+ */
+async function verifyKeptAfterCancel(supabase, stripe, { userId, subscriptionId, keptSubscriptionId, onRetry = false }) {
+  let held = null
+  let keptStatus = null
+  const problems = []
+  if (!isSubscriptionId(keptSubscriptionId)) {
+    problems.push('abonamentul păstrat e necunoscut')
+  } else {
+    try {
+      const s = await stripe.subscriptions.retrieve(keptSubscriptionId)
+      keptStatus = (s && s.status) || null
+    } catch (e) {
+      if (e && (e.code === 'resource_missing' || e.statusCode === 404)) keptStatus = 'resource_missing'
+      else problems.push(`abonamentul păstrat nu s-a putut citi: ${e?.message || String(e)}`)
+    }
+  }
+  // Profilul se citește DUPĂ Stripe (recenzie CodeRabbit pe #386, runda 2):
+  // citirea din Stripe durează, iar un profil golit / schimbat în timpul ei
+  // trebuie să ajungă în comparația finală — citit înainte, `held` ar fi
+  // instantaneul vechi și verificarea ar trece tăcut.
+  try {
+    held = (await readProfileSubscription(supabase, userId)).current
+  } catch (e) {
+    problems.push(`profilul nu s-a putut re-citi: ${e?.message || String(e)}`)
+  }
+  const ok = problems.length === 0 && held === keptSubscriptionId && LIVE_SUB_STATUSES.includes(keptStatus)
+  if (!ok) {
+    console.error(
+      `[stripe-webhook] ALERT duplicate cancel MANUAL user=${userId} canceled=${subscriptionId} ` +
+      `kept=${keptSubscriptionId} profile_holds=${held || 'null'} kept_status=${keptStatus || '?'}` +
+      (problems.length ? ` (${problems.join('; ')})` : '') +
+      ' — dublura e deja anulată (ireversibil) și se rambursează; dacă abonamentul păstrat nu mai e viu, ' +
+      'contul a rămas fără abonament: contactează clientul să refacă checkout-ul' +
+      (onRetry
+        ? ' (reverificare la reluare: anularea e de la o livrare anterioară — dacă cel păstrat s-a încheiat ' +
+          'DUPĂ ea, poate fi o încheiere obișnuită)'
+        : ''),
+    )
+  }
+  return ok
+}
+
+/**
+ * Încasarea pe facturile celui PĂSTRAT după o anulare (recenzie CodeRabbit pe
+ * #386, runda 2). Implicit, la anularea unui abonament Stripe oprește încasarea
+ * automată a TUTUROR facturilor finalizate ale CLIENTULUI, nu doar ale celui
+ * anulat (API reference, „Cancel a subscription”; `subscriptions.cancel` nu are
+ * parametru care să schimbe asta). Deci o factură `open` a celui păstrat (ex.
+ * `past_due`, cu reîncercări de plată programate) poate rămâne neîncasată, iar
+ * verificarea stării (verifyKeptAfterCancel) n-ar vedea nimic. NU schimbăm
+ * facturarea clientului automat (comportamentul Stripe nu se poate verifica
+ * offline — TEST mode): doar DETECTĂM o factură deschisă a celui păstrat cu
+ * `auto_advance: false` și cerem omului să reactiveze încasarea din Dashboard.
+ * Nu aruncă (ca verifyKeptAfterCancel): o eroare de citire e tot ALERT, iar un
+ * 500 ar amâna rambursarea unui abonament deja anulat. Facturile ALTOR
+ * abonamente ale aceluiași client (alt produs, ECOSISTEM §4) nu se verifică.
+ * @returns {Promise<boolean|null>} true = nimic oprit; false = ALERT; null = păstratul e necunoscut
+ */
+async function checkKeptCollectionAfterCancel(stripe, { userId, subscriptionId, keptSubscriptionId }) {
+  if (!isSubscriptionId(keptSubscriptionId)) return null
+  const head = `[stripe-webhook] ALERT duplicate cancel COLLECTION user=${userId} canceled=${subscriptionId} kept=${keptSubscriptionId}`
+  let page
+  try {
+    page = await stripe.invoices.list({ subscription: keptSubscriptionId, status: 'open', limit: 100 })
+  } catch (e) {
+    console.error(
+      `${head}: facturile deschise ale celui păstrat nu s-au putut citi (${e?.message || String(e)}) — ` +
+      'verifică în Dashboard (Invoices, abonamentul păstrat) că încasarea automată e pornită pe facturile lui deschise',
+    )
+    return false
+  }
+  const open = ((page && page.data) || []).filter(Boolean)
+  const paused = open.filter((i) => i.auto_advance === false)
+  const truncated = !!(page && page.has_more)
+  if (paused.length === 0 && !truncated) return true
+  // Trunchierea se spune ORICÂND `has_more` (runda 3 CodeRabbit pe #386): pe
+  // prima pagină pot fi deja facturi oprite, iar restul nu le-am văzut.
+  const parts = []
+  if (paused.length) {
+    parts.push(
+      `încasarea automată e OPRITĂ pe ${paused.map((i) => `${i.id}(${Number.isInteger(i.amount_due) ? i.amount_due : '?'})`).join(', ')} — ` +
+      'anularea dublurii o oprește implicit pe facturile finalizate ale clientului; reactivează încasarea automată ' +
+      'din Dashboard pe aceste facturi (nimic nu s-a schimbat automat)',
+    )
+  }
+  if (truncated) {
+    parts.push(
+      'peste 100 de facturi deschise, lista e trunchiată — verifică în Dashboard încasarea automată și pe facturile ' +
+      'deschise de după prima pagină (pot fi altele oprite)',
+    )
+  }
+  console.error(`${head}: ${parts.join('; ')}`)
+  return false
+}
+
+// Rambursează o factură a dublurii: `latest_invoice` la finalizare, factura
+// EVENIMENTULUI în invoice.paid (banii ajunși după anulare). Doar o factură
+// `paid` cu `amount_paid > 0` se rambursează; trialul fără bani (factura de 0)
+// nu are ce. O factură `open` cu sumă de plată e o plată ÎN CURS (decontare
+// întârziată): raportată distinct, fiindcă banii pot încă sosi — atunci îi
+// rambursează invoice.paid.
+async function refundDuplicateInvoice(stripe, invoiceId, subscriptionId) {
+  const inv = await stripe.invoices.retrieve(invoiceId)
+  const paid = Number.isInteger(inv && inv.amount_paid) ? inv.amount_paid : 0
+  const due = Number.isInteger(inv && inv.amount_due) ? inv.amount_due : 0
+  if (inv && inv.status === 'open' && due > 0) return { status: 'pending_payment', invoiceId, amountDue: due }
+  if (!inv || inv.status !== 'paid' || paid <= 0) return { status: 'nothing_paid', invoiceId }
+
+  const target = invoicePaymentTarget(inv)
+  if (!target) {
+    // Plătită în afara Stripe: nu există ce rambursa prin API — o face omul.
+    if (inv.paid_out_of_band) return { status: 'manual', invoiceId, amount: paid }
+    // Bani încasați fără plată lizibilă = formă necunoscută: 500, nu tăcere.
+    throw new Error(`factura ${invoiceId} a dublurii ${subscriptionId}: plătită fără payment_intent/charge lizibil`)
+  }
+
+  const prior = (((await stripe.refunds.list({ ...target, limit: 100 })) || {}).data || []).filter(Boolean)
+  // O rambursare `pending`/`requires_action` contează ca făcută: banii sunt pe
+  // drum; dacă eșuează, `charge.refund.updated` aduce reîncercarea.
+  const live = prior.filter((r) => !deadRefundKind(r))
+  const refunded = live.reduce((sum, r) => sum + (Number.isInteger(r.amount) ? r.amount : 0), 0)
+  if (refunded >= paid) {
+    // Acoperită, dar banii pot fi încă pe drum (recenzie pe #386, R2): o
+    // reluare după un răspuns pierdut (rambursarea creată `pending` la Stripe,
+    // cererea noastră căzută în timeout) ajunge AICI, nu la ramura de creare —
+    // fără acest caz, ALERT-ul `pending` nu pleca la nicio livrare.
+    const inFlight = live.find((r) => r.status === 'pending' || r.status === 'requires_action')
+    if (inFlight) {
+      return { status: 'refund_pending', invoiceId, amount: refunded, refundId: inFlight.id, refundState: inFlight.status }
+    }
+    return { status: 'already_refunded', invoiceId, amount: refunded }
+  }
+  // Oglinda deciziei din `charge.refund.updated` (R1): o rambursare FINALĂ pe
+  // plată (anulată de un om / motiv pentru care Stripe cere altă cale) înseamnă
+  // că decizia e a omului. Altfel un `invoice.paid` sau o finalizare relivrată
+  // ar reface tăcut rambursarea pe care cineva a anulat-o — plată dublă dacă a
+  // returnat deja banii pe altă cale.
+  const final = prior.find((r) => deadRefundKind(r) === 'final')
+  if (final) {
+    return {
+      status: 'manual', invoiceId, amount: paid - refunded, refundId: final.id,
+      finalRefund: final.failure_reason ? `${final.status}/${final.failure_reason}` : final.status,
+    }
+  }
+
+  // Cheia de idempotență (K3). Prima încercare păstrează cheia de dinainte,
+  // `dupsub_refund_<factură>`: ea acoperă cererea AMBIGUĂ (răspuns pierdut) —
+  // reluarea în 24 h primește rambursarea deja creată, nu una nouă. Dar exact
+  // de aceea, după ce o rambursare a EȘUAT, aceeași cheie ar întoarce răspunsul
+  // ORIGINAL (rambursarea moartă), nu una nouă. Deci cheia derivă determinist
+  // din numărul de rambursări moarte de pe plată: două livrări ale aceluiași
+  // eșec văd același număr → aceeași cheie → o singură rambursare nouă. (Aici
+  // toate cele moarte sunt reîncercabile: una finală a ieșit mai sus.)
+  const dead = prior.filter((r) => deadRefundKind(r) === 'retryable').length
+  if (dead >= DUPLICATE_REFUND_MAX_ATTEMPTS) {
+    return { status: 'manual', invoiceId, amount: paid - refunded, failedAttempts: dead }
+  }
+  const idempotencyKey = dead === 0 ? `dupsub_refund_${invoiceId}` : `dupsub_refund_${invoiceId}_retry${dead}`
+
+  let r
+  try {
+    // Fără `amount`: rambursează restul nerambursat al plății.
+    r = await stripe.refunds.create(
+      {
+        ...target,
+        reason: 'duplicate',
+        metadata: {
+          menuvia_reason: DUPLICATE_REFUND_REASON,
+          menuvia_subscription: subscriptionId,
+          menuvia_invoice: invoiceId,
+        },
+      },
+      { idempotencyKey },
+    )
+  } catch (e) {
+    if (e && e.code === 'charge_already_refunded') return { status: 'already_refunded', invoiceId }
+    // Refuzuri PERMANENTE ale plății (coduri de eroare Stripe): o reluare n-ar
+    // schimba nimic, iar un 500 ar bucla 3 zile. Omul rambursează pe altă cale.
+    if (e && (e.code === 'charge_disputed' || e.code === 'charge_expired_for_refund')) {
+      return { status: 'manual', invoiceId, amount: paid - refunded, reason: e.code }
+    }
+    // Eroare SALVATĂ de Stripe pentru cheia noastră (recenzie CodeRabbit pe
+    // #386, runda 2): Stripe păstrează răspunsul primei cereri cu o cheie —
+    // inclusiv un 500 — și îl întoarce identic oricărei reîncercări cu aceeași
+    // cheie, cu antetul `Idempotent-Replayed: true` (docs.stripe.com/api/
+    // idempotent_requests). Cheia derivă din numărul de rambursări moarte, iar un
+    // 500 care n-a creat nimic nu-l schimbă, deci fiecare relivrare ar primi
+    // aceeași eroare — 500 în buclă cel puțin cât trăiește cheia (24 h), cu
+    // ALERT-ul „NU rambursa manual” repetat și fără linia `refund=manual`. Un 500
+    // nu spune dacă rambursarea s-a creat, deci NU încercăm altă cheie: predăm
+    // omului, cu factura, abonamentul și cheia. Prima eroare (ne-reluată) urcă
+    // în continuare (500 → Stripe retrimite): abia reluarea ei e deterministă.
+    if (isIdempotentReplay(e)) {
+      return {
+        status: 'manual', invoiceId, amount: paid - refunded, idempotencyKey,
+        replayed: `${e.statusCode || '?'}${e.code ? `/${e.code}` : ''}`,
+      }
+    }
+    throw e
+  }
+  const st = r && r.status
+  const base = { invoiceId, amount: r && r.amount, refundId: r && r.id, idempotencyKey }
+  if (st === 'succeeded') return { status: 'refunded', ...base }
+  if (st === 'pending' || st === 'requires_action') return { status: 'refund_pending', refundState: st, ...base }
+  // Moartă din prima (sau stare necunoscută): 500 → Stripe retrimite; reluarea
+  // vede rambursarea moartă în refunds.list: reîncercabilă → cheia următoare,
+  // până la DUPLICATE_REFUND_MAX_ATTEMPTS; finală → manual, fără reîncercare.
+  throw new Error(
+    `rambursarea ${(r && r.id) || '?'} a dublurii ${subscriptionId} (factura ${invoiceId}) întoarsă ` +
+    `status=${st || '?'}${r && r.failure_reason ? ` (${r.failure_reason})` : ''}`,
+  )
+}
+
+// Plata facturii, pe forma pin-ului: răspunsul cererii NOASTRE (invoices.retrieve)
+// e randat pe '2023-10-16', unde factura are `payment_intent` / `charge`. Pe
+// basil+ (dahlia) câmpurile au dispărut în favoarea listei `payments`; ramura de
+// jos o citește dacă pin-ul se mută și lista e prezentă, altfel funcția întoarce
+// null și apelantul aruncă (formă necunoscută → 500), nu sare tăcut rambursarea.
+function invoicePaymentTarget(inv) {
+  const pi = refId(inv.payment_intent)
+  if (pi) return { payment_intent: pi }
+  const ch = refId(inv.charge)
+  if (ch) return { charge: ch }
+  const payments = (inv.payments && inv.payments.data) || []
+  for (const p of payments) {
+    if (!p || p.status !== 'paid' || !p.payment) continue
+    const ppi = refId(p.payment.payment_intent)
+    if (ppi) return { payment_intent: ppi }
+    const pch = refId(p.payment.charge)
+    if (pch) return { charge: pch }
+  }
+  return null
 }
 
 // ── Helper: best-effort lifecycle event insert ────────────────────
