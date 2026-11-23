@@ -40,6 +40,13 @@ interface AuthContextValue {
    * Opțional: mock-urile de test vechi nu îl au.
    */
   applyProfileLanguage?: (lang: string, accountId: string) => void
+  /**
+   * Contul activ ACUM (nu cel din randarea care a pornit o operație): o
+   * salvare care se termină după o ieșire sau o schimbare de cont pe tableta
+   * comună verifică aici înainte de efectele locale (`useSetUiLanguage`).
+   * Opțional: mock-urile de test vechi nu îl au.
+   */
+  activeUserId?: () => string | null
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -176,9 +183,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const applyProfileLanguage = (lang: string, accountId: string) => {
     setProfile((p) => (p && p.id === accountId ? { ...p, ui_language: lang } : p))
   }
+  const activeUserId = () => lastUserIdRef.current
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signOut, refreshProfile, applyProfileLanguage }}>
+    <AuthContext.Provider value={{ user, profile, loading, signOut, refreshProfile, applyProfileLanguage, activeUserId }}>
       {children}
     </AuthContext.Provider>
   )

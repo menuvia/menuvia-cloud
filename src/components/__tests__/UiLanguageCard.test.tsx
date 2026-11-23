@@ -36,8 +36,17 @@
 //   UC11 limba salvată intră în profilul din MEMORIE înaintea reîncărcării
 //        (`applyProfileLanguage`, cu id-ul contului care a PORNIT salvarea):
 //        dacă `refreshProfile` pică, ecranul rămâne pe alegere (recenzia
-//        CodeRabbit pe #388). Mutațiile care pică: apelul scos sau mutat după
-//        `refreshProfile`; id-ul contului omis.
+//        CodeRabbit pe #388). La fel copia pe cont (`menuvia_ui_lang_acct:u1`),
+//        pentru profilul neîncărcat (LR3). Mutațiile care pică: apelul scos
+//        sau mutat după `refreshProfile`; id-ul contului omis; copia pe cont
+//        nescrisă.
+//   UC12 contul se schimbă (ieșire / alt cont pe tableta comună) cât se
+//        salvează: limba ajunge în contul care a pornit salvarea, dar nimic
+//        local nu se mai atinge — nici profilul din memorie, nici metadata
+//        Auth (ar ajunge în sesiunea NOULUI cont), nici reîncărcarea
+//        profilului (ar invalida-o pe a noului cont), nici copiile locale
+//        (recenzia CodeRabbit pe #388). Controlul pozitiv e UC11 (același
+//        cont → toate efectele). Mutația care pică: garda `activeUserId` scoasă.
 import { Suspense } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -55,6 +64,7 @@ const h = vi.hoisted(() => ({
   result: { data: [{ id: 'u1' }], error: null } as UpdateResult,
   hold: null as Promise<void> | null,
   storedAtRefresh: [] as (string | null)[],
+  activeUid: 'u1' as string | null,
 }))
 
 vi.mock('../../lib/supabase', () => ({
@@ -92,6 +102,7 @@ vi.mock('../../contexts/AuthContext', () => ({
     applyProfileLanguage: (l: string, accountId: string) => {
       h.calls.push(`apply:${l}:${accountId}`)
     },
+    activeUserId: () => h.activeUid,
     refreshProfile: async () => {
       h.calls.push('refreshProfile')
       h.storedAtRefresh.push(window.localStorage.getItem('menuvia_ui_lang'))
@@ -125,6 +136,7 @@ beforeEach(() => {
   h.result = { data: [{ id: 'u1' }], error: null }
   h.hold = null
   h.storedAtRefresh = []
+  h.activeUid = 'u1'
   window.localStorage.clear()
 })
 
@@ -311,5 +323,28 @@ describe('UiLanguageCard — limba interfeței', () => {
     const apply = h.calls.indexOf('apply:de:u1')
     expect(apply).toBeGreaterThan(-1)
     expect(apply).toBeLessThan(h.calls.indexOf('refreshProfile'))
+    // Și copia pe cont, pentru profilul încă neîncărcat (LR3).
+    expect(window.localStorage.getItem('menuvia_ui_lang_acct:u1')).toBe('de')
+    expect(h.authCalls).toEqual([JSON.stringify({ data: { ui_lang: 'de' } })])
+  })
+
+  it('UC12: contul schimbat cât se salvează → limba ajunge doar în contul vechi', async () => {
+    let release!: () => void
+    h.hold = new Promise<void>((r) => {
+      release = r
+    })
+    renderCard('ro', ALL)
+    await userEvent.setup().selectOptions(select(), 'de')
+    expect(h.calls).toEqual(['update:profiles:{"ui_language":"de"}', 'eq:id:u1', 'select:id'])
+    // Pe tableta comună, alt ospătar intră în contul lui înainte de răspuns.
+    h.activeUid = 'u2'
+    release()
+    await waitFor(() => expect(select()).not.toBeDisabled())
+    expect(h.calls).toEqual(['update:profiles:{"ui_language":"de"}', 'eq:id:u1', 'select:id'])
+    expect(h.authCalls).toEqual([])
+    expect(window.localStorage.getItem('menuvia_ui_lang')).toBeNull()
+    expect(window.localStorage.getItem('menuvia_ui_lang_acct:u1')).toBeNull()
+    expect(window.localStorage.getItem('menuvia_ui_lang_acct:u2')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })
