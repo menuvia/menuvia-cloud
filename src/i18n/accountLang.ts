@@ -9,11 +9,20 @@ import type { StaffLang } from './langs'
 
 const ACCOUNT_LANG_PREFIX = 'menuvia_ui_lang_acct:'
 
+// Copia din MEMORIA tab-ului, citită înaintea celei persistate: limba aleasă
+// aici rămâne pe ecran și când localStorage aruncă (Safari „Block All
+// Cookies”, RESID-15) — fără ea, cu profilul neîncărcat și reîncărcarea
+// picată, ecranul revenea pe limba de dinainte (recenzia CodeRabbit pe #388).
+// Pe cont, deci o schimbare de cont pe tableta comună nu o moștenește.
+const memory = new Map<string, StaffLang>()
+
 /** Anunță providerul că o copie s-a schimbat în ACEST tab (localStorage nu
  *  emite `storage` în tab-ul care scrie, iar copia se citește la randare). */
 export const ACCOUNT_LANG_EVENT = 'menuvia:ui-lang-account'
 
 export function readAccountLang(uid: string): string | null {
+  const mem = memory.get(uid)
+  if (mem) return mem
   try {
     return window.localStorage.getItem(ACCOUNT_LANG_PREFIX + uid)
   } catch {
@@ -28,6 +37,7 @@ export function readAccountLang(uid: string): string | null {
  * ecranul pe limba de dinainte (recenzia CodeRabbit pe #388).
  */
 export function storeAccountLang(uid: string, lang: StaffLang, opts?: { notify?: boolean }): void {
+  memory.set(uid, lang)
   try {
     const key = ACCOUNT_LANG_PREFIX + uid
     if (window.localStorage.getItem(key) !== lang) window.localStorage.setItem(key, lang)
