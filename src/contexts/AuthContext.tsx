@@ -35,9 +35,11 @@ interface AuthContextValue {
    * Limba tocmai SALVATĂ în cont, pusă imediat și în profilul din memorie
    * (`useSetUiLanguage`): dacă reîncărcarea profilului de după salvare pică,
    * ecranul rămâne în limba aleasă, nu revine pe cea veche (recenzia CodeRabbit
-   * pe #388). Opțional: mock-urile de test vechi nu îl au.
+   * pe #388). Legată de contul care a PORNIT salvarea (`accountId`): dacă între
+   * timp s-a schimbat contul, profilul noului cont nu primește limba celuilalt.
+   * Opțional: mock-urile de test vechi nu îl au.
    */
-  applyProfileLanguage?: (lang: string) => void
+  applyProfileLanguage?: (lang: string, accountId: string) => void
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -171,8 +173,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshProfile = async () => {
     if (user) await loadProfile(user.id)
   }
-  const applyProfileLanguage = (lang: string) => {
-    setProfile((p) => (p && p.id === lastUserIdRef.current ? { ...p, ui_language: lang } : p))
+  const applyProfileLanguage = (lang: string, accountId: string) => {
+    setProfile((p) => (p && p.id === accountId ? { ...p, ui_language: lang } : p))
   }
 
   return (

@@ -129,7 +129,7 @@ export function useSetUiLanguage(): SetUiLanguage {
       storeDeviceLang(raw)
       // Profilul din memorie primește limba ÎNAINTE ca `?lang=` să iasă din
       // adresă: dacă reîncărcarea de mai jos pică, ecranul rămâne pe alegere.
-      applyProfileLanguage?.(raw)
+      applyProfileLanguage?.(raw, user.id)
       syncAuthMetadata(raw)
       dropUrlLang()
       await refreshProfile()
