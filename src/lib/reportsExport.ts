@@ -14,6 +14,27 @@ import { toCsv, type CategorySalesRow, type HourlySalesRow, type WaiterSalesRow 
 import { DEFAULT_RESTAURANT_TZ, addDaysYmd, formatYmd, safeTimeZone, toZonedYMD } from './dates'
 
 export type ReportsT = Translator<typeof reportsRo>
+
+// ── Rândurile-santinelă ale rapoartelor pe ospătar și pe categorie ──
+// `report_by_waiter`/`report_by_category` (mig 122) scriu ÎN SQL trei texte
+// românești pe rândurile fără nume: comenzile QR (fără ospătar), un ospătar
+// fără nume în profil și produsele fără categorie. În română se afișează
+// textul serverului, neschimbat; în celelalte limbi rândul se recunoaște după
+// ID (null) — nu după text, cu excepția ospătarului fără nume, pentru care
+// serverul nu lasă alt semn — și primește eticheta tradusă.
+const SERVER_UNKNOWN_WAITER = 'Necunoscut'
+
+export function waiterRowLabel(w: Pick<WaiterSalesRow, 'waiter_id' | 'waiter_name'>, tr: ReportsT): string {
+  if (tr.lang === 'ro') return w.waiter_name
+  if (w.waiter_id == null) return tr.t('row_waiterQr')
+  if (w.waiter_name === SERVER_UNKNOWN_WAITER) return tr.t('row_waiterUnknown')
+  return w.waiter_name
+}
+
+export function categoryRowLabel(c: Pick<CategorySalesRow, 'category_id' | 'category_name'>, tr: ReportsT): string {
+  if (tr.lang === 'ro' || c.category_id != null) return c.category_name
+  return tr.t('row_noCategory')
+}
 export type ReportPeriod = 'today' | 'week' | 'month' | 'custom'
 
 export interface ReportMetrics {
@@ -157,7 +178,7 @@ export function buildReportCsv(
     sections.push(
       toCsv(
         d.waiterSales.map((w) => ({
-          [tr.t('csvh_waiter')]: w.waiter_name,
+          [tr.t('csvh_waiter')]: waiterRowLabel(w, tr),
           [tr.t('csvh_orders')]: w.order_count,
           [tr.t('csvh_revenue')]: w.total_revenue.toFixed(2),
           [tr.t('csvh_avgTicket')]: w.avg_ticket.toFixed(2),
@@ -173,7 +194,7 @@ export function buildReportCsv(
     sections.push(
       toCsv(
         d.categorySales.map((c) => ({
-          [tr.t('csvh_category')]: c.category_name,
+          [tr.t('csvh_category')]: categoryRowLabel(c, tr),
           [tr.t('csvh_itemsSold')]: c.item_count,
           [tr.t('csvh_revenue')]: c.total_revenue.toFixed(2),
           [tr.t('csvh_pctTotal')]: c.percent_total.toFixed(1) + '%',

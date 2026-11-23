@@ -14,6 +14,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { confirm as confirmDialog } from './ui/confirm'
+import { FISCAL_CONFIRM } from '../lib/fiscalScreens'
 import { InlineSpinner } from './PageLoader'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
@@ -327,6 +328,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
         ? 'Bridge-ul instalat nu va mai putea trimite bonuri.'
         : 'Bridge-ul instalat nu va mai putea tipări tichetele din bucătărie.',
       confirmLabel: 'Șterge dispozitivul',
+      ...FISCAL_CONFIRM,
       destructive: true,
     })
     if (!ok) return
@@ -364,6 +366,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
           'Verifică fizic banda casei (sau raportul X) înainte de retrimitere: dacă bonul există, ' +
           'anulează-l pe acesta în loc să-l retrimiți, altfel emiți un bon fiscal DUBLU.',
         confirmLabel: 'Am verificat banda — retrimite',
+        ...FISCAL_CONFIRM,
         destructive: true,
       })
       if (!ok) return
@@ -426,6 +429,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
       title: 'Anulezi acest bon?',
       description: 'Nu va mai fi trimis la casă.',
       confirmLabel: 'Anulează bon',
+      ...FISCAL_CONFIRM,
       destructive: true,
     })
     if (!ok) return
@@ -467,6 +471,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
       title: 'Anulezi acest tichet?',
       description: 'Nu va mai fi tipărit în bucătărie.',
       confirmLabel: 'Anulează tichet',
+      ...FISCAL_CONFIRM,
       destructive: true,
     })
     if (!ok) return

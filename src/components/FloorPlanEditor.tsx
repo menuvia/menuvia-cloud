@@ -26,7 +26,7 @@ import type {
   Floor,
   FloorLayout,
 } from '../lib/floorPlan'
-import { CANVAS_W, CANVAS_H, DEFAULT_FLOOR_NAME, DEFAULT_ZONE_LABEL, defaultFloorName } from '../lib/floorPlan'
+import { CANVAS_W, CANVAS_H, floorDefaults } from '../lib/floorPlan'
 // Re-export local (binding-ul importat mai sus) — nu introduce dublă declarație.
 export type { FloorLayout }
 
@@ -80,8 +80,8 @@ const SAVE_ERROR_KEY: Record<SaveErrorKind, FpKey> = {
 
 const uid = () => Math.random().toString(36).slice(2, 9)
 const snap = (v: number) => Math.round(v / GRID) * GRID
-// Numele unui etaj NOU devine dată la salvare (`DEFAULT_FLOOR_NAME`, în română
-// în orice limbă a personalului — lib/floorPlan.ts).
+// Numele unui etaj NOU devine dată la salvare (`floorDefaults(baseLang)`: în
+// limba de bază a meniului, nu a personalului — lib/floorPlan.ts).
 const emptyFloor = (name: string): Floor => ({
   id: uid(),
   name,
@@ -188,6 +188,9 @@ interface FloorPlanEditorProps {
   // Fusul OPERAȚIONAL al localului (`restaurantTimeZone`, lotul G2b): „azi”
   // din modul Live (rezervările zilei) se judecă în el. Implicit București.
   timeZone?: string
+  // Limba de BAZĂ a meniului (`menuBaseLang(restaurant.language)`): numele
+  // propuse pentru etajele și zonele noi sunt date văzute de oaspete.
+  baseLang?: string
 }
 
 export default function FloorPlanEditor({
@@ -195,12 +198,14 @@ export default function FloorPlanEditor({
   initialLayout,
   onSaved,
   timeZone = DEFAULT_RESTAURANT_TZ,
+  baseLang = 'ro',
 }: FloorPlanEditorProps) {
   // Sus, înaintea oricărui return: ambele namespace-uri ale editorului.
   const ft = useT(floorplanNs)
   const tc = useT(commonNs)
+  const names = floorDefaults(baseLang)
   const [floors, setFloors] = useState<Floor[]>(
-    () => initialLayout?.floors ?? [emptyFloor(DEFAULT_FLOOR_NAME)],
+    () => initialLayout?.floors ?? [emptyFloor(names.ground)],
   )
   const [fi, setFi] = useState(0)
   const [tool, setTool] = useState<ToolType>('select')
@@ -252,7 +257,7 @@ export default function FloorPlanEditor({
   // la selecție (altfel selectezi o masă și panoul e în afara ecranului).
   const propsRef = useRef<HTMLDivElement>(null)
 
-  const floor = floors[fi] ?? emptyFloor(DEFAULT_FLOOR_NAME)
+  const floor = floors[fi] ?? emptyFloor(names.ground)
 
   const upd = useCallback(
     (fn: (f: Floor) => Floor) => {
@@ -428,7 +433,7 @@ export default function FloorPlanEditor({
               y: Math.min(z.y1, z.y2),
               w,
               h,
-              label: DEFAULT_ZONE_LABEL,
+              label: names.zone,
             },
           ],
         }))
@@ -916,7 +921,7 @@ export default function FloorPlanEditor({
                   marginTop: 5,
                 })}
                 onClick={() => {
-                  setFloors((prev) => [...prev, emptyFloor(defaultFloorName(prev.length))])
+                  setFloors((prev) => [...prev, emptyFloor(names.floor(prev.length))])
                   setFi(floors.length)
                 }}
                 {...focusRing}

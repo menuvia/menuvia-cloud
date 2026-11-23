@@ -31,6 +31,13 @@ const en: Translation<typeof ro> = {
   lang_columnMissing:
     'The language can’t be saved to your account yet: the server hasn’t received the latest update. The dashboard stays in its current language.',
   lang_columnMissingShort: 'The language can’t be saved yet: the server hasn’t received the latest update.',
+  bridgeOff_titleDown: 'Fiscal receipts active, cash register not connected',
+  bridgeOff_titleNone: 'Fiscal receipts active, no cash register registered',
+  bridgeOff_detailDown:
+    'The bridge hasn’t responded for a few minutes. Orders are paid as usual, but NO fiscal receipt is issued until it’s back.',
+  bridgeOff_detailNone:
+    'Your plan includes fiscal receipts, but no bridge device is registered. Until you connect one, paid orders get no receipt.',
+  bridgeOff_open: 'Open “Cash register & tickets”',
   lang_name_ro: 'Română',
   lang_name_en: 'English',
   lang_name_fr: 'Français',

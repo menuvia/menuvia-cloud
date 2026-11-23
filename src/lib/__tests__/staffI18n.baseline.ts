@@ -10,17 +10,15 @@
 // fondatorului, afiliați, site-ul de marketing, documentele legale) stau aici
 // la valoarea lor; nu au voie să crească nici ele.
 export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
-  'src/components/BridgeOfflineBanner.tsx': 5,
   'src/components/BridgeTab.tsx': 123,
   'src/components/CashRegisterTab.tsx': 104,
-  'src/components/CheckoutReturnBanner.tsx': 9,
   'src/components/FounderActivationCard.tsx': 8,
   'src/components/FounderAiPanel.tsx': 22,
   'src/components/FounderPayoutRow.tsx': 35,
   'src/components/InvoicesTab.tsx': 48,
   'src/components/IssueInvoiceModal.tsx': 28,
   'src/components/LegalFooter.tsx': 12,
-  'src/components/OnlinePaymentsCard.tsx': 23,
+  'src/components/OnlinePaymentsCard.tsx': 22,
   'src/components/PageLoader.tsx': 3,
   'src/components/PartnerAccessList.tsx': 19,
   'src/components/VatRatesEditor.tsx': 21,
@@ -33,7 +31,7 @@ export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
   'src/components/marketing/MarketingFooter.tsx': 9,
   'src/components/marketing/MarketingHeader.tsx': 3,
   'src/components/marketing/PhoneFrame.tsx': 8,
-  'src/components/menu/MenuPreview.tsx': 9,
+  'src/components/menu/MenuPreview.tsx': 3,
   'src/components/sales/OneTimeLinkBox.tsx': 9,
   'src/pages/AfiliatIntroPage.tsx': 48,
   'src/pages/AfiliatPage.tsx': 131,

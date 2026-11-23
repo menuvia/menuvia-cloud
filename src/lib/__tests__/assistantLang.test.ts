@@ -102,6 +102,10 @@ describe('Asistentul AI — părțile pure', () => {
     expect(got).not.toContain('- p200 ·')
     expect(got).toContain(' · STOC EPUIZAT')
     expect(got).toContain('Răspunzi mereu în română')
+    // Opțiunile implicite = română + română + RON = promptul de dinainte.
+    expect(buildChatSystemPrompt('Bistro „Ana”', cats, prods, { replyLang: 'ro', menuLang: 'ro', currency: 'RON' })).toBe(
+      oldPrompt('Bistro „Ana”', cats, prods),
+    )
     expect(AI_CHAT_EMPTY_REPLY).toBe('(fără răspuns)')
     // Pe ecran, „(fără răspuns)” e cheia `no_reply` — în română același text.
     expect(aRo.no_reply).toBe(AI_CHAT_EMPTY_REPLY)
@@ -124,5 +128,29 @@ describe('Asistentul AI — părțile pure', () => {
     expect(src).not.toContain('Răspunzi mereu în română')
     expect(src).not.toContain('toUserMessage(')
     expect(read('src/pages/DashboardPage.tsx')).toContain("lazy(() => import('../components/AiChatbot'))")
+  })
+})
+
+// XA9 (activarea limbilor): răspunsul în limba PERSONALULUI, conținutul de
+// meniu propus în limba de BAZĂ a meniului (doar când diferă), prețurile în
+// moneda localului. Mutația care pică: „Răspunzi mereu în română” fix.
+describe('XA9 promptul urmează limba personalului, a meniului și moneda', () => {
+  it('XA9 răspuns în germană, meniu în franceză, prețuri în EUR', () => {
+    const p = buildChatSystemPrompt('Le Bistro', [], [{ id: 'p1', name: 'Croque', price: 9.5 }], {
+      replyLang: 'de',
+      menuLang: 'fr',
+      currency: 'EUR',
+    })
+    expect(p).toContain('Răspunzi mereu în germană')
+    expect(p).toContain('le scrii în franceză (limba meniului)')
+    expect(p).toContain('- p1 · Croque · 9.5 EUR')
+    expect(p).toContain('price (EUR, număr)')
+    expect(p).not.toMatch(/\blei\b/)
+    // Aceeași limbă pentru răspuns și meniu: fără instrucțiunea suplimentară.
+    const same = buildChatSystemPrompt('X', [], [], { replyLang: 'en', menuLang: 'en' })
+    expect(same).toContain('Răspunzi mereu în engleză')
+    expect(same).not.toContain('limba meniului')
+    // Limbă necunoscută → română (nu „undefined”).
+    expect(buildChatSystemPrompt('X', [], [], { replyLang: 'xx' })).toContain('Răspunzi mereu în română')
   })
 })

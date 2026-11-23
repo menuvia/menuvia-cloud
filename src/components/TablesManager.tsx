@@ -20,7 +20,8 @@ import type { Restaurant } from '../hooks/useData'
 import { publicBaseUrl, siteHost } from '../lib/domain'
 import { downloadQrPdf, QR_PDF_NO_CARDS_HINT, type QrPdfFormat } from '../lib/qrPdf'
 import { tablesMissingActiveToken } from '../lib/qrTokens'
-import { bulkTableName, bulkTableNumber, bulkTableSlug, slugifyTable } from '../lib/tableSlug'
+import { bulkTableName, bulkTableNumber, bulkTableSeries, bulkTableSlug, slugifyTable } from '../lib/tableSlug'
+import { menuBaseLang } from '../lib/i18nMenu'
 import { pickupCopyT, pickupFeatureState } from '../lib/pickupCopy'
 import { pickupOnlyMode } from '../lib/pickupAvailability'
 import { resolveEffectiveMenuLayout } from '../lib/themes'
@@ -713,9 +714,15 @@ export default function TablesManager({
     }
     setBulkBusy(true)
     try {
-      // Indici LIBERI pe baza slug-urilor existente masa-N (nu tables.length+1) — altfel, cu
-      // goluri (ex. Masa 3 ștearsă), am genera un slug care coliziează. Creăm exact
-      // (n - tables.length) mese, sărind peste numerele deja folosite.
+      // Indici LIBERI pe baza slug-urilor existente masa-N / table-N / tisch-N (nu
+      // tables.length+1) — altfel, cu goluri (ex. Masa 3 ștearsă), am genera un slug
+      // care coliziează, iar după un onboarding în germană am numerota „Masa 1” lângă
+      // „Tisch 1”. Creăm exact (n - tables.length) mese, sărind peste numerele deja
+      // folosite în ORICARE serie, și continuăm seria localului (lib/tableSlug.ts).
+      const series = bulkTableSeries(
+        tables.map((t) => t.slug),
+        menuBaseLang(restaurant.language),
+      )
       const usedNums = new Set(
         tables
           .map((t) => bulkTableNumber(t.slug))
@@ -725,10 +732,10 @@ export default function TablesManager({
       let idx = 1
       while (tables.length + rows.length < n) {
         if (!usedNums.has(idx)) {
-          // Numele și slug-ul mesei NOI sunt DATE: `Masa N` / `masa-N` în orice
+          // Numele și slug-ul mesei NOI sunt DATE: seria localului, în orice
           // limbă a personalului (numele apare pe cardul QR tipărit și în
           // meniul oaspetelui; după slug se găsesc numerele libere).
-          rows.push({ restaurant_id: restaurant.id, name: bulkTableName(idx), slug: bulkTableSlug(idx) })
+          rows.push({ restaurant_id: restaurant.id, name: bulkTableName(idx, series), slug: bulkTableSlug(idx, series) })
         }
         idx++
       }

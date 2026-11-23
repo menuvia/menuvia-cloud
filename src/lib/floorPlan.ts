@@ -63,13 +63,37 @@ export interface FloorLayout {
 
 // ─── Numele IMPLICITE ale elementelor NOI (DATE) ──────────────
 // Se scriu în `restaurants.floor_layout` la salvare și le vede și OASPETELE
-// (zonele, pe harta publică a rezervării), deci rămân în română în orice limbă
-// a personalului — exact ca înainte de L6a (regula „valorile din DB nu se
-// traduc”, ca `MANUAL_ADJUST_NOTE` din L5b). Butoanele care le creează
-// („+ Etaj”, „▢ Zonă”) se traduc; numele propus nu.
+// (zonele, pe harta publică a rezervării), deci NU urmează limba personalului
+// (regula „valorile din DB nu se traduc”, ca `MANUAL_ADJUST_NOTE` din L5b):
+// urmează limba de BAZĂ a meniului — cea în care oaspetele citește implicit
+// pagina —, ca un local german să nu propună „Parter”/„Zonă” pe harta
+// publică (precondiția activării limbilor). Româna e textul de dinainte; o
+// limbă necunoscută cade pe română. Butoanele care le creează („+ Etaj”,
+// „▢ Zonă”) se traduc în limba personalului; numele propus, nu.
 export const DEFAULT_FLOOR_NAME = 'Parter'
 export const defaultFloorName = (n: number): string => `Etaj ${n}`
 export const DEFAULT_ZONE_LABEL = 'Zonă'
+
+interface FloorDefaults {
+  ground: string
+  floor: (n: number) => string
+  zone: string
+}
+const RO_FLOOR_DEFAULTS: FloorDefaults = { ground: DEFAULT_FLOOR_NAME, floor: defaultFloorName, zone: DEFAULT_ZONE_LABEL }
+const FLOOR_DEFAULTS: Readonly<Record<string, FloorDefaults>> = {
+  ro: RO_FLOOR_DEFAULTS,
+  en: { ground: 'Ground floor', floor: (n) => `Floor ${n}`, zone: 'Area' },
+  de: { ground: 'Erdgeschoss', floor: (n) => `Etage ${n}`, zone: 'Bereich' },
+  fr: { ground: 'Rez-de-chaussée', floor: (n) => `Étage ${n}`, zone: 'Zone' },
+  it: { ground: 'Piano terra', floor: (n) => `Piano ${n}`, zone: 'Zona' },
+  hu: { ground: 'Földszint', floor: (n) => `${n}. emelet`, zone: 'Terület' },
+  es: { ground: 'Planta baja', floor: (n) => `Planta ${n}`, zone: 'Zona' },
+}
+
+/** Numele implicite ale etajelor și zonelor noi, în limba de bază a meniului. */
+export function floorDefaults(baseLang: string | null | undefined): FloorDefaults {
+  return FLOOR_DEFAULTS[baseLang ?? ''] ?? RO_FLOOR_DEFAULTS
+}
 
 // ─── Constante canvas ─────────────────────────────────────────
 // Sistemul de coordonate absolut pe care sunt salvate elementele. Vizualizatorul

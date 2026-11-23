@@ -7,25 +7,52 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { planTier, PLAN_NAMES, productLimitReason } from '../features'
+import { planTier, PLAN_NAMES, productLimitVars } from '../features'
+import { makeTranslator } from '../../i18n/core'
+import { staffLocale } from '../../i18n/format'
+import dashboardRo from '../../i18n/ns/dashboard/ro'
+import dashboardEn from '../../i18n/ns/dashboard/en'
+import dashboardFr from '../../i18n/ns/dashboard/fr'
+import dashboardDe from '../../i18n/ns/dashboard/de'
 import { PLAN_LABELS } from '../constants'
 import { getPlanByInternalId, getPlan } from '../plans'
 
 // DashboardPage scria „planul Gratuit (15 produse)" hardcodat și pe starter.
-describe('productLimitReason — mesajul de limită pe planul REAL', () => {
-  it('starter: numele comercial și 300, nu „Gratuit (15)"', () => {
-    const msg = productLimitReason('starter', 300)
-    expect(msg).toContain(PLAN_LABELS.starter)
-    expect(msg).toContain('(300 produse)')
+// Fraza e acum cheia `upgrade_productLimit` din `dashboard` (precondiția B5 a
+// activării limbilor): ORACOLUL românesc e textul de dinainte, literal, iar
+// celelalte limbi poartă același nume de plan (nume propriu) și limita
+// formatată în limba lor. Mutația care pică: `n` formatat mereu cu 'ro-RO'.
+describe('productLimitVars — mesajul de limită pe planul REAL, în limba ecranului', () => {
+  const ro = makeTranslator(dashboardRo, 'ro')
+  const say = (lang: 'ro' | 'en' | 'fr' | 'de', dict: typeof dashboardRo, plan: string, max: number) =>
+    makeTranslator(dict, lang).t('upgrade_productLimit', productLimitVars(plan, max, staffLocale(lang)))
+
+  it('starter: numele comercial și 300, nu „Gratuit (15)" — româna e textul de dinainte', () => {
+    const msg = ro.t('upgrade_productLimit', productLimitVars('starter', 300, staffLocale('ro')))
+    expect(msg).toBe(`Ai atins limita de produse pe planul ${PLAN_LABELS.starter} (300 produse).`)
     expect(msg).not.toMatch(/Gratuit|15 produse/)
   })
 
   it('growth: limita formatată românește', () => {
-    expect(productLimitReason('growth', 1000)).toContain('(1.000 produse)')
+    expect(say('ro', dashboardRo, 'growth', 1000)).toContain('(1.000 produse)')
   })
 
   it('plan necunoscut: id-ul brut, fără să arunce', () => {
-    expect(productLimitReason('xyz', 5)).toContain('planul xyz (5 produse)')
+    expect(say('ro', dashboardRo, 'xyz', 5)).toContain('planul xyz (5 produse)')
+  })
+
+  it('en/fr/de: aceeași limită și același nume de plan, fără resturi românești', () => {
+    const cases = [
+      ['en', dashboardEn, '1,000 products'],
+      ['fr', dashboardFr, '1\u202f000 produits'],
+      ['de', dashboardDe, '1.000 Produkte'],
+    ] as const
+    for (const [lang, dict, count] of cases) {
+      const msg = say(lang, dict as unknown as typeof dashboardRo, 'growth', 1000)
+      expect(msg, lang).toContain(PLAN_LABELS.growth)
+      expect(msg.replace(/\s/g, ' '), lang).toContain(count.replace(/\u202f/g, ' '))
+      expect(msg, lang).not.toMatch(/limita|produse|planul/)
+    }
   })
 })
 

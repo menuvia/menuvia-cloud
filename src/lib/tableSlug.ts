@@ -1,19 +1,51 @@
 // ─────────────────────────────────────────────────────────────
 // tableSlug.ts — slug-ul mesei (identificator intern, `tables.slug`), scos
-// din TablesManager în lotul L6a. E o DATĂ, nu un text de ecran: rămâne
-// `masa`/`masa-N` în orice limbă a personalului, fiindcă generarea rapidă
-// („Câte mese ai?”) își găsește numerele LIBERE după el — un prefix care s-ar
-// schimba cu limba ar crea, pe aceleași mese, a doua serie de slug-uri.
-// Comportament identic cu funcțiile de dinainte din TablesManager.
-// Tot aici stă și NUMELE mesei create de generarea rapidă (`Masa N`): e tot o
-// DATĂ — apare pe cardul QR TIPĂRIT (care urmează limba MENIULUI, nu a
-// personalului) și în meniul oaspetelui —, deci rămâne în română în orice
-// limbă a personalului, exact ca înainte de L6a.
+// din TablesManager în lotul L6a. E o DATĂ, nu un text de ecran: NU urmează
+// limba personalului, fiindcă generarea rapidă („Câte mese ai?”) își găsește
+// numerele LIBERE după el — un prefix care s-ar schimba cu limba ecranului ar
+// crea, pe aceleași mese, a doua serie de slug-uri.
+// Tot aici stă și NUMELE mesei create de generarea rapidă: e tot o DATĂ —
+// apare pe cardul QR TIPĂRIT (care urmează limba MENIULUI, nu a personalului)
+// și în meniul oaspetelui.
+//
+// SERIILE (precondiția B7 a activării limbilor): onboarding-ul creează mesele
+// în limba funnel-ului (`step3_tableName`/`step3_tableSlug` din `onboarding`:
+// „Masa N”/`masa-N`, „Table N”/`table-N`, „Tisch N”/`tisch-N`), iar generarea
+// rapidă cunoștea doar `masa-N`. După un onboarding în germană cu 5 mese,
+// „generează până la 8” crea „Masa 1…3” — numere DUBLATE și două limbi pe
+// ecranul ospătarului, pe tichetul de bucătărie și pe cardurile tipărite.
+// Acum: un număr e ocupat în ORICARE serie, iar mesele noi continuă seria
+// localului (cea mai folosită; la egalitate, a limbii de bază dacă e printre
+// ele, altfel ordinea din SERIES); fără nicio masă numerotată, seria vine din
+// limba de BAZĂ a meniului (ro → Masa, en/fr → Table, de → Tisch, it →
+// Tavolo, hu → Asztal, es → Mesa; necunoscută → Masa, ca înainte). Cele trei
+// din urmă nu le scrie onboarding-ul (are doar patru limbi), dar limba de bază
+// a meniului poate fi oricare dintre cele 7 (recenzia adversarială pe #388).
 // ─────────────────────────────────────────────────────────────
 
 const PREFIX = 'masa'
-const BULK_NAME = 'Masa'
-const BULK_RE = /^masa-(\d+)$/
+/** Seriile de mese numerotate, cu numele lor (slug-ul = cheia). */
+const SERIES = {
+  masa: 'Masa',
+  table: 'Table',
+  tisch: 'Tisch',
+  tavolo: 'Tavolo',
+  asztal: 'Asztal',
+  mesa: 'Mesa',
+} as const
+export type TableSeries = keyof typeof SERIES
+const SERIES_ORDER = Object.keys(SERIES) as TableSeries[]
+const BULK_RE = /^(masa|table|tisch|tavolo|asztal|mesa)-(\d+)$/
+/** Limba de bază a meniului → seria implicită (aceleași cuvinte ca onboarding-ul). */
+const SERIES_BY_LANG: Readonly<Record<string, TableSeries>> = {
+  ro: 'masa',
+  en: 'table',
+  fr: 'table',
+  de: 'tisch',
+  it: 'tavolo',
+  hu: 'asztal',
+  es: 'mesa',
+}
 
 /** Numele mesei → slug (litere mici, cratime); gol → `masa`. */
 export function slugifyTable(s: string): string {
@@ -26,18 +58,48 @@ export function slugifyTable(s: string): string {
   )
 }
 
-/** Slug-ul mesei nr. `n` creată de generarea rapidă: `masa-N`. */
-export function bulkTableSlug(n: number): string {
-  return `${PREFIX}-${n}`
+/** Slug-ul mesei nr. `n` creată de generarea rapidă: `masa-N` (sau seria dată). */
+export function bulkTableSlug(n: number, series: TableSeries = 'masa'): string {
+  return `${series}-${n}`
 }
 
-/** Numele mesei nr. `n` creată de generarea rapidă: `Masa N` (dată, nu text de ecran). */
-export function bulkTableName(n: number): string {
-  return `${BULK_NAME} ${n}`
+/** Numele mesei nr. `n` creată de generarea rapidă: `Masa N` (sau seria dată; dată, nu text de ecran). */
+export function bulkTableName(n: number, series: TableSeries = 'masa'): string {
+  return `${SERIES[series]} ${n}`
 }
 
-/** Numărul unei mese din generarea rapidă (`masa-N` → N), altfel `null`. */
-export function bulkTableNumber(slug: string | null | undefined): number | null {
+function parseBulk(slug: string | null | undefined): { series: TableSeries; n: number } | null {
   const m = BULK_RE.exec(slug || '')
-  return m ? parseInt(m[1], 10) : null
+  return m ? { series: m[1] as TableSeries, n: parseInt(m[2], 10) } : null
+}
+
+/** Numărul unei mese numerotate (`masa-N` / `table-N` / `tisch-N` → N), altfel `null`. */
+export function bulkTableNumber(slug: string | null | undefined): number | null {
+  return parseBulk(slug)?.n ?? null
+}
+
+/**
+ * Seria în care continuă generarea rapidă: cea mai folosită dintre mesele
+ * numerotate existente (egalitate → seria limbii de bază, dacă e printre cele
+ * la egalitate, altfel ordinea din SERIES); fără nicio masă numerotată, cea a
+ * limbii de bază a meniului (necunoscută → `masa`).
+ */
+export function bulkTableSeries(
+  slugs: readonly (string | null | undefined)[],
+  baseLang: string | null | undefined,
+): TableSeries {
+  const counts = new Map<TableSeries, number>()
+  for (const s of slugs) {
+    const hit = parseBulk(s)
+    if (hit) counts.set(hit.series, (counts.get(hit.series) ?? 0) + 1)
+  }
+  const preferred = SERIES_BY_LANG[baseLang ?? ''] ?? null
+  let best: TableSeries | null = null
+  for (const series of SERIES_ORDER) {
+    const c = counts.get(series) ?? 0
+    if (c === 0) continue
+    const bestCount = best === null ? 0 : (counts.get(best) ?? 0)
+    if (best === null || c > bestCount || (c === bestCount && series === preferred)) best = series
+  }
+  return best ?? preferred ?? 'masa'
 }

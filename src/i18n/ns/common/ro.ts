@@ -43,6 +43,16 @@ const ro = {
   // Varianta SCURTĂ a lui 42703 pentru comutatorul compact din antetul
   // Ospătarului/Bucătăriei: acolo nu e niciun panou, iar sub select e loc puțin.
   lang_columnMissingShort: 'Limba nu se poate salva încă: serverul nu are ultima actualizare.',
+  // Bannerul „casa nu e conectată” (BridgeOfflineBanner, pe Acasă și la
+  // Ospătar — precondiția B8 a activării): o alertă OPERAȚIONALĂ, nu un
+  // document fiscal, deci se traduce; fila spre care trimite rămâne în română.
+  bridgeOff_titleDown: 'Fiscalizare activă, casa nu e conectată',
+  bridgeOff_titleNone: 'Fiscalizare activă, nicio casă înregistrată',
+  bridgeOff_detailDown:
+    'Bridge-ul nu a mai răspuns de câteva minute. Comenzile se încasează normal, dar NU se emite niciun bon fiscal până revine.',
+  bridgeOff_detailNone:
+    'Planul include bon fiscal, dar nu există niciun dispozitiv bridge înregistrat. Până îl conectezi, comenzile plătite rămân fără bon.',
+  bridgeOff_open: 'Deschide Casa de marcat',
   // Fiecare limbă în limba EI, identic în toate cele patru fișiere.
   lang_name_ro: 'Română',
   lang_name_en: 'English',

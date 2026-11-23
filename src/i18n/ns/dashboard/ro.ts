@@ -140,6 +140,7 @@ const ro = {
 
   // ── Limita de produse atinsă (UpgradeModal) ──
   upgrade_title: 'Deblochează mai mult',
+  upgrade_productLimit: 'Ai atins limita de produse pe planul {plan} ({n} produse).',
   upgrade_rowQrMenu: 'Meniu QR',
   upgrade_rowProducts: 'Produse',
   upgrade_rowTables: 'Mese + QR',

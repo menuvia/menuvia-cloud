@@ -6,8 +6,8 @@
 // Limba (lotul L6b): textele vin din `settingsCards` (același chunk cu fila
 // Setări), „Reîncearcă” din `common`; erorile serverului prin
 // `describeStaffError` (în română exact `toUserMessage`). Recompensa
-// IMPLICITĂ rămâne românească: e o valoare a meniului (o vede oaspetele), nu
-// un text al personalului.
+// IMPLICITĂ e o valoare a meniului (o vede oaspetele), nu un text al
+// personalului: vine din limba de BAZĂ a meniului (`loyaltyDefaultReward`).
 import { useEffect, useId, useState, type CSSProperties } from 'react'
 import { D, PLAN_LABELS } from '../lib/constants'
 import { planTier } from '../lib/features'
@@ -20,12 +20,15 @@ import { describeStaffError } from '../i18n/staffErrors'
 import { settingsCardsNs } from '../i18n/ns/settingsCards'
 import { commonNs } from '../i18n/ns/common'
 import { fillNodes } from '../i18n/fillNodes'
+import { loyaltyDefaultReward } from '../lib/settingsLang'
 
 interface Props {
   restaurantId: string
   plan: string
   modulesState: ReturnType<typeof useRestaurantModules>
   toast: (msg: string, type?: string) => void
+  /** Limba de bază a meniului: recompensa implicită e în ea (o vede oaspetele). */
+  baseLang?: string
 }
 
 const inp: CSSProperties = {
@@ -54,16 +57,21 @@ interface LoyaltyProgramRow {
 type LoadState = 'loading' | 'ready' | 'error'
 
 // Valoarea implicită a recompensei: DATĂ a meniului (o vede oaspetele), deci
-// în română în orice limbă a personalului — ca numele „Masa N” din L6a.
-const DEFAULT_REWARD = 'Un desert din partea casei'
+// în limba de BAZĂ a meniului, nu a personalului (lib/settingsLang.ts).
 
-export default function LoyaltySettingsCard({ restaurantId, plan, modulesState, toast }: Props) {
+export default function LoyaltySettingsCard({
+  restaurantId,
+  plan,
+  modulesState,
+  toast,
+  baseLang = 'ro',
+}: Props) {
   const tr = useT(settingsCardsNs)
   const tc = useT(commonNs)
   const eligible = planTier(plan) >= 2
   const [pointsPerLeu, setPointsPerLeu] = useState('1')
   const [threshold, setThreshold] = useState('100')
-  const [reward, setReward] = useState(DEFAULT_REWARD)
+  const [reward, setReward] = useState<string>(() => loyaltyDefaultReward(baseLang))
   const [saving, setSaving] = useState(false)
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [reloadKey, setReloadKey] = useState(0)

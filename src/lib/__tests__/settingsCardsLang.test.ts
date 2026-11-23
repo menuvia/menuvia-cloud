@@ -52,7 +52,9 @@
 //        panoului) importă din i18n/ns doar TIPURI. Mutația care pică:
 //        `useT(teamNs)` mutat sub `if (error) return` în TeamManager.
 //   GQ12 datele NU trec prin traducător: recompensa implicită a fidelizării
-//        rămâne „Un desert din partea casei” (o vede OASPETELE în meniu),
+//        (o vede OASPETELE în meniu) vine din limba de BAZĂ a meniului, nu din
+//        dicționarul personalului (`loyaltyDefaultReward(baseLang)`, TW14), cu
+//        româna „Un desert din partea casei”,
 //        valorile rolurilor din <select> rămân `manager`/`waiter`/`kitchen`,
 //        numele planului e `PLAN_LABELS.growth`. Mutația care pică:
 //        `useState(tr.t('loy_rewardPlaceholder'))` sau `value={tm.t(…)}`.
@@ -342,8 +344,9 @@ describe('precondiția L4b/L4c (lotul L6b)', () => {
 
   it('GQ12: datele nu trec prin traducător', () => {
     const loy = read('src/components/LoyaltySettingsCard.tsx')
-    expect(loy).toContain("const DEFAULT_REWARD = 'Un desert din partea casei'")
-    expect(loy).toContain('useState(DEFAULT_REWARD)')
+    expect(loy).toContain('useState<string>(() => loyaltyDefaultReward(baseLang))')
+    expect(loy).not.toMatch(/useState\(tr\.t\(/)
+    expect(read('src/lib/settingsLang.ts')).toContain("export const LOYALTY_DEFAULT_REWARD = 'Un desert din partea casei'")
     expect(loy).toContain('{PLAN_LABELS.growth}')
     const team = read('src/components/TeamManager.tsx')
     for (const v of ['manager', 'waiter', 'kitchen'])

@@ -32,6 +32,13 @@ const de: Translation<typeof ro> = {
     'Die Sprache kann noch nicht in Ihrem Konto gespeichert werden: Der Server hat das letzte Update noch nicht erhalten. Der Verwaltungsbereich bleibt in der aktuellen Sprache.',
   lang_columnMissingShort:
     'Die Sprache kann noch nicht gespeichert werden: Der Server hat das letzte Update noch nicht erhalten.',
+  bridgeOff_titleDown: 'Fiskalisierung aktiv, Kasse nicht verbunden',
+  bridgeOff_titleNone: 'Fiskalisierung aktiv, keine Kasse registriert',
+  bridgeOff_detailDown:
+    'Die Bridge antwortet seit einigen Minuten nicht. Bestellungen werden normal kassiert, aber es wird KEIN Fiskalbeleg ausgestellt, bis sie wieder verbunden ist.',
+  bridgeOff_detailNone:
+    'Ihr Tarif umfasst Fiskalbelege, aber es ist kein Bridge-Gerät registriert. Bis Sie eines verbinden, bleiben bezahlte Bestellungen ohne Beleg.',
+  bridgeOff_open: '„Kasse & Küchenbons“ öffnen',
   lang_name_ro: 'Română',
   lang_name_en: 'English',
   lang_name_fr: 'Français',

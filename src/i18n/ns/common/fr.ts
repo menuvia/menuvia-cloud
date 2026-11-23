@@ -32,6 +32,13 @@ const fr: Translation<typeof ro> = {
     'La langue ne peut pas encore être enregistrée dans votre compte : le serveur n’a pas reçu la dernière mise à jour. Votre espace reste dans la langue actuelle.',
   lang_columnMissingShort:
     'La langue ne peut pas encore être enregistrée : le serveur n’a pas reçu la dernière mise à jour.',
+  bridgeOff_titleDown: 'Fiscalisation active, caisse non connectée',
+  bridgeOff_titleNone: 'Fiscalisation active, aucune caisse enregistrée',
+  bridgeOff_detailDown:
+    'Le bridge ne répond plus depuis quelques minutes. Les commandes sont encaissées normalement, mais AUCUN ticket fiscal n’est émis tant qu’il n’est pas revenu.',
+  bridgeOff_detailNone:
+    'Votre formule inclut le ticket fiscal, mais aucun appareil bridge n’est enregistré. Tant que vous n’en connectez pas un, les commandes payées restent sans ticket.',
+  bridgeOff_open: 'Ouvrir « Caisse & tickets »',
   lang_name_ro: 'Română',
   lang_name_en: 'English',
   lang_name_fr: 'Français',

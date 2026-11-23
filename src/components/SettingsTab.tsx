@@ -42,7 +42,7 @@ import { translationsNs } from '../i18n/ns/translations'
 import { homeNs } from '../i18n/ns/home'
 import { menuLangTitle } from '../lib/translationMessages'
 import {
-  CHECKOUT_SUGGESTION_DEFAULT_MESSAGE,
+  checkoutSuggestionDefaultMessage,
   WEEK_DAY_KEYS,
   accentName,
   amenityLabel,
@@ -1069,6 +1069,9 @@ export default function SettingsTab({
                   // Moneda din STAREA formularului — preview-ul reflectă LIVE
                   // alegerea din selectorul „Moneda meniului", nu valoarea salvată.
                   currency={resolveMenuCurrency(form.currency)}
+                  // Limba de BAZĂ a meniului, tot din formular: oaspetele vede
+                  // implicit meniul în ea, nu în limba personalului.
+                  lang={menuBaseLang(form.language)}
                 />
               </div>
             </SettingsCard>
@@ -1723,6 +1726,7 @@ export default function SettingsTab({
             {modulesState && surface?.ordering === true && (
               <LoyaltySettingsCard
                 restaurantId={restaurant.id}
+                baseLang={menuBaseLang(form.language)}
                 plan={plan}
                 modulesState={modulesState}
                 toast={toast}
@@ -1943,7 +1947,7 @@ export default function SettingsTab({
                       ...(form.checkout_suggestion_settings ?? {
                         categories: [],
                         max_suggestions: 2,
-                        message: CHECKOUT_SUGGESTION_DEFAULT_MESSAGE,
+                        message: checkoutSuggestionDefaultMessage(menuBaseLang(form.language)),
                       }),
                       enabled: v,
                     })
@@ -1994,7 +1998,10 @@ export default function SettingsTab({
                 title={st.t('vat_title')}
                 desc={st.t('vat_desc')}
               >
-                <VatRatesEditor restaurantId={restaurant.id} />
+                {/* Ecran fiscal: în română prin lege (lib/fiscalScreens.ts). */}
+                <div lang="ro">
+                  <VatRatesEditor restaurantId={restaurant.id} />
+                </div>
               </SettingsCard>
             )}
           </>

@@ -117,6 +117,7 @@ const de: Translation<typeof ro> = {
   unsaved_addLocationConfirm: 'Ohne Speichern fortfahren',
 
   upgrade_title: 'Mehr freischalten',
+  upgrade_productLimit: 'Sie haben das Produktlimit im Tarif {plan} erreicht ({n} Produkte).',
   upgrade_rowQrMenu: 'QR-Speisekarte',
   upgrade_rowProducts: 'Produkte',
   upgrade_rowTables: 'Tische + QR',

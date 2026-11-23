@@ -7,12 +7,17 @@
 //        și raportează limba 'ro' (altfel pluralul francez pe forme românești:
 //        „2 de mese”). [PICĂ: `lang: eff` pe dicționarul de rezervă]
 //   IC5  `t` pe o cheie de plural întoarce forma `other` (nu „[object]”).
+//   IC6  după un eșec, dicționarul se reîncearcă în FUNDAL (după primul
+//        interval sau la evenimentul `online`), fără să suspende: cache-ul
+//        ține româna până la reușită, apoi limba cerută. [PICĂ: fără
+//        `scheduleRetry` — româna rămâne până la reîncărcarea paginii]
 import { describe, it, expect, vi } from 'vitest'
 import {
   defineNamespace,
   effectiveLang,
   interpolate,
   makeTranslator,
+  NAMESPACE_RETRY_DELAYS_MS,
   readNamespace,
   selectPlural,
   type Translation,
@@ -77,5 +82,57 @@ describe('core', () => {
     const tr = makeTranslator(ro, 'ro') as unknown as { t: (k: string) => string }
     expect(tr.t('n')).toBe('{n} de mese')
     expect(tr.t('missing')).toBe('missing')
+  })
+
+  it('IC6 o încărcare eșuată se reîncearcă în fundal, fără Suspense', async () => {
+    vi.useFakeTimers()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const enOk = { hi: 'Hi, {name}!', n: { one: '{n} table', other: '{n} tables' } }
+      // Pe temporizator: primul apel pică, al doilea reușește.
+      let calls = 0
+      const flaky = defineNamespace('r1', ro, {
+        en: () => (++calls === 1 ? Promise.reject(new Error('net')) : Promise.resolve({ default: enOk })),
+      })
+      const p = readNamespace(flaky, 'en')
+      if ('pending' in p) await p.pending
+      const fallback = readNamespace(flaky, 'en')
+      expect('dict' in fallback && fallback.lang).toBe('ro')
+      await vi.advanceTimersByTimeAsync(NAMESPACE_RETRY_DELAYS_MS[0])
+      expect(calls).toBe(2)
+      const healed = readNamespace(flaky, 'en')
+      expect('dict' in healed && healed.dict.hi).toBe('Hi, {name}!')
+      expect('dict' in healed && healed.lang).toBe('en')
+
+      // La revenirea rețelei: reîncercarea pleacă imediat, înaintea intervalului.
+      let calls2 = 0
+      const offline = defineNamespace('r2', ro, {
+        en: () => (++calls2 === 1 ? Promise.reject(new Error('offline')) : Promise.resolve({ default: enOk })),
+      })
+      const p2 = readNamespace(offline, 'en')
+      if ('pending' in p2) await p2.pending
+      window.dispatchEvent(new Event('online'))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(calls2).toBe(2)
+      const back = readNamespace(offline, 'en')
+      expect('dict' in back && back.lang).toBe('en')
+      // Un singur reapel per eșec: temporizatorul nu mai pleacă după `online`.
+      await vi.advanceTimersByTimeAsync(NAMESPACE_RETRY_DELAYS_MS[0])
+      expect(calls2).toBe(2)
+
+      // Plafonul: un chunk care pică mereu se reîncearcă de exact 3 ori.
+      let calls3 = 0
+      const dead = defineNamespace('r3', ro, { en: () => (++calls3, Promise.reject(new Error('gone'))) })
+      const p3 = readNamespace(dead, 'en')
+      if ('pending' in p3) await p3.pending
+      for (const d of NAMESPACE_RETRY_DELAYS_MS) await vi.advanceTimersByTimeAsync(d)
+      await vi.advanceTimersByTimeAsync(600_000)
+      expect(calls3).toBe(1 + NAMESPACE_RETRY_DELAYS_MS.length)
+      const still = readNamespace(dead, 'en')
+      expect('dict' in still && still.lang).toBe('ro')
+    } finally {
+      warn.mockRestore()
+      vi.useRealTimers()
+    }
   })
 })

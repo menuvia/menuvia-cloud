@@ -16,10 +16,13 @@
 //   TQ10 slug-ul mesei (lib/tableSlug.ts) e EXACT funcția de dinainte din
 //        TablesManager (`masa` / `masa-N` în orice limbă — generarea rapidă își
 //        caută numerele libere după el). Mutația care pică: un prefix tradus.
-//        La fel NUMELE mesei din generarea rapidă: `Masa N` (dată — apare pe
+//        La fel NUMELE implicit al mesei din generarea rapidă: `Masa N` (dată — apare pe
 //        cardul QR tipărit și în meniul oaspetelui), apelat din TablesManager
 //        prin `bulkTableName`, fără nicio cheie de traducere. Mutația care
 //        pică: `name: tm.t('bulk_tableName', …)` readus.
+//   TQ12 seriile onboarding-ului (precondiția B7 a activării): `table-N` și
+//        `tisch-N` sunt numere ocupate, generarea rapidă continuă seria
+//        localului, iar fără mese numerotate seria vine din limba de bază.
 //   TQ11 precondiția L4b/L4c, ca clichet STRUCTURAL: componenta exportată și
 //        FIECARE subcomponentă cu text din TablesManager cer namespace-urile SUS,
 //        înaintea primului `return`; fișierul nu folosește alt namespace decât
@@ -36,7 +39,11 @@ import tablesEn from '../../i18n/ns/tables/en'
 import tablesFr from '../../i18n/ns/tables/fr'
 import tablesDe from '../../i18n/ns/tables/de'
 import { generalMenuQrText, pickupCopyT, pickupOnlyEmptyStateText, pickupPlanName } from '../pickupCopy'
-import { bulkTableName, bulkTableNumber, bulkTableSlug, slugifyTable } from '../tableSlug'
+import { bulkTableName, bulkTableNumber, bulkTableSeries, bulkTableSlug, slugifyTable } from '../tableSlug'
+import onbRo from '../../i18n/ns/onboarding/ro'
+import onbEn from '../../i18n/ns/onboarding/en'
+import onbFr from '../../i18n/ns/onboarding/fr'
+import onbDe from '../../i18n/ns/onboarding/de'
 
 const STATES = [true, false, null] as const
 const FLIPBOOK = [true, false] as const
@@ -112,12 +119,42 @@ describe('slug-ul mesei', () => {
       expect(bulkTableSlug(n)).toBe(`masa-${n}`)
       expect(bulkTableNumber(bulkTableSlug(n))).toBe(n)
     }
-    for (const s of ['table-1', 'masa-1a', 'masa-', '', null, undefined, 'Masa-3']) expect(bulkTableNumber(s)).toBeNull()
+    for (const s of ['masa-1a', 'masa-', '', null, undefined, 'Masa-3', 'stol-1', 'table-', 'tisch-x'])
+      expect(bulkTableNumber(s)).toBeNull()
     for (const n of [1, 7, 80]) expect(bulkTableName(n)).toBe(`Masa ${n}`)
     const tm = read('src/components/TablesManager.tsx')
-    expect(tm).toContain('name: bulkTableName(idx), slug: bulkTableSlug(idx)')
+    expect(tm).toContain('name: bulkTableName(idx, series), slug: bulkTableSlug(idx, series)')
     expect(tm).not.toContain('bulk_tableName')
     for (const d of [tablesRo, tablesEn, tablesFr, tablesDe]) expect(Object.keys(d)).not.toContain('bulk_tableName')
+  })
+
+  // TQ12 (precondiția B7 a activării): seriile onboarding-ului. Un număr e
+  // ocupat în ORICARE serie, iar mesele noi continuă seria localului; fără
+  // mese numerotate, seria vine din limba de BAZĂ a meniului. Cuvintele sunt
+  // EXACT cele ale onboarding-ului (`step3_tableName`/`step3_tableSlug`).
+  // Mutațiile care pică: `BULK_RE` doar pe `masa` (numerele „Tisch” ignorate)
+  // și seria fixă `masa` după un onboarding în germană.
+  it('TQ12: generarea rapidă recunoaște și continuă seriile onboarding-ului', () => {
+    expect(bulkTableNumber('table-4')).toBe(4)
+    expect(bulkTableNumber('tisch-12')).toBe(12)
+    // Seria localului: cea mai folosită; egalitate → masa, table, tisch.
+    expect(bulkTableSeries(['tisch-1', 'tisch-2', 'masa-3', 'bar'], 'ro')).toBe('tisch')
+    // Egalitate: seria limbii de bază, dacă e printre cele la egalitate.
+    expect(bulkTableSeries(['table-1', 'tisch-1'], 'de')).toBe('tisch')
+    expect(bulkTableSeries(['table-1', 'tisch-1'], 'ro')).toBe('table')
+    expect(bulkTableSeries(['masa-1', 'table-2'], 'en')).toBe('table')
+    expect(bulkTableSeries(['masa-1', 'table-2'], 'xx')).toBe('masa')
+    // Fără mese numerotate: limba de bază (necunoscută → masa, ca înainte).
+    for (const [lang, series] of [['ro', 'masa'], ['en', 'table'], ['fr', 'table'], ['de', 'tisch'], ['it', 'tavolo'], ['hu', 'asztal'], ['es', 'mesa'], [null, 'masa']] as const)
+      expect(bulkTableSeries(['terasa', null], lang), String(lang)).toBe(series)
+    // Numele și slug-ul fiecărei serii = cele scrise de onboarding.
+    const onboarding = { ro: onbRo, en: onbEn, fr: onbFr, de: onbDe } as const
+    for (const [lang, dict] of Object.entries(onboarding)) {
+      const series = bulkTableSeries([], lang)
+      expect(bulkTableName(3, series), lang).toBe(dict.step3_tableName.replace('{n}', '3'))
+      expect(bulkTableSlug(3, series), lang).toBe(dict.step3_tableSlug.replace('{n}', '3'))
+      expect(bulkTableNumber(bulkTableSlug(3, series)), lang).toBe(3)
+    }
   })
 })
 

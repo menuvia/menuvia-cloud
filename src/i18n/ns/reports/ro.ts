@@ -107,6 +107,13 @@ const ro = {
   csvh_waiter: 'Ospătar',
   csvh_discounts: 'Reduceri aplicate (lei)',
   csvh_category: 'Categorie',
+  // Rândurile-santinelă ale rapoartelor pe ospătar/categorie: serverul (mig
+  // 122) le întoarce DEJA în română, deci în română se afișează textul lui
+  // (`waiterRowLabel`/`categoryRowLabel`, lib/reportsExport.ts); cheile de aici
+  // servesc celelalte limbi (identice cu textul serverului, pentru paritate).
+  row_waiterQr: 'Comenzi QR (fără ospătar)',
+  row_waiterUnknown: 'Necunoscut',
+  row_noCategory: 'Fără categorie',
   csvh_itemsSold: 'Bucăți vândute',
   csvh_pctTotal: '% din total',
   csvh_hour: 'Ora',

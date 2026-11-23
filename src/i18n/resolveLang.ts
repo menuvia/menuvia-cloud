@@ -17,6 +17,8 @@ import { ENABLED_STAFF_LANGS, FUNNEL_LANGS, isStaffLang, type StaffLang } from '
 export interface UiLangInputs {
   urlLang?: string | null
   profileLang?: string | null
+  /** Indiciu NEPERSISTENT (`?hl=`, linkul invitației): după cont, înaintea dispozitivului. */
+  hintLang?: string | null
   storedLang?: string | null
   navigatorLangs?: readonly string[] | null
   /** Limba implicită a site-ului (`defaultUiLang(browserSite())`). */
@@ -35,7 +37,7 @@ export function resolveUiLang(inp: UiLangInputs): StaffLang {
     const p = primary(v)
     return isStaffLang(p) && enabled.includes(p) ? p : null
   }
-  for (const candidate of [inp.urlLang, inp.profileLang, inp.storedLang]) {
+  for (const candidate of [inp.urlLang, inp.profileLang, inp.hintLang, inp.storedLang]) {
     const hit = ok(candidate)
     if (hit) return hit
   }
@@ -54,7 +56,8 @@ export function resolveUiLang(inp: UiLangInputs): StaffLang {
  *   - Limbile BROWSERULUI nu contează. Funnel-ul nu le-a citit niciodată, iar
  *     pe menuvia.ro un român cu browserul în engleză vede azi formularul în
  *     română; dacă le-am citi, l-am muta pe engleză fără să fi cerut-o.
- * Rămâne: `?lang=` → limba contului (Termenii se cer după login) → stocarea
+ * Rămâne: `?lang=` → limba contului (Termenii se cer după login) → indiciul
+ * `?hl=` (linkul invitației: limba emailului, NEPERSISTENTĂ) → stocarea
  * dispozitivului (`menuvia_ui_lang`, scrisă de /en și de `?lang=`) → site-ul.
  */
 export function resolveFunnelLang(inp: Omit<UiLangInputs, 'navigatorLangs' | 'enabled'>): StaffLang {

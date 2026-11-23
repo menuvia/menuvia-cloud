@@ -39,11 +39,13 @@ import {
 } from '../lib/reports'
 import {
   buildReportCsv,
+  categoryRowLabel,
   chartDayLabel,
   periodLabelT,
   reportPeriodRange,
   reportPdfFilename,
   reportPdfText,
+  waiterRowLabel,
 } from '../lib/reportsExport'
 import { useT } from '../i18n/useT'
 import { useUiLang } from '../i18n/UiLangContext'
@@ -1402,7 +1404,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true, timeZon
                           size={14}
                           color={w.waiter_id ? D.t2 : D.t3}
                         />
-                        {w.waiter_name}
+                        {waiterRowLabel(w, tr)}
                       </div>
                       <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
                         <ReportMetric label={tr.t('col_orders')} value={String(w.order_count)} />
@@ -1507,7 +1509,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true, timeZon
                               size={14}
                               color={w.waiter_id ? D.t2 : D.t3}
                             />
-                            {w.waiter_name}
+                            {waiterRowLabel(w, tr)}
                           </span>
                         </td>
                         <td
@@ -1610,7 +1612,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true, timeZon
                         }}
                       >
                         <span style={{ fontSize: '1.1rem' }}>{c.category_emoji || '🍽️'}</span>
-                        <span style={{ fontWeight: 500 }}>{c.category_name}</span>
+                        <span style={{ fontWeight: 500 }}>{categoryRowLabel(c, tr)}</span>
                         <span style={{ color: D.t3, fontSize: '0.78rem' }}>
                           {tr.t('cat_items', { n: c.item_count })}
                         </span>

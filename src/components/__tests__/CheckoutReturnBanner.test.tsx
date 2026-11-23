@@ -6,6 +6,11 @@
 //        „slow" spuneau „Plata a fost primită" → CB1 pică;
 //   CB2  control pozitiv: fiecare stare chiar randează (altfel CB1 ar trece
 //        pe un banner gol) — inclusiv „activ" doar pe planul CUMPĂRAT.
+//   CB4  (activarea limbilor) bannerul urmează limba PAGINII (`<html lang>`,
+//        pusă pe /dashboard de StaffDocumentLang): în en/fr/de fiecare stare
+//        are textul limbii, fără resturi românești, fără să pretindă vreo
+//        încasare, cu butonul de închidere tradus; româna rămâne CB1/CB2.
+//        Mutația care pică: COPY-ul românesc readus în componentă.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
 
@@ -77,5 +82,41 @@ describe('CheckoutReturnBanner', () => {
   it('CB3 regexul chiar prinde formularea veche (anti-vacuitate)', () => {
     expect('Plata a fost primită. Actualizăm contul tău').toMatch(CLAIMS_PAYMENT)
     expect('Abonamentul a fost înregistrat — activăm planul').not.toMatch(CLAIMS_PAYMENT)
+  })
+
+  it('CB4 en/fr/de: textul limbii paginii, fără resturi românești și fără încasare pretinsă', () => {
+    const CLAIMS: Record<'en' | 'fr' | 'de', RegExp> = {
+      en: /payment (was|has been) (received|completed|successful)|you (have )?paid|we (have )?charged you/i,
+      fr: /paiement (a été )?(reçu|effectué|réussi)|vous avez payé/i,
+      de: /zahlung (wurde |ist )?(erhalten|eingegangen|erfolgreich)|sie haben bezahlt/i,
+    }
+    const EXPECT: Record<'en' | 'fr' | 'de', { activating: RegExp; close: string }> = {
+      en: { activating: /Activating your plan/, close: 'Close message' },
+      fr: { activating: /Activation de votre formule/, close: 'Fermer le message' },
+      de: { activating: /Ihr Tarif wird aktiviert/, close: 'Meldung schließen' },
+    }
+    const ROMANIAN = /[ăâîșțĂÂÎȘȚ]|\b(planul|abonamentul|plata|activăm)\b/i
+    try {
+      for (const l of ['en', 'fr', 'de'] as const) {
+        document.documentElement.setAttribute('lang', l)
+        at('/dashboard?checkout=success&checkout_plan=starter')
+        auth('free')
+        const view = render(<CheckoutReturnBanner />)
+        expect(bannerText(), l).toMatch(EXPECT[l].activating)
+        expect(bannerText(), l).not.toMatch(CLAIMS[l])
+        expect(bannerText(), l).not.toMatch(ROMANIAN)
+        expect(screen.getByRole('button', { name: EXPECT[l].close })).toBeInTheDocument()
+        view.unmount()
+        sessionStorage.clear()
+        at('/pricing?checkout=cancelled')
+        const cancelled = render(<CheckoutReturnBanner />)
+        expect(bannerText(), l).not.toMatch(CLAIMS[l])
+        expect(bannerText(), l).not.toMatch(ROMANIAN)
+        cancelled.unmount()
+        sessionStorage.clear()
+      }
+    } finally {
+      document.documentElement.setAttribute('lang', 'ro')
+    }
   })
 })

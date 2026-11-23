@@ -32,9 +32,10 @@
 // același identificator în orice limbă, ca în sistemul de operare), codurile
 // ISO ale monedelor, numele COMERCIALE ale planurilor (`PLAN_LABELS`, nume
 // proprii), numele rețelelor sociale și mesajul IMPLICIT al sugestiilor la coș
-// (`CHECKOUT_SUGGESTION_DEFAULT_MESSAGE`, lib/settingsLang.ts — se SALVEAZĂ și
-// îl vede OASPETELE, deci e dată a meniului, ca recompensa implicită a
-// fidelizării; doar placeholder-ul câmpului se traduce).
+// (`checkoutSuggestionDefaultMessage`, lib/settingsLang.ts — se SALVEAZĂ și
+// îl vede OASPETELE, deci e dată a meniului, în limba de BAZĂ a meniului, ca
+// recompensa implicită a fidelizării; doar placeholder-ul câmpului urmează
+// limba personalului).
 const ro = {
   // ── Salvarea formularului ──
   save_busy: 'Se salvează...',
@@ -304,7 +305,7 @@ const ro = {
   sugg_msgLabel: 'Mesaj afișat',
   sugg_msgAria: 'Mesaj afișat la sugestii',
   // Placeholder-ul (exemplul); valoarea IMPLICITĂ salvată e o dată a meniului
-  // (`CHECKOUT_SUGGESTION_DEFAULT_MESSAGE`) și rămâne în română.
+  // (`checkoutSuggestionDefaultMessage`), în limba de bază a meniului.
   sugg_msgPh: '🍰 Înainte să trimiți... ai vrea ceva în plus?',
   vat_title: 'Cote TVA',
   vat_desc:

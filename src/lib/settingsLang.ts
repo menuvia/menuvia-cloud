@@ -52,12 +52,46 @@ export function weekDayLabel(day: WeekDayKey, tr: SettingsTranslator): string {
   return tr.t(DAY_KEYS[day])
 }
 
-// ── Mesajul IMPLICIT al sugestiilor la coș ──
-// Se SALVEAZĂ în `checkout_suggestion_settings.message` la prima pornire și îl
-// vede OASPETELE în coș, deci e o DATĂ a meniului (ca recompensa implicită a
-// fidelizării), nu text al personalului: rămâne același în orice limbă a
-// personalului — schimbarea lui ar schimba ce se salvează.
+// ── Mesajul IMPLICIT al sugestiilor la coș și recompensa IMPLICITĂ a fidelizării ──
+// Se SALVEAZĂ (`checkout_suggestion_settings.message`, `loyalty_settings.
+// reward_description`) la prima pornire și le vede OASPETELE, deci sunt DATE
+// ale meniului, nu text al personalului: NU urmează limba personalului.
+// Urmează limba de BAZĂ a meniului (`menuBaseLang(restaurants.language)`):
+// oaspetele vede textul salvat exact când citește meniul în limba de bază
+// (QrCartSheet: `lang === baseLang`), deci un local german care pornea
+// sugestiile le arăta oaspeților germani un text românesc. Româna e textul de
+// dinainte; o limbă necunoscută cade pe română, ca `menuBaseLang`.
 export const CHECKOUT_SUGGESTION_DEFAULT_MESSAGE = '🍰 Înainte să trimiți... ai vrea ceva în plus?'
+
+const CHECKOUT_SUGGESTION_DEFAULTS: Readonly<Record<string, string>> = {
+  ro: CHECKOUT_SUGGESTION_DEFAULT_MESSAGE,
+  en: '🍰 Before you send… would you like anything else?',
+  de: '🍰 Bevor du bestellst … darf es noch etwas sein?',
+  fr: '🍰 Avant d’envoyer… envie d’autre chose ?',
+  it: '🍰 Prima di inviare… vuoi qualcos’altro?',
+  hu: '🍰 Mielőtt elküldöd… kérsz még valamit?',
+  es: '🍰 Antes de enviar… ¿quieres algo más?',
+}
+
+export function checkoutSuggestionDefaultMessage(baseLang: string): string {
+  return CHECKOUT_SUGGESTION_DEFAULTS[baseLang] ?? CHECKOUT_SUGGESTION_DEFAULT_MESSAGE
+}
+
+export const LOYALTY_DEFAULT_REWARD = 'Un desert din partea casei'
+
+const LOYALTY_REWARD_DEFAULTS: Readonly<Record<string, string>> = {
+  ro: LOYALTY_DEFAULT_REWARD,
+  en: 'A dessert on the house',
+  de: 'Ein Dessert aufs Haus',
+  fr: 'Un dessert offert par la maison',
+  it: 'Un dolce offerto dalla casa',
+  hu: 'Egy desszert a ház ajándékaként',
+  es: 'Un postre por cuenta de la casa',
+}
+
+export function loyaltyDefaultReward(baseLang: string): string {
+  return LOYALTY_REWARD_DEFAULTS[baseLang] ?? LOYALTY_DEFAULT_REWARD
+}
 
 function own(map: Readonly<Record<string, SettingsKey>>, id: string): SettingsKey | null {
   return Object.prototype.hasOwnProperty.call(map, id) ? (map[id] ?? null) : null

@@ -1,7 +1,8 @@
 // src/i18n/UiLangContext.tsx — limba personalului pentru tot arborele (L0b).
 // Stă în INTRAREA aplicației (App.tsx), deci importă doar module mici, fără
-// dicționare: `langs`, `resolveLang`, `lib/domain` (deja în intrare) și
-// `hooks/useScreenDocument` (doar `chrome.ts` + `useDocumentLang`, lotul L4d).
+// dicționare: `langs`, `resolveLang`, `accountLang`, `lib/domain` (deja în
+// intrare) și `hooks/useScreenDocument` (doar `chrome.ts` + `useDocumentLang`,
+// lotul L4d).
 // Fără provider (teste, componente randate izolat) limba e 'ro' — testele cu
 // text românesc rămân neschimbate.
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
@@ -9,7 +10,9 @@ import { useAuth } from '../contexts/AuthContext'
 import { browserSite, defaultUiLang } from '../lib/domain'
 import { ENABLED_STAFF_LANGS, FUNNEL_LANGS, UI_LANG_STORAGE_KEY, isStaffLang, type StaffLang } from './langs'
 import { resolveFunnelLang, resolveUiLang } from './resolveLang'
+import { ACCOUNT_LANG_EVENT, readAccountLang, storeAccountLang } from './accountLang'
 import { useScreenDocument } from '../hooks/useScreenDocument'
+import { ROUTE_CHANGE_EVENT } from '../lib/routeEvents'
 
 interface UiLangValue {
   lang: StaffLang
@@ -32,6 +35,12 @@ function readUrlLang(): string | null {
   return new URLSearchParams(window.location.search).get('lang')
 }
 
+/** `?hl=` — indiciul de limbă din linkul invitației (send-invite.js), NEPERSISTAT. */
+function readUrlHint(): string | null {
+  if (typeof window === 'undefined' || !window.location) return null
+  return new URLSearchParams(window.location.search).get('hl')
+}
+
 function readNavigatorLangs(): readonly string[] {
   if (typeof navigator === 'undefined') return []
   return navigator.languages?.length ? navigator.languages : navigator.language ? [navigator.language] : []
@@ -47,13 +56,54 @@ export function UiLangProvider({
   lang?: StaffLang
   enabled?: readonly StaffLang[]
 }) {
-  const { profile } = useAuth()
-  const profileLang = profile?.ui_language ?? null
+  const { user, profile } = useAuth()
+  const uid = user?.id ?? null
+  // Cât profilul se încarcă (AuthContext termină `loading` ÎNAINTEA lui), limba
+  // contului vine din copia locală a ACESTUI cont; altfel un cont în română pe
+  // un browser în engleză ar vedea la FIECARE deschidere câteva cadre în
+  // engleză (și ar descărca dicționarele englezești). Copia e pe cont, nu
+  // `menuvia_ui_lang`: preferința dispozitivului (pe care o citește și
+  // funnel-ul, scrisă de /en și de `?lang=`) nu se rescrie implicit —
+  // recenzia adversarială pe #388: un „ro” pus automat de mig 323 contului
+  // vechi ar fi mutat pe română /auth-ul unui dispozitiv ales pe engleză.
+  const profileLang =
+    profile != null ? (profile.ui_language ?? null) : uid != null ? readAccountLang(uid) : null
+  // `?lang=` se RECITEȘTE la fiecare navigare (precondiția B3 a activării):
+  // providerul stă deasupra routerului și nu se remontează, deci o valoare
+  // citită doar în memo îngheța limba linkului de intrare — butonul de login
+  // de pe landing duce la /auth?lang=ro, profilul se încarcă înainte de
+  // `replace('/dashboard')`, iar un cont salvat în engleză rămânea pe un panou
+  // în română până la reîncărcare (la fel previzualizarea /m/<slug>?lang=de din
+  // Traduceri → înapoi pe /dashboard). App anunță fiecare commit al ruterului
+  // prin ROUTE_CHANGE_EVENT; Back/Forward emit `popstate`.
+  const [urlLang, setUrlLang] = useState<string | null>(readUrlLang)
+  // Copia pe cont se citește la randare; o limbă tocmai ALEASĂ (salvarea din
+  // `useSetUiLanguage`) cere o randare nouă și când profilul nu e în memorie,
+  // altfel ecranul ar rămâne pe copia veche (recenzia CodeRabbit pe #388).
+  const [, setAccountLangTick] = useState(0)
+  useEffect(() => {
+    const sync = () => setUrlLang(readUrlLang())
+    const onAccountLang = () => setAccountLangTick((n) => n + 1)
+    window.addEventListener('popstate', sync)
+    window.addEventListener(ROUTE_CHANGE_EVENT, sync)
+    window.addEventListener(ACCOUNT_LANG_EVENT, onAccountLang)
+    return () => {
+      window.removeEventListener('popstate', sync)
+      window.removeEventListener(ROUTE_CHANGE_EVENT, sync)
+      window.removeEventListener(ACCOUNT_LANG_EVENT, onAccountLang)
+    }
+  }, [])
+  // Copia pe cont se actualizează la fiecare profil încărcat cu limbă.
+  const loadedLang = profile?.ui_language ?? null
+  const loadedUid = profile?.id ?? null
+  useEffect(() => {
+    if (loadedUid && loadedLang && isStaffLang(loadedLang)) storeAccountLang(loadedUid, loadedLang)
+  }, [loadedUid, loadedLang])
   const value = useMemo<UiLangValue>(() => {
     const lang =
       forced ??
       resolveUiLang({
-        urlLang: readUrlLang(),
+        urlLang,
         profileLang,
         storedLang: readStoredLang(),
         navigatorLangs: readNavigatorLangs(),
@@ -61,7 +111,7 @@ export function UiLangProvider({
         enabled,
       })
     return { lang, enabled }
-  }, [forced, profileLang, enabled])
+  }, [forced, urlLang, profileLang, enabled])
   return <UiLangContext.Provider value={value}>{children}</UiLangContext.Provider>
 }
 
@@ -103,7 +153,7 @@ function persistUrlLang(): void {
  *  `?lang=`, care oricum o bate) și `useSetUiLanguage` (odată cu profilul, deci
  *  memo-ul se recalculează prin `profileLang`); o scriere din ALT tab nu
  *  răstoarnă limba ecranului deschis (controlul LD9). */
-function useResolvedFunnelLang(urlLang: string | null): StaffLang {
+function useResolvedFunnelLang(urlLang: string | null, hintLang: string | null): StaffLang {
   const { profile } = useAuth()
   const profileLang = profile?.ui_language ?? null
   return useMemo(
@@ -111,10 +161,11 @@ function useResolvedFunnelLang(urlLang: string | null): StaffLang {
       resolveFunnelLang({
         urlLang,
         profileLang,
+        hintLang,
         storedLang: readStoredLang(),
         siteLang: defaultUiLang(browserSite()),
       }),
-    [urlLang, profileLang],
+    [urlLang, profileLang, hintLang],
   )
 }
 
@@ -153,7 +204,8 @@ export function FunnelLangProvider({
   // `?lang=` citit O DATĂ, la montare: poarta (overlay) rămâne montată peste
   // orice navigare și nu-și schimbă limba sub degetele omului.
   const [mountUrlLang] = useState(readUrlLang)
-  const own = useResolvedFunnelLang(mountUrlLang)
+  const [mountHint] = useState(readUrlHint)
+  const own = useResolvedFunnelLang(mountUrlLang, mountHint)
   // Sub `FunnelDocumentLang` (rutele din App.tsx) limba și documentul sunt ale
   // RUTEI: un singur scriitor pe `<html lang>`. Două scrieri suprapuse cu
   // aceeași valoare s-ar restaura greșit după o schimbare de limbă (cleanup-ul
@@ -183,7 +235,7 @@ export function FunnelLangProvider({
  * rămân stabile.
  */
 export function FunnelDocumentLang({ children }: { children: ReactNode }) {
-  const lang = useResolvedFunnelLang(readUrlLang())
+  const lang = useResolvedFunnelLang(readUrlLang(), readUrlHint())
   useScreenDocument(lang)
   return <FunnelRouteLangContext.Provider value={lang}>{children}</FunnelRouteLangContext.Provider>
 }

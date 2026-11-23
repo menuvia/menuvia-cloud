@@ -14,8 +14,9 @@
 //        „Confirmă” / „Respinge”.
 //   XA2  panoul în engleză, fără resturi românești, pe tot drumul (salut,
 //        card de acțiune, răspuns gol „(no reply)”); PROMPT-ul trimis modelului
-//        rămâne cel românesc („Răspunzi mereu în română”), iar în istoricul
-//        trimis înapoi răspunsul gol e tot „(fără răspuns)”, ca înainte.
+//        rămâne românesc, dar cere răspunsul în limba PERSONALULUI („Răspunzi
+//        mereu în engleză”, activarea limbilor), iar în istoricul trimis înapoi
+//        răspunsul gol e tot „(fără răspuns)”, ca înainte.
 //        Mutația care pică: `text: replyText || ta.t('no_reply')` pus în
 //        istoric.
 //   XA3  refuzul serverului la trimitere: în română EXACT textul serverului
@@ -185,9 +186,10 @@ describe('Asistentul AI în limba personalului', () => {
     expect(container.textContent).toContain('Mark “Tiramisu” as SOLD OUT.')
     expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument()
-    // Promptul de sistem nu se traduce.
+    // Promptul de sistem nu se traduce, dar cere răspunsul în limba personalului.
     const first = h.aiChat.mock.calls[0]?.[0] as { system: string; messages: { content: string }[] }
-    expect(first.system).toContain('Răspunzi mereu în română')
+    expect(first.system).toContain('Răspunzi mereu în engleză')
+    expect(first.system).not.toContain('Răspunzi mereu în română')
     expect(first.system).toContain('- p1 · Tiramisu · 20 lei')
     expect(first.system).toContain('Ești asistentul AI al restaurantului „Bistro" din platforma Menuvia.')
     // Un răspuns gol: „(no reply)” pe ecran, „(fără răspuns)” în istoric.

@@ -20,6 +20,7 @@ import { fillNodes } from '../i18n/fillNodes'
 import { describeStaffError } from '../i18n/staffErrors'
 import { assistantNs } from '../i18n/ns/assistant'
 import { commonNs } from '../i18n/ns/common'
+import { useUiLang } from '../i18n/UiLangContext'
 
 // ── Protocolul de acțiuni ────────────────────────────────────
 type AiAction =
@@ -104,7 +105,19 @@ const ACTION_LABEL_KEY = {
   create_category: 'action_create_category',
 } as const satisfies Record<AiAction['type'], string>
 
-export default function AiChatbot({ restaurantId, restaurantName }: { restaurantId: string; restaurantName: string }) {
+export default function AiChatbot({
+  restaurantId,
+  restaurantName,
+  menuLang = 'ro',
+  currency = 'RON',
+}: {
+  restaurantId: string
+  restaurantName: string
+  /** Limba de bază a meniului: conținutul de meniu propus de model e în ea. */
+  menuLang?: string
+  /** Moneda meniului (cod ISO 4217). */
+  currency?: string | null
+}) {
   // Sus, necondiționat: `assistant` + `common` (cerute și de panou) — o singură
   // suspendare, înaintea butonului flotant.
   const ta = useT(assistantNs)
@@ -154,6 +167,8 @@ export default function AiChatbot({ restaurantId, restaurantName }: { restaurant
           onClose={() => setOpen(false)}
           restaurantId={restaurantId}
           restaurantName={restaurantName}
+          menuLang={menuLang}
+          currency={currency}
         />
       )}
     </>
@@ -165,14 +180,19 @@ function AiChatbotPanel({
   onClose,
   restaurantId,
   restaurantName,
+  menuLang,
+  currency,
 }: {
   open: boolean
   onClose: () => void
   restaurantId: string
   restaurantName: string
+  menuLang: string
+  currency: string | null
 }) {
   const ta = useT(assistantNs)
   const tc = useT(commonNs)
+  const { lang: uiLang } = useUiLang()
   const isMobile = useIsMobile()
   const [turns, setTurns] = useState<ChatTurn[]>([])
   const [input, setInput] = useState('')
@@ -192,7 +212,12 @@ function AiChatbotPanel({
 
   // Context-ul de meniu pentru model (id-uri reale ca să poată referi produse).
   function buildSystem(): string {
-    return buildChatSystemPrompt(restaurantName, categories.categories, products.products)
+    // Răspunsul în limba PERSONALULUI; conținutul propus în limba MENIULUI.
+    return buildChatSystemPrompt(restaurantName, categories.categories, products.products, {
+      replyLang: uiLang,
+      menuLang,
+      currency,
+    })
   }
 
   async function send() {

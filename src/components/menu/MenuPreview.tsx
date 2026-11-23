@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import type { CSSProperties } from 'react'
 import type { Product } from '../../lib/qr'
 import type { MenuCurrency } from '../../lib/currency'
@@ -14,6 +14,8 @@ import ProductGridCard from './ProductGridCard'
 import ProductMinimalRow from './ProductMinimalRow'
 import ProductPhotoCard from './ProductPhotoCard'
 import FlipbookViewer from './FlipbookViewer'
+import { T } from '../../lib/publicMenuStrings'
+import { previewSample, type PreviewSample } from '../../lib/menuPreviewSamples'
 
 // ─────────────────────────────────────────────────────────────
 // MenuPreview — previzualizare LIVE, NON-interactivă, a meniului clientului,
@@ -33,6 +35,11 @@ interface MenuPreviewProps {
   // Moneda meniului (mig 205) — vine din starea formularului de setări, ca
   // preview-ul să reflecte LIVE alegerea din selector, nu valoarea salvată.
   currency?: MenuCurrency
+  // Limba de BAZĂ a meniului (`menuBaseLang(form.language)`, mig 298), din
+  // starea formularului: previzualizarea arată ce vede oaspetele implicit,
+  // deci produsele-mostră, pastila de program și etichetele cardurilor sunt în
+  // limba meniului, nu în a personalului (precondiția B6 a activării).
+  lang?: string
 }
 
 // Paleta „publică" pe care o așteaptă cardurile comune (subset din theme.colors).
@@ -85,12 +92,14 @@ function sampleProduct(
   }
 }
 
+const PRICES = [24, 46, 22] as const
+
 // Cele 3 produse-mostră afișate în preview.
-const SAMPLE_PRODUCTS: Product[] = [
-  sampleProduct('p1', 'Bruschette', 'Roșii coapte, busuioc, ulei de măsline extravirgin', 24),
-  sampleProduct('p2', 'Risotto cu ciuperci', 'Orez carnaroli, ciuperci de pădure, parmezan', 46),
-  sampleProduct('p3', 'Tiramisu', 'Mascarpone, cafea espresso, cacao', 22),
-]
+function sampleProducts(sample: PreviewSample): Product[] {
+  return sample.products.map(([name, description], i) =>
+    sampleProduct(`p${i + 1}`, name, description, PRICES[i] ?? 0),
+  )
+}
 
 // Imagine-mostră inline (SVG data-URI, o plajă de culoare) pentru layout-ul
 // „Foto-first" — fără niciun request de rețea în dashboard.
@@ -99,22 +108,20 @@ const sampleImage = (hex: string): string =>
 
 // Pentru „Foto-first": primele două produse au poză (carduri mari cu nume/preț
 // pe poză), al treilea NU are — ilustrează fallback-ul pe rând compact.
-const PHOTO_SAMPLE_PRODUCTS: Product[] = [
-  {
-    ...sampleProduct('p1', 'Bruschette', 'Roșii coapte, busuioc, ulei de măsline extravirgin', 24),
-    image_url: sampleImage('C9B08C'),
-  },
-  {
-    ...sampleProduct('p2', 'Risotto cu ciuperci', 'Orez carnaroli, ciuperci de pădure, parmezan', 46),
-    image_url: sampleImage('8FA98F'),
-  },
-  sampleProduct('p3', 'Tiramisu', 'Mascarpone, cafea espresso, cacao', 22),
-]
+const PHOTO_COLORS = ['C9B08C', '8FA98F'] as const
+function photoSampleProducts(products: Product[]): Product[] {
+  return products.map((p, i) => {
+    const hex = PHOTO_COLORS[i]
+    return hex ? { ...p, image_url: sampleImage(hex) } : p
+  })
+}
 
 // ── Mini-hero: oglindește logica din hero-ul real (respectă `elements`) ──────
 function MiniHero({
   theme,
   restaurantName,
+  tagline,
+  lang,
   showCover,
   showStatus,
   showTagline,
@@ -123,6 +130,8 @@ function MiniHero({
 }: {
   theme: MenuTheme
   restaurantName: string
+  tagline: string
+  lang: string
   showCover: boolean
   showStatus: boolean
   showTagline: boolean
@@ -184,7 +193,7 @@ function MiniHero({
             aria-hidden
             style={{ width: 6, height: 6, borderRadius: '50%', background: theme.colors.success }}
           />
-          Deschis acum
+          {T(lang, 'open_now_short')}
         </span>
       )}
 
@@ -216,7 +225,7 @@ function MiniHero({
             textShadow: '0 1px 4px rgba(0,0,0,0.35)',
           }}
         >
-          Bucătărie de sezon
+          {tagline}
         </span>
       )}
 
@@ -266,6 +275,7 @@ function MenuPreview({
   themeSettings,
   restaurantName,
   currency = 'RON',
+  lang = 'ro',
 }: MenuPreviewProps) {
   const theme = resolveTheme(themeSettings)
   const layout = resolveMenuLayout(themeSettings)
@@ -282,7 +292,10 @@ function MenuPreview({
     borderStrong: theme.colors.borderStrong,
   }
 
-  const name = restaurantName || 'Bistro Exemplu'
+  const sample = previewSample(lang)
+  const name = restaurantName || sample.name
+  const products = useMemo(() => sampleProducts(sample), [sample])
+  const photoProducts = useMemo(() => photoSampleProducts(products), [products])
 
   // Props comune pasate fiecărui card (identice pentru toate layout-urile).
   const cardProps = {
@@ -294,6 +307,7 @@ function MenuPreview({
     PUB,
     theme,
     currency,
+    lang,
   }
 
   return (
@@ -322,6 +336,8 @@ function MenuPreview({
       <MiniHero
         theme={theme}
         restaurantName={name}
+        tagline={sample.tagline}
+        lang={lang}
         showCover={elements.cover}
         showStatus={elements.status}
         showTagline={elements.tagline}
@@ -339,29 +355,30 @@ function MenuPreview({
             theme={theme}
             PUB={PUB}
             pageHeight={300}
+            lang={lang}
           />
         </div>
       ) : layout === 'photo' ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 12 }}>
-          {PHOTO_SAMPLE_PRODUCTS.map((p) => (
+          {photoProducts.map((p) => (
             <ProductPhotoCard key={p.id} product={p} {...cardProps} />
           ))}
         </div>
       ) : layout === 'grid' ? (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, padding: 12 }}>
-          {SAMPLE_PRODUCTS.map((p) => (
+          {products.map((p) => (
             <ProductGridCard key={p.id} product={p} {...cardProps} />
           ))}
         </div>
       ) : layout === 'minimal' ? (
         <div style={{ display: 'flex', flexDirection: 'column', padding: '4px 14px 12px' }}>
-          {SAMPLE_PRODUCTS.map((p) => (
+          {products.map((p) => (
             <ProductMinimalRow key={p.id} product={p} {...cardProps} />
           ))}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', padding: '4px 14px 12px' }}>
-          {SAMPLE_PRODUCTS.map((p) => (
+          {products.map((p) => (
             <ProductCard key={p.id} product={p} {...cardProps} />
           ))}
         </div>
@@ -371,6 +388,6 @@ function MenuPreview({
 }
 
 // OPT-R2: memo — SettingsTab re-randează MenuPreview la fiecare tastă în form;
-// prop-urile ei sunt 2 primitive + 1 referință stabilă în timpul editării
+// prop-urile ei sunt primitive + 1 referință stabilă în timpul editării
 // non-temă, deci memo-ul e efectiv (re-randează doar la schimbarea reală).
 export default memo(MenuPreview)

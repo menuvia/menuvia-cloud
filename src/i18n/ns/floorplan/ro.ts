@@ -17,9 +17,9 @@
 // NU se traduc (date): etichetele meselor, numele etajelor și ale zonelor
 // salvate, numele meselor reale din POS. Numele IMPLICITE ale unui etaj sau al
 // unei zone NOI („Parter”, „Etaj 2”, „Zonă”) NU sunt aici: sunt scrise în harta
-// salvată (DATE, văzute și de oaspete pe harta publică), deci rămân în română
-// în orice limbă a personalului (`DEFAULT_FLOOR_NAME`/`defaultFloorName`/
-// `DEFAULT_ZONE_LABEL` din lib/floorPlan.ts).
+// salvată (DATE, văzute și de oaspete pe harta publică), deci NU urmează limba
+// personalului, ci limba de BAZĂ a meniului (`floorDefaults` din
+// lib/floorPlan.ts).
 const ro = {
   // ── Formele meselor, statusurile, structura, decorurile ──
   shape_round: 'Rotundă',
