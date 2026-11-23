@@ -1,7 +1,8 @@
 // src/i18n/UiLangContext.tsx — limba personalului pentru tot arborele (L0b).
 // Stă în INTRAREA aplicației (App.tsx), deci importă doar module mici, fără
-// dicționare: `langs`, `resolveLang`, `lib/domain` (deja în intrare) și
-// `hooks/useScreenDocument` (doar `chrome.ts` + `useDocumentLang`, lotul L4d).
+// dicționare: `langs`, `resolveLang`, `accountLang`, `lib/domain` (deja în
+// intrare) și `hooks/useScreenDocument` (doar `chrome.ts` + `useDocumentLang`,
+// lotul L4d).
 // Fără provider (teste, componente randate izolat) limba e 'ro' — testele cu
 // text românesc rămân neschimbate.
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
@@ -9,6 +10,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { browserSite, defaultUiLang } from '../lib/domain'
 import { ENABLED_STAFF_LANGS, FUNNEL_LANGS, UI_LANG_STORAGE_KEY, isStaffLang, type StaffLang } from './langs'
 import { resolveFunnelLang, resolveUiLang } from './resolveLang'
+import { ACCOUNT_LANG_EVENT, readAccountLang, storeAccountLang } from './accountLang'
 import { useScreenDocument } from '../hooks/useScreenDocument'
 import { ROUTE_CHANGE_EVENT } from '../lib/routeEvents'
 
@@ -25,27 +27,6 @@ function readStoredLang(): string | null {
     return window.localStorage.getItem(UI_LANG_STORAGE_KEY)
   } catch {
     return null // Safari „Block All Cookies": accesul ARUNCĂ (RESID-15)
-  }
-}
-
-/** Copia limbii CONTULUI, pe cont (nu preferința dispozitivului): o citește
- *  doar rezolvarea personalului, pentru ACEST cont, cât profilul se încarcă. */
-const ACCOUNT_LANG_PREFIX = 'menuvia_ui_lang_acct:'
-
-function readAccountLang(uid: string): string | null {
-  try {
-    return window.localStorage.getItem(ACCOUNT_LANG_PREFIX + uid)
-  } catch {
-    return null
-  }
-}
-
-function storeAccountLang(uid: string, lang: StaffLang): void {
-  try {
-    const key = ACCOUNT_LANG_PREFIX + uid
-    if (window.localStorage.getItem(key) !== lang) window.localStorage.setItem(key, lang)
-  } catch {
-    /* Safari „Block All Cookies”: limba rămâne doar în cont */
   }
 }
 
@@ -96,13 +77,20 @@ export function UiLangProvider({
   // Traduceri → înapoi pe /dashboard). App anunță fiecare commit al ruterului
   // prin ROUTE_CHANGE_EVENT; Back/Forward emit `popstate`.
   const [urlLang, setUrlLang] = useState<string | null>(readUrlLang)
+  // Copia pe cont se citește la randare; o limbă tocmai ALEASĂ (salvarea din
+  // `useSetUiLanguage`) cere o randare nouă și când profilul nu e în memorie,
+  // altfel ecranul ar rămâne pe copia veche (recenzia CodeRabbit pe #388).
+  const [, setAccountLangTick] = useState(0)
   useEffect(() => {
     const sync = () => setUrlLang(readUrlLang())
+    const onAccountLang = () => setAccountLangTick((n) => n + 1)
     window.addEventListener('popstate', sync)
     window.addEventListener(ROUTE_CHANGE_EVENT, sync)
+    window.addEventListener(ACCOUNT_LANG_EVENT, onAccountLang)
     return () => {
       window.removeEventListener('popstate', sync)
       window.removeEventListener(ROUTE_CHANGE_EVENT, sync)
+      window.removeEventListener(ACCOUNT_LANG_EVENT, onAccountLang)
     }
   }, [])
   // Copia pe cont se actualizează la fiecare profil încărcat cu limbă.

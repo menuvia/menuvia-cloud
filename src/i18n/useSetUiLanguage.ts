@@ -25,7 +25,15 @@
 //     `UiLangProvider` să recitească adresa;
 //   - limba intră și în `user_metadata.ui_lang` (best-effort, fără efect pe
 //     eroare): șabloanele Supabase Auth (resetarea parolei, schimbarea
-//     emailului) o citesc de acolo, nu din profil.
+//     emailului) o citesc de acolo, nu din profil;
+//   - efectele de după salvare sunt ale contului care a PORNIT-o: dacă între
+//     timp s-a ieșit sau s-a schimbat contul (tableta comună), limba a ajuns
+//     în contul vechi, dar nimic local nu se mai atinge — metadata Auth ar
+//     ajunge în sesiunea NOULUI cont, iar reîncărcarea profilului vechi i-ar
+//     invalida încărcarea profilului (recenzia CodeRabbit pe #388);
+//   - limba intră și în copia pe cont (`accountLang`), cu anunț: dacă
+//     profilul nu e în memorie și reîncărcarea pică, ecranul rămâne pe
+//     alegere, nu pe copia veche.
 // Eroarea se ține ca DATE și se traduce la randare (textul urmează limba).
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
@@ -33,6 +41,7 @@ import { zeroRowsAsDenied } from '../lib/userMessages'
 import { useAuth } from '../contexts/AuthContext'
 import { useUiLang } from './UiLangContext'
 import { UI_LANG_STORAGE_KEY, isStaffLang, type StaffLang } from './langs'
+import { storeAccountLang } from './accountLang'
 import { useT } from './useT'
 import { commonNs } from './ns/common'
 import { describeStaffError } from './staffErrors'
@@ -99,7 +108,7 @@ export interface SetUiLanguage {
 }
 
 export function useSetUiLanguage(): SetUiLanguage {
-  const { user, profile, refreshProfile, applyProfileLanguage } = useAuth()
+  const { user, profile, refreshProfile, applyProfileLanguage, activeUserId } = useAuth()
   const { lang, enabled } = useUiLang()
   const tc = useT(commonNs)
   // Limba aleasă cât se salvează (comutatorul o arată); `null` = cea curentă.
@@ -111,6 +120,7 @@ export function useSetUiLanguage(): SetUiLanguage {
     if (!user || !isStaffLang(raw) || saving) return
     // Nimic de făcut doar dacă limba aleasă e ȘI a contului, ȘI cea de pe ecran.
     if (raw === lang && raw === (profile?.ui_language ?? null)) return
+    const accountId = user.id
     setPending(raw)
     setFailure(null)
     try {
@@ -119,17 +129,22 @@ export function useSetUiLanguage(): SetUiLanguage {
       const res = await supabase
         .from('profiles')
         .update({ ui_language: raw })
-        .eq('id', user.id)
+        .eq('id', accountId)
         .select('id')
       const upErr = zeroRowsAsDenied(res)
       if (upErr) {
         setFailure(upErr.code === '42703' ? { kind: 'columnMissing' } : { kind: 'error', err: upErr })
         return
       }
+      // Ieșire / alt cont cât se salva: limba e în contul care a pornit
+      // salvarea; efectele locale de mai jos ar ajunge la contul nou.
+      if (activeUserId && activeUserId() !== accountId) return
       storeDeviceLang(raw)
-      // Profilul din memorie primește limba ÎNAINTE ca `?lang=` să iasă din
-      // adresă: dacă reîncărcarea de mai jos pică, ecranul rămâne pe alegere.
-      applyProfileLanguage?.(raw, user.id)
+      // Profilul din memorie (și copia pe cont, pentru profilul neîncărcat)
+      // primește limba ÎNAINTE ca `?lang=` să iasă din adresă: dacă
+      // reîncărcarea de mai jos pică, ecranul rămâne pe alegere.
+      storeAccountLang(accountId, raw, { notify: true })
+      applyProfileLanguage?.(raw, accountId)
       syncAuthMetadata(raw)
       dropUrlLang()
       await refreshProfile()
