@@ -17,8 +17,9 @@
 'use strict'
 
 const STAFF_LANGS = Object.freeze(['ro', 'en', 'fr', 'de'])
-// O limbă intră aici abia când intră și în `src/i18n/langs.ts` (EL5).
-const ENABLED_STAFF_LANGS = Object.freeze(['ro'])
+// O limbă intră aici abia când intră și în `src/i18n/langs.ts` (EL5). Toate
+// patru, din activarea limbilor personalului (nov 2026).
+const ENABLED_STAFF_LANGS = Object.freeze(['ro', 'en', 'fr', 'de'])
 // Aceeași regulă ca în langs.ts: româna, engleza (funnel-ul /en) + orice limbă
 // activată pentru personal.
 const FUNNEL_LANGS = Object.freeze(

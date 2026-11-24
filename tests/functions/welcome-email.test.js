@@ -7,9 +7,11 @@
 //        [PICĂ: o literă schimbată în `signup_welcome.ro`]
 //   WE2  `lang: 'en'` → subiect și corp în engleză, fără ă/ș/ț și fără
 //        frazele românești.
-//   WE3  'fr'/'de' → română cât timp FUNNEL_LANGS nu le conține (EL5 leagă
-//        lista de src/i18n/langs.ts).
-//        [PICĂ: gate-ul scos — `lang` acceptat pe toate cele 4 limbi]
+//   WE3  din activarea limbilor (FUNNEL_LANGS are toate patru, EL5 leagă
+//        lista de src/i18n/langs.ts): 'fr'/'de' → subiectul și salutul lor,
+//        fără resturi românești; o limbă din afara celor patru ('it') →
+//        BYTE-ul românesc de dinainte.
+//        [PICĂ: franceza/germana căzute pe română; gate-ul scos pe 'it']
 //
 // Rulează în jobul „Bridge tests" (vitest nu vede tests/functions).
 'use strict'
@@ -94,11 +96,22 @@ describe('welcome-email: limba funnel-ului', () => {
     for (const ro of ['Bun venit', 'Contul tău', 'Mergi la', 'Ai întrebări']) assert.ok(!r.html.includes(ro), ro)
   })
 
-  for (const lang of ['fr', 'de']) {
-    it(`WE3: lang=${lang} → română cât timp limba nu e în funnel`, async () => {
+  for (const [lang, subject, hello] of [
+    ['fr', 'Bienvenue sur Menuvia', 'Bienvenue, Anna !'],
+    ['de', 'Willkommen bei Menuvia', 'Willkommen, Anna!'],
+  ]) {
+    it(`WE3: lang=${lang} → limba funnel-ului, fără resturi românești`, async () => {
       const r = await send({ email: 'n@x.test', name: 'Anna', lang })
-      assert.equal(r.subject, 'Bun venit la Menuvia')
-      assert.equal(r.html, legacyWelcome('Anna', DASH).html)
+      assert.equal(r.subject, subject)
+      assert.ok(r.html.includes(hello), r.html)
+      assert.ok(r.html.includes(`href="${DASH}"`))
+      for (const ro of ['Bun venit', 'Contul tău', 'Mergi la', 'Ai întrebări']) assert.ok(!r.html.includes(ro), ro)
     })
   }
+
+  it('WE3: lang=it (în afara celor patru) → româna de dinainte', async () => {
+    const r = await send({ email: 'n@x.test', name: 'Anna', lang: 'it' })
+    assert.equal(r.subject, 'Bun venit la Menuvia')
+    assert.equal(r.html, legacyWelcome('Anna', DASH).html)
+  })
 })

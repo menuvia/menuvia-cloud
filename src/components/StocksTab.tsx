@@ -120,6 +120,8 @@ function useEscapeClose(active: boolean, onClose: () => void) {
 export default function StocksTab({ restaurantId, showVat, timeZone = DEFAULT_RESTAURANT_TZ }: Props) {
   const { t, tp } = useT(stocksNs)
   const tc = useT(commonNs)
+  // Formatele (valoarea stocului) urmează limba UTILIZATORULUI (LF2).
+  const { lang: uiLang } = useUiLang()
   const [subTab, setSubTab] = useState<SubTab>('ingredients')
   const [stats, setStats] = useState<{
     ingredientsCount: number
@@ -231,9 +233,11 @@ export default function StocksTab({ restaurantId, showVat, timeZone = DEFAULT_RE
           />
           <StatCard
             label={t('stat_stockValue')}
-            // Bani: formatul de dinainte (ro-RO, fără zecimale) + „lei”, în orice limbă.
+            // Bani: fără zecimale + „lei”; separatorul de mii urmează limba
+            // utilizatorului (în română exact „ro-RO” de dinainte) — „12.345” e
+            // douăsprezece mii în română, dar doisprezece virgulă trei în engleză.
             value={t('money', {
-              amount: stats.totalStockValue.toLocaleString('ro-RO', { maximumFractionDigits: 0 }),
+              amount: stats.totalStockValue.toLocaleString(staffLocale(uiLang), { maximumFractionDigits: 0 }),
             })}
             sub={t('stat_stockValueSub')}
             color={D.t1}

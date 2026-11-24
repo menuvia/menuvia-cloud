@@ -8,8 +8,8 @@
 // Limba (E4a → lotul L2a): textele stau în namespace-ul `auth`
 // (src/i18n/ns/auth, ro/en/fr/de), iar limba o alege `FunnelLangProvider` —
 // `?lang=` → limba contului → `menuvia_ui_lang` → site-ul, pe limbile
-// `FUNNEL_LANGS` (azi româna și engleza; franceza și germana apar odată cu
-// panoul). Default absolut: 'ro' — fluxul RO e neschimbat vizual/textual.
+// `FUNNEL_LANGS` (româna, engleza, franceza și germana, din activarea
+// limbilor). Default absolut: 'ro' — fluxul RO e neschimbat vizual/textual.
 // ─────────────────────────────────────────────────────────────
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
