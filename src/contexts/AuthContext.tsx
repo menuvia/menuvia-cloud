@@ -81,11 +81,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Consecința nu e cosmetică: `TermsAcceptanceGate` citește
   // `terms_accepted_at` de aici, deci un profil străin ar putea sări
   // consimțământul pentru contul nou. Aceeași disciplină ca guard-ul de
-  // anulare din useOrders.
-  const profileReqRef = useRef<string | null>(null)
+  // anulare din useOrders. Jetonul e al CERERII, nu al contului: două
+  // încărcări ale ACELUIAȘI cont (o reîncărcare pornită înaintea unei salvări,
+  // alta după) treceau altfel amândouă, iar cea veche, sosită ultima, rescria
+  // profilul nou (recenzia CodeRabbit pe #391).
+  const profileReqRef = useRef<object | null>(null)
 
   async function loadProfile(userId: string) {
-    profileReqRef.current = userId
+    const request = {}
+    profileReqRef.current = request
     try {
       const ask = (withLang: boolean) => {
         const cols: string = withLang ? `${PROFILE_COLUMNS}, ui_language` : PROFILE_COLUMNS
@@ -95,14 +99,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // din steagul comun: o încărcare întârziată a contului A, terminată după
       // A → B → A (B reînarmează steagul), și-ar fi pierdut altfel semnalul și
       // contul ar fi urmat browserul (recenzia CodeRabbit pe #391).
-      let missingColumn = !profileHasUiLanguage
-      let { data, error } = await ask(profileHasUiLanguage)
-      if (profileHasUiLanguage && error?.code === '42703') {
+      // La fel reîncercarea fără coloană: o decide ce a CERUT această cerere,
+      // nu steagul comun citit după `await` (altă cerere îl poate fi coborât
+      // între timp, iar 42703-ul de aici ar rămâne fără reîncercare).
+      const askedWithColumn = profileHasUiLanguage
+      let missingColumn = !askedWithColumn
+      let { data, error } = await ask(askedWithColumn)
+      if (askedWithColumn && error?.code === '42703') {
         profileHasUiLanguage = false
         missingColumn = true
         ;({ data, error } = await ask(false))
       }
-      if (data && profileReqRef.current === userId) {
+      if (data && profileReqRef.current === request) {
         const row = data as unknown as Record<string, unknown>
         setProfile({
           id: row.id as string,

@@ -15,10 +15,14 @@
 //        intră pe aceeași tabletă: profilul lui se citește CU coloana, deci
 //        limba lui salvată ajunge în context (a patra rundă de recenzie).
 //        [PICĂ: steagul de sesiune păstrat peste schimbarea de cont]
-//   AU8  semnalul „coloana lipsește” e al CERERII: o reîncărcare a contului A
-//        pornită fără coloană, ținută în zbor peste A → B → A (care reînarmează
-//        steagul comun), aterizează tot CU semnalul (recenzia CodeRabbit pe
-//        #391). [PICĂ: marcajul citit din steagul comun la `setProfile`]
+//   AU8  semnalul „coloana lipsește” e al CERERII: o reîncărcare pornită fără
+//        coloană, ținută în zbor peste o salvare reușită (care reînarmează
+//        steagul comun), aterizează tot CU semnalul — profilul ei chiar nu are
+//        limba (recenzia CodeRabbit pe #391). [PICĂ: marcajul citit din
+//        steagul comun la `setProfile`]
+//   AU9  două încărcări ale ACELUIAȘI cont: cea veche, sosită ultima, nu mai
+//        rescrie profilul celei noi — jetonul e al cererii, nu al contului
+//        (recenzia CodeRabbit pe #391). [PICĂ: garda `profileReqRef === userId`]
 //   AU4  o valoare ne-text din bază nu ajunge în context (doar string sau null).
 //   AU5  ieșirea din cont în timp ce profilul se încarcă: răspunsul întârziat
 //        nu mai repune profilul contului vechi. [PICĂ: fără resetarea cererii]
@@ -37,6 +41,8 @@ const { state } = vi.hoisted(() => ({
     row: {} as Record<string, unknown>,
     selects: [] as string[],
     gate: null as Promise<void> | null,
+    // Porți per cerere (în ordinea apelurilor), înaintea porții comune.
+    gates: [] as Promise<void>[],
     authCb: null as null | ((event: string, s: unknown) => void),
   },
 }))
@@ -52,10 +58,15 @@ vi.mock('../../lib/supabase', () => {
     }
     b.eq = () => b
     b.single = async () => {
-      if (state.gate) await state.gate
-      return !state.hasColumn && cols.includes('ui_language')
+      // Răspunsul se fixează la APEL (serverul servește cererea în momentul
+      // ei); poarta amână doar sosirea lui.
+      const missing = !state.hasColumn && cols.includes('ui_language')
+      const row = { ...state.row }
+      const gate = state.gates.shift() ?? state.gate
+      if (gate) await gate
+      return missing
         ? { data: null, error: { code: '42703', message: 'column profiles.ui_language does not exist' } }
-        : { data: { ...state.row }, error: null }
+        : { data: row, error: null }
     }
     return b
   }
@@ -104,6 +115,7 @@ beforeEach(() => {
   state.selects = []
   state.authCb = null
   state.gate = null
+  state.gates = []
   state.row = { id: 'u1', email: 'a@b.ro', full_name: 'A', plan: 'growth', terms_accepted_at: null, ui_language: 'fr' }
 })
 
@@ -206,32 +218,62 @@ describe('AuthContext — limba contului (mig 323)', () => {
     expect(screen.getByTestId('m').textContent).toBe('missing=false')
   })
 
-  it('AU8 semnalul vine din cererea care a văzut 42703, nu din steagul comun', async () => {
+  it('AU8 semnalul vine din cererea care n-a cerut coloana, nu din steagul comun', async () => {
     state.hasColumn = false
     delete state.row.ui_language
     await mount()
     await waitFor(() => expect(screen.getByTestId('m').textContent).toBe('missing=true'))
-    // Cererile următoare rămân în zbor până la `release`.
     let release: () => void = () => undefined
     state.gate = new Promise<void>((r) => {
       release = r
     })
-    // A: reîncărcare pornită FĂRĂ coloană (steagul comun e jos).
+    // Reîncărcare pornită FĂRĂ coloană (steagul comun e jos), ținută în zbor.
     await act(async () => {
       screen.getByRole('button', { name: 'refresh' }).click()
     })
-    // A → B → A pe tableta comună: ambele intrări reînarmează steagul comun.
+    // O salvare reușită reînarmează steagul comun cât cererea e pe drum.
     await act(async () => {
-      state.authCb?.('SIGNED_IN', { user: { id: 'u2' } })
+      screen.getByRole('button', { name: 'apply' }).click()
     })
-    await act(async () => {
-      state.authCb?.('SIGNED_IN', { user: { id: 'u1' } })
-    })
+    expect(screen.getByTestId('m').textContent).toBe('missing=false')
     await act(async () => {
       release()
     })
-    // Reîncărcarea lui A aterizează cu semnalul ei, chiar dacă steagul comun
-    // a fost reînarmat între timp.
+    // Profilul adus de cerere n-are limba: semnalul ei rămâne.
     await waitFor(() => expect(screen.getByTestId('m').textContent).toBe('missing=true'))
+  })
+
+  it('AU9 o încărcare veche a aceluiași cont nu rescrie profilul unei încărcări noi', async () => {
+    await mount()
+    await waitFor(() => expect(screen.getByTestId('p').textContent).toBe('lang=fr'))
+    let releaseOld: () => void = () => undefined
+    let releaseNew: () => void = () => undefined
+    state.gates = [
+      new Promise<void>((r) => {
+        releaseOld = r
+      }),
+      new Promise<void>((r) => {
+        releaseNew = r
+      }),
+    ]
+    // Încărcarea veche vede încă franceza.
+    await act(async () => {
+      screen.getByRole('button', { name: 'refresh' }).click()
+    })
+    // Contul își schimbă limba; încărcarea nouă vede germana.
+    state.row = { ...state.row, ui_language: 'de' }
+    await act(async () => {
+      screen.getByRole('button', { name: 'refresh' }).click()
+    })
+    await act(async () => {
+      releaseNew()
+    })
+    await waitFor(() => expect(screen.getByTestId('p').textContent).toBe('lang=de'))
+    // Cea veche sosește ultima: nu mai are voie să readucă franceza.
+    await act(async () => {
+      releaseOld()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(screen.getByTestId('p').textContent).toBe('lang=de')
   })
 })
