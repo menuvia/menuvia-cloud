@@ -358,7 +358,7 @@ function Step1Restaurant({
           .from('restaurants')
           .update({ language: baseLanguage })
           .eq('id', created.restaurant_id)
-        if (langErr) console.warn('[onboarding] limba de bază a meniului nu s-a salvat:', langErr)
+        if (langErr) console.warn('[onboarding] base menu language save failed:', langErr)
       }
       // Preset „Menuvia Rezervări" (setat pe /rezervari, supraviețuiește
       // redirectului de auth): activăm modulul + auto-confirmarea din prima,
