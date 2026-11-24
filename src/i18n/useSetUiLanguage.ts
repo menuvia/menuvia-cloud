@@ -13,8 +13,11 @@
 //     Safari „Block All Cookies”), apoi `refreshProfile()`, care schimbă limba
 //     întregului arbore prin `UiLangProvider`;
 //   - pe eroare nu se scrie nimic local, alegerea revine pe limba de dinainte
-//     și se arată mesajul; 42703 (coloana mig 323 lipsește — clientul a ajuns
-//     înaintea migrației) are mesajul lui.
+//     și se arată mesajul; coloana mig 323 lipsă (clientul a ajuns înaintea
+//     migrației) are mesajul lui — PostgREST respinge o cheie necunoscută din
+//     payload-ul de SCRIERE cu PGRST204 („Could not find the 'ui_language'
+//     column … in the schema cache”), nu cu 42703 (acela vine doar de la un
+//     SELECT, ca în AuthContext); se recunosc ambele.
 // Din activarea limbilor (precondițiile auditului):
 //   - „aceeași limbă” se judecă față de limba CONTULUI, nu doar față de cea de
 //     pe ecran: un cont fără limbă salvată care vede panoul în limba
@@ -100,7 +103,7 @@ export interface SetUiLanguage {
   error: string | null
   /**
    * Același refuz pentru comutatorul COMPACT din antet: identic cu `error`, în
-   * afară de 42703, unde cardul spune „Panoul rămâne…” (pe Ospătar/Bucătărie
+   * afară de coloana lipsă (PGRST204 / 42703), unde cardul spune „Panoul rămâne…” (pe Ospătar/Bucătărie
    * nu e niciun panou, iar sub select e loc puțin) — aici varianta scurtă.
    */
   compactError: string | null
@@ -133,7 +136,11 @@ export function useSetUiLanguage(): SetUiLanguage {
         .select('id')
       const upErr = zeroRowsAsDenied(res)
       if (upErr) {
-        setFailure(upErr.code === '42703' ? { kind: 'columnMissing' } : { kind: 'error', err: upErr })
+        // Payload-ul are o singură cheie (`ui_language`), deci PGRST204 aici
+        // înseamnă exact coloana mig 323 lipsă (a cincea rundă de recenzie:
+        // cu doar 42703, producția la 291 primea mesajul generic „Reîncearcă”).
+        const columnMissing = upErr.code === 'PGRST204' || upErr.code === '42703'
+        setFailure(columnMissing ? { kind: 'columnMissing' } : { kind: 'error', err: upErr })
         return
       }
       // Ieșire / alt cont cât se salva: limba e în contul care a pornit

@@ -18,8 +18,10 @@
 //   UC4  serverul refuză → `role="alert"` cu textul de rezervă, stocarea NU e
 //        scrisă, profilul nu se reîncarcă, select-ul revine pe limba de dinainte.
 //        Mutația care pică: stocarea scrisă înaintea verificării erorii.
-//   UC5  42703 (coloana mig 323 lipsește — clientul înaintea migrației) →
-//        mesajul propriu, nu cel generic.
+//   UC5  coloana mig 323 lipsește (clientul înaintea migrației) → mesajul
+//        propriu, nu cel generic: răspunsul REAL al PostgREST la un UPDATE pe
+//        o coloană necunoscută e PGRST204, iar 42703 (PostgREST vechi) rămâne
+//        acceptat. Mutația care pică: verificarea doar pe 42703.
 //   UC6  zero rânduri actualizate (UPDATE refuzat de RLS, 200 fără eroare) →
 //        eroare de drepturi, nu „salvat”. Mutația care pică: `.select` /
 //        `zeroRowsAsDenied` scoase.
@@ -219,8 +221,11 @@ describe('UiLanguageCard — limba interfeței', () => {
     expect(select()).not.toBeDisabled()
   })
 
-  it('UC5: 42703 (coloana lipsește) → mesajul despre actualizarea serverului', async () => {
-    h.result = { data: null, error: { code: '42703', message: 'column "ui_language" does not exist' } }
+  it('UC5: coloana lipsește (PGRST204, ca pe producție) → mesajul despre actualizarea serverului', async () => {
+    h.result = {
+      data: null,
+      error: { code: 'PGRST204', message: "Could not find the 'ui_language' column of 'profiles' in the schema cache" },
+    }
     renderCard('ro', ALL)
     await userEvent.setup().selectOptions(select(), 'fr')
     const alert = await screen.findByRole('alert')
@@ -228,6 +233,13 @@ describe('UiLanguageCard — limba interfeței', () => {
     expect(alert).not.toHaveTextContent('Limba nu s-a putut salva')
     expect(window.localStorage.getItem('menuvia_ui_lang')).toBeNull()
     expect(h.calls).not.toContain('refreshProfile')
+  })
+
+  it('UC5b: 42703 (PostgREST vechi) → același mesaj', async () => {
+    h.result = { data: null, error: { code: '42703', message: 'column "ui_language" does not exist' } }
+    renderCard('ro', ALL)
+    await userEvent.setup().selectOptions(select(), 'fr')
+    expect(await screen.findByRole('alert')).toHaveTextContent('serverul nu are ultima actualizare')
   })
 
   it('UC6: zero rânduri actualizate → eroare de drepturi, nu „salvat”', async () => {

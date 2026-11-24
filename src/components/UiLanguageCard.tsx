@@ -11,7 +11,7 @@
 // patru, deci cardul se vede.
 //
 // Salvarea (UPDATE pe profil, stocarea locală, `refreshProfile`, erorile —
-// inclusiv 42703 și zero rânduri) stă în `useSetUiLanguage` (lotul L4c), hook
+// inclusiv coloana lipsă — PGRST204 / 42703 — și zero rânduri) stă în `useSetUiLanguage` (lotul L4c), hook
 // comun cu comutatorul compact din antetul Ospătarului și al Bucătăriei
 // (UiLanguageSelect): cele două nu au voie să se despartă.
 import { D } from '../lib/constants'

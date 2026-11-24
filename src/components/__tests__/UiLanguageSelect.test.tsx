@@ -13,8 +13,10 @@
 //        de `refreshProfile()`, chemat o dată.
 //   LU4  refuzul serverului → `role="alert"` cu textul de rezervă, fără
 //        stocare și fără reîncărcare, alegerea revine pe limba de dinainte.
-//   LU5  42703 (coloana mig 323 lipsește) → mesajul propriu, în varianta SCURTĂ
+//   LU5  coloana mig 323 lipsește (PGRST204, răspunsul real al PostgREST la un
+//        UPDATE pe o coloană necunoscută) → mesajul propriu, în varianta SCURTĂ
 //        (fără „Panoul rămâne…” al cardului — pe ecranele de lucru nu e panou).
+//        Mutația care pică: verificarea doar pe 42703.
 //   LU6  zero rânduri actualizate (RLS) → eroare de drepturi, nu „salvat”.
 //   LU7  stocarea ARUNCĂ (Safari „Block All Cookies”) → salvat în cont, fără alertă.
 //   LU8  în germană: numele accesibil și refuzul în germană (textul se traduce
@@ -164,8 +166,11 @@ describe('UiLanguageSelect — comutatorul compact', () => {
     expect(select()).not.toBeDisabled()
   })
 
-  it('LU5: 42703 (coloana lipsește) → mesajul despre actualizarea serverului', async () => {
-    h.result = { data: null, error: { code: '42703', message: 'column "ui_language" does not exist' } }
+  it('LU5: coloana lipsește (PGRST204) → mesajul despre actualizarea serverului', async () => {
+    h.result = {
+      data: null,
+      error: { code: 'PGRST204', message: "Could not find the 'ui_language' column of 'profiles' in the schema cache" },
+    }
     renderSelect('ro', ALL)
     await userEvent.setup().selectOptions(select(), 'fr')
     const alert = await screen.findByRole('alert')
