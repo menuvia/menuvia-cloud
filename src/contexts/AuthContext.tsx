@@ -94,7 +94,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           full_name: (row.full_name as string | null) ?? null,
           plan: (row.plan as string) ?? 'free',
           terms_accepted_at: (row.terms_accepted_at as string | null) ?? null,
-          ui_language: typeof row.ui_language === 'string' ? row.ui_language : null,
+          // Baza fără mig 323 (coloana lipsește, 42703): toate conturile de
+          // acolo sunt „existente”, iar 323 le dă exact 'ro' (`default 'ro'` la
+          // adăugarea coloanei) — decizia fondatorului. Cu null, panoul, ospătarul
+          // și bucătăria ar fi urmat BROWSERUL pentru toți, iar comutatorul nu
+          // i-ar fi putut aduce înapoi (salvarea pică pe aceeași coloană lipsă).
+          ui_language: !profileHasUiLanguage
+            ? 'ro'
+            : typeof row.ui_language === 'string'
+              ? row.ui_language
+              : null,
         })
       }
     } catch (err) {

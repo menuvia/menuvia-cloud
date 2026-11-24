@@ -10,12 +10,15 @@ sunt textele gata de lipit, în 4 limbi.
 La înscriere, aplicația pune limba ecranului în `user_metadata.ui_lang`:
 
 - pe `/auth` (`src/pages/AuthPage.tsx`) — limba funnel-ului (`?lang=`, cont,
-  dispozitiv, browser; azi `ro` sau `en`);
+  indiciul invitației, dispozitiv, site — FĂRĂ limbile browserului; `ro`, `en`,
+  `fr` sau `de`);
 - pe pagina de acceptare a invitației (`src/pages/InviteAcceptPage.tsx`) —
   limba rezolvată a ecranului.
 
-Cheia e citită **doar** de aceste șabloane, niciodată la autorizare. Conturile
-create înainte de lotul L8a n-o au, deci primesc ramura **română**.
+Cheia e citită de aceste șabloane și copiată O DATĂ, la înscriere, de
+`handle_new_user` (mig 331) în `profiles.ui_language` — niciodată folosită la
+autorizare. Conturile create înainte de lotul L8a n-o au, deci primesc ramura
+**română**.
 `fr` și `de` apar din activarea limbilor personalului (nov 2026): franceza și
 germana sunt în funnel (`FUNNEL_LANGS` din `src/i18n/langs.ts`), iar
 comutatorul din panou scrie limba aleasă și în `user_metadata.ui_lang`.
@@ -45,9 +48,11 @@ transformă orice valoare (inclusiv lipsa) într-un șir, deci comparația e sig
    Dacă azi șablonul de resetare e cel implicit al Supabase (în engleză),
    ramura română de mai jos e NOUĂ — o schimbare vizibilă pentru conturile
    românești; păstreaz-o doar dacă o vrei.
-4. **Testează** (trei emailuri):
+4. **Testează** (cinci emailuri):
    - cont nou pe `/auth` → confirmarea vine în **română**, cu cod + link;
    - cont nou pe `/auth?lang=en` → confirmarea vine în **engleză**;
+   - cont nou pe `/auth?lang=fr` → confirmarea vine în **franceză**;
+   - cont nou pe `/auth?lang=de` → confirmarea vine în **germană**;
    - „Am uitat parola” pe un cont vechi → resetarea vine în **română**.
    Spune-mi ce a ieșit; dacă vreun email vine gol sau cu `<no value>`, revino
    la textul salvat la pasul 1 și trimite-mi o captură.
@@ -138,10 +143,10 @@ Aplicația folosește resetarea prin **link** (`resetPasswordForEmail` cu
 
 - Un utilizator poate edita propriul `user_metadata.ui_lang`: schimbă doar limba
   propriilor emailuri Auth, nimic altceva.
-- Limba se fixează la înscriere: un cont care își schimbă ulterior limba în
-  panou (`profiles.ui_language`) primește resetarea parolei tot în limba de la
-  înscriere, până când clientul va sincroniza cheia (după activarea limbilor
-  pentru personal).
+- Comutatorul din panou scrie limba aleasă și în `user_metadata.ui_lang`
+  (`useSetUiLanguage`, best-effort): dacă acea scriere pică (rețea), contul
+  primește resetarea parolei tot în limba de dinainte, deși panoul a trecut pe
+  cea nouă — până la următoarea schimbare reușită.
 - Conturile create din funnel-ul ENGLEZ (`/auth?lang=en`, `/en`, menuvia.com)
   ÎNAINTE de lotul L8a n-au `ui_lang`, deci cad tot pe ramura română. Dacă azi
   șablonul de resetare e cel implicit al Supabase (în engleză), acele conturi

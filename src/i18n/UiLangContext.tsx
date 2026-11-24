@@ -68,6 +68,14 @@ export function UiLangProvider({
   // vechi ar fi mutat pe română /auth-ul unui dispozitiv ales pe engleză.
   const profileLang =
     profile != null ? (profile.ui_language ?? null) : uid != null ? readAccountLang(uid) : null
+  // Cont logat, profil încă neîncărcat (sau încărcarea a picat) și fără copie
+  // pe cont: limba lui e NECUNOSCUTĂ, nu „a browserului”. Un cont român pe un
+  // browser în franceză vedea altfel primele cadre — ori toată sesiunea, dacă
+  // încărcarea profilului pica — în franceză (recenzia adversarială a
+  // activării; copia pe cont lipsește pe orice dispozitiv la prima deschidere
+  // după #388). Rezolvarea merge atunci URL → indiciu → dispozitiv → site;
+  // browserul contează doar fără cont sau cu un profil încărcat fără limbă.
+  const pendingAccount = uid != null && profile == null && profileLang == null
   // `?lang=` se RECITEȘTE la fiecare navigare (precondiția B3 a activării):
   // providerul stă deasupra routerului și nu se remontează, deci o valoare
   // citită doar în memo îngheța limba linkului de intrare — butonul de login
@@ -106,12 +114,12 @@ export function UiLangProvider({
         urlLang,
         profileLang,
         storedLang: readStoredLang(),
-        navigatorLangs: readNavigatorLangs(),
+        navigatorLangs: pendingAccount ? [] : readNavigatorLangs(),
         siteLang: defaultUiLang(browserSite()),
         enabled,
       })
     return { lang, enabled }
-  }, [forced, urlLang, profileLang, enabled])
+  }, [forced, urlLang, profileLang, pendingAccount, enabled])
   return <UiLangContext.Provider value={value}>{children}</UiLangContext.Provider>
 }
 

@@ -3,9 +3,11 @@
 //   AU1  baza cu mig 323: profilul se citește CU `ui_language`, valoarea ajunge
 //        în context.
 //   AU2  baza fără mig 323 (client deployat înaintea migrației): PostgREST dă
-//        42703 → o singură reîncercare fără coloană, profilul se încarcă (cu
-//        `ui_language: null`) — altfel gate-ul de Termeni ar rămâne orb.
-//        [PICĂ: fără reîncercare → profile rămâne null]
+//        42703 → o singură reîncercare fără coloană, profilul se încarcă —
+//        altfel gate-ul de Termeni ar rămâne orb — cu `ui_language: 'ro'`:
+//        acolo toate conturile sunt „existente”, iar 323 le-ar da exact 'ro'
+//        (recenzia adversarială a activării: cu null, toți urmau browserul).
+//        [PICĂ: fără reîncercare → profile rămâne null; `null` în loc de 'ro']
 //   AU3  după primul 42703 coloana nu se mai cere în sesiune (un cont nou nu
 //        mai plătește o cerere eșuată la fiecare încărcare).
 //   AU4  o valoare ne-text din bază nu ajunge în context (doar string sau null).
@@ -91,7 +93,7 @@ describe('AuthContext — limba contului (mig 323)', () => {
     state.hasColumn = false
     delete state.row.ui_language
     await mount()
-    await waitFor(() => expect(screen.getByTestId('p').textContent).toBe('lang=null'))
+    await waitFor(() => expect(screen.getByTestId('p').textContent).toBe('lang=ro'))
     expect(state.selects).toHaveLength(2)
     expect(state.selects[1]).not.toContain('ui_language')
 

@@ -271,6 +271,13 @@ function Shell({ children }: { children: React.ReactNode }) {
   )
 }
 
+/** Limba de bază a meniului pentru un restaurant creat în onboarding: limba
+ *  în care s-a desfășurat (și în care s-au scris datele), sau `null` pe română
+ *  (default-ul coloanei — nimic de scris). */
+function menuBaseLanguage(onboardingLang: string): string | null {
+  return onboardingLang === 'ro' ? null : onboardingLang
+}
+
 // ═══════════════════════════════════════════════════════════════
 // STEP 1 — Creează restaurantul
 // ═══════════════════════════════════════════════════════════════
@@ -281,7 +288,9 @@ function Step1Restaurant({
   // o arată la eticheta prețului, ca un local francez să nu vadă „(RON)”.
   onNext: (restaurantId: string, slug: string, name: string, currency: MenuCurrency) => void
 }) {
-  const { t } = useT(onboardingNs)
+  // `lang` = limba dicționarului SERVIT, adică limba în care onboarding-ul scrie
+  // datele (categoriile rapide, mesele, primul produs) — vezi `menuBaseLanguage`.
+  const { t, lang } = useT(onboardingNs)
   const tc = useT(commonNs)
   const [name, setName] = useState('')
   const [city, setCity] = useState('')
@@ -334,6 +343,22 @@ function Step1Restaurant({
           return
         }
         clearPendingCountry(created.restaurant_id)
+      }
+      // Limba de bază a meniului (`restaurants.language`, mig 298) = limba în
+      // care onboarding-ul scrie datele. Fără ea, un patron care se înscrie în
+      // germană rămânea pe default-ul coloanei ('ro') peste categorii „Vorspeisen”
+      // și mese „Tisch N”: meniul QR le trata drept texte românești, iar
+      // traducerile porneau din limba greșită (recenzia adversarială a
+      // activării). Pe română nu se scrie nimic (e deja default-ul).
+      // Best-effort: un eșec nu oprește onboarding-ul — limba se schimbă din
+      // Setări (limba originală a meniului).
+      const baseLanguage = menuBaseLanguage(lang)
+      if (baseLanguage) {
+        const { error: langErr } = await supabase
+          .from('restaurants')
+          .update({ language: baseLanguage })
+          .eq('id', created.restaurant_id)
+        if (langErr) console.warn('[onboarding] limba de bază a meniului nu s-a salvat:', langErr)
       }
       // Preset „Menuvia Rezervări" (setat pe /rezervari, supraviețuiește
       // redirectului de auth): activăm modulul + auto-confirmarea din prima,

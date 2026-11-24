@@ -15,7 +15,12 @@
 //     limbilor, `FUNNEL_LANGS` are toate patru), iar o limbă din afara lor
 //     (`it`) lasă româna; OL3 numărătoarea e plural pe regulile limbii —
 //     „Creează 1 masă”, nu „1 mese” (mutația care pică: textul vechi `{n} mese`);
-//     OL4 eroarea creării restaurantului nu pune textul brut pe ecran
+//     OL4 eroarea creării restaurantului nu pune textul brut pe ecran;
+//     OB-LB1 limba de bază a meniului (`restaurants.language`) = limba în care
+//     onboarding-ul scrie datele: engleza (OL1) o scrie, româna nu scrie nimic
+//     (default-ul coloanei) — recenzia adversarială a activării: un patron
+//     german rămânea pe 'ro' peste „Vorspeisen” și „Tisch N”. Mutația care
+//     pică: UPDATE-ul limbii scos (OL1) sau trimis și pe română (OB-LB1)
 // Pattern de mock-uri ca în ReservePage.test.tsx (supabase + module).
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -377,6 +382,13 @@ describe('OnboardingPage — limba (lotul L2b)', () => {
     const tables = db.inserts.find((i) => i.table === 'tables')
     expect(tables?.rows.map((r) => r.name)).toEqual(['Table 1', 'Table 2', 'Table 3', 'Table 4', 'Table 5'])
     expect(tables?.rows[0]?.slug).toBe('table-1')
+    // Limba de bază a meniului = limba datelor scrise mai sus (OB-LB1).
+    expect(db.updates).toContainEqual({ table: 'restaurants', payload: { language: 'en' } })
+  })
+
+  it('OB-LB1 pe română nu se scrie limba de bază (e default-ul coloanei)', async () => {
+    await reachStep2()
+    expect(db.updates.filter((u) => u.table === 'restaurants' && 'language' in u.payload)).toEqual([])
   })
 
   it('OL2 germana stocată deschide fluxul în germană; o limbă necunoscută lasă româna', async () => {

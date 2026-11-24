@@ -22,6 +22,12 @@
 //   LR4  același caz cu localStorage care ARUNCĂ (Safari „Block All
 //        Cookies”): alegerea rămâne pe ecran din copia din memoria tab-ului.
 //        Mutația care pică: copia doar în localStorage.
+//   LR5  cont logat, profil neîncărcat (sau încărcare picată) și fără copie pe
+//        cont: limba lui e NECUNOSCUTĂ, nu a browserului — un cont român pe un
+//        browser în germană rămâne pe site (română), nu trece pe germană
+//        (recenzia adversarială a activării). Control: fără cont și cu un
+//        profil încărcat FĂRĂ limbă, browserul decide. Mutația care pică:
+//        `navigatorLangs` trimis și pentru contul în așteptare.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Suspense } from 'react'
 import { act, render, screen, waitFor } from '@testing-library/react'
@@ -32,11 +38,19 @@ const h = vi.hoisted(() => ({
   uid: null as string | null,
   profileLoaded: true,
   refreshes: 0,
+  // Profil ÎNCĂRCAT, dar fără limbă salvată (cont creat fără metadata).
+  loadedWithoutLang: false,
 }))
 vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({
     user: h.uid ? { id: h.uid } : null,
-    profile: !h.profileLoaded || h.profileLang === null ? null : { id: h.uid ?? 'u1', ui_language: h.profileLang },
+    profile: !h.profileLoaded
+      ? null
+      : h.loadedWithoutLang
+        ? { id: h.uid ?? 'u1', ui_language: null }
+        : h.profileLang === null
+          ? null
+          : { id: h.uid ?? 'u1', ui_language: h.profileLang },
     // Reîncărcarea „pică”: profilul rămâne cum era (null în LR3).
     refreshProfile: async () => {
       h.refreshes += 1
@@ -71,6 +85,7 @@ beforeEach(() => {
   h.uid = null
   h.profileLoaded = true
   h.refreshes = 0
+  h.loadedWithoutLang = false
 })
 afterEach(() => {
   window.history.replaceState(null, '', '/')
@@ -206,6 +221,35 @@ describe('limba personalului urmează navigarea și contul', () => {
     } finally {
       getItem.mockRestore()
       setItem.mockRestore()
+    }
+  })
+
+  it('LR5 contul cu profilul neîncărcat nu urmează browserul', () => {
+    const langs = vi.spyOn(window.navigator, 'languages', 'get').mockReturnValue(['de-DE', 'de'])
+    try {
+      const tree = () =>
+        render(
+          <UiLangProvider enabled={['ro', 'en', 'fr', 'de']}>
+            <Show />
+          </UiLangProvider>,
+        )
+      // Control: fără cont, browserul decide.
+      const anon = tree()
+      expect(lang()).toBe('de')
+      anon.unmount()
+      // Cont logat, profilul încă pe drum, fără copie pe cont: site-ul (română).
+      h.uid = 'uPending'
+      h.profileLoaded = false
+      const pending = tree()
+      expect(lang()).toBe('ro')
+      pending.unmount()
+      // Control: profilul a sosit FĂRĂ limbă salvată → browserul decide.
+      h.profileLoaded = true
+      h.loadedWithoutLang = true
+      tree()
+      expect(lang()).toBe('de')
+    } finally {
+      langs.mockRestore()
     }
   })
 })
