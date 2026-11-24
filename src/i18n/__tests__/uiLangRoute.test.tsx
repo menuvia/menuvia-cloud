@@ -32,6 +32,10 @@
 //        ignorat în UiLangProvider (panoul pe germană); copia derivată doar
 //        din `ui_language` (nescrisă pe bază veche). Varianta „'ro' scris
 //        direct în `ui_language`” o prinde AU2 (aici contul e simulat).
+//   LR7  tab rămas „fără coloană” peste aplicarea mig 323 (`ui_language_missing`,
+//        dar copia pe cont are deja limba REALĂ a contului, 'de'): panoul e în
+//        germană, iar copia NU e suprascrisă cu 'ro'-ul dedus (a patra rundă
+//        de recenzie). Mutația care pică: 'ro' necondiționat pe semnal.
 //   LR5  cont logat, profil neîncărcat (sau încărcare picată) și fără copie pe
 //        cont: limba lui e NECUNOSCUTĂ, nu a browserului — un cont român pe un
 //        browser în germană rămâne pe site (română), nu trece pe germană
@@ -305,5 +309,18 @@ describe('limba personalului urmează navigarea și contul', () => {
     } finally {
       langs.mockRestore()
     }
+  })
+
+  it('LR7 semnalul de bază veche nu bate copia cu limba reală a contului', () => {
+    h.uid = 'uSwitched'
+    h.columnMissing = true
+    window.localStorage.setItem('menuvia_ui_lang_acct:uSwitched', 'de')
+    render(
+      <UiLangProvider enabled={['ro', 'en', 'fr', 'de']}>
+        <Show />
+      </UiLangProvider>,
+    )
+    expect(lang()).toBe('de')
+    expect(window.localStorage.getItem('menuvia_ui_lang_acct:uSwitched')).toBe('de')
   })
 })

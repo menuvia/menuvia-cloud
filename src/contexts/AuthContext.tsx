@@ -162,6 +162,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Alt cont / sesiune nouă: PostHog face reset() înainte de noua
           // identitate, ca profilul vechi să nu primească evenimentele noului.
           setAnalyticsUser(next.id)
+          // Coloana mig 323 se re-verifică la fiecare cont NOU: un tab deschis
+          // înainte de migrație (tableta comună) altfel încărca orice cont
+          // ulterior „fără limbă”, peste limba lui salvată (a patra rundă de
+          // recenzie). Pe o bază veche costă o cerere eșuată per intrare în cont.
+          profileHasUiLanguage = true
           void loadProfile(next.id)
         } else {
           // La ieșire, o încărcare încă în zbor pentru contul vechi nu mai are

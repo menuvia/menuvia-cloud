@@ -8,8 +8,13 @@
 //        semnalul `ui_language_missing` (panoul îl citește ca 'ro', funnel-ul
 //        nu; LR6). [PICĂ: fără reîncercare → profile rămâne null; semnalul
 //        lipsă; 'ro' scris direct în `ui_language`, care ajunge și în funnel]
-//   AU3  după primul 42703 coloana nu se mai cere în sesiune (un cont nou nu
-//        mai plătește o cerere eșuată la fiecare încărcare).
+//   AU3  după primul 42703 coloana nu se mai cere pentru ACELAȘI cont (o
+//        reîncărcare a profilului nu mai plătește o cerere eșuată), dar se
+//        re-verifică o dată la fiecare cont NOU (AU7).
+//   AU7  tab deschis înainte de mig 323, migrația se aplică, apoi alt cont
+//        intră pe aceeași tabletă: profilul lui se citește CU coloana, deci
+//        limba lui salvată ajunge în context (a patra rundă de recenzie).
+//        [PICĂ: steagul de sesiune păstrat peste schimbarea de cont]
 //   AU4  o valoare ne-text din bază nu ajunge în context (doar string sau null).
 //   AU5  ieșirea din cont în timp ce profilul se încarcă: răspunsul întârziat
 //        nu mai repune profilul contului vechi. [PICĂ: fără resetarea cererii]
@@ -115,14 +120,42 @@ describe('AuthContext — limba contului (mig 323)', () => {
     expect(state.selects).toHaveLength(2)
     expect(state.selects[1]).not.toContain('ui_language')
 
-    // AU3: alt cont în aceeași sesiune → o singură cerere, fără coloană.
+    // AU3: o reîncărcare a profilului ACELUIAȘI cont nu mai cere coloana.
+    state.selects = []
+    await act(async () => {
+      screen.getByRole('button', { name: 'refresh' }).click()
+    })
+    await waitFor(() => expect(state.selects).toHaveLength(1))
+    expect(state.selects[0]).not.toContain('ui_language')
+
+    // Alt cont pe aceeași bază veche: coloana se re-verifică O dată, apoi
+    // reîncercarea fără ea.
     state.selects = []
     state.row = { ...state.row, id: 'u2' }
     await act(async () => {
       state.authCb?.('SIGNED_IN', { user: { id: 'u2' } })
     })
-    await waitFor(() => expect(state.selects).toHaveLength(1))
-    expect(state.selects[0]).not.toContain('ui_language')
+    await waitFor(() => expect(state.selects).toHaveLength(2))
+    expect(state.selects[0]).toContain('ui_language')
+    expect(state.selects[1]).not.toContain('ui_language')
+  })
+
+  it('AU7 tab de dinaintea mig 323: contul care intră după migrație își vede limba', async () => {
+    state.hasColumn = false
+    delete state.row.ui_language
+    await mount()
+    await waitFor(() => expect(screen.getByTestId('m').textContent).toBe('missing=true'))
+    // Migrația se aplică sub tabul deschis; alt ospătar intră în contul lui.
+    state.hasColumn = true
+    state.row = { ...state.row, id: 'u2', ui_language: 'de' }
+    state.selects = []
+    await act(async () => {
+      state.authCb?.('SIGNED_IN', { user: { id: 'u2' } })
+    })
+    await waitFor(() => expect(screen.getByTestId('p').textContent).toBe('lang=de'))
+    expect(screen.getByTestId('m').textContent).toBe('missing=false')
+    expect(state.selects).toHaveLength(1)
+    expect(state.selects[0]).toContain('ui_language')
   })
 
   it('AU5 un profil sosit DUPĂ ieșirea din cont nu se mai afișează', async () => {

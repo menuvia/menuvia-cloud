@@ -67,13 +67,18 @@ export function UiLangProvider({
   // recenzia adversarială pe #388: un „ro” pus automat de mig 323 contului
   // vechi ar fi mutat pe română /auth-ul unui dispozitiv ales pe engleză.
   // Pe o bază fără mig 323 (`ui_language_missing`) contul e român pentru
-  // PANOU — exact ce îi dă 323 la aplicare; funnel-ul nu citește semnalul.
+  // PANOU — exact ce îi dă 323 la aplicare; funnel-ul nu citește semnalul. O
+  // copie pe cont deja scrisă (dintr-o limbă REALĂ, citită sau salvată cu
+  // coloana prezentă) bate acel 'ro' dedus: un tab rămas „fără coloană” peste
+  // aplicarea migrației nu mai suprascrie limba reală a contului (a patra rundă
+  // de recenzie). Pe o bază chiar veche copia e cel mult 'ro' — singurul ei
+  // scriitor acolo e chiar această regulă —, deci rezultatul nu se schimbă.
+  const accountCopy = uid != null ? readAccountLang(uid) : null
+  const copiedLang = accountCopy != null && isStaffLang(accountCopy) ? accountCopy : null
   const profileLang =
     profile != null
-      ? (profile.ui_language ?? (profile.ui_language_missing ? 'ro' : null))
-      : uid != null
-        ? readAccountLang(uid)
-        : null
+      ? (profile.ui_language ?? (profile.ui_language_missing ? (copiedLang ?? 'ro') : null))
+      : accountCopy
   // Cont logat, profil încă neîncărcat (sau încărcarea a picat) și fără copie
   // pe cont: limba lui e NECUNOSCUTĂ, nu „a browserului”. Un cont român pe un
   // browser în franceză vedea altfel primele cadre — ori toată sesiunea, dacă
