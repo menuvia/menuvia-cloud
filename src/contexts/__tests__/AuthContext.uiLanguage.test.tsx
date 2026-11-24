@@ -15,6 +15,10 @@
 //        intră pe aceeași tabletă: profilul lui se citește CU coloana, deci
 //        limba lui salvată ajunge în context (a patra rundă de recenzie).
 //        [PICĂ: steagul de sesiune păstrat peste schimbarea de cont]
+//   AU8  semnalul „coloana lipsește” e al CERERII: o reîncărcare a contului A
+//        pornită fără coloană, ținută în zbor peste A → B → A (care reînarmează
+//        steagul comun), aterizează tot CU semnalul (recenzia CodeRabbit pe
+//        #391). [PICĂ: marcajul citit din steagul comun la `setProfile`]
 //   AU4  o valoare ne-text din bază nu ajunge în context (doar string sau null).
 //   AU5  ieșirea din cont în timp ce profilul se încarcă: răspunsul întârziat
 //        nu mai repune profilul contului vechi. [PICĂ: fără resetarea cererii]
@@ -200,5 +204,34 @@ describe('AuthContext — limba contului (mig 323)', () => {
     expect(state.selects[0]).toContain('ui_language')
     await waitFor(() => expect(screen.getByTestId('p').textContent).toBe('lang=de'))
     expect(screen.getByTestId('m').textContent).toBe('missing=false')
+  })
+
+  it('AU8 semnalul vine din cererea care a văzut 42703, nu din steagul comun', async () => {
+    state.hasColumn = false
+    delete state.row.ui_language
+    await mount()
+    await waitFor(() => expect(screen.getByTestId('m').textContent).toBe('missing=true'))
+    // Cererile următoare rămân în zbor până la `release`.
+    let release: () => void = () => undefined
+    state.gate = new Promise<void>((r) => {
+      release = r
+    })
+    // A: reîncărcare pornită FĂRĂ coloană (steagul comun e jos).
+    await act(async () => {
+      screen.getByRole('button', { name: 'refresh' }).click()
+    })
+    // A → B → A pe tableta comună: ambele intrări reînarmează steagul comun.
+    await act(async () => {
+      state.authCb?.('SIGNED_IN', { user: { id: 'u2' } })
+    })
+    await act(async () => {
+      state.authCb?.('SIGNED_IN', { user: { id: 'u1' } })
+    })
+    await act(async () => {
+      release()
+    })
+    // Reîncărcarea lui A aterizează cu semnalul ei, chiar dacă steagul comun
+    // a fost reînarmat între timp.
+    await waitFor(() => expect(screen.getByTestId('m').textContent).toBe('missing=true'))
   })
 })
