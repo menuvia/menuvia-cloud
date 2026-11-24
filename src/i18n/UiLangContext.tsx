@@ -107,8 +107,12 @@ export function UiLangProvider({
       window.removeEventListener(ACCOUNT_LANG_EVENT, onAccountLang)
     }
   }, [])
-  // Copia pe cont se actualizează la fiecare profil încărcat cu limbă.
-  const loadedLang = profile?.ui_language ?? null
+  // Copia pe cont se actualizează la fiecare profil încărcat cu limbă — aceeași
+  // derivare ca rezolvarea, deci și 'ro'-ul unei baze fără mig 323: altfel, pe
+  // producția la 291, copia nu se scria niciodată și fiecare deschidere a
+  // panoului arăta limba dispozitivului/site-ului până sosea profilul (sau
+  // toată sesiunea, dacă încărcarea pica). Copia o citește doar panoul.
+  const loadedLang = profile != null ? profileLang : null
   const loadedUid = profile?.id ?? null
   useEffect(() => {
     if (loadedUid && loadedLang && isStaffLang(loadedLang)) storeAccountLang(loadedUid, loadedLang)

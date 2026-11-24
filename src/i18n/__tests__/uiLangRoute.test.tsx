@@ -23,12 +23,15 @@
 //        Cookies”): alegerea rămâne pe ecran din copia din memoria tab-ului.
 //        Mutația care pică: copia doar în localStorage.
 //   LR6  bază fără mig 323 (`ui_language_missing`): panoul e în română chiar
-//        cu browserul în germană, dar funnel-ul (onboarding, autentificare)
+//        cu browserul în germană, iar 'ro'-ul intră și în copia pe cont, deci
+//        o deschidere ulterioară cu profilul încă pe drum (și dispozitivul pe
+//        engleză) rămâne pe română; funnel-ul (onboarding, autentificare)
 //        ignoră semnalul și urmează limba aleasă pe dispozitiv — un englez
 //        înscris pe o bază veche nu-și mai face onboarding-ul în română
 //        (recenzia adversarială a activării). Mutațiile care pică: semnalul
-//        ignorat în UiLangProvider (panoul pe germană); 'ro' scris direct în
-//        `ui_language` (funnel-ul pe română).
+//        ignorat în UiLangProvider (panoul pe germană); copia derivată doar
+//        din `ui_language` (nescrisă pe bază veche). Varianta „'ro' scris
+//        direct în `ui_language`” o prinde AU2 (aici contul e simulat).
 //   LR5  cont logat, profil neîncărcat (sau încărcare picată) și fără copie pe
 //        cont: limba lui e NECUNOSCUTĂ, nu a browserului — un cont român pe un
 //        browser în germană rămâne pe site (română), nu trece pe germană
@@ -277,9 +280,22 @@ describe('limba personalului urmează navigarea și contul', () => {
         </UiLangProvider>,
       )
       expect(lang()).toBe('ro')
+      // 'ro'-ul bazei vechi intră și în copia pe cont (o citește doar panoul).
+      expect(window.localStorage.getItem('menuvia_ui_lang_acct:uOld')).toBe('ro')
       staff.unmount()
-      // Funnel-ul: dispozitivul ales pe engleză (/en) decide, nu semnalul.
+      // Deschiderea următoare: profilul încă pe drum, dispozitivul pe engleză —
+      // copia ține panoul pe română.
       window.localStorage.setItem('menuvia_ui_lang', 'en')
+      h.profileLoaded = false
+      const reopen = render(
+        <UiLangProvider enabled={['ro', 'en', 'fr', 'de']}>
+          <Show />
+        </UiLangProvider>,
+      )
+      expect(lang()).toBe('ro')
+      reopen.unmount()
+      h.profileLoaded = true
+      // Funnel-ul: dispozitivul ales pe engleză (/en) decide, nu semnalul.
       render(
         <FunnelLangProvider>
           <Show />
