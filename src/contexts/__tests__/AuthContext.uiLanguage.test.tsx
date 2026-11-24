@@ -4,15 +4,21 @@
 //        în context.
 //   AU2  baza fără mig 323 (client deployat înaintea migrației): PostgREST dă
 //        42703 → o singură reîncercare fără coloană, profilul se încarcă —
-//        altfel gate-ul de Termeni ar rămâne orb — cu `ui_language: 'ro'`:
-//        acolo toate conturile sunt „existente”, iar 323 le-ar da exact 'ro'
-//        (recenzia adversarială a activării: cu null, toți urmau browserul).
-//        [PICĂ: fără reîncercare → profile rămâne null; `null` în loc de 'ro']
+//        altfel gate-ul de Termeni ar rămâne orb — cu `ui_language: null` și
+//        semnalul `ui_language_missing` (panoul îl citește ca 'ro', funnel-ul
+//        nu; LR6). [PICĂ: fără reîncercare → profile rămâne null; semnalul
+//        lipsă; 'ro' scris direct în `ui_language`, care ajunge și în funnel]
 //   AU3  după primul 42703 coloana nu se mai cere în sesiune (un cont nou nu
 //        mai plătește o cerere eșuată la fiecare încărcare).
 //   AU4  o valoare ne-text din bază nu ajunge în context (doar string sau null).
 //   AU5  ieșirea din cont în timp ce profilul se încarcă: răspunsul întârziat
 //        nu mai repune profilul contului vechi. [PICĂ: fără resetarea cererii]
+//   AU6  tab deschis înainte de mig 323 (primul select → 42703), migrația se
+//        aplică, iar o salvare de limbă REUȘEȘTE: `applyProfileLanguage`
+//        reînarmează coloana, deci reîncărcarea o cere din nou și profilul
+//        rămâne pe limba salvată, nu „sare” înapoi (recenzia adversarială a
+//        activării). [PICĂ: fără `profileHasUiLanguage = true` în
+//        `applyProfileLanguage` → ultimul select fără coloană, limba pierdută]
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, act } from '@testing-library/react'
 
@@ -62,8 +68,19 @@ vi.mock('../../lib/supabase', () => {
 async function mount() {
   const { AuthProvider, useAuth } = await import('../AuthContext')
   function Probe() {
-    const { profile } = useAuth()
-    return <div data-testid="p">{profile ? `lang=${String(profile.ui_language)}` : 'none'}</div>
+    const { profile, applyProfileLanguage, refreshProfile } = useAuth()
+    return (
+      <>
+        <div data-testid="p">{profile ? `lang=${String(profile.ui_language)}` : 'none'}</div>
+        <div data-testid="m">{profile ? `missing=${String(profile.ui_language_missing === true)}` : 'none'}</div>
+        <button type="button" onClick={() => applyProfileLanguage?.('de', 'u1')}>
+          apply
+        </button>
+        <button type="button" onClick={() => void refreshProfile()}>
+          refresh
+        </button>
+      </>
+    )
   }
   render(
     <AuthProvider>
@@ -93,7 +110,8 @@ describe('AuthContext — limba contului (mig 323)', () => {
     state.hasColumn = false
     delete state.row.ui_language
     await mount()
-    await waitFor(() => expect(screen.getByTestId('p').textContent).toBe('lang=ro'))
+    await waitFor(() => expect(screen.getByTestId('p').textContent).toBe('lang=null'))
+    expect(screen.getByTestId('m').textContent).toBe('missing=true')
     expect(state.selects).toHaveLength(2)
     expect(state.selects[1]).not.toContain('ui_language')
 
@@ -126,5 +144,28 @@ describe('AuthContext — limba contului (mig 323)', () => {
     state.row.ui_language = 7
     await mount()
     await waitFor(() => expect(screen.getByTestId('p').textContent).toBe('lang=null'))
+  })
+
+  it('AU6 tab de dinaintea mig 323: o salvare reușită reînarmează coloana', async () => {
+    state.hasColumn = false
+    delete state.row.ui_language
+    await mount()
+    await waitFor(() => expect(screen.getByTestId('m').textContent).toBe('missing=true'))
+    // Migrația se aplică sub tabul deschis; contul tocmai și-a salvat germana.
+    state.hasColumn = true
+    state.row = { ...state.row, ui_language: 'de' }
+    state.selects = []
+    await act(async () => {
+      screen.getByRole('button', { name: 'apply' }).click()
+    })
+    expect(screen.getByTestId('p').textContent).toBe('lang=de')
+    expect(screen.getByTestId('m').textContent).toBe('missing=false')
+    await act(async () => {
+      screen.getByRole('button', { name: 'refresh' }).click()
+    })
+    await waitFor(() => expect(state.selects).toHaveLength(1))
+    expect(state.selects[0]).toContain('ui_language')
+    await waitFor(() => expect(screen.getByTestId('p').textContent).toBe('lang=de'))
+    expect(screen.getByTestId('m').textContent).toBe('missing=false')
   })
 })

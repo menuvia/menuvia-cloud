@@ -22,6 +22,13 @@
 //   LR4  același caz cu localStorage care ARUNCĂ (Safari „Block All
 //        Cookies”): alegerea rămâne pe ecran din copia din memoria tab-ului.
 //        Mutația care pică: copia doar în localStorage.
+//   LR6  bază fără mig 323 (`ui_language_missing`): panoul e în română chiar
+//        cu browserul în germană, dar funnel-ul (onboarding, autentificare)
+//        ignoră semnalul și urmează limba aleasă pe dispozitiv — un englez
+//        înscris pe o bază veche nu-și mai face onboarding-ul în română
+//        (recenzia adversarială a activării). Mutațiile care pică: semnalul
+//        ignorat în UiLangProvider (panoul pe germană); 'ro' scris direct în
+//        `ui_language` (funnel-ul pe română).
 //   LR5  cont logat, profil neîncărcat (sau încărcare picată) și fără copie pe
 //        cont: limba lui e NECUNOSCUTĂ, nu a browserului — un cont român pe un
 //        browser în germană rămâne pe site (română), nu trece pe germană
@@ -40,17 +47,21 @@ const h = vi.hoisted(() => ({
   refreshes: 0,
   // Profil ÎNCĂRCAT, dar fără limbă salvată (cont creat fără metadata).
   loadedWithoutLang: false,
+  // Profil încărcat de pe o bază FĂRĂ coloana mig 323.
+  columnMissing: false,
 }))
 vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({
     user: h.uid ? { id: h.uid } : null,
     profile: !h.profileLoaded
       ? null
-      : h.loadedWithoutLang
-        ? { id: h.uid ?? 'u1', ui_language: null }
-        : h.profileLang === null
-          ? null
-          : { id: h.uid ?? 'u1', ui_language: h.profileLang },
+      : h.columnMissing
+        ? { id: h.uid ?? 'u1', ui_language: null, ui_language_missing: true }
+        : h.loadedWithoutLang
+          ? { id: h.uid ?? 'u1', ui_language: null }
+          : h.profileLang === null
+            ? null
+            : { id: h.uid ?? 'u1', ui_language: h.profileLang },
     // Reîncărcarea „pică”: profilul rămâne cum era (null în LR3).
     refreshProfile: async () => {
       h.refreshes += 1
@@ -70,7 +81,7 @@ vi.mock('../../lib/supabase', () => ({
   },
 }))
 
-import { UiLangProvider, useUiLang } from '../UiLangContext'
+import { FunnelLangProvider, UiLangProvider, useUiLang } from '../UiLangContext'
 import { useSetUiLanguage } from '../useSetUiLanguage'
 import { ROUTE_CHANGE_EVENT } from '../../lib/routeEvents'
 
@@ -86,6 +97,7 @@ beforeEach(() => {
   h.profileLoaded = true
   h.refreshes = 0
   h.loadedWithoutLang = false
+  h.columnMissing = false
 })
 afterEach(() => {
   window.history.replaceState(null, '', '/')
@@ -248,6 +260,32 @@ describe('limba personalului urmează navigarea și contul', () => {
       h.loadedWithoutLang = true
       tree()
       expect(lang()).toBe('de')
+    } finally {
+      langs.mockRestore()
+    }
+  })
+
+  it('LR6 bază fără mig 323: panoul în română, funnel-ul pe limba dispozitivului', () => {
+    const langs = vi.spyOn(window.navigator, 'languages', 'get').mockReturnValue(['de-DE', 'de'])
+    try {
+      h.uid = 'uOld'
+      h.columnMissing = true
+      // Panoul: contul „existent” e român, browserul nu contează.
+      const staff = render(
+        <UiLangProvider enabled={['ro', 'en', 'fr', 'de']}>
+          <Show />
+        </UiLangProvider>,
+      )
+      expect(lang()).toBe('ro')
+      staff.unmount()
+      // Funnel-ul: dispozitivul ales pe engleză (/en) decide, nu semnalul.
+      window.localStorage.setItem('menuvia_ui_lang', 'en')
+      render(
+        <FunnelLangProvider>
+          <Show />
+        </FunnelLangProvider>,
+      )
+      expect(lang()).toBe('en')
     } finally {
       langs.mockRestore()
     }

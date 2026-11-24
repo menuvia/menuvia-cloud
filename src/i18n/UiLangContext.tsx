@@ -66,8 +66,14 @@ export function UiLangProvider({
   // funnel-ul, scrisă de /en și de `?lang=`) nu se rescrie implicit —
   // recenzia adversarială pe #388: un „ro” pus automat de mig 323 contului
   // vechi ar fi mutat pe română /auth-ul unui dispozitiv ales pe engleză.
+  // Pe o bază fără mig 323 (`ui_language_missing`) contul e român pentru
+  // PANOU — exact ce îi dă 323 la aplicare; funnel-ul nu citește semnalul.
   const profileLang =
-    profile != null ? (profile.ui_language ?? null) : uid != null ? readAccountLang(uid) : null
+    profile != null
+      ? (profile.ui_language ?? (profile.ui_language_missing ? 'ro' : null))
+      : uid != null
+        ? readAccountLang(uid)
+        : null
   // Cont logat, profil încă neîncărcat (sau încărcarea a picat) și fără copie
   // pe cont: limba lui e NECUNOSCUTĂ, nu „a browserului”. Un cont român pe un
   // browser în franceză vedea altfel primele cadre — ori toată sesiunea, dacă

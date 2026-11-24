@@ -16,6 +16,16 @@ export interface Profile {
    * Tot `null` pe o bază fără mig 323 — clientul se poate deploya înainte.
    */
   ui_language: string | null
+  /**
+   * `true` = profilul s-a încărcat de pe o bază FĂRĂ coloana mig 323 (42703).
+   * Doar rezolvarea PERSONALULUI (`UiLangProvider`) îl citește, ca 'ro' — acolo
+   * toate conturile sunt „existente”, iar 323 le dă exact 'ro' (decizia
+   * fondatorului). Funnel-ul (autentificare, onboarding, parola nouă,
+   * invitația) NU: acolo `ui_language` rămâne null și decide limba aleasă pe
+   * dispozitiv — altfel un englez înscris pe o bază veche își făcea
+   * onboarding-ul în română (recenzia adversarială a activării).
+   */
+  ui_language_missing?: boolean
 }
 
 const PROFILE_COLUMNS = 'id, email, full_name, plan, terms_accepted_at'
@@ -94,16 +104,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           full_name: (row.full_name as string | null) ?? null,
           plan: (row.plan as string) ?? 'free',
           terms_accepted_at: (row.terms_accepted_at as string | null) ?? null,
-          // Baza fără mig 323 (coloana lipsește, 42703): toate conturile de
-          // acolo sunt „existente”, iar 323 le dă exact 'ro' (`default 'ro'` la
-          // adăugarea coloanei) — decizia fondatorului. Cu null, panoul, ospătarul
-          // și bucătăria ar fi urmat BROWSERUL pentru toți, iar comutatorul nu
-          // i-ar fi putut aduce înapoi (salvarea pică pe aceeași coloană lipsă).
-          ui_language: !profileHasUiLanguage
-            ? 'ro'
-            : typeof row.ui_language === 'string'
-              ? row.ui_language
-              : null,
+          ui_language: typeof row.ui_language === 'string' ? row.ui_language : null,
+          // Baza fără mig 323 (coloana lipsește, 42703): semnalul separat de mai
+          // sus (vezi tipul), citit DOAR de panou.
+          ...(profileHasUiLanguage ? {} : { ui_language_missing: true }),
         })
       }
     } catch (err) {
@@ -190,7 +194,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (user) await loadProfile(user.id)
   }
   const applyProfileLanguage = (lang: string, accountId: string) => {
-    setProfile((p) => (p && p.id === accountId ? { ...p, ui_language: lang } : p))
+    // Apelată doar după un UPDATE REUȘIT pe `ui_language`: coloana există,
+    // deci și un tab deschis înainte de mig 323 o cere din nou la reîncărcare
+    // (altfel profilul rămânea fără limbă și salvarea „sărea” înapoi).
+    profileHasUiLanguage = true
+    setProfile((p) => (p && p.id === accountId ? { ...p, ui_language: lang, ui_language_missing: false } : p))
   }
   const activeUserId = () => lastUserIdRef.current
 
