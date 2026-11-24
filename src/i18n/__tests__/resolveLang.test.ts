@@ -103,3 +103,16 @@ describe('FL4 indiciul din linkul invitației', () => {
     expect(resolveFunnelLang({ profileLang: 'ro', hintLang: 'en' })).toBe('ro')
   })
 })
+
+describe('FL4 indiciul din linkul invitației', () => {
+  it('FL4 după URL și cont, înaintea stocării; inactiv → sărit', () => {
+    const all = (inp: Parameters<typeof resolveUiLang>[0]) => resolveUiLang({ ...inp, enabled: ALL })
+    expect(all({ hintLang: 'fr', storedLang: 'ro', siteLang: 'ro' })).toBe('fr')
+    expect(all({ profileLang: 'de', hintLang: 'fr', storedLang: 'ro' })).toBe('de')
+    expect(all({ urlLang: 'en', hintLang: 'fr' })).toBe('en')
+    expect(resolveUiLang({ hintLang: 'fr', storedLang: 'en', enabled: ['ro', 'en'] })).toBe('en')
+    // Funnel-ul de azi (ro + en): engleza din indiciu trece, peste stocarea română.
+    expect(resolveFunnelLang({ hintLang: 'en', storedLang: 'ro', siteLang: 'ro' })).toBe('en')
+    expect(resolveFunnelLang({ profileLang: 'ro', hintLang: 'en' })).toBe('ro')
+  })
+})
