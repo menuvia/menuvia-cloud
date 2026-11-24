@@ -45,6 +45,9 @@
 //        pentru profilul neîncărcat (LR3). Mutațiile care pică: apelul scos
 //        sau mutat după `refreshProfile`; id-ul contului omis; copia pe cont
 //        nescrisă.
+//   UC13 profil încărcat de pe o bază FĂRĂ coloana mig 323 (`ui_language_missing`):
+//        cardul nu se randează — orice salvare ar pica (recenzia adversarială
+//        finală). Mutația care pică: semnalul ignorat în `visible`.
 //   UC12 contul se schimbă (ieșire / alt cont pe tableta comună) cât se
 //        salvează: limba ajunge în contul care a pornit salvarea, dar nimic
 //        local nu se mai atinge — nici profilul din memorie, nici metadata
@@ -70,6 +73,7 @@ const h = vi.hoisted(() => ({
   hold: null as Promise<void> | null,
   storedAtRefresh: [] as (string | null)[],
   activeUid: 'u1' as string | null,
+  columnMissing: false,
 }))
 
 vi.mock('../../lib/supabase', () => ({
@@ -103,7 +107,7 @@ vi.mock('../../lib/supabase', () => ({
 vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({
     user: { id: 'u1' },
-    profile: { ui_language: h.profileLang },
+    profile: h.columnMissing ? { ui_language: null, ui_language_missing: true } : { ui_language: h.profileLang },
     applyProfileLanguage: (l: string, accountId: string) => {
       h.calls.push(`apply:${l}:${accountId}`)
     },
@@ -142,6 +146,7 @@ beforeEach(() => {
   h.hold = null
   h.storedAtRefresh = []
   h.activeUid = 'u1'
+  h.columnMissing = false
   window.localStorage.clear()
 })
 
@@ -361,5 +366,16 @@ describe('UiLanguageCard — limba interfeței', () => {
     expect(window.localStorage.getItem('menuvia_ui_lang_acct:u1')).toBeNull()
     expect(window.localStorage.getItem('menuvia_ui_lang_acct:u2')).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('UC13: bază fără coloana mig 323 → cardul nu se randează', async () => {
+    h.columnMissing = true
+    const { container } = renderCard('ro', ALL)
+    await waitFor(() => expect(screen.queryByRole('combobox')).toBeNull())
+    expect(container.textContent ?? '').not.toContain('Limba interfeței')
+    // Control: cu coloana prezentă, același arbore arată comutatorul.
+    h.columnMissing = false
+    renderCard('ro', ALL)
+    expect(await screen.findByRole('combobox', { name: 'Limba interfeței' })).toBeInTheDocument()
   })
 })

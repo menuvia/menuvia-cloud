@@ -21,6 +21,10 @@
 //   LU7  stocarea ARUNCĂ (Safari „Block All Cookies”) → salvat în cont, fără alertă.
 //   LU8  în germană: numele accesibil și refuzul în germană (textul se traduce
 //        la RANDARE, din DATELE erorii).
+//   LU10 profil încărcat de pe o bază FĂRĂ coloana mig 323 (`ui_language_missing`):
+//        comutatorul din antet nu se randează — orice salvare ar pica (recenzia
+//        adversarială finală; producția e la 291). Mutația care pică: semnalul
+//        ignorat în `visible`.
 //   LU9  clichet STRUCTURAL: cardul din Setări și comutatorul compact folosesc
 //        ACELAȘI hook și niciunul nu scrie singur în profil / stocare — o a
 //        doua implementare a salvării ar diverge la prima schimbare. Plus:
@@ -43,6 +47,7 @@ const h = vi.hoisted(() => ({
   result: { data: [{ id: 'u1' }], error: null } as UpdateResult,
   hold: null as Promise<void> | null,
   storedAtRefresh: [] as (string | null)[],
+  columnMissing: false,
 }))
 
 vi.mock('../../lib/supabase', () => ({
@@ -70,6 +75,7 @@ vi.mock('../../lib/supabase', () => ({
 vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({
     user: { id: 'u1' },
+    profile: h.columnMissing ? { ui_language: null, ui_language_missing: true } : null,
     refreshProfile: async () => {
       h.calls.push('refreshProfile')
       h.storedAtRefresh.push(window.localStorage.getItem('menuvia_ui_lang'))
@@ -96,6 +102,7 @@ beforeEach(() => {
   h.result = { data: [{ id: 'u1' }], error: null }
   h.hold = null
   h.storedAtRefresh = []
+  h.columnMissing = false
   window.localStorage.clear()
 })
 
@@ -238,5 +245,16 @@ describe('un singur drum de salvare pentru ambele comutatoare', () => {
     for (const f of ['src/pages/WaiterPage.tsx', 'src/pages/KitchenPage.tsx']) {
       expect(code(f), f).toMatch(/<UiLanguageSelect \/>/)
     }
+  })
+
+  it('LU10: bază fără coloana mig 323 → comutatorul din antet nu se randează', () => {
+    h.columnMissing = true
+    const hidden = renderSelect('ro', ALL)
+    expect(screen.queryByRole('combobox')).toBeNull()
+    hidden.unmount()
+    // Control: cu coloana prezentă, același arbore arată comutatorul.
+    h.columnMissing = false
+    renderSelect('ro', ALL)
+    expect(select()).toBeInTheDocument()
   })
 })

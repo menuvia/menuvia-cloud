@@ -329,6 +329,7 @@
     "migration_328_reservation_guest_language",
     "migration_329_kitchen_ticket_language",
     "migration_330_staff_error_hints",
-    "migration_331_signup_ui_language"
+    "migration_331_signup_ui_language",
+    "migration_332_restore_signup_ui_language"
   ]
 }

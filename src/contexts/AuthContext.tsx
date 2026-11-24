@@ -91,9 +91,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const cols: string = withLang ? `${PROFILE_COLUMNS}, ui_language` : PROFILE_COLUMNS
         return supabase.from('profiles').select(cols).eq('id', userId).single()
       }
+      // Semnalul „coloana lipsește” se decide din ce a văzut ACEASTĂ cerere, nu
+      // din steagul comun: o încărcare întârziată a contului A, terminată după
+      // A → B → A (B reînarmează steagul), și-ar fi pierdut altfel semnalul și
+      // contul ar fi urmat browserul (recenzia CodeRabbit pe #391).
+      let missingColumn = !profileHasUiLanguage
       let { data, error } = await ask(profileHasUiLanguage)
       if (profileHasUiLanguage && error?.code === '42703') {
         profileHasUiLanguage = false
+        missingColumn = true
         ;({ data, error } = await ask(false))
       }
       if (data && profileReqRef.current === userId) {
@@ -107,7 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           ui_language: typeof row.ui_language === 'string' ? row.ui_language : null,
           // Baza fără mig 323 (coloana lipsește, 42703): semnalul separat de mai
           // sus (vezi tipul), citit DOAR de panou.
-          ...(profileHasUiLanguage ? {} : { ui_language_missing: true }),
+          ...(missingColumn ? { ui_language_missing: true } : {}),
         })
       }
     } catch (err) {

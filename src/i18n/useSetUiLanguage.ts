@@ -6,7 +6,11 @@
 //
 // Regulile (cele din L3b, mutate aici neschimbate):
 //   - comutatorul NU se arată cât timp e activă o singură limbă
-//     (`ENABLED_STAFF_LANGS`) sau nu există cont (`visible`);
+//     (`ENABLED_STAFF_LANGS`), nu există cont, sau profilul s-a încărcat de pe
+//     o bază FĂRĂ coloana mig 323 (`ui_language_missing`): acolo orice salvare
+//     pică, deci un comutator vizibil ar fi un control mort pe fiecare ecran
+//     (recenzia adversarială finală a activării; producția e la 291). Se
+//     întoarce la următoarea intrare în cont sau reîncărcare după migrație;
 //   - alegerea e a CONTULUI: UPDATE pe `profiles.ui_language` cu `.select('id')`
 //     + `zeroRowsAsDenied` (un UPDATE refuzat de RLS întoarce 200 cu zero
 //     rânduri, nu o eroare); apoi copia locală `menuvia_ui_lang` (try/catch —
@@ -171,7 +175,7 @@ export function useSetUiLanguage(): SetUiLanguage {
   const compactError = failure?.kind === 'columnMissing' ? tc.t('lang_columnMissingShort') : error
 
   return {
-    visible: enabled.length >= 2 && user != null,
+    visible: enabled.length >= 2 && user != null && profile?.ui_language_missing !== true,
     lang,
     enabled,
     value: pending ?? lang,
