@@ -173,6 +173,17 @@ const ro = {
   split_errUnknown: 'Eroare necunoscută',
   split_errGeneric: 'Plata nu a fost înregistrată. Verifică și reîncearcă.',
   split_errOverpayment: 'Suma depășește restul de plată. Verifică suma și reîncearcă.',
+  // Lotul C2a (SplitBillModal): registrul de plăți e TRISTATE — necunoscut
+  // înseamnă „nu știm ce s-a încasat”, nu 0; suma se compară în cenți.
+  split_loadingPayments: 'Se citesc plățile înregistrate…',
+  split_loadError:
+    'Nu am putut citi plățile deja înregistrate, deci nu știm cât a mai rămas de plată. Plata se poate adăuga după ce se citesc.',
+  split_fillRest: 'Restul: {amount} lei',
+  split_amountInvalid: 'Suma nu e validă: scrie o sumă mai mare ca 0 (ex: 25,50).',
+  split_over: 'Suma depășește restul de plată ({rest} lei) — serverul va respinge plata.',
+  split_coversRest: 'Suma acoperă restul: comanda devine Plătită și se emite bonul fiscal.',
+  split_okPartial: 'Plata de {amount} lei a fost înregistrată.',
+  split_okFull: 'Restul a fost achitat: comanda e acum Plătită și bonul fiscal se emite la casa de marcat.',
 
   // ── Fidelizarea (LoyaltyRedeem) ──
   loyalty_button: 'Fidelizare — cod client',

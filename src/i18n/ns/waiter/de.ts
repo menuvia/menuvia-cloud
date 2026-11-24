@@ -127,6 +127,15 @@ const de: Translation<typeof ro> = {
   split_errUnknown: 'Unbekannter Fehler',
   split_errGeneric: 'Die Zahlung wurde nicht erfasst. Bitte prüfen und erneut versuchen.',
   split_errOverpayment: 'Der Betrag übersteigt den offenen Rest. Bitte Betrag prüfen und erneut versuchen.',
+  split_loadingPayments: 'Erfasste Zahlungen werden geladen…',
+  split_loadError:
+    'Die bereits erfassten Zahlungen konnten nicht geladen werden, daher ist der offene Betrag nicht bekannt. Sie können die Zahlung hinzufügen, sobald sie geladen sind.',
+  split_fillRest: 'Restbetrag: {amount} lei',
+  split_amountInvalid: 'Ungültiger Betrag: Geben Sie einen Betrag größer als 0 ein (z. B. 25,50).',
+  split_over: 'Der Betrag übersteigt den offenen Rest ({rest} lei) – der Server wird die Zahlung ablehnen.',
+  split_coversRest: 'Dieser Betrag deckt den Rest: Die Bestellung wird als bezahlt markiert und der Fiskalbeleg wird ausgestellt.',
+  split_okPartial: 'Zahlung über {amount} lei erfasst.',
+  split_okFull: 'Der Rest wurde bezahlt: Die Bestellung ist jetzt bezahlt und der Fiskalbeleg wird an der Kasse ausgestellt.',
 
   loyalty_button: 'Treueprogramm — Gastcode',
   loyalty_placeholder: 'Z. B. A1B2C3',

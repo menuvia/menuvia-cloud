@@ -77,7 +77,16 @@ interface PayModalProps {
   order: Order
   // Suma deja încasată în plăți parțiale (split). „Plata integrală" cere DOAR
   // restul (order.total − alreadyPaid), nu totalul — altfel ar fi dublă-încasare.
-  alreadyPaid?: number
+  // TRISTATE (lotul C2a): `null` = NECUNOSCUTĂ (citirea e în curs sau a eșuat),
+  // NU 0. Înainte un eșec al citirii dădea 0: ospătarul vedea totalul întreg ca
+  // rest, iar serverul respingea plata cu `overpayment` (mig 291). Cu `null`
+  // confirmarea e dezactivată. Prop-ul e OBLIGATORIU: un apelant nou decide
+  // explicit, nu moștenește un 0 implicit.
+  alreadyPaid: number | null
+  // Cu `alreadyPaid === null`: true = citirea a EȘUAT (banner + Reîncearcă);
+  // false/absent = citirea e în curs.
+  alreadyPaidFailed?: boolean
+  onRetryAlreadyPaid?: (() => void) | undefined
   // Întoarce {ok:false, message} când serverul refuză (underpayment/overpayment/
   // rol/gate): modalul rămâne deschis și afișează mesajul (audit v3 RES-16 —
   // înainte ospătarul vedea doar „Verifică și reîncearcă", fără CE a refuzat).
@@ -95,7 +104,9 @@ interface PayModalProps {
 
 function PayModal({
   order,
-  alreadyPaid = 0,
+  alreadyPaid,
+  alreadyPaidFailed = false,
+  onRetryAlreadyPaid,
   onConfirm,
   onClose,
   onDiscountClick,
@@ -113,8 +124,12 @@ function PayModal({
   const [submitting, setSubmitting] = useState(false)
   const [tipsMode, setTipsMode] = useState<'none' | '5' | '10' | '15' | 'custom'>('none')
   const [tipsCustom, setTipsCustom] = useState('')
-  // Restul de achitat = total − plăți parțiale deja încasate (mig 172).
-  const orderTotal = Math.max(0, order.total - alreadyPaid)
+  // Restul de achitat = total − plăți parțiale deja încasate (mig 172). Cât
+  // timp suma încasată nu e cunoscută, restul afișat e totalul, dar nimic nu
+  // pleacă și preflight-ul tace (n-are față de ce compara).
+  const paidKnown = alreadyPaid != null
+  const paidSoFar = alreadyPaid ?? 0
+  const orderTotal = Math.max(0, order.total - paidSoFar)
 
   // Calculează tips în funcție de mod
   const tipsAmount: number = (() => {
@@ -150,14 +165,16 @@ function PayModal({
   const overBy = (netCents - restCents) / 100
   // Supra-încasarea NU se transformă singură în bacșiș (advance_order o respinge
   // cu `overpayment`); textul spune exact asta și oferă mutarea explicită.
-  const preflight: string | null = !amountValid
+  const preflight: string | null = !paidKnown
+    ? null
+    : !amountValid
     ? t('pay_preInvalid')
     : netCents < restCents
       ? t('pay_preUnder', { net: netOnBill.toFixed(2), rest: orderTotal.toFixed(2) })
       : netCents > restCents
         ? t('pay_preOver', { net: netOnBill.toFixed(2), rest: orderTotal.toFixed(2) })
         : null
-  const canMoveOverToTips = amountValid && netCents > restCents
+  const canMoveOverToTips = paidKnown && amountValid && netCents > restCents
   /** Mută diferența peste rest în bacșiș: suma înmânată rămâne, nota ajunge exact la rest. */
   function moveOverToTips(): void {
     setTipsMode('custom')
@@ -293,7 +310,35 @@ function PayModal({
             </div>
           )}
 
-          {alreadyPaid > 0 && (
+          {!paidKnown && (
+            <div
+              role={alreadyPaidFailed ? 'alert' : 'status'}
+              style={{
+                marginTop: 8,
+                background: alreadyPaidFailed ? D.redA : D.s3,
+                border: `1px solid ${alreadyPaidFailed ? D.redBorder : D.border}`,
+                borderRadius: 10,
+                padding: 12,
+                fontSize: 13,
+                color: alreadyPaidFailed ? D.red : D.t2,
+                lineHeight: 1.5,
+              }}
+            >
+              {alreadyPaidFailed ? t('pay_paidUnknown') : t('pay_paidLoading')}
+              {alreadyPaidFailed && onRetryAlreadyPaid && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={onRetryAlreadyPaid}
+                  style={{ display: 'flex', marginTop: 8 }}
+                >
+                  {tc.t('retry')}
+                </Button>
+              )}
+            </div>
+          )}
+
+          {paidSoFar > 0 && (
             <div
               style={{
                 marginTop: 8,
@@ -307,7 +352,7 @@ function PayModal({
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: D.t2 }}>
                 <span>{t('pay_partiallyPaid')}</span>
-                <span style={{ color: D.t1 }}>{t('pay_minusMoney', { amount: alreadyPaid.toFixed(2) })}</span>
+                <span style={{ color: D.t1 }}>{t('pay_minusMoney', { amount: paidSoFar.toFixed(2) })}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 700 }}>
                 <span style={{ color: D.t1 }}>{t('pay_rest')}</span>
@@ -318,7 +363,7 @@ function PayModal({
 
           {/* mig 291 (BF-7): cu bani deja încasați, serverul refuză orice reducere
               (`discount_over_payments`) — nu oferim un buton care știm că pică. */}
-          {onDiscountClick && alreadyPaid > 0 && (
+          {onDiscountClick && paidSoFar > 0 && (
             <div
               role="note"
               style={{ marginTop: 8, fontSize: 12, color: D.t2, fontFamily: 'DM Sans, sans-serif' }}
@@ -326,7 +371,9 @@ function PayModal({
               {t('pay_discountLocked')}
             </div>
           )}
-          {onDiscountClick && alreadyPaid <= 0 && (
+          {/* Cu plățile necunoscute nu oferim reducerea: dacă există bani
+              încasați, serverul o refuză (`discount_over_payments`). */}
+          {onDiscountClick && paidKnown && paidSoFar <= 0 && (
             <button
               onClick={onDiscountClick}
               style={{
@@ -355,7 +402,7 @@ function PayModal({
         </div>
 
         {/* Happy Hour suggestion (only shown if no discount already applied) */}
-        {happyHourSuggestion != null && !hasDiscount && alreadyPaid <= 0 && onApplyHappyHour && (
+        {happyHourSuggestion != null && !hasDiscount && paidKnown && paidSoFar <= 0 && onApplyHappyHour && (
           <div
             style={{
               background: 'linear-gradient(135deg, rgba(200,150,60,0.15), rgba(200,150,60,0.08))',
@@ -567,9 +614,9 @@ function PayModal({
         )}
 
         <button
-          disabled={submitting || !amountValid}
+          disabled={submitting || !amountValid || !paidKnown}
           onClick={() => {
-            if (submitting || !amountValid) return
+            if (submitting || !amountValid || !paidKnown) return
             setSubmitting(true)
             setErrorMsg(null)
             // Așteptăm finalizarea; dacă onConfirm e sincron, Promise.resolve îl
