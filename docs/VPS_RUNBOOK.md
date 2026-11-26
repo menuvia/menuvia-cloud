@@ -113,6 +113,14 @@ Repo → Settings → Secrets and variables → Actions:
 | `VITE_SUPABASE_URL` | URL-ul Supabase prod |
 | `VITE_SUPABASE_ANON_KEY` | anon key prod |
 
+Opțional, ca **variabilă** de repo (Settings → Secrets and variables → Actions →
+*Variables*, nu secret — e un URL public): `VITE_BRIDGE_DOWNLOAD_URL` = linkul
+`https://` al installer-ului Menuvia Bridge (artefactul workflow-ului
+`.github/workflows/bridge-release.yml`, găzduit de fondator). `deploy-vps.yml` îl
+pune în build; fără el, fila Bridge nu arată butonul de descărcare (niciodată un
+link mort). E o variabilă de BUILD (Vite): în `/etc/menuvia/env` nu are niciun
+efect. Pe Netlify se setează în UI, la fel.
+
 Din acel moment, **fiecare merge pe main = deploy automat** (`.github/workflows/deploy-vps.yml`):
 build în CI → rsync `dist/` + `netlify/functions` + `deploy/` → `npm ci --omit=dev` →
 restart serviciu → smoke test `/health`. Până când secrets-urile există, workflow-ul

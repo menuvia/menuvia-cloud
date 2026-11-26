@@ -38,7 +38,10 @@ Claim-ul e **atomic** (`bridge_claim_receipt` schimbă statusul doar dacă e în
 
 ## Configurare
 
-Copiază `config.example.json` → `config.json` și completează:
+Cel mai simplu: panoul îl dă gata făcut — fila Bridge → „Înregistrează" →
+„Descarcă config.json" (adresa, cheia anon, `device_secret`; pe Planul 2 și
+secțiunea de bucătărie). Altfel, copiază `config.example.json` → `config.json`
+și completează:
 
 | Cheie              | Ce e                                                            |
 |--------------------|----------------------------------------------------------------|
@@ -48,6 +51,8 @@ Copiază `config.example.json` → `config.json` și completează:
 | `fiscalnet.mode`   | `api` (recomandat) sau `file`                                  |
 | `fiscalnet.apiUrl` | implicit `http://localhost:65400/api/receipt`                  |
 | `fiscalnet.bonuriDir` / `raspunsDir` | doar în mod `file`                           |
+| `fiscalnet.required` | implicit `true`; `false` = PC doar pentru imprimanta de bucătărie (Planul 2): `--check` sare pasul FiscalNet, bucla fiscală rulează oricum |
+| `kitchen.enabled` / `mode` / `host` | imprimanta de bucătărie (tichete, mig 227) |
 
 Toate se pot da și prin variabile de mediu (`SUPABASE_URL`, `DEVICE_SECRET`,
 `FISCALNET_MODE`, `FISCALNET_API_URL`, …) — au prioritate peste `config.json`.
@@ -55,7 +60,7 @@ Toate se pot da și prin variabile de mediu (`SUPABASE_URL`, `DEVICE_SECRET`,
 ## Rulare
 
 ```bash
-node menuvia-bridge.js --setup   # wizard: scrie config.json (Supabase + device_secret)
+node menuvia-bridge.js --setup   # wizard: scrie config.json (implicite din config.json-ul existent)
 node menuvia-bridge.js --check   # doctor: verifică config + Supabase + FiscalNet (nu tipărește)
 node menuvia-bridge.js           # pornește bucla
 

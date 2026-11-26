@@ -20,6 +20,7 @@ const { rpc, firstRow } = require('./lib/supabase');
 const { sendReceipt } = require('./lib/fiscalnet');
 const { printTicket } = require('./lib/kitchenPrinter');
 const { sleep, log } = require('./lib/util');
+const { wizardDefaults, maskSecret } = require('./lib/setupDefaults');
 
 async function validateDevice(cfg) {
   const row = firstRow(await rpc(cfg, 'bridge_validate_device', { p_device_secret: cfg.deviceSecret }));
@@ -121,10 +122,30 @@ async function processKitchenOnce(cfg) {
 }
 
 // `--setup`: wizard interactiv la prima rulare — scrie config.json fără ca
-// utilizatorul (non-tehnic) să editeze JSON manual.
+// utilizatorul (non-tehnic) să editeze JSON manual. Dacă lângă executabil există
+// deja un config.json (cel descărcat din panou, copiat de installer — C7a),
+// valorile lui sunt cele implicite: Enter = păstrează; câmpurile pe care
+// wizardul nu le întreabă se păstrează neatinse.
 async function setup() {
   const fs = require('node:fs');
   const path = require('node:path');
+
+  // Când rulează ca .exe împachetat (SEA/pkg), scriem lângă executabil ca autostart-ul
+  // (cwd = system32) să găsească același config. În dev, scriem în cwd.
+  const packaged = !process.argv[1] || !process.argv[1].endsWith('.js');
+  const targetDir = packaged ? path.dirname(process.execPath) : process.cwd();
+  const target = path.join(targetDir, 'config.json');
+
+  let existing = {};
+  if (fs.existsSync(target)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) existing = parsed;
+    } catch (err) {
+      log('warn', `config.json existent ignorat (JSON invalid): ${err.message}`);
+    }
+  }
+  const d = wizardDefaults(existing);
 
   // Interactiv (TTY) → readline linie-cu-linie. Ne-interactiv (pipe/fișier) → citim
   // tot stdin upfront, altfel readline/promises se blochează pe EOF fără să scrie.
@@ -136,54 +157,69 @@ async function setup() {
   } else {
     queue = fs.readFileSync(0, 'utf8').split('\n');
   }
-  const ask = async (q, def) => {
-    const prompt = def ? `${q} [${def}]: ` : `${q}: `;
+  // `secret`: în prompt și în ecou apare doar coada cheii (`…a1b2`), nu cheia.
+  const ask = async (q, def, opts = {}) => {
+    const shown = opts.secret ? maskSecret(def) : def;
+    const prompt = shown ? `${q} [${shown}]: ` : `${q}: `;
     let a;
     if (rl) {
       a = (await rl.question(prompt)).trim();
     } else {
       process.stdout.write(prompt);
       a = (queue.length ? queue.shift() : '').trim();
-      process.stdout.write((a || def || '') + '\n');
+      process.stdout.write((a ? (opts.secret ? maskSecret(a) : a) : shown || '') + '\n');
     }
     return a || def || '';
   };
 
   log('info', 'Configurare Menuvia Bridge — apasă Enter pentru valoarea implicită.');
-  const cfg = {
-    supabaseUrl: await ask('Supabase URL', 'https://swjcptdylfmpvopdepqf.supabase.co'),
-    supabaseAnonKey: await ask('Supabase anon key (public)'),
-    deviceSecret: await ask('Device secret (Dashboard → Casă de marcat → Înregistrează)'),
-    fiscalnet: {},
-  };
-  const mode = (await ask('Transport (api/file)', 'api')).toLowerCase();
-  cfg.fiscalnet.mode = mode === 'file' ? 'file' : 'api';
-  if (cfg.fiscalnet.mode === 'file') {
-    cfg.fiscalnet.bonuriDir = await ask('Folder Bonuri', 'C:\\FiscalNet\\Bonuri');
-    cfg.fiscalnet.raspunsDir = await ask('Folder Raspuns', 'C:\\FiscalNet\\Raspuns');
-  } else {
-    cfg.fiscalnet.apiUrl = await ask('URL API FiscalNet', 'http://localhost:65400/api/receipt');
+  if (Object.keys(existing).length) {
+    log('info', `Am găsit ${target} — valorile lui sunt cele implicite (Enter = păstrează).`);
   }
-  // Imprimanta de bucătărie (tichete, mig 227) — opțională.
-  const wantKitchen = (await ask('Imprimantă de bucătărie pentru tichete? (da/nu)', 'nu')).toLowerCase();
+  const cfg = {
+    ...existing,
+    supabaseUrl: await ask('Supabase URL', d.supabaseUrl),
+    supabaseAnonKey: await ask('Supabase anon key (public)', d.supabaseAnonKey, { secret: true }),
+    deviceSecret: await ask('Device secret (panou → Casă & tichete / Imprimantă bucătărie → Înregistrează)', d.deviceSecret, {
+      secret: true,
+    }),
+    fiscalnet: { ...(existing.fiscalnet && typeof existing.fiscalnet === 'object' ? existing.fiscalnet : {}) },
+  };
+  if (d.fiscalRequired) {
+    const mode = (await ask('Transport (api/file)', d.fiscalMode)).toLowerCase();
+    cfg.fiscalnet.mode = mode === 'file' ? 'file' : 'api';
+    if (cfg.fiscalnet.mode === 'file') {
+      cfg.fiscalnet.bonuriDir = await ask('Folder Bonuri', d.bonuriDir);
+      cfg.fiscalnet.raspunsDir = await ask('Folder Raspuns', d.raspunsDir);
+    } else {
+      cfg.fiscalnet.apiUrl = await ask('URL API FiscalNet', d.apiUrl);
+    }
+  } else {
+    // config.json-ul de Plan 2 (fiscalnet.required=false): PC doar pentru
+    // imprimanta de bucătărie, fără FiscalNet — nu întrebăm de el.
+    log('info', 'FiscalNet: nefolosit pe acest PC (doar imprimanta de bucătărie) — sar peste.');
+  }
+  // Imprimanta de bucătărie (tichete, mig 227) — opțională; implicit „da" când
+  // config.json-ul din panou o cere (Planul 2).
+  const wantKitchen = (await ask('Imprimantă de bucătărie pentru tichete? (da/nu)', d.kitchen ? 'da' : 'nu')).toLowerCase();
+  const existingKitchen = existing.kitchen && typeof existing.kitchen === 'object' ? existing.kitchen : null;
   if (wantKitchen === 'da' || wantKitchen === 'yes' || wantKitchen === 'y') {
-    cfg.kitchen = { enabled: true };
-    const kMode = (await ask('Transport tichete (tcp/file)', 'tcp')).toLowerCase();
+    cfg.kitchen = { ...(existingKitchen || {}), enabled: true };
+    const kMode = (await ask('Transport tichete (tcp/file)', d.kitchenMode)).toLowerCase();
     cfg.kitchen.mode = kMode === 'file' ? 'file' : 'tcp';
     if (cfg.kitchen.mode === 'tcp') {
-      cfg.kitchen.host = await ask('IP imprimantă termică (port 9100)', '192.168.1.100');
-      cfg.kitchen.port = Number(await ask('Port', '9100')) || 9100;
+      cfg.kitchen.host = await ask('IP imprimantă termică (port 9100)', d.kitchenHost);
+      cfg.kitchen.port = Number(await ask('Port', d.kitchenPort)) || 9100;
     } else {
-      cfg.kitchen.dir = await ask('Folder tichete', 'C:\\Menuvia\\Tichete');
+      cfg.kitchen.dir = await ask('Folder tichete', d.kitchenDir);
     }
+  } else if (existingKitchen) {
+    cfg.kitchen = { ...existingKitchen, enabled: false };
+  } else {
+    delete cfg.kitchen;
   }
   if (rl) rl.close();
 
-  // Când rulează ca .exe împachetat (SEA/pkg), scriem lângă executabil ca autostart-ul
-  // (cwd = system32) să găsească același config. În dev, scriem în cwd.
-  const packaged = !process.argv[1] || !process.argv[1].endsWith('.js');
-  const targetDir = packaged ? path.dirname(process.execPath) : process.cwd();
-  const target = path.join(targetDir, 'config.json');
   fs.writeFileSync(target, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 });
   log('info', `Config scris în ${target}.`);
   log('info', 'Verifică apoi cu: menuvia-bridge --check');
@@ -198,7 +234,12 @@ async function doctor() {
   const dev = await validateDevice(cfg);
   log('info', `2/3 Supabase OK · ${dev.restaurant_name} (${dev.restaurant_id})`);
 
-  if (cfg.fiscalnet.mode === 'api') {
+  if (!cfg.fiscalnet.required) {
+    // PC doar pentru imprimanta de bucătărie (config.json de Plan 2, C7a): fără
+    // FiscalNet aici, verificarea lui ar pica mereu și `--check` ar ieși cu
+    // eroare pe o instalare corectă. Bucla fiscală NU se oprește (main).
+    log('info', '3/3 FiscalNet sărit · PC doar pentru imprimanta de bucătărie (fiscalnet.required=false)');
+  } else if (cfg.fiscalnet.mode === 'api') {
     try {
       // GET (NU POST!) — nu trimite comenzi, deci nu tipărește; orice răspuns HTTP
       // (chiar și 405) dovedește că FiscalNet ascultă pe port.

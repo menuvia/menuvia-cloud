@@ -26,6 +26,11 @@ Name: "ro"; MessagesFile: "compiler:Languages\Romanian.isl"
 
 [Files]
 Source: "..\dist\{#ExeName}"; DestDir: "{app}"; Flags: ignoreversion
+; config.json-ul descărcat din panou (fila Bridge → „Descarcă config.json", lotul
+; C7a), dacă stă în ACELAȘI folder cu installer-ul: se copiază lângă exe, iar
+; wizardul de la final îl preia (Enter = păstrează) — nimic de tastat în afară de
+; IP-ul imprimantei de bucătărie. Fără el, wizardul cere valorile ca înainte.
+Source: "{src}\config.json"; DestDir: "{app}"; Flags: external skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\Configurare Menuvia Bridge"; Filename: "{app}\{#ExeName}"; Parameters: "--setup"; WorkingDir: "{app}"
@@ -46,7 +51,7 @@ Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
 [Run]
 ; La finalul instalării: rulează wizardul de configurare (scrie config.json în {app}).
 Filename: "{app}\{#ExeName}"; Parameters: "--setup"; WorkingDir: "{app}"; \
-  Description: "Configurează acum (Supabase + device secret)"; \
+  Description: "Configurează acum (preia config.json-ul de lângă installer, dacă există)"; \
   Flags: postinstall runascurrentuser
 
 [UninstallDelete]

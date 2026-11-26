@@ -25,9 +25,18 @@ function formattersFor(lang: StaffLang): StaffFormatters {
   return f
 }
 
-export function useT<D extends Dict>(ns: Namespace<D>): StaffT<D> {
+/**
+ * `opts.lang` fixează limba TEXTELOR pe un ecran care nu urmează limba
+ * personalului — ecranele fiscale ale Planului 3 rămân în română prin lege
+ * (lib/fiscalScreens.ts), chiar dacă își împart textele cu varianta lor
+ * nefiscală (BridgeTab: imprimanta de bucătărie pe Planul 2 e tradusă, casa de
+ * marcat pe Planul 3 nu). Formatele (`fmt`) urmează în continuare limba
+ * utilizatorului. Cache-ul rămâne coerent: cheia e (dicționarul servit, limba
+ * utilizatorului), iar limba textelor se deduce din dicționar.
+ */
+export function useT<D extends Dict>(ns: Namespace<D>, opts?: { lang?: StaffLang }): StaffT<D> {
   const { lang } = useUiLang()
-  const r = readNamespace(ns, lang)
+  const r = readNamespace(ns, opts?.lang ?? lang)
   if ('pending' in r) throw r.pending
   // Cheia e dicționarul servit (nu namespace-ul): o încărcare eșuată pune
   // româna în cache, deci traducătorul se reface pe dicționarul real.

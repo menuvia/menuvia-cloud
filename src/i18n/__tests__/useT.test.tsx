@@ -11,6 +11,11 @@
 //        cont în română rămâne în română cu browserul în engleză (decizia
 //        fondatorului pentru conturile existente). Mutația care pică:
 //        `ENABLED_STAFF_LANGS` readus la `['ro']`.
+//   UT5  `useT(ns, { lang: 'ro' })` (ecranele fiscale ale Planului 3, lotul
+//        C7a): sub un provider francez textele ies SINCRON în română (fără
+//        Suspense, fără să ceară dicționarul francez), iar formatele rămân ale
+//        utilizatorului; control pozitiv: același namespace FĂRĂ opțiune
+//        suspendă. Mutația care pică: `opts.lang` ignorat în `useT`.
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { Suspense } from 'react'
 import { render, screen } from '@testing-library/react'
@@ -69,6 +74,41 @@ describe('useT', () => {
       </UiLangProvider>,
     )
     expect(await screen.findByText('en: On 04/09/2026')).toBeTruthy()
+  })
+
+  it('UT5 limba fixată: română sincronă sub provider francez, formatele în franceză', () => {
+    const ro = { when: 'La {d}' }
+    let frRequested = 0
+    const ns = defineNamespace('ut5', ro, {
+      fr: () => {
+        frRequested++
+        return new Promise<{ default: Translation<typeof ro> }>(() => {})
+      },
+    })
+    function When({ pin }: { pin: boolean }) {
+      const { t, fmt, lang } = useT(ns, pin ? { lang: 'ro' } : undefined)
+      return <p>{`${lang}: ${t('when', { d: fmt.date('2026-09-04T21:30:00Z', 'Europe/Paris') })}`}</p>
+    }
+    const pinned = render(
+      <UiLangProvider lang="fr" enabled={['ro', 'fr']}>
+        <Suspense fallback={<p>spinner</p>}>
+          <When pin />
+        </Suspense>
+      </UiLangProvider>,
+    )
+    expect(screen.getByText('ro: La 04/09/2026')).toBeTruthy()
+    expect(frRequested).toBe(0)
+    pinned.unmount()
+
+    render(
+      <UiLangProvider lang="fr" enabled={['ro', 'fr']}>
+        <Suspense fallback={<p>spinner</p>}>
+          <When pin={false} />
+        </Suspense>
+      </UiLangProvider>,
+    )
+    expect(screen.getByText('spinner')).toBeTruthy()
+    expect(frRequested).toBe(1)
   })
 
   afterEach(() => {

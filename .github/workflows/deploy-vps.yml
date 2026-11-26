@@ -56,6 +56,9 @@ jobs:
           # din netlify.toml (clichetul PE4 din tests/functions/posthog-env.test.js).
           VITE_POSTHOG_KEY: phc_mTaFQdzTfJXSRHvSBAmMXLhuBQpELZqWyr5uSiiXrPGS
           VITE_POSTHOG_HOST: https://eu.i.posthog.com
+          # Linkul installer-ului Bridge (fila Bridge, lotul C7a): variabilă de
+          # repo, nu secret (URL public). Nesetată = butonul nu apare.
+          VITE_BRIDGE_DOWNLOAD_URL: ${{ vars.VITE_BRIDGE_DOWNLOAD_URL }}
         run: |
           npm ci --no-audit --no-fund
           npm run build
