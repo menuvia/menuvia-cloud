@@ -87,7 +87,7 @@
 **Layout:** fundal `D` închis; **coloane pe status** (board): **Noi → În pregătire → Gata**. Fiecare comandă = card mare:
 - sus: **„Masa 12"** (Fraunces, mare) + timer crescător („acum 4 min" — devine chihlimbar la 10 min, roșu la 20);
 - mijloc: produse cu cantități, font 16+, modificatorii indentați, nota clientului în italic pe fundal soft;
-- jos: **un singur buton mare** pe lățime: „Confirmă" → „Începe" → „✓ Gata" (verbe scurte; statusurile vizibile: **Nouă / Confirmată / În pregătire / Gata**).
+- jos: **un singur buton mare** pe lățime: „Începe" → „✓ Gata" (verbe scurte; statusurile vizibile: **Nouă / Confirmată / În pregătire / Gata**). Lotul C3a a scos „Confirmă" ca pas: „Începe" trece comanda din `new` direct în pregătire (două atingeri pe comandă).
 
 **Sunet:** la comandă nouă (există). **Mobil/tabletă:** coloanele devin tab-uri orizontale; cardul rămâne full-width.
 **De evitat:** prețuri și totaluri (bucătaria nu are nevoie de bani pe ecran), butoane secundare pe card, scroll orizontal în card.

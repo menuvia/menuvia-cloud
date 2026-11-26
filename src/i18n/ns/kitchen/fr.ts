@@ -41,7 +41,13 @@ const fr: Translation<typeof ro> = {
 
   src_qr: 'QR',
   src_waiter: 'Serveur',
-  next_confirm: 'Confirmer',
+  next_start: 'Commencer',
+  ready_since: 'Prête depuis {age}',
+  ready_waiting: {
+    one: '+{n} attend le serveur',
+    many: '+{n} attendent le serveur',
+    other: '+{n} attendent le serveur',
+  },
 }
 
 export default fr

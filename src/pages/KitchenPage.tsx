@@ -8,6 +8,10 @@
 // nota de refuz (ActionErrorNote), detaliile de ridicare și panoul „Epuizate”
 // le folosesc și sunt montate CONDIȚIONAT — altfel, într-o limbă nouă, prima
 // eroare de pe un card ar suspenda și ar înlocui tot ecranul cu spinner-ul.
+// Lotul C3a: două atingeri pe comandă („Începe” → „Gata”), coloana „Gata de
+// servit” calmă (vârsta din `ready_at`, doar ultimele minute, lib/kitchenReady),
+// cantitatea ÎNAINTEA numelui (ca pe tichetul tipărit, mig 329) și „Anulează”
+// pentru owner/manager prin același dialog ca la ospătar.
 // =============================================================
 
 import {
@@ -25,10 +29,17 @@ import {
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { useOrders } from '../hooks/useOrders'
 import type { Order, OrderStatus, StaffActionFailure } from '../lib/orders'
-import { STAFF_ORDERS_FETCH_LIMIT } from '../lib/orders'
+import {
+  STAFF_ORDERS_FETCH_LIMIT,
+  describeCancelRejection,
+  getOrderPayments,
+  voidPaymentsAndCancel,
+} from '../lib/orders'
+import type { OrderPaymentRow } from '../lib/orders'
 import { D } from '../lib/constants'
 import { urgencyColor, playSound } from '../lib/utils'
-import { takeNewlyLate } from '../lib/orderAge'
+import { KITCHEN_PENDING_STATUSES, takeNewlyLate } from '../lib/orderAge'
+import { readyMoment, splitReadyColumn } from '../lib/kitchenReady'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import { useAudioUnlock } from '../hooks/useAudioUnlock'
 import { createTapGuard } from '../lib/tapGuard'
@@ -52,22 +63,29 @@ import { commonNs } from '../i18n/ns/common'
 import { elapsedT } from '../i18n/elapsed'
 // Panoul „Epuizate” (mig 313): încărcat doar la deschidere.
 const StaffSoldOutSheet = lazy(() => import('../components/StaffSoldOutSheet'))
+// Dialogul de anulare al ospătarului (lotul C3a, doar owner/manager): același
+// fișier, încărcat doar la deschidere, ca în WaiterPage.
+const CancelOrderDialog = lazy(() => import('../components/CancelOrderDialog'))
 
 // D imported from constants
 
-// Eticheta pasului: „Confirmă” e a Bucătăriei (`kitchen.next_confirm`), iar
-// „Marchează în pregătire” / „Gata” sunt cuvintele ospătarului (`orders.step_*`
-// — aceleași pe ambele ecrane, lotul L4a).
-type KitchenStep = 'confirm' | 'preparing' | 'ready'
+// Lotul C3a: DOUĂ atingeri pe comandă, nu trei. „Confirmă” nu mai e un pas:
+// serverul acceptă `start_preparing` direct din `new` pentru rolul kitchen
+// (mig 291), exact cum face ospătarul din O7b (lib/waiterSteps.ts), iar
+// urmăritorul oaspetelui bifează „Confirmată” odată cu „În pregătire”.
+// `confirmed → preparing` rămâne pentru rândurile vechi (confirmate de altcineva).
+// Eticheta „Începe” e a Bucătăriei (`kitchen.next_start`, scurtă pe tabletă);
+// „Gata” e cuvântul ospătarului (`orders.step_ready`, lotul L4a).
+type KitchenStep = 'start' | 'ready'
 const KITCHEN_NEXT: Partial<Record<OrderStatus, { status: OrderStatus; step: KitchenStep }>> = {
-  new: { status: 'confirmed', step: 'confirm' },
-  confirmed: { status: 'preparing', step: 'preparing' },
+  new: { status: 'preparing', step: 'start' },
+  confirmed: { status: 'preparing', step: 'start' },
   preparing: { status: 'ready', step: 'ready' },
 }
 
 // Board pe 3 coloane (DESIGN_SPEC Val 3): „Noi" cumulează new+confirmed —
 // vizual, fără schimbare de statusuri în backend. Butonul de pe card face
-// în continuare tranzițiile reale (new→confirmed→preparing→ready).
+// tranzițiile reale (new→preparing→ready; confirmed→preparing pe rândurile vechi).
 type ColumnId = 'new' | 'preparing' | 'ready'
 interface KitchenColumn {
   id: ColumnId
@@ -84,7 +102,9 @@ const COLUMNS: KitchenColumn[] = [
 
 // Acțiunea MUTĂ cardul în altă coloană? Atunci cardul de dedesubt urcă sub
 // deget și garda de dublu-tap respinge în fereastră un tap pe ORICE card;
-// altfel („Confirmă": new → confirmed, aceeași coloană) doar pe același card.
+// altfel doar pe același card. Din lotul C3a fiecare pas mută cardul („Începe”
+// trece din „Noi” în „În pregătire”), deci domeniul e mereu 'list'; calculul
+// rămâne generic, ca un pas viitor în aceeași coloană să nu fie înghițit.
 function columnOf(status: OrderStatus): number {
   return COLUMNS.findIndex((c) => c.statuses.includes(status))
 }
@@ -172,6 +192,40 @@ function ElapsedTimer({ createdAt }: { createdAt: string }) {
   )
 }
 
+// Cardul din „Gata de servit” (lotul C3a): CALM, fără escaladare — bucătăria
+// și-a terminat treaba, iar comanda nu mai poate fi scoasă de aici (o ridică
+// ospătarul). Timer-ul arată de cât timp e gata, din `ready_at`; fără el
+// (starea optimistă de după „Gata”) sau cu ceasul tabletei în urma serverului,
+// de acum — niciodată o vârstă negativă.
+function ReadyTimer({ readyAt }: { readyAt: string | null }) {
+  const { t } = useT(kitchenNs)
+  const tc = useT(commonNs)
+  const now = Date.now()
+  const since = Math.min(readyMoment({ ready_at: readyAt }, now), now)
+  const age = elapsedT(new Date(since).toISOString(), tc)
+  return (
+    <span
+      data-testid="kitchen-ready-timer"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        background: D.greenA,
+        color: D.greenText,
+        border: `1px solid ${D.greenBorder}`,
+        borderRadius: 10,
+        padding: '5px 10px',
+        fontSize: 15,
+        fontWeight: 700,
+        lineHeight: 1,
+        fontVariantNumeric: 'tabular-nums',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {t('ready_since', { age })}
+    </span>
+  )
+}
+
 interface OrderCardProps {
   order: Order
   onAdvance: (id: string, cur: OrderStatus, next: OrderStatus) => void
@@ -184,6 +238,11 @@ interface OrderCardProps {
   onDismissError?: (id: string) => void
   // Fusul OPERAȚIONAL al localului (lotul G2c) — ora de ridicare. Omis → București.
   timeZone?: string
+  // „Anulează” (lotul C3a): DOAR owner/manager — părintele nu dă callback-ul
+  // celorlalte roluri (bucătarul nu poate anula: `advance_order` îl respinge,
+  // iar un RPC îngust pentru el e decizie de fondator). Butonul apare doar pe
+  // comenzile încă nepregătite (new/confirmed/preparing).
+  onCancel?: (order: Order) => void
 }
 const OrderCard = memo(function OrderCard({
   order,
@@ -192,18 +251,17 @@ const OrderCard = memo(function OrderCard({
   actionError = null,
   onDismissError,
   timeZone,
+  onCancel,
 }: OrderCardProps) {
   const { t } = useT(kitchenNs)
   const to = useT(ordersNs)
   const next = KITCHEN_NEXT[order.status]
   const nextLabel =
-    next == null
-      ? ''
-      : next.step === 'confirm'
-        ? t('next_confirm')
-        : next.step === 'preparing'
-          ? to.t('step_preparing')
-          : to.t('step_ready')
+    next == null ? '' : next.step === 'start' ? t('next_start') : to.t('step_ready')
+  const isReady = order.status === 'ready'
+  // „Anulează” doar pe comenzile încă nepregătite (new/confirmed/preparing).
+  const cancel =
+    onCancel != null && KITCHEN_PENDING_STATUSES.includes(order.status) ? onCancel : null
   // Re-render la 10s (aceeași cadență ca ElapsedTimer) — altfel border-ul/fundalul
   // cardului rămâneau „calme" până la următorul poll (~30s) deși chip-ul de timp
   // devenise deja amber/roșu: stare vizuală contradictorie pe același card.
@@ -214,9 +272,12 @@ const OrderCard = memo(function OrderCard({
   }, [])
   // Pickup programat în viitor: încă nu întârzie → fără escaladare. După ora
   // de ridicare, urgența se măsoară față de ora PROMISĂ, nu față de plasare.
+  // O comandă GATA nu se escaladează deloc (lotul C3a): vârsta de la plasare
+  // nu mai e treaba bucătăriei, iar în coloana „Gata” cardurile roșii
+  // concurau vizual cu comenzile chiar întârziate din „În pregătire”.
   const pickupAhead = isScheduledPickupAhead(order)
   const anchor = urgencyAnchor(order)
-  const level: UrgencyLevel = pickupAhead ? 'calm' : urgencyLevel(anchor)
+  const level: UrgencyLevel = pickupAhead || isReady ? 'calm' : urgencyLevel(anchor)
   const urgColor = urgencyLevelColor(level)
   const isNew = order.status === 'new'
   // Urgența îmbracă TOT cardul (border + tentă de fundal), nu o dungă laterală.
@@ -241,7 +302,7 @@ const OrderCard = memo(function OrderCard({
     position: 'relative',
   }
   return (
-    <div style={card}>
+    <div style={card} data-testid="kitchen-card" data-urgency={level}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
         <div style={{ minWidth: 0 }}>
           <div
@@ -281,14 +342,55 @@ const OrderCard = memo(function OrderCard({
             </span>
           </div>
         </div>
-        {!pickupAhead && <ElapsedTimer createdAt={anchor} />}
+        {isReady ? (
+          <ReadyTimer readyAt={order.ready_at} />
+        ) : (
+          !pickupAhead && <ElapsedTimer createdAt={anchor} />
+        )}
       </div>
       <PickupDetails order={order} timeZone={timeZone} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {order.order_items.map((item) => (
-          <div key={item.id}>
-            <div style={{ fontSize: 15, color: D.t1, fontWeight: 600 }}>
-              {item.product_name_snapshot} × {item.quantity}
+          <div key={item.id} data-testid="kitchen-line">
+            {/* Cantitatea ÎNAINTE, ca pe tichetul tipărit (mig 329: „2x Nume”):
+                „Paste carbonara × 2” se citea ca o porție. Peste 1 e un chip
+                (bucătarul trebuie s-o vadă de la distanță); „1×” e estompat. */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'baseline',
+                gap: 8,
+                fontSize: 15,
+                color: D.t1,
+                fontWeight: 600,
+              }}
+            >
+              <span
+                data-testid="kitchen-qty"
+                data-multi={item.quantity > 1 ? 'true' : undefined}
+                style={
+                  item.quantity > 1
+                    ? {
+                        flexShrink: 0,
+                        background: D.goldA,
+                        color: D.goldL,
+                        border: `1px solid ${D.goldBorder}`,
+                        borderRadius: 6,
+                        padding: '1px 7px',
+                        fontWeight: 800,
+                        fontVariantNumeric: 'tabular-nums',
+                      }
+                    : {
+                        flexShrink: 0,
+                        color: D.t3,
+                        fontWeight: 700,
+                        fontVariantNumeric: 'tabular-nums',
+                      }
+                }
+              >
+                {item.quantity}×
+              </span>{' '}
+              <span style={{ minWidth: 0 }}>{item.product_name_snapshot}</span>
             </div>
             {/* Opțiunile, extra-urile plătite (lotul O2a — înainte nu apăreau
                 deloc) și nota per produs („fără ceapă"). Fără prețuri: bucătarul
@@ -327,6 +429,18 @@ const OrderCard = memo(function OrderCard({
           }}
         >
           {pending ? to.t('saving') : nextLabel}
+        </Button>
+      )}
+      {cancel != null && (
+        <Button
+          variant="ghost"
+          size="sm"
+          fullWidth
+          disabled={pending}
+          icon={<Icon name="close" size={14} color={D.red} />}
+          onClick={() => cancel(order)}
+        >
+          {to.t('card_cancel')}
         </Button>
       )}
       {actionError != null && (
@@ -400,11 +514,12 @@ export default function KitchenPage() {
   // Fusul OPERAȚIONAL al localului (lotul G2c): ora de ridicare de pe carduri.
   const localTz = restaurantTimeZone(activeRestaurant)
   // Toate trei SUS, înaintea oricărui return timpuriu (vezi antetul fișierului).
-  const { t } = useT(kitchenNs)
-  useT(ordersNs)
+  const { t, tp } = useT(kitchenNs)
+  const to = useT(ordersNs)
   useT(commonNs)
   // Owner/manager ajung aici din panou și au nevoie de drumul înapoi;
   // bucătarul nu are panou (lib/roleRouting.ts îl trimite oricum aici).
+  // Tot ei (și DOAR ei) au „Anulează” pe carduri (lotul C3a).
   const isAdminRole = activeRole === 'owner' || activeRole === 'manager'
   const prevOrderIds = useRef(new Set<string>())
   // Primul snapshot hidratat NU e „comandă nouă" — altfel beep-ul suna la încărcarea
@@ -415,6 +530,24 @@ export default function KitchenPage() {
   // redeschide bannerul.
   const [dismissedError, setDismissedError] = useState<string | null>(null)
   const [showSoldOut, setShowSoldOut] = useState(false)
+  // Anularea (lotul C3a, doar owner/manager) — exact fluxul ospătarului
+  // (WaiterPage): plățile comenzii se citesc la deschiderea dialogului,
+  // TRISTATE (null = necunoscut → dialogul nu blochează, serverul decide;
+  // anularea peste bani încasați e respinsă în DATE, mig 270), iar refuzul
+  // serverului ajunge ÎN dialog, cu textul lui (describeCancelRejection).
+  const [cancelOrder, setCancelOrder] = useState<Order | null>(null)
+  const [cancelPayments, setCancelPayments] = useState<OrderPaymentRow[] | null>(null)
+  // Comenzile gata de mai mult timp (rândul „+N așteaptă ospătarul”): închise
+  // implicit, se deschid la atingere (lib/kitchenReady).
+  const [showOlderReady, setShowOlderReady] = useState(false)
+  // Ceasul coloanei „Gata”: o comandă trece în rândul „așteaptă” odată cu
+  // trecerea timpului, fără niciun eveniment — pagina se re-randează la 30 s
+  // (cardurile sunt memo, deci doar cele cu props noi se refac).
+  const [, setReadyTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setReadyTick((n) => n + 1), 30_000)
+    return () => clearInterval(id)
+  }, [])
 
   const {
     orders,
@@ -432,8 +565,8 @@ export default function KitchenPage() {
   // Sunetul pentru comandă nouă: deblocat la PRIMA atingere a ecranului;
   // până atunci un banner o cere (altfel beep-ul era mut fără niciun semn).
   const sound = useAudioUnlock()
-  // Anti dublu-tap între carduri: „Gata" mută cardul în altă coloană, iar
-  // cardul de dedesubt urcă sub deget (lib/tapGuard.ts).
+  // Anti dublu-tap între carduri: „Începe” și „Gata" mută cardul în altă
+  // coloană, iar cardul de dedesubt urcă sub deget (lib/tapGuard.ts).
   const tapGuard = useMemo(() => createTapGuard(), [])
   // Indicatorul reflectă starea REALĂ a canalului de comenzi (useOrders), nu un canal de
   // prezență separat care putea arăta „Conectat" când realtime-ul comenzilor era căzut.
@@ -472,7 +605,28 @@ export default function KitchenPage() {
     lateAlerted.current = new Set<string>()
     lateBaselineDone.current = false
     setDismissedError(null)
+    setShowOlderReady(false)
+    setCancelOrder(null)
   }, [restaurantId])
+
+  useEffect(() => {
+    if (cancelOrder == null) {
+      setCancelPayments(null)
+      return
+    }
+    let alive = true
+    setCancelPayments(null)
+    void getOrderPayments(cancelOrder.id)
+      .then((ps) => {
+        if (alive) setCancelPayments(ps)
+      })
+      .catch(() => {
+        if (alive) setCancelPayments(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [cancelOrder])
 
   // Verificarea rulează la fiecare schimbare a comenzilor ȘI la 10 s (o comandă
   // devine întârziată odată cu trecerea timpului, fără niciun eveniment); efectul
@@ -778,6 +932,47 @@ export default function KitchenPage() {
         </Suspense>
       )}
 
+      {cancelOrder != null && (
+        <Suspense fallback={null}>
+          <CancelOrderDialog
+            order={cancelOrder}
+            payments={cancelPayments}
+            onClose={() => setCancelOrder(null)}
+            onVoidAndCancel={async (reason) => {
+              // Storno pe TOATE plățile + anulare într-un singur RPC (o singură
+              // tranzacție), ca la ospătar: banii au fost returnați, fiecare
+              // storno e auditat server-side, doar owner/manager.
+              try {
+                await voidPaymentsAndCancel(cancelOrder.id, reason)
+                setCancelOrder(null)
+                return { ok: true }
+              } catch (e) {
+                void getOrderPayments(cancelOrder.id)
+                  .then(setCancelPayments)
+                  .catch(() => setCancelPayments(null))
+                return { ok: false, message: describeCancelRejection(e, to) }
+              }
+            }}
+            onConfirm={async (reason) => {
+              try {
+                await advance(
+                  cancelOrder.id,
+                  cancelOrder.status,
+                  { status: 'cancelled', cancel_reason: reason },
+                  { throwOnError: true },
+                )
+                setCancelOrder(null)
+                return { ok: true }
+              } catch (e) {
+                // Refuzul serverului (cancel_over_payments / role_insufficient /
+                // …) ajunge ÎN dialog, cu textul lui, nu ca eroare generică.
+                return { ok: false, message: describeCancelRejection(e, to) }
+              }
+            }}
+          />
+        </Suspense>
+      )}
+
       {/* Kanban */}
       <div
         style={{
@@ -790,11 +985,31 @@ export default function KitchenPage() {
         }}
       >
         {COLUMNS.map((col) => {
-          // „Când trebuie să fie gata": pickup după ora de ridicare, restul FIFO.
-          const colOrders = sortByDue(byStatus(col.statuses))
+          const colOrders = byStatus(col.statuses)
+          // „Gata de servit” (lotul C3a): doar comenzile gata din ultimele
+          // minute, cea mai recentă sus; restul în rândul „+N așteaptă
+          // ospătarul” (lib/kitchenReady). Celelalte coloane: „când trebuie să
+          // fie gata” — pickup după ora de ridicare, restul FIFO.
+          const split = col.id === 'ready' ? splitReadyColumn(colOrders, Date.now()) : null
+          const shown = split != null ? split.recent : sortByDue(colOrders)
+          const waiting = split != null ? split.waiting : []
+          const renderCard = (order: Order, i: number): ReactNode => (
+            <RevealItem key={order.id} delay={Math.min(i, 4) * 40}>
+              <OrderCard
+                order={order}
+                timeZone={localTz}
+                onAdvance={handleAdvance}
+                pending={pendingIds.has(order.id)}
+                actionError={actionErrors[order.id] ?? null}
+                onDismissError={dismissActionError}
+                onCancel={isAdminRole ? setCancelOrder : undefined}
+              />
+            </RevealItem>
+          )
           return (
             <div
               key={col.id}
+              data-testid={`kitchen-col-${col.id}`}
               style={{
                 background: D.s1,
                 borderRight: `1px solid ${D.s3}`,
@@ -824,7 +1039,10 @@ export default function KitchenPage() {
                 >
                   {t(col.labelKey)}
                 </span>
+                {/* Totalul coloanei: în „Gata” include și comenzile strânse în
+                    rândul „așteaptă ospătarul” (sunt tot în starea asta). */}
                 <span
+                  data-testid="kitchen-col-count"
                   style={{
                     background: D.s3,
                     color: D.t2,
@@ -847,18 +1065,20 @@ export default function KitchenPage() {
                   gap: 10,
                 }}
               >
-                {colOrders.map((order, i) => (
-                  <RevealItem key={order.id} delay={Math.min(i, 4) * 40}>
-                    <OrderCard
-                      order={order}
-                      timeZone={localTz}
-                      onAdvance={handleAdvance}
-                      pending={pendingIds.has(order.id)}
-                      actionError={actionErrors[order.id] ?? null}
-                      onDismissError={dismissActionError}
-                    />
-                  </RevealItem>
-                ))}
+                {shown.map(renderCard)}
+                {waiting.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    fullWidth
+                    aria-expanded={showOlderReady}
+                    icon={<Icon name={showOlderReady ? 'chevronUp' : 'chevronDown'} size={14} />}
+                    onClick={() => setShowOlderReady((v) => !v)}
+                  >
+                    {tp('ready_waiting', waiting.length)}
+                  </Button>
+                )}
+                {showOlderReady && waiting.map(renderCard)}
                 {colOrders.length === 0 && (
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                     <EmptyState
