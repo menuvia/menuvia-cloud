@@ -26,9 +26,21 @@
 //        `setError(toUserMessage(e, …))` cu text compus la încărcare.
 //   AY5  restaurantul din afara României (gate-ul fiscal neschimbat, nimic
 //        nu se încarcă): mesajul în franceză, fără rest românesc.
+//   XD10 lotul C6a: graficele zilnice au FIECARE zi a ferestrei — pe 30 de
+//        zile, 30 de puncte de la 17.10 la 15.11, în ordine; ziua cu comenzi
+//        (03.11) are venitul ei, toate celelalte 0. Mutația care pică: seria
+//        din rândurile `v_daily_orders` (un punct, doar ziua cu comenzi).
+//   XP7  lotul C6a: intervalul ales („7 zile”) supraviețuiește demontării
+//        filei, iar butoanele intervalului au `aria-pressed`. Control: la
+//        prima montare, „30 zile” e apăsat. Mutația care pică: `useState(30)`
+//        readus în locul `useSessionChoice`.
+// Ceasul e FIX (doar `Date`, 15 nov 2026 la prânz): fereastra de 30 de zile
+// conține 03.11, ziua din date, oricând ar rula CI-ul. `sessionStorage` se
+// golește înaintea fiecărui test (intervalul ales se păstrează pe sesiune).
 import { Suspense, type ReactNode } from 'react'
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 const h = vi.hoisted(() => ({ result: vi.fn() }))
 
@@ -52,8 +64,16 @@ vi.mock('recharts', async () => {
   const Chart = ({ data, children }: Kids & { data?: Array<Record<string, unknown>> }) =>
     createElement(
       'div',
-      null,
-      createElement('span', null, (data ?? []).map((d) => String(d.day ?? d.hour ?? '')).join(' | ')),
+      { 'data-chart': '' },
+      // Un element per punct (eticheta EXACTĂ, căutabilă cu getAllByText) cu
+      // venitul în atribut — o zi fără vânzări e un punct cu 0, nu lipsește.
+      (data ?? []).map((d, i) =>
+        createElement(
+          'span',
+          { key: i, 'data-day': '', 'data-revenue': d.revenue === undefined ? undefined : String(d.revenue) },
+          String(d.day ?? d.hour ?? ''),
+        ),
+      ),
       children,
     )
   const Pie = ({ data }: { data: Array<{ name: string }> }) =>
@@ -132,7 +152,13 @@ const DATA: Record<string, { data: unknown[]; error: null }> = {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-15T10:00:00Z'))
+  window.sessionStorage.clear()
   h.result.mockReset().mockImplementation((table: string) => DATA[table] ?? { data: [], error: null })
+})
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 // Cache-ul de sesiune al filei e pe (restaurant, zile): fiecare test are
@@ -283,5 +309,43 @@ describe('Statistici în limba personalului', () => {
         'Statisticile de încasări se bazează pe datele fiscale și sunt disponibile doar pentru restaurantele din România.',
       ),
     ).toBeInTheDocument()
+  })
+
+  it('XD10: fiecare zi a ferestrei pe grafic, cu 0 pe zilele fără comenzi', async () => {
+    const { container } = render(tree(null, tab(nextId())))
+    await screen.findByText('Venit pe zi')
+    // Primul grafic e „Venit pe zi” (LineChart), al doilea „Comenzi pe zi”.
+    const charts = [...container.querySelectorAll('[data-chart]')]
+    expect(charts.length).toBeGreaterThanOrEqual(2)
+    for (const chart of charts.slice(0, 2)) {
+      const points = [...chart.querySelectorAll('span[data-day]')]
+      expect(points.map((p) => p.textContent)).toHaveLength(30)
+      expect(points[0]!.textContent).toBe('17.10')
+      expect(points[29]!.textContent).toBe('15.11')
+      // Ordinea e cronologică: 31.10 vine înaintea lui 01.11.
+      const labels = points.map((p) => p.textContent)
+      expect(labels.indexOf('31.10')).toBe(labels.indexOf('01.11') - 1)
+      const withSales = points.filter((p) => p.getAttribute('data-revenue') !== '0')
+      expect(withSales.map((p) => p.textContent)).toEqual(['03.11'])
+      expect(withSales[0]!.getAttribute('data-revenue')).toBe('200')
+    }
+  })
+
+  it('XP7: intervalul ales rămâne după demontarea filei; butoanele au aria-pressed', async () => {
+    const user = userEvent.setup()
+    const id = nextId()
+    const first = render(tree(null, tab(id)))
+    expect(await screen.findByText('Ultimele 30 zile')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '30 zile' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '7 zile' })).toHaveAttribute('aria-pressed', 'false')
+    await user.click(screen.getByRole('button', { name: '7 zile' }))
+    expect(await screen.findByText('Ultimele 7 zile')).toBeInTheDocument()
+    first.unmount()
+
+    // Fila revenită (remontată) pornește de unde a rămas.
+    render(tree(null, tab(id)))
+    expect(await screen.findByText('Ultimele 7 zile')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '7 zile' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '30 zile' })).toHaveAttribute('aria-pressed', 'false')
   })
 })

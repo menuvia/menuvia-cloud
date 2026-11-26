@@ -1,17 +1,28 @@
 // src/lib/reportsExport.ts — textele fila Vânzări care nu sunt JSX (lotul L7):
-// eticheta perioadei, ziua de pe graficul de venituri și cele două exporturi
-// (CSV, PDF). Pur: primește traducătorul namespace-ului `reports` ca
-// parametru și importă din `i18n/ns` doar TIPUL (SK4).
-// În română ieșirea e BYTE-identică cu exportul de dinainte (antetele CSV,
-// titlurile secțiunilor, liniile PDF, numele fișierelor) — reportsLang.test.ts
-// o compară cu o copie VERBATIM a codului vechi din ReportsTab (oracol).
+// eticheta perioadei și cele două exporturi (CSV, PDF). Pur: primește
+// traducătorul namespace-ului `reports` ca parametru și importă din `i18n/ns`
+// doar TIPUL (SK4).
+// În română TEXTELE sunt cele de dinainte (antetele CSV, titlurile secțiunilor,
+// liniile PDF) — reportsLang.test.ts le compară cu o copie VERBATIM a codului
+// vechi din ReportsTab (oracol). Lotul C6a a schimbat DELIBERAT forma CSV-ului
+// (nu textele): un singur BOM, la octetul 0 (înainte unul în fața FIECĂREI
+// secțiuni și niciunul la început → diacriticele ieșeau stricate în Excel),
+// separatorul și semnul zecimal ale limbii (`reportCsvDialect`) și intervalul
+// de zile în numele fișierului (înainte „raport-menuvia-azi.csv” în fiecare zi).
 // Ce NU se traduce (date): numele produselor/ospătarilor/categoriilor, sumele
-// (`toFixed` + „lei”, în orice limbă — formatul de azi; un CSV cu virgulă
-// zecimală ar schimba coloanele numerice), procentele, ora („14:00”).
+// (`toFixed` + „lei” în PDF), procentele, ora („14:00”).
 import type { Translator } from '../i18n/core'
+import type { StaffLang } from '../i18n/langs'
 import type reportsRo from '../i18n/ns/reports/ro'
-import { toCsv, type CategorySalesRow, type HourlySalesRow, type WaiterSalesRow } from './reports'
-import { DEFAULT_RESTAURANT_TZ, addDaysYmd, formatYmd, safeTimeZone, toZonedYMD } from './dates'
+import {
+  csvCell,
+  toCsv,
+  type CategorySalesRow,
+  type CsvDialect,
+  type HourlySalesRow,
+  type WaiterSalesRow,
+} from './reports'
+import { addDaysYmd, formatYmd, toZonedYMD } from './dates'
 
 export type ReportsT = Translator<typeof reportsRo>
 
@@ -98,22 +109,18 @@ export function periodLabelT(
   })
 }
 
-// Ziua de pe axa graficului (în română „15.11”, ca înainte), în fusul zilei de
-// raportare a ecranului (implicit București — singurul fus pe care îl are
-// suprafața fiscală, unde graficul de venituri e vizibil). Un formatter per
-// (limbă, fus), construit o singură dată (OPT-R2: nu per comandă în buclă).
-// Fusul trece prin `safeTimeZone`, ca restul helperilor zonați: un fus invalid
-// dă București, nu RangeError în randarea graficului.
-const dayFormatters = new Map<string, Intl.DateTimeFormat>()
-export function chartDayLabel(locale: string, iso: string, timeZone: string = DEFAULT_RESTAURANT_TZ): string {
-  const tz = safeTimeZone(timeZone)
-  const key = `${locale}|${tz}`
-  let f = dayFormatters.get(key)
-  if (!f) {
-    f = new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', timeZone: tz })
-    dayFormatters.set(key, f)
-  }
-  return f.format(new Date(iso))
+// Ziua de pe axa graficului: din lotul C6a, graficul are FIECARE zi a
+// intervalului (`chartSeries`, lib/dailySeries.ts), cu cheia YYYY-MM-DD deja în
+// fusul zilei de raportare (`reportDayTotals`), iar eticheta e acea DATĂ
+// formatată (`seriesPointLabel`) — fără instantul „primei comenzi din zi” pe
+// care îl formata înainte `chartDayLabel`.
+
+/** Dialectul CSV-ului după limba UTILIZATORULUI (formatul, ca `staffLocale` —
+ *  nu limba dicționarului servit): „;” și virgula zecimală în română, franceză
+ *  și germană, unde Excel-ul regional desparte lista cu „;”; „,” și punctul în
+ *  engleză. */
+export function reportCsvDialect(lang: StaffLang): CsvDialect {
+  return lang === 'en' ? { sep: ',', decimal: '.' } : { sep: ';', decimal: ',' }
 }
 
 export interface ReportExportData {
@@ -124,105 +131,134 @@ export interface ReportExportData {
   hourlySales: readonly HourlySalesRow[]
 }
 
-/** Exportul CSV: numele fișierului + conținutul (secțiuni separate de un rând
- *  gol, fiecare tabel prin `toCsv`, ca înainte). */
+/** Exportul CSV: numele fișierului + conținutul. Secțiunile (titlul, apoi un
+ *  tabel per secțiune prin `toCsv`) sunt separate de un rând gol, ca înainte;
+ *  din lotul C6a fișierul are UN singur BOM UTF-8, la octetul 0 (Excel
+ *  recunoaște UTF-8 doar așa — tabelele se construiesc fără BOM), iar tabelele
+ *  sunt în `dialect` (`reportCsvDialect(limba utilizatorului)`): separatorul de
+ *  coloane și semnul zecimal al sumelor. Numele fișierului poartă intervalul,
+ *  ca PDF-ul. */
 export function buildReportCsv(
   tr: ReportsT,
   label: string,
+  range: { from: string; to: string },
   d: ReportExportData,
+  dialect: CsvDialect,
 ): { filename: string; content: string } {
   const m = d.metrics
-  const safe = label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()
+  const opts = { ...dialect, bom: false }
+  // Sumele: `toFixed` ca înainte, cu semnul zecimal al dialectului (în
+  // română „845,50”, pe care Excel-ul românesc îl citește ca număr).
+  const num = (n: number, digits = 2): string => n.toFixed(digits).replace('.', dialect.decimal)
+  // Rândurile de text (titlul, „# Sumar”…) trec prin aceeași celulă CSV: un
+  // separator în etichetă nu poate rupe rândul în coloane.
+  const line = (text: string): string => csvCell(text, dialect)
   const sections: string[] = []
 
-  sections.push(tr.t('csv_title', { label }))
+  sections.push(line(tr.t('csv_title', { label })))
   sections.push('')
 
-  sections.push(tr.t('csv_summary'))
+  sections.push(line(tr.t('csv_summary')))
   sections.push(
-    toCsv([
-      {
-        [tr.t('csvh_orders')]: m.totalOrders,
-        [tr.t('csvh_revenue')]: m.revenue.toFixed(2),
-        [tr.t('csvh_avgTicket')]: m.avgTicket.toFixed(2),
-        [tr.t('csvh_cash')]: m.cashRev.toFixed(2),
-        [tr.t('csvh_card')]: m.cardRev.toFixed(2),
-        [tr.t('csvh_voucher')]: m.voucherRev.toFixed(2),
-        [tr.t('csvh_online')]: m.onlineRev.toFixed(2),
-        [tr.t('csvh_other')]: m.otherRev.toFixed(2),
-        [tr.t('csvh_qrOrders')]: m.qrOrders,
-        [tr.t('csvh_waiterOrders')]: m.waiterOrders,
-      },
-    ]),
+    toCsv(
+      [
+        {
+          [tr.t('csvh_orders')]: m.totalOrders,
+          [tr.t('csvh_revenue')]: num(m.revenue),
+          [tr.t('csvh_avgTicket')]: num(m.avgTicket),
+          [tr.t('csvh_cash')]: num(m.cashRev),
+          [tr.t('csvh_card')]: num(m.cardRev),
+          [tr.t('csvh_voucher')]: num(m.voucherRev),
+          [tr.t('csvh_online')]: num(m.onlineRev),
+          [tr.t('csvh_other')]: num(m.otherRev),
+          [tr.t('csvh_qrOrders')]: m.qrOrders,
+          [tr.t('csvh_waiterOrders')]: m.waiterOrders,
+        },
+      ],
+      opts,
+    ),
   )
   sections.push('')
 
   if (d.topProducts.length > 0) {
-    sections.push(tr.t('csv_top'))
+    sections.push(line(tr.t('csv_top')))
     sections.push(
       toCsv(
         d.topProducts.map((p, i) => ({
           '#': i + 1,
           [tr.t('csvh_product')]: p.name,
           [tr.t('csvh_quantity')]: p.qty,
-          [tr.t('csvh_revenue')]: p.revenue.toFixed(2),
-          [tr.t('csvh_avgPrice')]: (p.revenue / p.qty).toFixed(2),
+          [tr.t('csvh_revenue')]: num(p.revenue),
+          [tr.t('csvh_avgPrice')]: num(p.revenue / p.qty),
         })),
+        opts,
       ),
     )
     sections.push('')
   }
 
   if (d.waiterSales.length > 0) {
-    sections.push(tr.t('csv_waiters'))
+    sections.push(line(tr.t('csv_waiters')))
     sections.push(
       toCsv(
         d.waiterSales.map((w) => ({
           [tr.t('csvh_waiter')]: waiterRowLabel(w, tr),
           [tr.t('csvh_orders')]: w.order_count,
-          [tr.t('csvh_revenue')]: w.total_revenue.toFixed(2),
-          [tr.t('csvh_avgTicket')]: w.avg_ticket.toFixed(2),
-          [tr.t('csvh_discounts')]: w.discount_total.toFixed(2),
+          [tr.t('csvh_revenue')]: num(w.total_revenue),
+          [tr.t('csvh_avgTicket')]: num(w.avg_ticket),
+          [tr.t('csvh_discounts')]: num(w.discount_total),
         })),
+        opts,
       ),
     )
     sections.push('')
   }
 
   if (d.categorySales.length > 0) {
-    sections.push(tr.t('csv_categories'))
+    sections.push(line(tr.t('csv_categories')))
     sections.push(
       toCsv(
         d.categorySales.map((c) => ({
           [tr.t('csvh_category')]: categoryRowLabel(c, tr),
           [tr.t('csvh_itemsSold')]: c.item_count,
-          [tr.t('csvh_revenue')]: c.total_revenue.toFixed(2),
-          [tr.t('csvh_pctTotal')]: c.percent_total.toFixed(1) + '%',
+          [tr.t('csvh_revenue')]: num(c.total_revenue),
+          [tr.t('csvh_pctTotal')]: num(c.percent_total, 1) + '%',
         })),
+        opts,
       ),
     )
     sections.push('')
   }
 
   if (d.hourlySales.some((h) => h.order_count > 0)) {
-    sections.push(tr.t('csv_hourly'))
+    sections.push(line(tr.t('csv_hourly')))
     sections.push(
       toCsv(
         d.hourlySales.map((h) => ({
           [tr.t('csvh_hour')]: `${String(h.hour).padStart(2, '0')}:00`,
           [tr.t('csvh_orders')]: h.order_count,
-          [tr.t('csvh_revenue')]: h.total_revenue.toFixed(2),
+          [tr.t('csvh_revenue')]: num(h.total_revenue),
         })),
+        opts,
       ),
     )
   }
 
-  return { filename: tr.t('csv_file', { slug: safe }), content: sections.join('\n') }
+  return { filename: reportCsvFilename(tr, range.from, range.to), content: '\uFEFF' + sections.join('\n') }
+}
+
+// Intervalul din numele fișierelor: AAAA-LL-ZZ, sau AAAA-LL-ZZ-AAAA-LL-ZZ.
+const rangeSlug = (from: string, to: string): string => `${from}${from !== to ? '-' + to : ''}`
+
+/** Numele fișierului CSV: intervalul, ca la PDF (înainte eticheta perioadei —
+ *  „raport-menuvia-azi.csv” era ACELAȘI în fiecare zi). */
+export function reportCsvFilename(tr: ReportsT, from: string, to: string): string {
+  return tr.t('csv_file', { range: rangeSlug(from, to) })
 }
 
 /** Numele fișierului PDF: intervalul în AAAA-LL-ZZ (o singură zi = o dată). */
 export function reportPdfFilename(tr: ReportsT, from: string, to: string): string {
-  return tr.t('pdf_file', { range: `${from}${from !== to ? '-' + to : ''}` })
+  return tr.t('pdf_file', { range: rangeSlug(from, to) })
 }
 
 /** Liniile de text ale PDF-ului, în ordinea în care le scrie ReportsTab. */

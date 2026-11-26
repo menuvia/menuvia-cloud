@@ -277,6 +277,23 @@ export function lastDaysStartYmd(todayYmd: string, days: number): string {
   return addDaysYmd(todayYmd, 1 - Math.max(1, Math.floor(days)))
 }
 
+/** Un șir `YYYY-MM-DD` care e o dată calendaristică REALĂ (fără 30 februarie
+ *  sau luna 13): forma potrivită și normalizarea pe `Date.UTC` îl lasă neatins.
+ *  Pentru valorile citite din stocare (lotul C6a), nu pentru datele serverului. */
+export function isValidYmd(v: unknown): v is string {
+  return typeof v === 'string' && parseYmd(v) !== null && addDaysYmd(v, 0) === v
+}
+
+/** Lunea săptămânii calendaristice (luni–duminică) a zilei `ymd`, pe ȘIR, ca
+ *  `addDaysYmd` (ziua săptămânii vine din `Date.UTC`, nu din fusul gazdei).
+ *  Șir care nu e o dată → neschimbat. */
+export function weekStartYmd(ymd: string): string {
+  const p = parseYmd(ymd)
+  if (!p) return ymd
+  const dow = new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay() // 0 = duminică
+  return addDaysYmd(ymd, -((dow + 6) % 7))
+}
+
 const DAY_MS = 86_400_000
 
 /**

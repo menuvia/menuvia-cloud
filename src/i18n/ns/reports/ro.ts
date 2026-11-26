@@ -61,6 +61,11 @@ const ro = {
   pct_ofTotal: '{pct}% din total',
   // ── Graficele ──
   chart_dailyTitle: 'Venituri zilnice',
+  // Peste 62 de zile graficul are o bară pe SĂPTĂMÂNĂ (lotul C6a).
+  chart_weeklyTitle: 'Venituri pe săptămână',
+  // Planurile 1/2 (fără sume): același grafic, pe numărul de comenzi.
+  chart_dailyOrdersTitle: 'Comenzi pe zi',
+  chart_weeklyOrdersTitle: 'Comenzi pe săptămână',
   chart_revenue: 'Venituri',
   chart_orders: 'Comenzi',
   // ── Top produse ──
@@ -117,8 +122,9 @@ const ro = {
   csvh_itemsSold: 'Bucăți vândute',
   csvh_pctTotal: '% din total',
   csvh_hour: 'Ora',
-  // `{slug}` = eticheta perioadei, redusă la [a-z0-9-].
-  csv_file: 'raport-menuvia-{slug}.csv',
+  // `{range}` = AAAA-LL-ZZ sau AAAA-LL-ZZ-AAAA-LL-ZZ, ca la PDF (lotul C6a;
+  // înainte eticheta perioadei, deci „raport-menuvia-azi.csv” în fiecare zi).
+  csv_file: 'raport-menuvia-{range}.csv',
   // ── Exportul PDF (lib/reportsExport.ts) ──
   pdf_title: 'Raport Menuvia',
   pdf_summary: 'Sumar',

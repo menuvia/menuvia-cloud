@@ -16,8 +16,16 @@
 //        Control: fără prop (București) aceeași clipă e 15 nov → de la 14 nov
 //        22:00Z. Mutația care pică: prop-ul ignorat (`zonedDayRange(…,
 //        DEFAULT_RESTAURANT_TZ)`) sau scos din DashboardPage (ZT5).
-import { afterEach, describe, it, expect, vi } from 'vitest'
+//   XP6  lotul C6a: perioada aleasă („7 zile”) supraviețuiește demontării
+//        filei (DashboardPage montează filele condiționat), iar pe Planul 2
+//        graficul „Comenzi pe zi” apare pe un interval de mai multe zile (pe
+//        „Azi”, o singură zi, nu). Control POZITIV: cu `sessionStorage` golit,
+//        fila pornește iar pe „Azi”. Mutația care pică: `useState('today')`
+//        readus în locul `useSessionChoice`.
+// `sessionStorage` se golește înaintea fiecărui test: RP3 cere perioada „Azi”.
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 const { rows, filters } = vi.hoisted(() => {
   const now = new Date().toISOString()
@@ -71,6 +79,7 @@ vi.mock('../../lib/reports', () => ({
   fetchHourlySales: async () => [],
   fetchCategorySales: async () => [],
   toCsv: () => '',
+  csvCell: (v: unknown) => String(v ?? ''),
   downloadCsv: vi.fn(),
 }))
 vi.mock('../../lib/pdf', () => ({ patchPdfDiacritics: vi.fn() }))
@@ -132,6 +141,36 @@ describe('ReportsTab — sumele doar pe planul cu bon', () => {
     expect(ro).toContainEqual(['orders', 'gte', 'created_at', '2026-11-14T22:00:00.000Z'])
     expect(ro).toContainEqual(['orders', 'lte', 'created_at', '2026-11-15T21:59:59.999Z'])
   })
+
+  it('XP6: perioada aleasă rămâne după demontarea filei; graficul de comenzi pe Planul 2', async () => {
+    const user = userEvent.setup()
+    const first = render(<ReportsTab restaurantId="r1" fiscalReports={false} />)
+    expect(await screen.findByText('Supă de roșii')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Azi' })).toHaveAttribute('aria-pressed', 'true')
+    // O singură zi = fără grafic, ca înainte.
+    expect(screen.queryByText('Comenzi pe zi')).toBeNull()
+    await user.click(screen.getByRole('button', { name: '7 zile' }))
+    expect(await screen.findByText('Comenzi pe zi')).toBeInTheDocument()
+    first.unmount()
+
+    // Fila revenită (remontată) pornește de unde a rămas.
+    const second = render(<ReportsTab restaurantId="r1" fiscalReports={false} />)
+    expect(await screen.findByText('Supă de roșii')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '7 zile' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Ultimele 7 zile', { selector: 'p' })).toBeInTheDocument()
+    second.unmount()
+
+    // Control: fără alegerea salvată, iar „Azi”.
+    window.sessionStorage.clear()
+    render(<ReportsTab restaurantId="r1" fiscalReports={false} />)
+    expect(await screen.findByText('Supă de roșii')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Azi' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '7 zile' })).toHaveAttribute('aria-pressed', 'false')
+  })
+})
+
+beforeEach(() => {
+  window.sessionStorage.clear()
 })
 
 afterEach(() => {

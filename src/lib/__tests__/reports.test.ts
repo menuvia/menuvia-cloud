@@ -89,3 +89,35 @@ describe('toCsv()', () => {
     expect(toCsv([{ x: -5 }])).toBe(`${BOM}x\n-5`)
   })
 })
+
+// Lotul C6a: CSV-ul deschis corect de Excel-ul regional (prefixul XL, cu XL1–XL3
+// în reportsLang.test.ts; verificat cu grep, nefolosit înainte).
+//   XL4  dialectul „;” + „,”: numerele cu virgulă zecimală, o celulă cu „;”
+//        în ghilimele, una cu „,” NU (sub „;” virgula nu mai e separator).
+//        Mutația care pică: quoting-ul legat de „,” în loc de separatorul ales.
+//   XL5  `bom: false` = fără BOM (secțiunile unui fișier compus); implicitul
+//        păstrează BOM-ul (testul „include BOM” de mai sus = controlul).
+//   XL6  o sumă negativă deja formatată („-3,50”) rămâne număr (fără
+//        apostrof), iar formulele, inclusiv „-1+1”, sunt neutralizate în
+//        continuare. Mutația care pică: excepția scoasă (Excel ia „'-3,50”
+//        drept text) SAU lărgită până la orice șir care începe cu „-”.
+describe('toCsv() — dialectul (C6a)', () => {
+  it('XL4: separator „;” și virgulă zecimală', () => {
+    const csv = toCsv([{ a: 3.1, b: 'x;y', c: 'p,q', d: 7 }], { sep: ';', decimal: ',' })
+    expect(csv).toBe(`${BOM}a;b;c;d\n3,1;"x;y";p,q;7`)
+    // Implicitul rămâne „,” + punct.
+    expect(toCsv([{ a: 3.1, c: 'p,q' }])).toBe(`${BOM}a,c\n3.1,"p,q"`)
+  })
+
+  it('XL5: fără BOM la cerere', () => {
+    expect(toCsv([{ x: 1 }], { bom: false })).toBe('x\n1')
+    expect(toCsv([{ x: 1 }], { bom: false, sep: ';' }).includes(BOM)).toBe(false)
+  })
+
+  it('XL6: sumele negative formatate nu sunt formule; formulele rămân neutralizate', () => {
+    const row = { a: '-3,50', b: '-12.00', c: '-5%', d: '-1+1', e: '=1', f: '+5', g: '@x', h: '-SUM(A1)' }
+    expect(toCsv([row], { sep: ';', decimal: ',', bom: false }).split('\n')[1]).toBe(
+      `-3,50;-12.00;-5%;'-1+1;'=1;'+5;'@x;'-SUM(A1)`,
+    )
+  })
+})

@@ -4,12 +4,27 @@
 // src/components/__tests__/ReportsLang.test.tsx (YA0–YA6). (Prefixul YA:
 // verificat cu grep în src/, tests/, e2e/, supabase/tests, docs și CLAUDE.md,
 // nefolosit înainte.)
-//   YA7  ORACOLUL: în română, exportul CSV (nume de fișier + conținut, toate
-//        secțiunile) e BYTE-identic cu cel produs de codul VECHI din ReportsTab,
-//        copiat verbatim mai jos (`oldCsv`), pe toate cele patru perioade
-//        (inclusiv intervalul personalizat și o singură zi); la fel eticheta
-//        perioadei și ziua de pe grafic. Mutația care pică: `csvh_avgPrice`
-//        fără „ (lei)” în ro, sau `csv_title` cu „-” în loc de „—”.
+//   YA7  ORACOLUL: în română, exportul CSV are EXACT celulele (și rândurile)
+//        exportului produs de codul VECHI din ReportsTab, copiat verbatim mai
+//        jos (`oldCsv`), pe toate cele patru perioade (inclusiv intervalul
+//        personalizat și o singură zi); la fel eticheta perioadei și ziua de pe
+//        grafic. Lotul C6a a schimbat DELIBERAT doar FORMA fișierului (XL1–XL3
+//        de mai jos): un singur BOM, la octetul 0, „;” între coloane, virgula
+//        zecimală și intervalul în numele fișierului — oracolul compară grila
+//        de celule după ce citește fiecare fișier în dialectul lui (vechiul cu
+//        „,” și punct). Mutația care pică: `csvh_avgPrice` fără „ (lei)” în ro,
+//        `csv_title` cu „-” în loc de „—”, sau un rând scăpat de sub `toCsv`.
+//   XL1  (C6a) fișierul începe cu BOM-ul UTF-8 și are EXACT unul — Excel
+//        recunoaște UTF-8 doar după un BOM la octetul 0, iar unul la mijloc
+//        apare ca „ï»¿” în fața antetului. Mutația care pică: secțiunile
+//        construite cu BOM (`toCsv` fără `bom: false`) sau fișierul fără BOM
+//        în față. Control POZITIV: exportul vechi chiar are BOM-uri la mijloc
+//        și niciunul la început (exact defectul).
+//   XL2  (C6a) dialectul după limba UTILIZATORULUI: ro/fr/de „;” + „,”, en
+//        „,” + „.”; rândul de sumar românesc, octet cu octet. Mutația care
+//        pică: `reportCsvDialect` care întoarce „,” în română.
+//   XL3  (C6a) numele fișierului poartă intervalul (o zi = o dată), în toate
+//        cele patru limbi. Mutația care pică: `{slug}` readus.
 //   YA8  ORACOLUL PDF: în română liniile (titlu, „Sumar”, „Total comenzi: N”,
 //        venituri/bon mediu, metodele, „QR: N comenzi  |  Ospătar manual: …”,
 //        antetele tabelului, nota de subsol) și numele fișierului sunt EXACT
@@ -28,8 +43,10 @@
 //        cu apostroful tipografic.
 //   YA10 eticheta perioadei și ziua de pe grafic urmează limba (en-GB „15/11”,
 //        de „15.11.”), fusul rămâne Europe/Bucharest (o comandă la 23:30 UTC pe
-//        14 noiembrie e ziua de 15 în orice limbă). Mutația care pică:
-//        `chartDayLabel` fără `timeZone`.
+//        14 noiembrie e ziua de 15 în orice limbă). Din lotul C6a ziua e CHEIA
+//        din `reportDayTotals` (în fusul zilei de raportare), formatată ca dată
+//        de `seriesPointLabel`. Mutația care pică: `reportDayTotals` fără fus
+//        (ziua UTC).
 //   YA12 lotul G2b: `reportPeriodRange` pe București = `periodRange` VECHI din
 //        ReportsTab (copiat verbatim mai jos, cu `setDate` pe fusul gazdei —
 //        UTC în CI) pe instante fixe, inclusiv 24 oct 22:30Z (01:30 pe 25 oct,
@@ -44,9 +61,9 @@
 //   YA13 New York, acum = 13 nov 04:30Z (23:30 pe 12): azi = 12, săptămâna de
 //        la 6, luna de la 14 oct. Mutația care pică: ziua României (13/7/15).
 //   YA14 ziua de pe grafic în fusul dat: 14 nov 23:30Z pe New York = „14.11”
-//        (implicitul București, YA10, dă „15.11”; un fus invalid tot „15.11”,
-//        fără RangeError — mutația care pică: `safeTimeZone` scos din
-//        `chartDayLabel`); structural, `periodLabelT`
+//        (București, YA10, dă „15.11”; un fus invalid tot „15.11”, fără
+//        RangeError — mutația care pică: `safeTimeZone` scos din
+//        `toZonedYMD`); structural, `periodLabelT`
 //        formatează capetele cu `formatYmd`, nu `new Date(from)` (ziua de
 //        dinainte la vest de UTC).
 //   YA11 clichet STRUCTURAL: ReportsTab cere SUS, înaintea primului `return`,
@@ -67,10 +84,11 @@ import reportsFr from '../../i18n/ns/reports/fr'
 import reportsDe from '../../i18n/ns/reports/de'
 import { toCsv } from '../reports'
 import { toRomaniaYMD } from '../dates'
+import { reportDayTotals, seriesPointLabel, type SeriesPoint } from '../dailySeries'
 import {
   buildReportCsv,
-  chartDayLabel,
   periodLabelT,
+  reportCsvDialect,
   reportPeriodRange,
   reportPdfFilename,
   reportPdfText,
@@ -273,60 +291,178 @@ function leftovers(text: string): string[] {
   if (l) out.push(`literă: ${l[0]}`)
   return out
 }
-const headerCounts = (csv: string): number[] =>
-  csv
-    .split('\n')
-    .filter((line) => line.startsWith('\uFEFF'))
-    .map((line) => line.split(',').length)
+// Cititor RFC 4180 minimal (ghilimele dublate, rânduri noi în ghilimele): un
+// fișier → rânduri de celule, în separatorul dat.
+function parseCsv(text: string, sep: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let cell = ''
+  let quoted = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!
+    if (quoted) {
+      if (ch !== '"') cell += ch
+      else if (text[i + 1] === '"') {
+        cell += '"'
+        i++
+      } else quoted = false
+    } else if (ch === '"') quoted = true
+    else if (ch === sep) {
+      row.push(cell)
+      cell = ''
+    } else if (ch === '\n') {
+      row.push(cell)
+      rows.push(row)
+      row = []
+      cell = ''
+    } else cell += ch
+  }
+  row.push(cell)
+  rows.push(row)
+  return rows
+}
+const BOM = '\uFEFF'
+const bomCount = (s: string): number => s.split(BOM).length - 1
+// Numărul de coloane al fiecărui tabel: rândul de după titlul de secțiune („# …”).
+const headerCounts = (csv: string, sep: string): number[] => {
+  const rows = parseCsv(csv.split(BOM).join(''), sep)
+  const out: number[] = []
+  rows.forEach((r, i) => {
+    const next = rows[i + 1]
+    if (r.length === 1 && r[0]!.startsWith('# ') && next) out.push(next.length)
+  })
+  return out
+}
+// Grila vechiului export în dialectul nou: fără BOM-uri, citită cu „,”, cu
+// punctul zecimal al SUMELOR/procentelor devenit virgulă.
+const oldGridInDialect = (old: string, decimal: string): string[][] =>
+  parseCsv(old.split(BOM).join(''), ',').map((r) =>
+    r.map((c) => (/^-?\d+\.\d+%?$/.test(c) ? c.replace('.', decimal) : c)),
+  )
+const fileRange = (r: { from: string; to: string }) => `${r.from}${r.from !== r.to ? '-' + r.to : ''}`
+const point = (day: string): SeriesPoint => ({ from: day, to: day, orders: 0, revenue: 0 })
+/** Ziua de pe grafic a unei comenzi create la `iso`: cheia zilei în fus + eticheta. */
+const chartDayOf = (locale: string, iso: string, tz = 'Europe/Bucharest'): string => {
+  const [day] = [...reportDayTotals([{ created_at: iso }], [], tz).keys()]
+  return day ? seriesPointLabel(point(day), locale) : ''
+}
 
 describe('exportul CSV', () => {
-  it('YA7: în română = exportul de dinainte (oracol), pe toate perioadele', () => {
+  it('YA7: în română = celulele exportului de dinainte (oracol), pe toate perioadele', () => {
+    const ro = reportCsvDialect('ro')
     for (const [p, range] of CASES) {
       const label = periodLabelT(RO, staffLocale('ro'), p, range.from, range.to)
       expect(label, p).toBe(oldPeriodLabel(p, range.from, range.to))
       for (const d of [DATA, EMPTY]) {
-        const now = buildReportCsv(RO, label, d)
+        const now = buildReportCsv(RO, label, range, d, ro)
         const old = oldCsv(p, range, d)
-        expect(now.filename, p).toBe(old.filename)
-        expect(now.content, p).toBe(old.content)
+        expect(parseCsv(now.content.split(BOM).join(''), ro.sep), p).toEqual(oldGridInDialect(old.content, ro.decimal))
+        // Același număr de rânduri fizice (secțiunile, rândurile goale dintre ele).
+        expect(now.content.split('\n').length, p).toBe(old.content.split('\n').length)
       }
     }
     // Anti-vacuitate: oracolul chiar are toate secțiunile.
     const full = oldCsv('today', CASES[0]![1], DATA).content
     for (const h of ['# Sumar', '# Top produse', '# Vânzări pe ospătar', '# Vânzări pe categorie', '# Vânzări pe oră'])
       expect(full).toContain(h)
-    // Ziua de pe grafic.
+    // Ziua de pe grafic: cheia zilei pe București + data formatată = ziua de dinainte.
     for (const iso of ['2026-11-14T23:30:00Z', '2026-03-29T00:30:00Z', '2026-07-01T12:00:00Z'])
-      expect(chartDayLabel(staffLocale('ro'), iso)).toBe(OLD_DAY_FMT.format(new Date(iso)))
+      expect(chartDayOf(staffLocale('ro'), iso)).toBe(OLD_DAY_FMT.format(new Date(iso)))
+  })
+
+  it('XL1: un singur BOM, la octetul 0 (controlul: exportul vechi le avea la mijloc)', () => {
+    const old = oldCsv('today', CASES[0]![1], DATA).content
+    expect(old.startsWith(BOM)).toBe(false)
+    expect(bomCount(old)).toBeGreaterThan(1)
+    const all = [['ro', RO], ...TARGETS] as const
+    for (const [lang, tr] of all)
+      for (const d of [DATA, EMPTY])
+        for (const [, range] of CASES) {
+          const { content } = buildReportCsv(tr, tr.t('period_today'), range, d, reportCsvDialect(lang))
+          expect(content.startsWith(BOM), lang).toBe(true)
+          expect(bomCount(content), lang).toBe(1)
+        }
+  })
+
+  it('XL2: dialectul urmează limba; rândurile românești, octet cu octet', () => {
+    expect(reportCsvDialect('ro')).toEqual({ sep: ';', decimal: ',' })
+    expect(reportCsvDialect('fr')).toEqual({ sep: ';', decimal: ',' })
+    expect(reportCsvDialect('de')).toEqual({ sep: ';', decimal: ',' })
+    expect(reportCsvDialect('en')).toEqual({ sep: ',', decimal: '.' })
+    const lines = buildReportCsv(RO, 'Azi', CASES[0]![1], DATA, reportCsvDialect('ro')).content.split('\n')
+    expect(lines.slice(0, 5)).toEqual([
+      `${BOM}Raport Menuvia — Azi`,
+      '',
+      '# Sumar',
+      'Comenzi;Venituri (lei);Bon mediu (lei);Cash (lei);Card (lei);Tichete de masă (lei);Card online (lei);Alte metode (lei);Comenzi QR;Comenzi ospătar',
+      '12;845,50;70,46;400,00;300,25;45,25;80,00;20,00;1;11',
+    ])
+    // Celula cu virgulă NU mai cere ghilimele sub „;”; cea cu ghilimele, da.
+    expect(lines).toContain('1;Supă de roșii;4;60,00;15,00')
+    expect(lines).toContain(`2;"'=Ciorbă, ""rădăuțeană""";3;67,50;22,50`)
+    expect(lines).toContain('Ciorbe;7;127,50;62,3%')
+    expect(lines).toContain('13:00;4;300,00')
+    // În engleză: virgulă și punct, ca înainte.
+    const en = buildReportCsv(TARGETS[0][1], 'Today', CASES[0]![1], DATA, reportCsvDialect('en')).content
+    expect(en).toContain('Ioana Mărgărit,7,500.50,71.50,12.00')
+    expect(en).toContain(`2,"'=Ciorbă, ""rădăuțeană""",3,67.50,22.50`)
+  })
+
+  it('XL3: numele fișierului poartă intervalul, în toate limbile', () => {
+    const day = { from: '2026-11-15', to: '2026-11-15' }
+    const span = { from: '2026-03-02', to: '2026-11-15' }
+    const [en, fr, de] = [TARGETS[0][1], TARGETS[1][1], TARGETS[2][1]]
+    expect(buildReportCsv(RO, 'x', day, EMPTY, reportCsvDialect('ro')).filename).toBe('raport-menuvia-2026-11-15.csv')
+    expect(buildReportCsv(RO, 'x', span, EMPTY, reportCsvDialect('ro')).filename).toBe(
+      'raport-menuvia-2026-03-02-2026-11-15.csv',
+    )
+    expect(buildReportCsv(en, 'x', day, EMPTY, reportCsvDialect('en')).filename).toBe('menuvia-report-2026-11-15.csv')
+    expect(buildReportCsv(fr, 'x', span, EMPTY, reportCsvDialect('fr')).filename).toBe(
+      'rapport-menuvia-2026-03-02-2026-11-15.csv',
+    )
+    expect(buildReportCsv(de, 'x', day, EMPTY, reportCsvDialect('de')).filename).toBe('menuvia-bericht-2026-11-15.csv')
+    // Aceeași regulă de interval ca PDF-ul.
+    for (const [, range] of CASES)
+      expect(buildReportCsv(RO, 'x', range, EMPTY, reportCsvDialect('ro')).filename).toBe(
+        `raport-menuvia-${fileRange(range)}.csv`,
+      )
   })
 
   it('YA9a: CSV în en/fr/de — fără resturi românești, valorile netraduse, aceleași coloane', () => {
-    const roCsv = buildReportCsv(RO, RO.t('period_today'), DATA)
+    const today = CASES[0]![1]
+    const roDialect = reportCsvDialect('ro')
+    const roCsv = buildReportCsv(RO, RO.t('period_today'), today, DATA, roDialect)
     // Control POZITIV: verificarea găsește resturi în exportul românesc.
     expect(leftovers(roCsv.content).length).toBeGreaterThan(0)
-    const roCounts = headerCounts(roCsv.content)
+    const roCounts = headerCounts(roCsv.content, roDialect.sep)
     expect(roCounts).toEqual([10, 5, 5, 4, 3])
     const files: Record<string, string> = {}
     for (const [lang, tr] of TARGETS) {
-      const csv = buildReportCsv(tr, tr.t('period_today'), DATA)
+      const dialect = reportCsvDialect(lang)
+      const dec = (s: string) => s.replace('.', dialect.decimal)
+      const csv = buildReportCsv(tr, tr.t('period_today'), today, DATA, dialect)
       files[lang] = csv.filename
       expect(leftovers(csv.content), lang).toEqual([])
       expect(csv.content, lang).not.toMatch(/\{\w+\}/)
-      expect(headerCounts(csv.content), lang).toEqual(roCounts)
+      expect(headerCounts(csv.content, dialect.sep), lang).toEqual(roCounts)
       // Valorile rămân cum au venit (inclusiv neutralizarea formulei din toCsv).
       expect(csv.content, lang).toContain('Supă de roșii')
       expect(csv.content, lang).toContain(`"'=Ciorbă, ""rădăuțeană"""`)
-      expect(csv.content, lang).toContain('Ioana Mărgărit,7,500.50,71.50,12.00')
-      expect(csv.content, lang).toContain('62.3%')
-      expect(csv.content, lang).toContain('13:00,4,300.00')
+      expect(csv.content, lang).toContain(
+        ['Ioana Mărgărit', '7', dec('500.50'), dec('71.50'), dec('12.00')].join(dialect.sep),
+      )
+      expect(csv.content, lang).toContain(dec('62.3') + '%')
+      expect(csv.content, lang).toContain(['13:00', '4', dec('300.00')].join(dialect.sep))
       expect(csv.filename, lang).toMatch(/^[a-z0-9-]+\.csv$/)
     }
     expect(files).toEqual({
-      en: 'menuvia-report-today.csv',
-      fr: 'rapport-menuvia-aujourd-hui.csv',
-      de: 'menuvia-bericht-heute.csv',
+      en: 'menuvia-report-2026-11-15.csv',
+      fr: 'rapport-menuvia-2026-11-15.csv',
+      de: 'menuvia-bericht-2026-11-15.csv',
     })
-    expect(buildReportCsv(TARGETS[0][1], 'Today', DATA).content.split('\n')[0]).toBe('Menuvia report — Today')
+    expect(buildReportCsv(TARGETS[0][1], 'Today', today, DATA, reportCsvDialect('en')).content.split('\n')[0]).toBe(
+      `${BOM}Menuvia report — Today`,
+    )
   })
 })
 
@@ -391,10 +527,12 @@ describe('perioada și ziua de pe grafic', () => {
     expect(periodLabelT(RO, 'ro-RO', 'custom', '2026-11-03', '2026-11-03')).toMatch(/noiembrie/)
     // 23:30 UTC pe 14 noiembrie = 01:30 pe 15 noiembrie în România, în orice limbă.
     const late = '2026-11-14T23:30:00Z'
-    expect(chartDayLabel('ro-RO', late)).toBe('15.11')
-    expect(chartDayLabel('en-GB', late)).toBe('15/11')
-    expect(chartDayLabel('fr-FR', late)).toBe('15/11')
-    expect(chartDayLabel('de-DE', late)).toBe('15.11.')
+    expect(chartDayOf('ro-RO', late)).toBe('15.11')
+    expect(chartDayOf('en-GB', late)).toBe('15/11')
+    expect(chartDayOf('fr-FR', late)).toBe('15/11')
+    expect(chartDayOf('de-DE', late)).toBe('15.11.')
+    // Mutația „ziua UTC”: pe UTC aceeași comandă ar fi pe 14.
+    expect(chartDayOf('ro-RO', late, 'UTC')).toBe('14.11')
   })
 })
 
@@ -447,11 +585,11 @@ describe('perioada pe fusul zilei de raportare (lotul G2b)', () => {
 
   it('YA14: ziua de pe grafic în fusul dat; eticheta perioadei pe DATE', () => {
     const late = '2026-11-14T23:30:00Z'
-    expect(chartDayLabel('ro-RO', late, 'America/New_York')).toBe('14.11')
-    expect(chartDayLabel('ro-RO', late)).toBe('15.11')
-    expect(chartDayLabel('en-GB', late, 'America/New_York')).toBe('14/11')
+    expect(chartDayOf('ro-RO', late, 'America/New_York')).toBe('14.11')
+    expect(chartDayOf('ro-RO', late)).toBe('15.11')
+    expect(chartDayOf('en-GB', late, 'America/New_York')).toBe('14/11')
     // Fus invalid → București, nu RangeError în randarea graficului.
-    expect(chartDayLabel('ro-RO', late, 'Mars/Olympus')).toBe('15.11')
+    expect(chartDayOf('ro-RO', late, 'Mars/Olympus')).toBe('15.11')
     const helper = read('src/lib/reportsExport.ts')
     const body = helper.slice(helper.indexOf('export function periodLabelT('))
     const fn = body.slice(0, body.indexOf('\n}\n'))
