@@ -56,6 +56,13 @@ import { useDocumentLang } from '../hooks/useDocumentLang'
 import { useMenuVersionRefetch } from '../hooks/useMenuVersionRefetch'
 import { createLatestGate, freshActiveProduct, localizeProduct } from '../lib/menuRefresh'
 import { cartIssueCounts, cartIssueNoticeKey, cartLineIssue, productIndex, repriceCart } from '../lib/cartReconcile'
+import {
+  clearSavedCart,
+  loadSavedCart,
+  restoredMenuLang,
+  saveCart,
+  type CartScope,
+} from '../lib/cartPersist'
 import { markUnorderableProducts } from '../lib/optionSelection'
 import { cartBarLabel, listScrollTarget, prefetchOnIdle, stickyTabsBottom } from '../lib/menuUi'
 import { FocusTrap } from '../components/ui/FocusTrap'
@@ -209,6 +216,19 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   // Sărim PRIMA salvare după hidratare ca să nu suprascriem lista salvată cu [] gol
   // în același commit (load programează setCart, dar closure-ul de save are cart vechi).
   const skipNextSaveRef = useRef(false)
+  // Coșul de RIDICARE supraviețuiește reîncărcării (lotul C8a, lib/cartPersist):
+  // sessionStorage per restaurant, cu limba aleasă în aceeași intrare. Înainte
+  // trăia doar în memorie — iOS scotea tab-ul și coșul dispărea.
+  const pickupCartId = restaurant != null && pickupEnabled ? restaurant.id : null
+  const pickupCartScope = useMemo<CartScope | null>(
+    () => (pickupCartId != null ? { kind: 'pickup', restaurantId: pickupCartId } : null),
+    [pickupCartId],
+  )
+  const skipNextPickupSaveRef = useRef(false)
+  // Limba salvată, aplicată după încărcarea meniului (efectul de limbă), și
+  // coșul rehidratat, până trece o dată pe prețurile meniului încărcat.
+  const restoredLangRef = useRef<string | null>(null)
+  const hydratedCartRef = useRef<CartItem[] | null>(null)
 
   useEffect(() => {
     // Componenta NU se remontează la schimbarea slug-ului (vezi App.tsx —
@@ -223,6 +243,22 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     // auto-detect suprimat). Simetric cu resetul coșului.
     setPickedLang(null)
     userPickedLangRef.current = false
+    restoredLangRef.current = null
+    hydratedCartRef.current = null
+    if (pickupCartScope) {
+      // Commit-ul ăsta rulează salvarea cu coșul de DINAINTE (gol / alt
+      // restaurant): ar suprascrie coșul salvat, deci se sare o dată.
+      skipNextPickupSaveRef.current = true
+      const saved = loadSavedCart(pickupCartScope)
+      if (saved) {
+        restoredLangRef.current = saved.lang
+        if (saved.cart.length > 0) {
+          hydratedCartRef.current = saved.cart
+          setCart(saved.cart)
+        }
+      }
+      return
+    }
     if (!listMode || !listKey) return
     try {
       const raw = localStorage.getItem(listKey)
@@ -238,7 +274,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     }
     // la (re)montare ȘI la fiecare schimbare de restaurant — listKey conține
     // deja restaurant.slug (unic per restaurant), deci surprinde tranziția.
-  }, [listMode, listKey])
+  }, [listMode, listKey, pickupCartScope])
 
   useEffect(() => {
     if (!listMode || !listKey) return
@@ -252,6 +288,20 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
       /* quota / indisponibil → ignorăm */
     }
   }, [cart, listMode, listKey])
+
+  // Coșul de ridicare și limba aleasă EXPLICIT se salvează la fiecare
+  // schimbare; o limbă restaurată încă neaplicată se păstrează.
+  useEffect(() => {
+    if (!pickupCartScope) return
+    if (skipNextPickupSaveRef.current) {
+      skipNextPickupSaveRef.current = false
+      return
+    }
+    saveCart(pickupCartScope, {
+      cart,
+      lang: restoredLangRef.current ?? (userPickedLangRef.current ? menuLang : null),
+    })
+  }, [cart, pickupCartScope, menuLang])
 
   // Live update is_open la fiecare 60s (când treci ora închiderii fără refresh)
   useEffect(() => {
@@ -401,9 +451,24 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
       )
       if (pick === undefined) return
       urlLangRef.current = null
+      // Previzualizarea cerută prin URL câștigă peste limba salvată cu coșul.
+      restoredLangRef.current = null
       userPickedLangRef.current = true
       setPickedLang(pick)
       return
+    }
+    // Limba salvată odată cu coșul de ridicare (lotul C8a): o singură dată,
+    // după încărcarea REUȘITĂ a meniului, și doar dacă meniul încă o oferă;
+    // altfel cade pe regulile de mai jos.
+    if (restoredLangRef.current !== null) {
+      if (loading || error !== null) return
+      const pick = restoredMenuLang(restoredLangRef.current, availableLangs, baseLang)
+      restoredLangRef.current = null
+      if (pick !== undefined) {
+        userPickedLangRef.current = true
+        setPickedLang(pick)
+        return
+      }
     }
     // Reset defensiv: dacă limba curentă nu mai e disponibilă (ex. nav SPA către
     // un restaurant care n-o oferă, sau limbă deselectată din setări), revenim la
@@ -547,6 +612,21 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   }, [menuRestaurantId])
   useMenuVersionRefetch(menuRestaurantId, refreshMenu)
   const menuIndex = useMemo(() => productIndex(categories), [categories])
+  // Coșul de ridicare rehidratat (lotul C8a) trece O DATĂ pe prețurile
+  // meniului încărcat, cu același anunț ca reîmprospătarea. Liniile care nu
+  // mai corespund meniului rămân marcate și blochează „Continuă”. Actualizarea
+  // e funcțională: în commit-ul hidratării `setCart(saved)` e doar programat.
+  useEffect(() => {
+    const before = hydratedCartRef.current
+    if (before == null || loading || categories.length === 0) return
+    hydratedCartRef.current = null
+    const menu = productIndex(categories)
+    const r = repriceCart(before, menu)
+    if (r.changed) {
+      setRepricedKeys(new Set(r.cart.filter((c, i) => c !== before[i]).map((c) => c._key)))
+      setCart((prev) => repriceCart(prev, menu).cart)
+    }
+  }, [loading, categories])
   const cartIssues = cartIssueCounts(cart, menuIndex)
   const cartBlocked = cartIssues.sold_out + cartIssues.unavailable + cartIssues.options_changed > 0
   const cartNoticeKey = cartIssueNoticeKey(cartIssues)
@@ -1399,6 +1479,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             blocked={cartBlocked}
             onSuccess={(short_id, pickup_time, total) => {
               setShowPickup(false)
+              // Comanda a plecat: coșul salvat nu mai are voie să reînvie la o
+              // reîncărcare (cheia de idempotență tocmai s-a rotit — lotul C8a).
+              if (pickupCartScope) clearSavedCart(pickupCartScope)
               setCart([])
               setConfirmation({ short_id, pickup_time, total })
             }}
