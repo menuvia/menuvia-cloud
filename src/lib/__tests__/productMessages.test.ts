@@ -199,6 +199,8 @@ describe('precondiția namespace-urilor cerute sus', () => {
       'src/components/_dashboard/ProductOrderModal.tsx',
       'src/components/_dashboard/ProductTranslations.tsx',
       'src/components/_dashboard/ExtraTranslations.tsx',
+      // Lotul C4a: formularul „extra nou” mutat din ProductsTab în fișierul lui.
+      'src/components/_dashboard/ExtraForm.tsx',
     ]
     const missing: string[] = []
     for (const f of pieces) for (const ns of nsUsed(read(f))) if (!top.has(ns)) missing.push(`${f}: ${ns}`)

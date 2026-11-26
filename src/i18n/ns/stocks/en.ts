@@ -81,6 +81,11 @@ const en: Translation<typeof ro> = {
   ingm_costHint: 'Used to calculate profit. Recalculated automatically with every goods receipt.',
   ingm_deleteTitle: 'Delete {name}?',
   err_nameRequired: 'The name is required',
+  ingm_stockReadonly: 'Stock is changed with “Adjust stock”, so the change stays in the history.',
+  ingm_discardTitle: 'Discard the changes in this form?',
+  ingm_discardDesc: 'Stock is adjusted in another window, and unsaved changes here will be lost.',
+  ingm_discardConfirm: 'Discard and adjust',
+  err_decimalInvalid: 'Not a valid number (e.g. 4.50)',
 
   adj_current: 'Current stock: {amount}',
   adj_hint: 'Enter the actual quantity you have in stock right now',
@@ -147,6 +152,7 @@ const en: Translation<typeof ro> = {
   nirm_saveReceive: 'Save & receive',
   nirm_saveDraft: 'Save as draft',
   err_noValidItems: 'Add at least one ingredient with a valid quantity',
+  err_priceRequired: 'Enter the unit price (0 only if the goods are free)',
 
   hint_noItems: 'Add at least one ingredient with a valid quantity',
   hint_invalidQuantity: 'The quantity on every row must be greater than 0.',

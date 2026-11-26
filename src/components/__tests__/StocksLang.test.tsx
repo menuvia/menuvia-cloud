@@ -421,17 +421,19 @@ describe('furnizorii, NIR-urile și profitabilitatea în limba personalului', ()
 
     // Hint-ul RPC-ului NIR (create_purchase_order_atomic, mig 066).
     data.poError = { message: 'VAT rate out of range (got 140)', code: 'P0001', hint: 'invalid_vat' }
-    const fill = async (newLabel: string, saveLabel: string) => {
+    // Cantitatea e un câmp TEXT cu tastatură zecimală din lotul C4a (era
+    // `type="number"`, deci `spinbutton`), numit de eticheta lui.
+    const fill = async (newLabel: string, saveLabel: string, qtyLabel: string) => {
       await user.click(await screen.findByRole('button', { name: newLabel }))
       const d = screen.getByRole('dialog', { name: newLabel })
       await user.selectOptions(within(d).getAllByRole('combobox')[0], 'i1')
-      await user.type(within(d).getAllByRole('spinbutton')[0], '2')
+      await user.type(within(d).getByRole('textbox', { name: qtyLabel }), '2')
       await user.click(within(d).getByRole('button', { name: saveLabel }))
       return d
     }
     const roNir = render(tree(null, tab()))
     await user.click(await screen.findByRole('button', { name: 'NIR' }))
-    dlg = await fill('NIR nou', 'Salvează & recepționează')
+    dlg = await fill('NIR nou', 'Salvează & recepționează', stocksRo.nirm_qty)
     // În română hint-ul NU se aplică: exact `toUserMessage` (mesaj englezesc → generic).
     expect(await within(dlg).findByText('Acțiunea nu a putut fi finalizată. Reîncearcă.')).toBeInTheDocument()
     expect(within(dlg).queryByText(stocksRo.hint_invalidVat)).toBeNull()
@@ -439,7 +441,7 @@ describe('furnizorii, NIR-urile și profitabilitatea în limba personalului', ()
 
     render(tree('de', tab()))
     await user.click(await screen.findByRole('button', { name: 'Wareneingang' }))
-    dlg = await fill('Neuer Wareneingang', 'Speichern & einbuchen')
+    dlg = await fill('Neuer Wareneingang', 'Speichern & einbuchen', stocksDe.nirm_qty)
     expect(await within(dlg).findByText(stocksDe.hint_invalidVat)).toBeInTheDocument()
     expect(dlg.textContent).not.toContain('VAT rate out of range')
   })

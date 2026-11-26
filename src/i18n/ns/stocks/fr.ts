@@ -90,6 +90,11 @@ const fr: Translation<typeof ro> = {
   ingm_costHint: 'Sert au calcul du profit. Recalculé automatiquement à chaque réception.',
   ingm_deleteTitle: 'Supprimer {name} ?',
   err_nameRequired: 'Le nom est obligatoire',
+  ingm_stockReadonly: 'Le stock se modifie avec « Ajuster le stock » : le mouvement reste dans l’historique.',
+  ingm_discardTitle: 'Abandonner les modifications de la fiche ?',
+  ingm_discardDesc: 'Le stock s’ajuste dans une autre fenêtre ; les modifications non enregistrées ici seront perdues.',
+  ingm_discardConfirm: 'Abandonner et ajuster',
+  err_decimalInvalid: 'Nombre non valide (ex. 4,50)',
 
   adj_current: 'Stock actuel : {amount}',
   adj_hint: 'Indiquez la quantité réelle que vous avez en stock maintenant',
@@ -166,6 +171,7 @@ const fr: Translation<typeof ro> = {
   nirm_saveReceive: 'Enregistrer et réceptionner',
   nirm_saveDraft: 'Enregistrer comme brouillon',
   err_noValidItems: 'Ajoutez au moins un ingrédient avec une quantité valide',
+  err_priceRequired: 'Indiquez le prix unitaire (0 seulement si la marchandise est gratuite)',
 
   hint_noItems: 'Ajoutez au moins un ingrédient avec une quantité valide',
   hint_invalidQuantity: 'La quantité de chaque ligne doit être supérieure à 0.',

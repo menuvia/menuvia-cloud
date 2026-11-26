@@ -77,14 +77,24 @@ const ro = {
   create: 'Creează regulă',
   err_name: 'Numele e obligatoriu',
   err_value: 'Valoarea reducerii trebuie să fie pozitivă',
+  // Lotul C4a: câmpurile sunt text cu tastatură zecimală — un text fără
+  // formă de număr e o eroare, nu un 0 tăcut / un plafon șters.
+  err_valueInvalid: 'Valoarea nu e un număr valid (ex. 12,50)',
+  err_capInvalid: 'Plafonul nu e un număr valid (ex. 30 sau 12,50)',
   err_pctMax: 'Procent max 100',
   err_category: 'Selectează o categorie',
   err_product: 'Selectează un produs',
   err_save: 'Eroare la salvare',
+  saving: 'Se salvează…',
+  // Închiderea editorului cu modificări nesalvate (fundal, Escape, ✕, „Anulează”).
+  discard_title: 'Renunți la modificări?',
+  discard_desc: 'Regula nu e salvată, iar modificările se pierd.',
+  discard_confirm: 'Renunță',
+  discard_stay: 'Rămân în editor',
 
   // ── Ștergerea ──
   del_title: 'Ștergi regula?',
-  // {name} = numele regulii, în <strong> (fillNodes).
+  // {name} = numele regulii (descrierea confirmării din ui/confirm, lotul C4a).
   del_question: 'Vrei să ștergi {name}? Acțiunea e ireversibilă.',
 }
 

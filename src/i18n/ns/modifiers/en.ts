@@ -73,6 +73,7 @@ const en: Translation<typeof ro> = {
   },
 
   err_nameRequired: 'The name is required',
+  err_priceInvalid: 'The price is not a valid number (e.g. 4.50 or -1.50). Leave it empty for “Included”.',
   err_optionTr: 'The translation of the option “{name}” wasn’t saved.',
   err_pickSave: 'We couldn’t save the group’s products.',
   hint_groupNotFound: 'The option group no longer exists. Close the window and reload the page.',

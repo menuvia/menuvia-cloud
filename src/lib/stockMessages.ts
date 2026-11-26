@@ -26,6 +26,10 @@ export type StockFormError =
   | { kind: 'nameRequired' }
   | { kind: 'qtyInvalid' }
   | { kind: 'noValidItems' }
+  // Lotul C4a: un număr tastat fără formă de număr și prețul unitar lipsă al
+  // unui rând de NIR — înainte `parseFloat(text) || 0` le făcea 0 tăcut.
+  | { kind: 'decimalInvalid' }
+  | { kind: 'priceRequired' }
   | { kind: 'server'; err: unknown }
 
 export function stockErrorHints(tr: StockMessagesTranslator): Readonly<Record<string, string>> {
@@ -64,6 +68,10 @@ export function stockFormErrorText(
       return tr.t('err_qtyInvalid')
     case 'noValidItems':
       return tr.t('err_noValidItems')
+    case 'decimalInvalid':
+      return tr.t('err_decimalInvalid')
+    case 'priceRequired':
+      return tr.t('err_priceRequired')
     case 'server':
       return describeStockError(e.err, tr, tc)
   }

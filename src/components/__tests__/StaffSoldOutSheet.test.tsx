@@ -12,6 +12,11 @@
 //        `e.message` afișat brut.
 //   SS3  eroarea de încărcare are „Reîncearcă”, care reface citirea. Mutația
 //        care pică: `reloadKey` scos din dependențele efectului.
+//   SRC6 (lotul C4a) căutarea fără diacritice: „supa” găsește „Supă”, „  APA ”
+//        găsește „Apă”; control: „pizza” nu găsește nimic („Niciun produs
+//        găsit.”), iar câmpul golit arată din nou toată lista. Mutația care
+//        pică: `name.toLowerCase().includes(q)` readus (fără plierea
+//        diacriticelor). Partea pură e în src/lib/__tests__/staffSearch.test.ts.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -94,5 +99,30 @@ describe('StaffSoldOutSheet', () => {
     await user.click(await screen.findByRole('button', { name: 'Reîncearcă' }))
     await waitFor(() => expect(m.fetch).toHaveBeenCalledTimes(2))
     expect(await screen.findByText('Epuizat · din stoc')).toBeInTheDocument()
+  })
+
+  it('SRC6 căutarea găsește produsul fără diacritice', async () => {
+    const user = userEvent.setup()
+    m.fetch.mockResolvedValue(ROWS)
+    render(<StaffSoldOutSheet restaurantId="r1" onClose={vi.fn()} />)
+    await screen.findByText('Epuizat · din stoc')
+    const search = screen.getByRole('searchbox', { name: 'Caută un produs' })
+
+    await user.type(search, 'supa')
+    expect(screen.getByRole('button', { name: 'Marchează disponibil: Supă' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Marchează epuizat: Apă' })).toBeNull()
+
+    await user.clear(search)
+    await user.type(search, '  APA ')
+    expect(screen.getByRole('button', { name: 'Marchează epuizat: Apă' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Marchează disponibil: Supă' })).toBeNull()
+
+    // Control: nimic potrivit → mesajul gol; câmpul golit → toată lista.
+    await user.clear(search)
+    await user.type(search, 'pizza')
+    expect(screen.getByText('Niciun produs găsit.')).toBeInTheDocument()
+    await user.clear(search)
+    expect(screen.getByRole('button', { name: 'Marchează epuizat: Apă' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Marchează disponibil: Supă' })).toBeInTheDocument()
   })
 })

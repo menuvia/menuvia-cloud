@@ -75,6 +75,7 @@ const de: Translation<typeof ro> = {
   },
 
   err_nameRequired: 'Der Name ist erforderlich',
+  err_priceInvalid: 'Der Preis ist keine gültige Zahl (z. B. 4,50 oder -1,50). Leer lassen für „Inklusive“.',
   err_optionTr: 'Die Übersetzung der Option „{name}“ wurde nicht gespeichert.',
   err_pickSave: 'Die Produkte der Gruppe konnten nicht gespeichert werden.',
   hint_groupNotFound: 'Die Optionsgruppe existiert nicht mehr. Schließen Sie das Fenster und laden Sie die Seite neu.',

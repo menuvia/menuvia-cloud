@@ -5,15 +5,20 @@
 //   • "Happy Hour 17-19" — 20% pe TOT, în fiecare zi
 //   • "Cocktailuri week-end" — 15% pe categoria Cocktailuri, doar Vi-Sâ 21-23
 //
-// Aplicarea propriu-zisă a reducerii pe comandă se face din WaiterPage
-// (iter 7) sau manual via DiscountModal. Aici doar definim regulile.
+// Reducerea se aplică pe SERVER (trg_apply_happy_hour_auto, mig 077) pe
+// comenzile QR și de ridicare; la plata de la ospătar (Planul 3) apare ca
+// sugestie („Aplică Happy Hour”).
+// Aici doar definim regulile — fără niciun calcul de reducere în client.
 // ─────────────────────────────────────────────────────────────
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef, useId } from 'react'
 import { D } from '../lib/constants'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { InlineSpinner } from './PageLoader'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
+import { confirm as confirmDialog } from './ui/confirm'
+import { Modal } from './_dashboard/sharedUI'
+import { parseDecimalInput } from '../lib/decimal'
 import {
   fetchHappyHourRules,
   createHappyHourRule,
@@ -30,7 +35,6 @@ import { useT } from '../i18n/useT'
 import { promotionsNs } from '../i18n/ns/promotions'
 import { commonNs } from '../i18n/ns/common'
 import { describeStaffError } from '../i18n/staffErrors'
-import { fillNodes } from '../i18n/fillNodes'
 import type { StringKey } from '../i18n/core'
 import type promotionsRo from '../i18n/ns/promotions/ro'
 
@@ -80,6 +84,7 @@ const inp: React.CSSProperties = {
   boxSizing: 'border-box',
 }
 const lbl: React.CSSProperties = {
+  display: 'block',
   fontSize: '0.74rem',
   color: D.t2,
   textTransform: 'uppercase',
@@ -116,7 +121,6 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<{ err: unknown } | null>(null)
   const [editing, setEditing] = useState<HappyHourRule | 'new' | null>(null)
-  const [delId, setDelId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -129,7 +133,7 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
           .from('categories')
           .select('id,name,emoji')
           .eq('restaurant_id', restaurantId)
-          .order('position'),
+          .order('display_order'),
         supabase
           .from('products')
           .select('id,name,emoji')
@@ -175,11 +179,20 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
     void load()
   }
 
-  async function handleDelete() {
-    if (!delId) return
+  // Lotul C4a: confirmarea comună (ui/confirm: dialog real, focus, Escape) în
+  // locul unui overlay făcut de mână. `cancelLabel` EXPLICIT: implicitul
+  // urmează <html lang> (pe panou `ro`), nu limba personalului.
+  async function handleDelete(rule: HappyHourRule) {
+    const ok = await confirmDialog({
+      title: t('del_title'),
+      description: t('del_question', { name: rule.name }),
+      confirmLabel: tc.t('delete'),
+      cancelLabel: tc.t('cancel'),
+      destructive: true,
+    })
+    if (!ok) return
     try {
-      await deleteHappyHourRule(delId)
-      setDelId(null)
+      await deleteHappyHourRule(rule.id)
       void load()
     } catch (e) {
       setErr({ err: e })
@@ -329,7 +342,7 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
               categories={categories}
               products={products}
               onEdit={() => setEditing(r)}
-              onDelete={() => setDelId(r.id)}
+              onDelete={() => void handleDelete(r)}
               onToggle={() => void toggleActive(r)}
             />
           ))}
@@ -343,14 +356,6 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
           products={products}
           onClose={() => setEditing(null)}
           onSave={handleSave}
-        />
-      )}
-
-      {delId && (
-        <ConfirmDelete
-          name={rules.find((r) => r.id === delId)?.name ?? ''}
-          onCancel={() => setDelId(null)}
-          onConfirm={() => void handleDelete()}
         />
       )}
     </div>
@@ -531,6 +536,15 @@ function RuleCard({
 }
 
 // ── Rule editor modal ────────────────────────────────────────
+// Lotul C4a: `Modal` din sharedUI (role="dialog" cu numele din titlu, capcană
+// de focus, Escape, portal, scroll blocat, fundalul închide doar un click
+// început ȘI terminat pe el) în locul unui overlay `div` făcut de mână: o
+// selecție de text trasă din panou închidea editorul și pierdea regula. Cu
+// formularul modificat, orice închidere (fundal, Escape, ✕, „Anulează”)
+// întreabă întâi. „Creează” e blocat cât timp cererea e în aer — un dublu-click
+// crea regula de DOUĂ ori. Reducerea în sine se aplică pe SERVER
+// (trg_apply_happy_hour_auto, mig 077): aici doar definim regula, fără niciun
+// calcul de reducere în client.
 function RuleEditor({
   rule,
   categories,
@@ -562,24 +576,81 @@ function RuleEditor({
   )
   const [isActive, setIsActive] = useState(rule?.is_active ?? true)
   const [err, setErr] = useState<EditorError | null>(null)
+  const [saving, setSaving] = useState(false)
+  // Garda SINCRONĂ: două click-uri în același tick ar vedea încă `saving` false.
+  const savingRef = useRef(false)
   const isMobile = useIsMobile()
+  const uid = useId()
+  const ids = {
+    name: `${uid}-name`,
+    from: `${uid}-from`,
+    to: `${uid}-to`,
+    days: `${uid}-days`,
+    scope: `${uid}-scope`,
+    discount: `${uid}-discount`,
+    value: `${uid}-value`,
+    cap: `${uid}-cap`,
+    err: `${uid}-err`,
+  }
+
+  const snapshot = JSON.stringify([
+    name,
+    startsAt,
+    endsAt,
+    days,
+    scope,
+    categoryId,
+    productId,
+    discountType,
+    discountValue,
+    maxDiscount,
+    isActive,
+  ])
+  const [initialSnapshot] = useState(snapshot)
+
+  async function confirmDiscard(): Promise<boolean> {
+    if (snapshot === initialSnapshot) return true
+    return confirmDialog({
+      title: t('discard_title'),
+      description: t('discard_desc'),
+      confirmLabel: t('discard_confirm'),
+      // EXPLICIT: implicitul urmează <html lang> (pe panou `ro`).
+      cancelLabel: t('discard_stay'),
+      destructive: true,
+    })
+  }
 
   function toggleDay(d: number) {
     setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort()))
   }
 
   function go() {
-    const dv = Number(discountValue.replace(',', '.'))
+    if (savingRef.current) return
     if (!name.trim()) {
       setErr({ kind: 'invalid', key: 'err_name' })
       return
     }
-    if (isNaN(dv) || dv <= 0) {
+    // Câmpurile sunt text cu tastatură zecimală (lotul C4a): „12,5” e 12.5. Pe
+    // vechiul `type="number"`, `replace(',', '.')` era cod mort — valoarea nu
+    // conținea niciodată virgulă, iar „12,5” ajungea gol.
+    const dv = parseDecimalInput(discountValue)
+    if (dv != null && Number.isNaN(dv)) {
+      setErr({ kind: 'invalid', key: 'err_valueInvalid' })
+      return
+    }
+    if (dv == null || dv <= 0) {
       setErr({ kind: 'invalid', key: 'err_value' })
       return
     }
     if (discountType === 'percent' && dv > 100) {
       setErr({ kind: 'invalid', key: 'err_pctMax' })
+      return
+    }
+    // Plafonul: gol = fără plafon. Un text fără formă de număr dădea NaN, care
+    // pleca la server ca `null` în JSON — plafonul dispărea tăcut.
+    const cap = discountType === 'percent' ? parseDecimalInput(maxDiscount) : null
+    if (cap != null && Number.isNaN(cap)) {
+      setErr({ kind: 'invalid', key: 'err_capInvalid' })
       return
     }
     if (scope === 'category' && !categoryId) {
@@ -591,7 +662,10 @@ function RuleEditor({
       return
     }
     setErr(null)
-    void onSave({
+    savingRef.current = true
+    setSaving(true)
+    // Pe succes părintele închide editorul; pe eroare rămâne deschis, deblocat.
+    onSave({
       name: name.trim(),
       is_active: isActive,
       starts_at: startsAt + ':00',
@@ -602,363 +676,314 @@ function RuleEditor({
       product_id: scope === 'product' ? productId : null,
       discount_type: discountType,
       discount_value: dv,
-      max_discount: maxDiscount.trim().length === 0 ? null : Number(maxDiscount.replace(',', '.')),
+      max_discount: cap,
     }).catch((e: unknown) => {
+      savingRef.current = false
+      setSaving(false)
       setErr({ kind: 'server', err: e })
     })
   }
 
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.7)',
-        zIndex: 200,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: D.s1,
-          border: `1px solid ${D.border}`,
-          borderRadius: 14,
-          padding: 22,
-          maxWidth: 540,
-          width: '100%',
-          maxHeight: '92vh',
-          overflowY: 'auto',
-        }}
-      >
-        <h2
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: '1.3rem',
-            fontWeight: 600,
-            color: D.t1,
-            marginBottom: 16,
-          }}
-        >
-          {rule ? t('edit_title') : t('newRule')}
-        </h2>
+  // Câmpul vizat de eroarea de validare (aria-invalid + legătura cu mesajul).
+  const badKey = err?.kind === 'invalid' ? err.key : null
+  const invalidOn = (keys: readonly StringKey<typeof promotionsRo>[]) =>
+    badKey != null && keys.includes(badKey) ? { 'aria-invalid': true, 'aria-describedby': ids.err } : {}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+  return (
+    <Modal title={rule ? t('edit_title') : t('newRule')} onClose={onClose} width={540} confirmClose={confirmDiscard}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div>
+          <label htmlFor={ids.name} style={lbl}>
+            {t('field_name')}
+          </label>
+          <input
+            id={ids.name}
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            style={inp}
+            placeholder={t('field_namePh')}
+            maxLength={80}
+            {...invalidOn(['err_name'])}
+          />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
           <div>
-            <div style={lbl}>{t('field_name')}</div>
+            <label htmlFor={ids.from} style={lbl}>
+              {t('field_from')}
+            </label>
             <input
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+              id={ids.from}
+              type="time"
+              value={startsAt}
+              onChange={(e) => setStartsAt(e.target.value)}
               style={inp}
-              placeholder={t('field_namePh')}
-              maxLength={80}
             />
           </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
-            <div>
-              <div style={lbl}>{t('field_from')}</div>
-              <input
-                type="time"
-                value={startsAt}
-                onChange={(e) => setStartsAt(e.target.value)}
-                style={inp}
-              />
-            </div>
-            <div>
-              <div style={lbl}>{t('field_to')}</div>
-              <input
-                type="time"
-                value={endsAt}
-                onChange={(e) => setEndsAt(e.target.value)}
-                style={inp}
-              />
-            </div>
-          </div>
-
           <div>
-            <div style={lbl}>{t('field_days')}</div>
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-              {dayLabels({ t }).map((lab, i) => {
-                const d = i + 1
-                const on = days.includes(d)
-                return (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => toggleDay(d)}
-                    style={btn({
-                      background: on ? D.goldA : D.s3,
-                      color: on ? D.goldL : D.t2,
-                      border: `1px solid ${on ? D.gold : D.border}`,
-                      width: 44,
-                      height: 36,
-                      padding: 0,
-                      fontSize: '0.82rem',
-                    })}
-                  >
-                    {lab}
-                  </button>
-                )
-              })}
-              {days.length === 0 ? null : (
+            <label htmlFor={ids.to} style={lbl}>
+              {t('field_to')}
+            </label>
+            <input
+              id={ids.to}
+              type="time"
+              value={endsAt}
+              onChange={(e) => setEndsAt(e.target.value)}
+              style={inp}
+            />
+          </div>
+        </div>
+
+        <div role="group" aria-labelledby={ids.days}>
+          <div id={ids.days} style={lbl}>
+            {t('field_days')}
+          </div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {dayLabels({ t }).map((lab, i) => {
+              const d = i + 1
+              const on = days.includes(d)
+              return (
                 <button
+                  key={d}
                   type="button"
-                  onClick={() => setDays([])}
+                  aria-pressed={on}
+                  onClick={() => toggleDay(d)}
                   style={btn({
-                    background: 'transparent',
-                    color: D.t3,
+                    background: on ? D.goldA : D.s3,
+                    color: on ? D.goldL : D.t2,
+                    border: `1px solid ${on ? D.gold : D.border}`,
+                    width: 44,
                     height: 36,
-                    fontSize: '0.78rem',
-                    padding: '0 10px',
-                  })}
-                >
-                  {t('days_reset')}
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div>
-            <div style={lbl}>{t('field_scope')}</div>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-              {(['all', 'category', 'product'] as const).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setScope(s)}
-                  style={btn({
-                    background: scope === s ? D.goldA : D.s3,
-                    color: scope === s ? D.goldL : D.t2,
-                    border: `1px solid ${scope === s ? D.gold : D.border}`,
-                    height: 34,
-                    padding: '0 12px',
+                    padding: 0,
                     fontSize: '0.82rem',
                   })}
                 >
-                  <Icon
-                    name={s === 'all' ? 'tag' : s === 'category' ? 'box' : 'utensils'}
-                    size={14}
-                  />
-                  {s === 'all' ? t('scope_all') : s === 'category' ? t('scope_category') : t('scope_product')}
+                  {lab}
                 </button>
-              ))}
-            </div>
-            {scope === 'category' && (
-              <select
-                value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
-                style={inp}
-              >
-                <option value="">{t('pick_category')}</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.emoji} {c.name}
-                  </option>
-                ))}
-              </select>
-            )}
-            {scope === 'product' && (
-              <select value={productId} onChange={(e) => setProductId(e.target.value)} style={inp}>
-                <option value="">{t('pick_product')}</option>
-                {products.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.emoji} {p.name}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-
-          <div>
-            <div style={lbl}>{t('field_discount')}</div>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+              )
+            })}
+            {days.length === 0 ? null : (
               <button
                 type="button"
-                onClick={() => setDiscountType('percent')}
+                onClick={() => setDays([])}
                 style={btn({
-                  background: discountType === 'percent' ? D.goldA : D.s3,
-                  color: discountType === 'percent' ? D.goldL : D.t2,
-                  border: `1px solid ${discountType === 'percent' ? D.gold : D.border}`,
-                  height: 34,
-                  fontSize: '0.82rem',
+                  background: 'transparent',
+                  color: D.t3,
+                  height: 36,
+                  fontSize: '0.78rem',
+                  padding: '0 10px',
                 })}
               >
-                {t('type_pct')}
+                {t('days_reset')}
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setDiscountType('amount')
-                  setMaxDiscount('')
-                }}
-                style={btn({
-                  background: discountType === 'amount' ? D.goldA : D.s3,
-                  color: discountType === 'amount' ? D.goldL : D.t2,
-                  border: `1px solid ${discountType === 'amount' ? D.gold : D.border}`,
-                  height: 34,
-                  fontSize: '0.82rem',
-                })}
-              >
-                {t('type_amount')}
-              </button>
-            </div>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns:
-                  isMobile || discountType === 'amount' ? '1fr' : '1fr 1fr',
-                gap: 10,
-              }}
-            >
-              <div>
-                <div style={lbl}>{t('field_value')}</div>
-                <input
-                  type="number"
-                  step="0.5"
-                  min={0}
-                  value={discountValue}
-                  onChange={(e) => setDiscountValue(e.target.value)}
-                  style={inp}
-                  placeholder={discountType === 'percent' ? '20' : '50'}
-                  aria-label={t('field_valueAria')}
-                />
-              </div>
-              {discountType === 'percent' && (
-                <div>
-                  <div style={lbl}>{t('field_cap')}</div>
-                  <input
-                    type="number"
-                    step="0.5"
-                    min={0}
-                    value={maxDiscount}
-                    onChange={(e) => setMaxDiscount(e.target.value)}
-                    style={inp}
-                    placeholder={t('field_capPh')}
-                    aria-label={t('field_capAria')}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-
-          <label
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              color: D.t2,
-              fontSize: '0.86rem',
-              cursor: 'pointer',
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={isActive}
-              onChange={(e) => setIsActive(e.target.checked)}
-            />
-            <span>{t('field_active')}</span>
-          </label>
-
-          {err == null ? null : (
-            <div
-              style={{
-                padding: 10,
-                background: D.redA,
-                color: D.red,
-                borderRadius: 8,
-                fontSize: '0.86rem',
-              }}
-            >
-              {err.kind === 'invalid'
-                ? t(err.key)
-                : describeStaffError(err.err, tc, { fallback: t('err_save') })}
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button
-              onClick={onClose}
-              style={btn({ background: D.s2, color: D.t2, border: `1px solid ${D.border}` })}
-            >
-              {tc.t('cancel')}
-            </button>
-            <button onClick={go} style={btn({ background: D.gold, color: '#000' })}>
-              {rule ? t('saveChanges') : t('create')}
-            </button>
+            )}
           </div>
         </div>
-      </div>
-    </div>
-  )
-}
 
-// ── Confirm delete ───────────────────────────────────────────
-function ConfirmDelete({
-  name,
-  onCancel,
-  onConfirm,
-}: {
-  name: string
-  onCancel: () => void
-  onConfirm: () => void
-}) {
-  const { t } = useT(promotionsNs)
-  const tc = useT(commonNs)
-  return (
-    <div
-      onClick={onCancel}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.7)',
-        zIndex: 250,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: D.s1,
-          border: `1px solid ${D.border}`,
-          borderRadius: 12,
-          padding: 22,
-          maxWidth: 380,
-        }}
-      >
-        <h3
+        <div role="group" aria-labelledby={ids.scope}>
+          <div id={ids.scope} style={lbl}>
+            {t('field_scope')}
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+            {(['all', 'category', 'product'] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                aria-pressed={scope === s}
+                onClick={() => setScope(s)}
+                style={btn({
+                  background: scope === s ? D.goldA : D.s3,
+                  color: scope === s ? D.goldL : D.t2,
+                  border: `1px solid ${scope === s ? D.gold : D.border}`,
+                  height: 34,
+                  padding: '0 12px',
+                  fontSize: '0.82rem',
+                })}
+              >
+                <Icon
+                  name={s === 'all' ? 'tag' : s === 'category' ? 'box' : 'utensils'}
+                  size={14}
+                />
+                {s === 'all' ? t('scope_all') : s === 'category' ? t('scope_category') : t('scope_product')}
+              </button>
+            ))}
+          </div>
+          {scope === 'category' && (
+            <select
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+              style={inp}
+              aria-label={t('scope_category')}
+              {...invalidOn(['err_category'])}
+            >
+              <option value="">{t('pick_category')}</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.emoji} {c.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {scope === 'product' && (
+            <select
+              value={productId}
+              onChange={(e) => setProductId(e.target.value)}
+              style={inp}
+              aria-label={t('scope_product')}
+              {...invalidOn(['err_product'])}
+            >
+              <option value="">{t('pick_product')}</option>
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.emoji} {p.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        <div role="group" aria-labelledby={ids.discount}>
+          <div id={ids.discount} style={lbl}>
+            {t('field_discount')}
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+            <button
+              type="button"
+              aria-pressed={discountType === 'percent'}
+              onClick={() => setDiscountType('percent')}
+              style={btn({
+                background: discountType === 'percent' ? D.goldA : D.s3,
+                color: discountType === 'percent' ? D.goldL : D.t2,
+                border: `1px solid ${discountType === 'percent' ? D.gold : D.border}`,
+                height: 34,
+                fontSize: '0.82rem',
+              })}
+            >
+              {t('type_pct')}
+            </button>
+            <button
+              type="button"
+              aria-pressed={discountType === 'amount'}
+              onClick={() => {
+                setDiscountType('amount')
+                setMaxDiscount('')
+              }}
+              style={btn({
+                background: discountType === 'amount' ? D.goldA : D.s3,
+                color: discountType === 'amount' ? D.goldL : D.t2,
+                border: `1px solid ${discountType === 'amount' ? D.gold : D.border}`,
+                height: 34,
+                fontSize: '0.82rem',
+              })}
+            >
+              {t('type_amount')}
+            </button>
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns:
+                isMobile || discountType === 'amount' ? '1fr' : '1fr 1fr',
+              gap: 10,
+            }}
+          >
+            <div>
+              <label htmlFor={ids.value} style={lbl}>
+                {t('field_value')}
+              </label>
+              <input
+                id={ids.value}
+                type="text"
+                inputMode="decimal"
+                value={discountValue}
+                onChange={(e) => setDiscountValue(e.target.value)}
+                style={inp}
+                placeholder={discountType === 'percent' ? '20' : '50'}
+                aria-label={t('field_valueAria')}
+                {...invalidOn(['err_value', 'err_valueInvalid', 'err_pctMax'])}
+              />
+            </div>
+            {discountType === 'percent' && (
+              <div>
+                <label htmlFor={ids.cap} style={lbl}>
+                  {t('field_cap')}
+                </label>
+                <input
+                  id={ids.cap}
+                  type="text"
+                  inputMode="decimal"
+                  value={maxDiscount}
+                  onChange={(e) => setMaxDiscount(e.target.value)}
+                  style={inp}
+                  placeholder={t('field_capPh')}
+                  aria-label={t('field_capAria')}
+                  {...invalidOn(['err_capInvalid'])}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        <label
           style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: '1.1rem',
-            color: D.t1,
-            marginBottom: 10,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            color: D.t2,
+            fontSize: '0.86rem',
+            cursor: 'pointer',
           }}
         >
-          {t('del_title')}
-        </h3>
-        <p style={{ color: D.t2, fontSize: '0.88rem', marginBottom: 18 }}>
-          {fillNodes(t('del_question'), { name: <strong style={{ color: D.t1 }}>{name}</strong> })}
-        </p>
+          <input
+            type="checkbox"
+            checked={isActive}
+            onChange={(e) => setIsActive(e.target.checked)}
+          />
+          <span>{t('field_active')}</span>
+        </label>
+
+        {err == null ? null : (
+          <div
+            id={ids.err}
+            role="alert"
+            style={{
+              padding: 10,
+              background: D.redA,
+              color: D.red,
+              borderRadius: 8,
+              fontSize: '0.86rem',
+            }}
+          >
+            {err.kind === 'invalid'
+              ? t(err.key)
+              : describeStaffError(err.err, tc, { fallback: t('err_save') })}
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button
-            onClick={onCancel}
-            style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
+            type="button"
+            onClick={() => {
+              void confirmDiscard().then((ok) => {
+                if (ok) onClose()
+              })
+            }}
+            style={btn({ background: D.s2, color: D.t2, border: `1px solid ${D.border}` })}
           >
             {tc.t('cancel')}
           </button>
-          <button onClick={onConfirm} style={btn({ background: D.red, color: '#fff' })}>
-            {tc.t('delete')}
+          <button
+            type="button"
+            onClick={go}
+            disabled={saving}
+            aria-busy={saving || undefined}
+            style={btn({ background: D.gold, color: '#000', opacity: saving ? 0.6 : 1, cursor: saving ? 'wait' : 'pointer' })}
+          >
+            {saving ? t('saving') : rule ? t('saveChanges') : t('create')}
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }

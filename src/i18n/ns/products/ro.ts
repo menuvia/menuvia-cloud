@@ -41,6 +41,7 @@ const ro = {
   val_nameRequired: 'Numele produsului e obligatoriu',
   val_priceNegative: 'Prețul nu poate fi negativ',
   val_priceInvalid: 'Prețul nu e un număr valid (ex. 12,50)',
+  val_priceRequired: 'Completează prețul (0 dacă e gratuit)',
   saveAndNext: 'Salvează și adaugă următorul',
 
   // ── Câmpurile de bază ──
@@ -255,6 +256,7 @@ const ro = {
   // ── Lista și filtrele ──
   list_summary: '{total} total · {active} active',
   list_search: 'Caută...',
+  list_searchAria: 'Caută în produse (nume sau descriere)',
   list_all: 'Toate',
   list_uncategorized: 'Fără categorie ({n})',
   list_reorder: 'Ordonează produsele',

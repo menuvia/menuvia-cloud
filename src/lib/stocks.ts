@@ -2,6 +2,7 @@
 // stocks.ts — Stocuri & Rețete (Menuvia gestiune simplu)
 // ─────────────────────────────────────────────────────────────
 import { supabase } from './supabase'
+import { zeroRowsAsDenied } from './userMessages'
 import type { StringKey, Translator } from '../i18n/core'
 import type stocksRo from '../i18n/ns/stocks/ro'
 
@@ -110,23 +111,37 @@ export async function createIngredient(
   return data as Ingredient
 }
 
+/**
+ * Câmpurile editabile ale unui ingredient EXISTENT. `current_stock` lipsește
+ * DELIBERAT: stocul se schimbă doar prin `adjustStockManual` (RPC-ul
+ * `adjust_stock_manual`, care scrie și mișcarea în `stock_movements`), recepții
+ * și vânzări. Lotul C4a: fișa „Editează ingredient” avea câmpul de stoc
+ * editabil, dar valoarea nu ajungea aici — fișa se închidea ca la succes, iar
+ * un produs „Epuizat (stoc)” (mig 313) rămânea epuizat pe meniul QR.
+ */
+export const INGREDIENT_UPDATE_FIELDS = [
+  'name',
+  'unit',
+  'min_stock_alert',
+  'cost_per_unit',
+  'vat_group',
+  'emoji',
+  'category',
+  'is_active',
+] as const
+
 export async function updateIngredient(id: string, fields: Partial<Ingredient>): Promise<void> {
   const updates: Record<string, unknown> = {}
-  for (const k of [
-    'name',
-    'unit',
-    'min_stock_alert',
-    'cost_per_unit',
-    'vat_group',
-    'emoji',
-    'category',
-    'is_active',
-  ] as const) {
+  for (const k of INGREDIENT_UPDATE_FIELDS) {
     if (fields[k] !== undefined) updates[k] = fields[k]
   }
   updates.updated_at = new Date().toISOString()
-  const { error } = await supabase.from('ingredients').update(updates).eq('id', id)
-  if (error) throw error
+  // `.select('id')`: un UPDATE refuzat de RLS întoarce 200 cu ZERO rânduri, fără
+  // eroare — fișa s-ar fi închis ca la succes (clasa zeroRowsAsDenied).
+  const denied = zeroRowsAsDenied(
+    await supabase.from('ingredients').update(updates).eq('id', id).select('id'),
+  )
+  if (denied) throw Object.assign(new Error(denied.message), { code: denied.code })
 }
 
 export async function deleteIngredient(id: string): Promise<void> {

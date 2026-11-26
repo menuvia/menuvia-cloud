@@ -81,6 +81,7 @@ const fr: Translation<typeof ro> = {
   },
 
   err_nameRequired: 'Le nom est obligatoire',
+  err_priceInvalid: 'Le prix n’est pas un nombre valide (ex. 4,50 ou -1,50). Laissez vide pour « Inclus ».',
   err_optionTr: 'La traduction de l’option « {name} » n’a pas été enregistrée.',
   err_pickSave: 'Impossible d’enregistrer les produits du groupe.',
   hint_groupNotFound: 'Le groupe d’options n’existe plus. Fermez la fenêtre et rechargez la page.',

@@ -29,6 +29,7 @@ const fr: Translation<typeof ro> = {
   val_nameRequired: 'Le nom du produit est obligatoire',
   val_priceNegative: 'Le prix ne peut pas être négatif',
   val_priceInvalid: 'Le prix n’est pas un nombre valide (ex. 12,50)',
+  val_priceRequired: 'Indiquez le prix (0 s’il est gratuit)',
   saveAndNext: 'Enregistrer et ajouter le suivant',
 
   field_nameReq: 'Nom *',
@@ -228,6 +229,7 @@ const fr: Translation<typeof ro> = {
 
   list_summary: '{total} au total · actifs : {active}',
   list_search: 'Rechercher…',
+  list_searchAria: 'Rechercher un produit (nom ou description)',
   list_all: 'Tous',
   list_uncategorized: 'Sans catégorie ({n})',
   list_reorder: 'Ordonner les produits',
