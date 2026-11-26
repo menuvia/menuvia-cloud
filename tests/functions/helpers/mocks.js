@@ -94,6 +94,8 @@ const CHAIN_METHODS = [
   'maybeSingle',
   // stripe-webhook: UPDATE condiționat pe profil (abonament unic la finalizare).
   'or',
+  // sitemap: restaurantele cu slug (`.not('slug', 'is', null)`, sitemap.test.js).
+  'not',
 ]
 
 function makeBuilder(table) {

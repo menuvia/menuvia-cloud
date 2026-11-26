@@ -107,6 +107,8 @@ export function LangSwitcher({
   labelStyle,
   uiLang,
   baseLang = 'ro',
+  ariaLabel,
+  center = false,
 }: {
   languages: string[]
   /** Limba originalului — prima pastilă (lotul O6a). */
@@ -118,6 +120,11 @@ export function LangSwitcher({
   labelStyle: CSSProperties
   /** Limba etichetei a11y — implicit limba activă. */
   uiLang?: string
+  /** Eticheta a11y a grupului, deja tradusă — implicit „limba meniului”. Pe
+   *  /rezervare/:slug pastilele aleg limba REZERVĂRII (lotul C8e). */
+  ariaLabel?: string
+  /** Pastilele centrate (pagina de rezervare are hero centrat). */
+  center?: boolean
 }) {
   // baza + limbile alese, deduplicat, doar cele cunoscute în MENU_LANGS.
   const codes = [baseLang, ...languages.filter((c) => c !== baseLang)]
@@ -128,8 +135,13 @@ export function LangSwitcher({
   return (
     <div
       role="group"
-      aria-label={T(uiLang ?? activeLang, 'lang_switch_aria')}
-      style={{ display: 'flex', flexWrap: 'wrap', gap: SPACE_2 }}
+      aria-label={ariaLabel ?? T(uiLang ?? activeLang, 'lang_switch_aria')}
+      style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: SPACE_2,
+        justifyContent: center ? 'center' : undefined,
+      }}
     >
       {langs.map((l) => {
         const active = l.code === activeLang

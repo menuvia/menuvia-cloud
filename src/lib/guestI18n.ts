@@ -97,10 +97,11 @@ export function guestLocale(lang: string): string {
   return LOCALES[lang] ?? 'en-GB'
 }
 
-/** Limba browserului dintre cele 7 ale meniului — pentru paginile publice fără
- *  selector (ex. /rezervare/:slug, deschisă dintr-un link). Nesuportată → 'en'. */
-export function browserGuestLang(): string {
-  if (typeof navigator === 'undefined') return 'en'
+/** Limba browserului (`navigator.language`) dacă e una din cele 7 ale meniului;
+ *  altfel `null`, iar apelantul decide fallback-ul (pe /rezervare/:slug, limba
+ *  de bază a localului — `initialReservePageLang`, lotul C8e). */
+export function browserGuestLang(): string | null {
+  if (typeof navigator === 'undefined') return null
   const code = (navigator.language ?? '').toLowerCase().split('-')[0] ?? ''
-  return Object.prototype.hasOwnProperty.call(LOCALES, code) ? code : 'en'
+  return Object.prototype.hasOwnProperty.call(LOCALES, code) ? code : null
 }

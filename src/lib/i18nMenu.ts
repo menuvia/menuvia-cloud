@@ -455,3 +455,71 @@ export function consumeRequestedMenuLang(
   if (state.loading || state.failed) return undefined
   return requestedMenuLang(requested, available, base)
 }
+
+// ── `?lang=` în adresa paginilor publice (lotul C8e) ────────────────────
+// Adresa poartă limba AFIȘATĂ: un link copiat sau distribuit de pe /m/:slug ori
+// /rezervare/:slug deschide pagina în aceeași limbă (înainte alegerea trăia doar
+// în state, iar destinatarul vedea limba propriului browser). Citirea rămâne
+// `langFromSearch` (semantica O6c); aici e doar scrierea.
+
+/** `search` cu parametrul `lang` pus pe `lang` (`null` = scos). Ceilalți
+ *  parametri (ex. `?cancel=` pe /rezervare) rămân. Pură: `''` sau `'?…'`. */
+export function searchWithLang(search: string, lang: string | null): string {
+  const params = new URLSearchParams(search)
+  if (lang == null) params.delete('lang')
+  else params.set('lang', lang)
+  const s = params.toString()
+  return s.length > 0 ? `?${s}` : ''
+}
+
+/** Aduce `?lang=` din adresa curentă la `lang`, FĂRĂ intrare nouă în istoric
+ *  (`replaceState`: „Înapoi” nu trece prin fiecare limbă încercată). */
+export function replaceUrlLang(lang: string | null): void {
+  if (typeof window === 'undefined' || !window.location) return
+  const { pathname, search, hash } = window.location
+  if (new URLSearchParams(search).get('lang') === lang) return
+  try {
+    window.history.replaceState(window.history.state, '', pathname + searchWithLang(search, lang) + hash)
+  } catch {
+    // Webview restrictiv (SecurityError): adresa rămâne, conținutul nu depinde de ea.
+  }
+}
+
+// Roboții de indexare. Googlebot randează cu `navigator.language` = en-US: cu
+// auto-detectul pornit, adresa de BAZĂ a unui meniu tradus în engleză i-ar arăta
+// engleza, iar limba de bază n-ar mai fi indexată nicăieri (canonicul urmează
+// conținutul, deci ar fi `?lang=en`). `\b` după „bot” cere o graniță de cuvânt:
+// un telefon CUBOT_X19 nu e un robot.
+const CRAWLER_UA = /(?:bot|spider|crawler)\b|slurp|google-inspectiontool|googleother/i
+
+/** User-agent de robot cunoscut (Googlebot, Bingbot, Applebot, YandexBot…).
+ *  Roboții primesc limba de BAZĂ pe adresa fără `?lang=`; celelalte limbi le
+ *  descoperă prin `hreflang`. */
+export function isLikelyCrawler(userAgent: string | null | undefined): boolean {
+  return typeof userAgent === 'string' && CRAWLER_UA.test(userAgent)
+}
+
+/** User-agent-ul ferestrei curente e al unui robot? `false` fără DOM. */
+export function browserIsCrawler(): boolean {
+  return typeof navigator !== 'undefined' && isLikelyCrawler(navigator.userAgent)
+}
+
+/** Limba de pornire a paginii de rezervare (/rezervare/:slug): `?lang=` dacă e
+ *  una din cele 7, apoi limba browserului (una din cele 7, iar vizitatorul nu e
+ *  un robot), apoi limba de BAZĂ a localului. Toate cele 7 sunt oferite: textele
+ *  paginii, ale SMS-ului și ale emailului de confirmare există în toate (mig
+ *  328), deci `menu_languages` (limbile MENIULUI tradus) nu le restrânge — un
+ *  turist german nu primește confirmarea în română doar pentru că localul și-a
+ *  tradus meniul numai în engleză. */
+export function initialReservePageLang(opts: {
+  search: string
+  browserLang: string | null
+  crawler: boolean
+  base: string
+}): string {
+  const requested = langFromSearch(opts.search)
+  if (requested != null) return requested
+  const browser = opts.browserLang
+  if (!opts.crawler && browser != null && MENU_LANGS.some((l) => l.code === browser)) return browser
+  return opts.base
+}

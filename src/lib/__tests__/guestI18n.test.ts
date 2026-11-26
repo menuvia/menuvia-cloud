@@ -171,13 +171,15 @@ describe('tabela de texte a oaspetelui', () => {
     }
   })
 
-  it('GK6 limba browserului: una din cele 7, altfel EN', () => {
+  // Lotul C8e: limba nesuportată nu mai cade aici pe EN — apelantul (pagina de
+  // rezervare) cade pe limba de BAZĂ a localului (`initialReservePageLang`).
+  it('GK6 limba browserului: una din cele 7, altfel null', () => {
     const nav = Object.getOwnPropertyDescriptor(window.navigator, 'language')
     try {
       Object.defineProperty(window.navigator, 'language', { value: 'hu-HU', configurable: true })
       expect(browserGuestLang()).toBe('hu')
       Object.defineProperty(window.navigator, 'language', { value: 'pl-PL', configurable: true })
-      expect(browserGuestLang()).toBe('en')
+      expect(browserGuestLang()).toBeNull()
     } finally {
       if (nav) Object.defineProperty(window.navigator, 'language', nav)
       else Reflect.deleteProperty(window.navigator, 'language')

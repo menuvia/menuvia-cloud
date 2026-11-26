@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import { T } from '../lib/publicMenuStrings'
 import { Tf, guestLocale } from '../lib/guestI18n'
@@ -53,6 +53,10 @@ interface Props {
   PUB: PubColors
   lang: string
   onClose: () => void
+  /** Selectorul de limbă, deasupra formularului (lotul C8e): pe /rezervare/:slug
+   *  foaia e deschisă din prima și acoperă pastilele din pagină, iar limba
+   *  aleasă e și cea a confirmării (mig 328). Pe meniuri limba se alege acolo. */
+  langSwitch?: ReactNode
 }
 
 interface PublicSettings {
@@ -90,7 +94,15 @@ interface CreateResult {
 // fusul LOCALULUI (`isoToZonedYMD` + `formatYmd`, `formatTimeInZone`), cu fus
 // invalid → București (înainte, un fus invalid arunca RangeError la randare).
 
-export default function ReservationSheet({ restaurant, theme, accent, PUB, lang, onClose }: Props) {
+export default function ReservationSheet({
+  restaurant,
+  theme,
+  accent,
+  PUB,
+  lang,
+  onClose,
+  langSwitch,
+}: Props) {
   useBodyScrollLock(true)
   // Fusul OPERAȚIONAL al localului (fus lipsă sau invalid → București, ca
   // `safe_time_zone` pe server) — sloturile, „azi/mâine/max" și confirmarea.
@@ -599,12 +611,14 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
             </div>
           )}
           {/* Anulare online pe cod (mig 256/257) — linkul poartă codul, ca
-              clientul să anuleze în 2 tap-uri (anti no-show din audit). */}
+              clientul să anuleze în 2 tap-uri (anti no-show din audit), și
+              limba în care a rezervat (lotul C8e): pagina de anulare citește
+              `?lang=`, deci nu cade pe limba browserului. */}
           {restaurant.slug && (
             <div style={{ fontSize: 12, color: PUB.text3, marginBottom: 22 }}>
               {T(lang, 'rs_cannot_make_it')}{' '}
               <a
-                href={`/rezervare/${restaurant.slug}?cancel=${encodeURIComponent(result.confirmation_code)}`}
+                href={`/rezervare/${restaurant.slug}?cancel=${encodeURIComponent(result.confirmation_code)}&lang=${encodeURIComponent(lang)}`}
                 style={{ color: accentInk, textDecoration: 'underline' }}
               >
                 {T(lang, 'rs_cancel_online')}
@@ -679,6 +693,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
         {T(lang, 'reserve_trust')}
       </div>
       <div style={{ padding: '6px 22px 22px', flex: 1, overflowY: 'auto' }}>
+        {langSwitch != null && <div style={{ padding: '12px 0 2px' }}>{langSwitch}</div>}
         {/* Party size */}
         <div id={partyLabelId} style={labelStyle}>
           {T(lang, 'reserve_party_label')}

@@ -82,6 +82,7 @@ import ReservationSheet from '../ReservationSheet'
 import { getTheme } from '../../lib/themes'
 import { makeRestaurant } from './fixtures'
 import { legibleOn, readableTextOn } from '../../lib/themes'
+import { T } from '../../lib/publicMenuStrings'
 
 const PUB = {
   bg: '#fff',
@@ -492,5 +493,49 @@ describe('ReservationSheet — limba oaspetelui (L8b)', () => {
     await fillAndSubmit()
     await waitFor(() => expect(h.createMock).toHaveBeenCalledTimes(1))
     expect(h.createMock.mock.calls[0]?.[2]).toBe('ro')
+  })
+})
+
+// Lotul C8e (RPL7–RPL8; RPL1–RPL6 în src/pages/__tests__/ReservePageLang.test.tsx):
+// limba rezervării trece și în linkul de anulare, iar pe /rezervare/:slug
+// selectorul de limbă stă în FOAIE — ea e deschisă din prima și acoperă pagina.
+//   RPL7  linkul de anulare de pe ecranul de succes = `?cancel=COD&lang=<limba>`.
+//         [PICĂ: linkul de dinainte, fără `&lang=` — pagina de anulare cădea pe
+//         limba browserului]
+//   RPL8  `langSwitch` se randează în dialog, DEASUPRA rândului de persoane;
+//         control: fără prop, nimic în plus. [PICĂ: prop-ul ignorat]
+describe('ReservationSheet — limba în linkul de anulare și selectorul (C8e)', () => {
+  beforeEach(() => {
+    h.createMock.mockReset()
+    h.createMock.mockResolvedValue(reservationRow('confirmed'))
+    sessionStorage.clear()
+  })
+
+  it('RPL7 linkul de anulare poartă limba formularului', async () => {
+    renderSheet('ro')
+    await fillAndSubmit()
+    const link = await screen.findByRole('link', { name: T('ro', 'rs_cancel_online') })
+    expect(link).toHaveAttribute('href', '/rezervare/demo?cancel=ABC123&lang=ro')
+  })
+
+  it('RPL8 selectorul primit stă în dialog, deasupra formularului', () => {
+    const { unmount } = render(
+      <ReservationSheet
+        restaurant={makeRestaurant({ slug: 'demo' })}
+        theme={getTheme('cafe')}
+        accent="#c8102e"
+        PUB={PUB}
+        lang="ro"
+        onClose={() => {}}
+        langSwitch={<div data-testid="lang-slot" />}
+      />,
+    )
+    const slot = within(screen.getByRole('dialog')).getByTestId('lang-slot')
+    const party = screen.getByTestId('party-size-row')
+    expect(slot.compareDocumentPosition(party) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    unmount()
+
+    renderSheet()
+    expect(screen.queryByTestId('lang-slot')).toBeNull()
   })
 })
