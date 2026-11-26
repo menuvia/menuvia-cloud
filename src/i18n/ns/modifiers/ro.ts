@@ -11,8 +11,8 @@
 // „Reîncearcă”; numele limbilor MENIULUI vin din `translations`
 // (`menuLangName`, ca în L5a).
 // NU se traduc (date): numele grupurilor, opțiunilor și produselor,
-// traducerile scrise de patron, sumele (`toLocaleString('ro-RO')` + „lei”, ca
-// înainte — banii nu intră în lotul L5b).
+// traducerile scrise de patron. Sumele = cifra formatată în limba utilizatorului
+// (`staffLocale`; în română exact „ro-RO” de dinainte) + „lei”.
 const ro = {
   intro: 'Grupuri de opțiuni (ex: Extra sos, Mărime)',
   newGroup: 'Grup nou',

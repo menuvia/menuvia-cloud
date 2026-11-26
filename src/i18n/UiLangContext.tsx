@@ -66,8 +66,27 @@ export function UiLangProvider({
   // funnel-ul, scrisă de /en și de `?lang=`) nu se rescrie implicit —
   // recenzia adversarială pe #388: un „ro” pus automat de mig 323 contului
   // vechi ar fi mutat pe română /auth-ul unui dispozitiv ales pe engleză.
+  // Pe o bază fără mig 323 (`ui_language_missing`) contul e român pentru
+  // PANOU — exact ce îi dă 323 la aplicare; funnel-ul nu citește semnalul. O
+  // copie pe cont deja scrisă (dintr-o limbă REALĂ, citită sau salvată cu
+  // coloana prezentă) bate acel 'ro' dedus: un tab rămas „fără coloană” peste
+  // aplicarea migrației nu mai suprascrie limba reală a contului (a patra rundă
+  // de recenzie). Pe o bază chiar veche copia e cel mult 'ro' — singurul ei
+  // scriitor acolo e chiar această regulă —, deci rezultatul nu se schimbă.
+  const accountCopy = uid != null ? readAccountLang(uid) : null
+  const copiedLang = accountCopy != null && isStaffLang(accountCopy) ? accountCopy : null
   const profileLang =
-    profile != null ? (profile.ui_language ?? null) : uid != null ? readAccountLang(uid) : null
+    profile != null
+      ? (profile.ui_language ?? (profile.ui_language_missing ? (copiedLang ?? 'ro') : null))
+      : accountCopy
+  // Cont logat, profil încă neîncărcat (sau încărcarea a picat) și fără copie
+  // pe cont: limba lui e NECUNOSCUTĂ, nu „a browserului”. Un cont român pe un
+  // browser în franceză vedea altfel primele cadre — ori toată sesiunea, dacă
+  // încărcarea profilului pica — în franceză (recenzia adversarială a
+  // activării; copia pe cont lipsește pe orice dispozitiv la prima deschidere
+  // după #388). Rezolvarea merge atunci URL → indiciu → dispozitiv → site;
+  // browserul contează doar fără cont sau cu un profil încărcat fără limbă.
+  const pendingAccount = uid != null && profile == null && profileLang == null
   // `?lang=` se RECITEȘTE la fiecare navigare (precondiția B3 a activării):
   // providerul stă deasupra routerului și nu se remontează, deci o valoare
   // citită doar în memo îngheța limba linkului de intrare — butonul de login
@@ -93,8 +112,12 @@ export function UiLangProvider({
       window.removeEventListener(ACCOUNT_LANG_EVENT, onAccountLang)
     }
   }, [])
-  // Copia pe cont se actualizează la fiecare profil încărcat cu limbă.
-  const loadedLang = profile?.ui_language ?? null
+  // Copia pe cont se actualizează la fiecare profil încărcat cu limbă — aceeași
+  // derivare ca rezolvarea, deci și 'ro'-ul unei baze fără mig 323: altfel, pe
+  // producția la 291, copia nu se scria niciodată și fiecare deschidere a
+  // panoului arăta limba dispozitivului/site-ului până sosea profilul (sau
+  // toată sesiunea, dacă încărcarea pica). Copia o citește doar panoul.
+  const loadedLang = profile != null ? profileLang : null
   const loadedUid = profile?.id ?? null
   useEffect(() => {
     if (loadedUid && loadedLang && isStaffLang(loadedLang)) storeAccountLang(loadedUid, loadedLang)
@@ -106,12 +129,12 @@ export function UiLangProvider({
         urlLang,
         profileLang,
         storedLang: readStoredLang(),
-        navigatorLangs: readNavigatorLangs(),
+        navigatorLangs: pendingAccount ? [] : readNavigatorLangs(),
         siteLang: defaultUiLang(browserSite()),
         enabled,
       })
     return { lang, enabled }
-  }, [forced, urlLang, profileLang, enabled])
+  }, [forced, urlLang, profileLang, pendingAccount, enabled])
   return <UiLangContext.Provider value={value}>{children}</UiLangContext.Provider>
 }
 
@@ -243,8 +266,8 @@ export function FunnelDocumentLang({ children }: { children: ReactNode }) {
 /**
  * Rutele PERSONALULUI (panoul, ospătarul, bucătăria — App.tsx): `<html lang>`
  * și titlul tab-ului urmează limba personalului (lotul L4d), deci și cromul
- * comun. Azi `ENABLED_STAFF_LANGS = ['ro']`, deci limba e mereu „ro”, ca
- * `index.html`: nimic vizibil. NU se montează deasupra paginilor oaspetelui
+ * comun (din activarea limbilor: oricare dintre cele patru; pe română, ca
+ * `index.html`). NU se montează deasupra paginilor oaspetelui
  * (vezi `useScreenDocument`): acolo limba e a meniului.
  */
 export function StaffDocumentLang({ children }: { children: ReactNode }) {

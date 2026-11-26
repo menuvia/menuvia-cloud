@@ -6,7 +6,7 @@
 // If not set, ALL requests are rejected.
 
 // Limba (lotul L8a): `lang` din body e OPȚIONAL — limba funnel-ului în care
-// s-a făcut înscrierea; se acceptă doar pe FUNNEL_LANGS (azi ro + en), orice
+// s-a făcut înscrierea; se acceptă doar pe FUNNEL_LANGS (ro/en/fr/de), orice
 // altceva → română, deci un apelant vechi primește exact emailul de dinainte.
 // Apelantul (webhook-ul Supabase) nu e în repo — vezi docs/AUTH_EMAIL_TEMPLATES.md.
 

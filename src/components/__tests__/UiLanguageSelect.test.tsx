@@ -2,8 +2,10 @@
 // (lotul L4c) — tiparul UC1–UC8 al cardului din Setări (UiLanguageCard.test),
 // pe aceeași salvare: hook-ul comun `useSetUiLanguage`. Prefixul e LU (verificat
 // cu grep, nefolosit înainte; UC = cardul, UL = asserțiile SQL ale coloanei).
-//   LU1  o singură limbă activă (azi `ENABLED_STAFF_LANGS = ['ro']`, și fără
-//        provider) → nimic randat. Mutația care pică: garda `visible` scoasă.
+//   LU1  o singură limbă activă → nimic randat; fără provider (implicit
+//        `ENABLED_STAFF_LANGS`, toate patru din activarea limbilor) → select-ul
+//        apare, în română, cu cele patru limbi. Mutațiile care pică: garda
+//        `visible` scoasă; `ENABLED_STAFF_LANGS` readus la `['ro']`.
 //   LU2  patru limbi, interfața în franceză: select-ul cu numele accesibil din
 //        `common`, limba curentă aleasă, fiecare limbă în limba EI, cu `lang`.
 //   LU3  alegerea: UPDATE pe `profiles` cu `{ ui_language }` și `.select('id')`,
@@ -11,12 +13,18 @@
 //        de `refreshProfile()`, chemat o dată.
 //   LU4  refuzul serverului → `role="alert"` cu textul de rezervă, fără
 //        stocare și fără reîncărcare, alegerea revine pe limba de dinainte.
-//   LU5  42703 (coloana mig 323 lipsește) → mesajul propriu, în varianta SCURTĂ
+//   LU5  coloana mig 323 lipsește (PGRST204, răspunsul real al PostgREST la un
+//        UPDATE pe o coloană necunoscută) → mesajul propriu, în varianta SCURTĂ
 //        (fără „Panoul rămâne…” al cardului — pe ecranele de lucru nu e panou).
+//        Mutația care pică: verificarea doar pe 42703.
 //   LU6  zero rânduri actualizate (RLS) → eroare de drepturi, nu „salvat”.
 //   LU7  stocarea ARUNCĂ (Safari „Block All Cookies”) → salvat în cont, fără alertă.
 //   LU8  în germană: numele accesibil și refuzul în germană (textul se traduce
 //        la RANDARE, din DATELE erorii).
+//   LU10 profil încărcat de pe o bază FĂRĂ coloana mig 323 (`ui_language_missing`):
+//        comutatorul din antet nu se randează — orice salvare ar pica (recenzia
+//        adversarială finală; producția e la 291). Mutația care pică: semnalul
+//        ignorat în `visible`.
 //   LU9  clichet STRUCTURAL: cardul din Setări și comutatorul compact folosesc
 //        ACELAȘI hook și niciunul nu scrie singur în profil / stocare — o a
 //        doua implementare a salvării ar diverge la prima schimbare. Plus:
@@ -39,6 +47,7 @@ const h = vi.hoisted(() => ({
   result: { data: [{ id: 'u1' }], error: null } as UpdateResult,
   hold: null as Promise<void> | null,
   storedAtRefresh: [] as (string | null)[],
+  columnMissing: false,
 }))
 
 vi.mock('../../lib/supabase', () => ({
@@ -66,6 +75,7 @@ vi.mock('../../lib/supabase', () => ({
 vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({
     user: { id: 'u1' },
+    profile: h.columnMissing ? { ui_language: null, ui_language_missing: true } : null,
     refreshProfile: async () => {
       h.calls.push('refreshProfile')
       h.storedAtRefresh.push(window.localStorage.getItem('menuvia_ui_lang'))
@@ -92,6 +102,7 @@ beforeEach(() => {
   h.result = { data: [{ id: 'u1' }], error: null }
   h.hold = null
   h.storedAtRefresh = []
+  h.columnMissing = false
   window.localStorage.clear()
 })
 
@@ -112,16 +123,16 @@ function renderSelect(lang: StaffLang, enabled: readonly StaffLang[]) {
 const select = () => screen.getByRole('combobox', { name: 'Limba interfeței' }) as HTMLSelectElement
 
 describe('UiLanguageSelect — comutatorul compact', () => {
-  it('LU1: o singură limbă activă (și fără provider) → nimic randat', () => {
+  it('LU1: o singură limbă activă → nimic randat; fără provider → cele patru limbi', () => {
     const scoped = renderSelect('ro', ['ro'])
     expect(scoped.container.textContent).toBe('')
     expect(screen.queryByRole('combobox')).toBeNull()
     scoped.unmount()
-    // Fără provider = starea de AZI (`ENABLED_STAFF_LANGS = ['ro']`): lotul care
-    // activează a doua limbă schimbă și această aserțiune, conștient.
-    const bare = render(<UiLanguageSelect />)
-    expect(bare.container.textContent).toBe('')
-    expect(screen.queryByRole('combobox')).toBeNull()
+    // Fără provider = valoarea implicită: din activare, toate patru limbile.
+    render(<UiLanguageSelect />)
+    const sel = select()
+    expect(sel.value).toBe('ro')
+    expect((within(sel).getAllByRole('option') as HTMLOptionElement[]).map((o) => o.textContent)).toEqual(NAMES)
   })
 
   it('LU2: patru limbi → limba curentă și numele în limba lor', () => {
@@ -162,8 +173,11 @@ describe('UiLanguageSelect — comutatorul compact', () => {
     expect(select()).not.toBeDisabled()
   })
 
-  it('LU5: 42703 (coloana lipsește) → mesajul despre actualizarea serverului', async () => {
-    h.result = { data: null, error: { code: '42703', message: 'column "ui_language" does not exist' } }
+  it('LU5: coloana lipsește (PGRST204) → mesajul despre actualizarea serverului', async () => {
+    h.result = {
+      data: null,
+      error: { code: 'PGRST204', message: "Could not find the 'ui_language' column of 'profiles' in the schema cache" },
+    }
     renderSelect('ro', ALL)
     await userEvent.setup().selectOptions(select(), 'fr')
     const alert = await screen.findByRole('alert')
@@ -231,5 +245,16 @@ describe('un singur drum de salvare pentru ambele comutatoare', () => {
     for (const f of ['src/pages/WaiterPage.tsx', 'src/pages/KitchenPage.tsx']) {
       expect(code(f), f).toMatch(/<UiLanguageSelect \/>/)
     }
+  })
+
+  it('LU10: bază fără coloana mig 323 → comutatorul din antet nu se randează', () => {
+    h.columnMissing = true
+    const hidden = renderSelect('ro', ALL)
+    expect(screen.queryByRole('combobox')).toBeNull()
+    hidden.unmount()
+    // Control: cu coloana prezentă, același arbore arată comutatorul.
+    h.columnMissing = false
+    renderSelect('ro', ALL)
+    expect(select()).toBeInTheDocument()
   })
 })

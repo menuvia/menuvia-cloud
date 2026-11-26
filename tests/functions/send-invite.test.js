@@ -25,7 +25,7 @@
 //   INV9  (lotul L8a) româna e BYTE-identică: subiectul și HTML-ul trimise la
 //         Resend == șablonul de dinainte, copiat literal mai jos, cu un nume de
 //         restaurant care cere escapare; și când invitatul are deja
-//         `ui_language = 'en'` (doar româna e activă pentru personal).
+//         `ui_language = 'ro'` ales explicit, peste un invitator german.
 //         Mutația care pică: o literă schimbată în `team_invite.ro`.
 //   INV10 limba: invitatul (cont existent) > invitatorul > română, doar pe
 //         limbile active; handler-ul cere limbile pentru AMBII.
@@ -35,7 +35,12 @@
 //         interogarea de limbă chiar a fost făcută (control).
 //         Mutația care pică: `ui_language` în același select cu `full_name, email`.
 //   INV12 linkul de acceptare NU primește `?lang=` (pe pagină ar deveni
-//         preferința DISPOZITIVULUI invitatului).
+//         preferința DISPOZITIVULUI invitatului); în afara românei primește
+//         `?hl=<limba emailului>`, indiciul NEPERSISTENT al paginii.
+//   INV14 (activarea limbilor) cap-coadă prin handler: invitatul 'en' primește
+//         emailul în engleză cu `?hl=en`; fără cont, limba invitatorului 'de'
+//         dă germana cu `?hl=de`. Mutația care pică: `?hl=` scos din link sau
+//         limba ignorată în handler.
 //   INV13 numele lipsesc din DB (restaurant/profil null) → rezerva e în limba
 //         emailului: pe română EXACT „restaurantul tău” / „Un coleg” (byte-
 //         identic cu șablonul vechi), în en/fr/de fără niciun rest românesc.
@@ -279,7 +284,7 @@ describe('send-invite: limba emailului (lotul L8a)', () => {
 
   for (const [label, setup] of [
     ['invitat fără cont', () => scriptProfiles()],
-    ['invitatul are deja ui_language=en (engleza nu e activă)', () => scriptProfiles({ invitee: INVITEE_UUID, langs: { [INVITEE_UUID]: 'en', [OWNER_UUID]: 'de' } })],
+    ['invitatul a ales explicit româna, invitatorul e pe germană', () => scriptProfiles({ invitee: INVITEE_UUID, langs: { [INVITEE_UUID]: 'ro', [OWNER_UUID]: 'de' } })],
   ]) {
     it(`INV9: româna byte-identică — ${label}`, async () => {
       state.authUser = { id: OWNER_UUID }
@@ -305,7 +310,7 @@ describe('send-invite: limba emailului (lotul L8a)', () => {
     assert.equal(resolveInviteLang({ invitee: 'fr', inviter: 'en' }, enabled), 'fr')
     assert.equal(resolveInviteLang({ invitee: undefined, inviter: 'en' }, enabled), 'en')
     assert.equal(resolveInviteLang({ invitee: 'de', inviter: 'de' }, enabled), 'ro')
-    // Randarea în limba aleasă (fără handler: ENABLED de producție e doar ro).
+    // Randarea în limba aleasă (direct; cap-coadă prin handler în INV14).
     const { renderInviteEmail } = loadFunction(REL)
     const en = renderInviteEmail('en', { restaurantName: 'Bistro', invitedByName: 'Ana', roleKey: 'kitchen', acceptUrl: 'https://a/invite/t' })
     assert.equal(en.subject, 'You’ve been invited to Bistro on Menuvia')
@@ -348,13 +353,31 @@ describe('send-invite: limba emailului (lotul L8a)', () => {
     scriptProfiles({ invitee: INVITEE_UUID, langs: { [INVITEE_UUID]: 'en' } })
     const res = await invite('ion@x.ro')
     assert.equal(res.statusCode, 200, res.body)
-    assert.ok(resend[0].body.html.includes(`href="${LEGACY_NETLIFY_URL}/invite/tok-new"`), resend[0].body.html)
+    // Invitatul e pe engleză: linkul poartă indiciul `?hl=en`, niciodată `?lang=`.
+    assert.ok(resend[0].body.html.includes(`href="${LEGACY_NETLIFY_URL}/invite/tok-new?hl=en"`), resend[0].body.html)
     assert.ok(!resend[0].body.html.includes('lang='))
     const { renderInviteEmail } = loadFunction(REL)
     for (const l of ['ro', 'en', 'fr', 'de']) {
       const html = renderInviteEmail(l, { restaurantName: 'B', invitedByName: 'A', roleKey: 'waiter', acceptUrl: 'https://a/invite/t' }).html
       assert.ok(html.includes('href="https://a/invite/t"') && !html.includes('lang='), l)
     }
+  })
+
+  it('INV14: prin handler, emailul și indiciul `?hl=` în limba invitatului, apoi a invitatorului', async () => {
+    state.authUser = { id: OWNER_UUID }
+    scriptProfiles({ invitee: INVITEE_UUID, langs: { [INVITEE_UUID]: 'en', [OWNER_UUID]: 'de' } })
+    let res = await invite('ion@x.ro')
+    assert.equal(res.statusCode, 200, res.body)
+    assert.equal(resend[0].body.subject, 'You’ve been invited to Bistro on Menuvia')
+    assert.ok(resend[0].body.html.includes(`href="${LEGACY_NETLIFY_URL}/invite/tok-new?hl=en"`), resend[0].body.html)
+
+    // Fără cont pentru invitat: limba invitatorului (germana).
+    resend.length = 0
+    scriptProfiles({ langs: { [OWNER_UUID]: 'de' } })
+    res = await invite('nou@x.ro')
+    assert.equal(res.statusCode, 200, res.body)
+    assert.ok(resend[0].body.html.includes(`/invite/tok-new?hl=de"`), resend[0].body.html)
+    assert.ok(!/te-a invitat|Ospătar/.test(resend[0].body.html), 'niciun rest românesc')
   })
 
   it('INV13: nume lipsă → rezerva în limba emailului; româna byte-identică', async () => {

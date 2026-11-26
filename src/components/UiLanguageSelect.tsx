@@ -3,10 +3,10 @@
 // în Setări. Un singur <select>, cu numele limbilor în limba LOR; aceleași
 // reguli ca cardul din Setări (UiLanguageCard), prin ACELAȘI hook
 // (`useSetUiLanguage`) — nu se randează deloc cât timp e activă o singură
-// limbă (azi `ENABLED_STAFF_LANGS = ['ro']` → nimic vizibil), salvarea merge
+// limbă (din activarea limbilor sunt patru, deci apare), salvarea merge
 // în cont, apoi în stocarea locală, apoi `refreshProfile()`; pe eroare
 // alegerea revine pe limba de dinainte și mesajul apare sub comutator
-// (`compactError`: la 42703 varianta scurtă, fără „Panoul rămâne…”).
+// (`compactError`: la coloana lipsă — PGRST204 / 42703 — varianta scurtă, fără „Panoul rămâne…”).
 // Textele vin din `common` (cerut sus de ambele ecrane), nu din `dashboard`:
 // Ospătarul și Bucătăria nu încarcă dicționarul panoului.
 import { D } from '../lib/constants'

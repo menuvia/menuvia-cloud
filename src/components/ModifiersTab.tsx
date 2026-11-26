@@ -14,6 +14,8 @@ import { fetchLinkableProducts, fetchModifierGroupLinks, setModifierGroupProduct
 import { describeModifierError } from '../lib/modifierMessages'
 import { menuLangName } from '../lib/translationMessages'
 import { useT } from '../i18n/useT'
+import { useUiLang } from '../i18n/UiLangContext'
+import { staffLocale } from '../i18n/format'
 import { modifiersNs } from '../i18n/ns/modifiers'
 import { commonNs } from '../i18n/ns/common'
 import { translationsNs } from '../i18n/ns/translations'
@@ -92,6 +94,8 @@ export default function ModifiersTab({
   const { t, tp } = mt
   const tc = useT(commonNs)
   const trTr = useT(translationsNs)
+  // Diferența de preț a opțiunii: separatorii urmează limba UTILIZATORULUI (LF2).
+  const numberLocale = staffLocale(useUiLang().lang)
   const trLangs = activeTranslationLangs(menuLanguages, baseLang)
   // Traducerile din dialogul de grup: numele grupului și ale opțiunilor lui.
   const [gTr, setGTr] = useState<Record<string, string>>({})
@@ -608,7 +612,9 @@ export default function ModifiersTab({
               >
                 <span style={{ flex: 1, fontSize: '0.85rem', color: D.t1 }}>{o.name}</span>
                 {/* Negativul e o REDUCERE și trebuie văzut ca atare — afișat ca „Inclus"
-                    ascundea o greșeală de introducere. Virgulă zecimală (ro-RO), nu punct. */}
+                    ascundea o greșeală de introducere. Separatorii urmează limba
+                    utilizatorului (`staffLocale`: în română exact „ro-RO” de
+                    dinainte — un englez citea „1.234” drept unu virgulă doi). */}
                 <span
                   style={{
                     fontSize: '0.82rem',
@@ -618,9 +624,9 @@ export default function ModifiersTab({
                   }}
                 >
                   {0 < o.price_delta
-                    ? t('price_plus', { amount: o.price_delta.toLocaleString('ro-RO') })
+                    ? t('price_plus', { amount: o.price_delta.toLocaleString(numberLocale) })
                     : o.price_delta < 0
-                      ? t('price_minus', { amount: Math.abs(o.price_delta).toLocaleString('ro-RO') })
+                      ? t('price_minus', { amount: Math.abs(o.price_delta).toLocaleString(numberLocale) })
                       : t('price_included')}
                 </span>
                 <button

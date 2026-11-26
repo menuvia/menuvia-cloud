@@ -16,7 +16,9 @@
 //        care pică: `card_max` cu „de” sau `price_minus` cu „-” în loc de „−”.
 //   MG2  lista în engleză, fără resturi românești (inclusiv `aria-label`/
 //        `title`/`placeholder`). Mutația care pică: `aria-label={'Nume opțiune
-//        nouă pentru grupul ' + g.name}` readus.
+//        nouă pentru grupul ' + g.name}` readus. Diferența de preț urmează
+//        limba utilizatorului („−1.5 lei”, nu „−1,5 lei” — recenzia adversarială
+//        a activării); mutația care pică: `toLocaleString('ro-RO')` readus.
 //   MG3  dialogul de grup în germană: etichetele, indiciile, validarea numelui
 //        (ținută ca DATĂ), câmpurile de traducere cu numele limbii din
 //        `translations` („Englisch”, nu „English”). Mutația care pică:
@@ -230,7 +232,8 @@ describe('lista grupurilor de opțiuni în limba personalului', () => {
     expect(container.textContent).toContain('Multiple choice · max 2 options')
     expect(screen.getByText('Included')).toBeInTheDocument()
     expect(screen.getByText('+3 lei')).toBeInTheDocument()
-    expect(screen.getByText('−1,5 lei')).toBeInTheDocument()
+    expect(screen.getByText('−1.5 lei')).toBeInTheDocument()
+    expect(screen.queryByText('−1,5 lei')).toBeNull()
     expect(screen.getAllByRole('button', { name: 'Choose products' })).toHaveLength(2)
     expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(2)
     expect(screen.getAllByRole('button', { name: 'Delete group' })).toHaveLength(2)
