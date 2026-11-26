@@ -21,11 +21,25 @@
 //   TE5  încărcarea eșuată: în română textul serverului, în engleză rezerva +
 //        „Try again”, în germană după schimbarea limbii. Mutația care pică:
 //        `setError(toUserMessage(err, …))` readus.
+//   TE6  (lotul C7b) locurile din echipă: cu limita planului RESTAURANTULUI
+//        (`useFeatures`, mock-uit) contorul „Locuri ocupate: 3 din 3” = 2
+//        membri + 1 invitație; echipa plină explică de ce și dezactivează
+//        trimiterea pentru o adresă NOUĂ (niciun fetch), dar o lasă pentru
+//        adresa deja în așteptare (retrimiterea o înlocuiește); în engleză,
+//        fără resturi românești. Control POZITIV: limita 10 → „3 din 10”, fără
+//        explicație, trimiterea merge; nelimitat / plan necunoscut → fără
+//        contor. Mutația care pică: butonul fără `seatsBlocked` sau contorul
+//        fără invitațiile în așteptare.
+//   TE7  refuzul serverului `team_member_limit` (409): în română textul
+//        serverului, în engleză textul propriu al codului, iar lista și planul
+//        se reîncarcă. Mutația care pică: `team_member_limit` scos din
+//        `INVITE_ERROR_KEYS` (engleza ar cădea pe rezerva generică).
 import { Suspense, type ReactNode } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Restaurant } from '../../hooks/useData'
+import type { RestaurantFeatures } from '../../lib/features'
 
 interface Res {
   data: unknown
@@ -39,9 +53,23 @@ const h = vi.hoisted(() => ({
   remove: vi.fn<(a: { membershipId: string }) => Promise<{ ok: boolean }>>(async () => ({
     ok: true,
   })),
+  // Planul restaurantului (lotul C7b); `null` = necunoscut, ca înainte de TE6.
+  features: null as RestaurantFeatures | null,
+  reloadFeatures: vi.fn<() => Promise<void>>(async () => undefined),
 }))
 
 vi.mock('../../hooks/useIsMobile', () => ({ useIsMobile: () => false }))
+vi.mock('../../hooks/useFeatures', () => ({
+  useFeatures: () => ({
+    features: h.features,
+    loading: false,
+    loadError: false,
+    has: () => false,
+    limit: () => null,
+    within: () => true,
+    reload: h.reloadFeatures,
+  }),
+}))
 vi.mock('../../lib/restaurants', () => ({
   changeMemberRole: vi.fn(async () => ({ ok: true })),
   removeMember: h.remove,
@@ -126,6 +154,8 @@ beforeEach(() => {
   h.invites = INVITES
   h.names = NAMES
   h.remove.mockClear()
+  h.features = null
+  h.reloadFeatures.mockClear()
   fetchMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
 })
@@ -328,5 +358,87 @@ describe('Echipa în limba personalului', () => {
     r.rerender(tree('de', tab()))
     expect(screen.getByText('Das Team konnte nicht geladen werden')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Erneut versuchen' })).toBeInTheDocument()
+  })
+
+  it('TE6: locurile din echipă — contor, echipa plină, retrimiterea', async () => {
+    const seatsPlan = (limit: number | null): RestaurantFeatures => ({
+      plan: 'growth',
+      features: { max_team_members: { enabled: true, limit } },
+    })
+    const FULL_RO = /^Toate locurile din echipă sunt ocupate\./
+    const user = userEvent.setup()
+
+    // Control pozitiv: 2 membri + 1 invitație din 10 → contor, fără explicație.
+    h.features = seatsPlan(10)
+    const free = inLang(null, tab())
+    await screen.findByText('Ana')
+    expect(screen.getByText('Locuri ocupate: 3 din 10 (membri și invitații în așteptare)')).toBeInTheDocument()
+    expect(screen.queryByText(FULL_RO)).not.toBeInTheDocument()
+    await user.type(screen.getByPlaceholderText('ion@restaurant.ro'), 'nou2@bistro.ro')
+    expect(screen.getByRole('button', { name: /Trimite invitație/ })).toBeEnabled()
+    free.unmount()
+
+    // Plin: 3 din 3 → explicația, trimiterea oprită pentru o adresă nouă.
+    h.features = seatsPlan(3)
+    const full = inLang(null, tab())
+    await screen.findByText('Ana')
+    expect(screen.getByText('Locuri ocupate: 3 din 3 (membri și invitații în așteptare)')).toBeInTheDocument()
+    expect(screen.getByText(FULL_RO)).toBeInTheDocument()
+    const input = screen.getByPlaceholderText('ion@restaurant.ro')
+    await user.type(input, 'nou2@bistro.ro')
+    const send = screen.getByRole('button', { name: /Trimite invitație/ })
+    expect(send).toBeDisabled()
+    await user.click(send)
+    // Nici Enter din câmp nu trimite (garda din `sendInvite`, nu doar butonul).
+    await user.type(input, '{Enter}')
+    expect(fetchMock).not.toHaveBeenCalled()
+    // Adresa deja în așteptare: retrimiterea o înlocuiește, deci butonul revine.
+    await user.clear(input)
+    await user.type(input, 'NOU@bistro.ro')
+    expect(screen.getByRole('button', { name: /Trimite invitație/ })).toBeEnabled()
+    full.unmount()
+
+    // Engleză, plin: textele traduse, fără resturi românești.
+    const en = inLang('en', tab())
+    await screen.findByText('Ana')
+    expect(screen.getByText('Seats taken: 3 of 3 (members and pending invitations)')).toBeInTheDocument()
+    expect(screen.getByText(/^All team seats are taken\./)).toBeInTheDocument()
+    expect(romanianLeftovers(visible(en.container), 'en')).toEqual([])
+    en.unmount()
+
+    // Nelimitat / plan necunoscut → fără contor, trimiterea rămâne deschisă.
+    for (const f of [seatsPlan(null), seatsPlan(1000), null]) {
+      h.features = f
+      const r = inLang(null, tab())
+      await screen.findByText('Ana')
+      expect(screen.queryByText(/^Locuri ocupate/)).not.toBeInTheDocument()
+      expect(screen.queryByText(FULL_RO)).not.toBeInTheDocument()
+      r.unmount()
+    }
+  })
+
+  it('TE7: refuzul `team_member_limit` — română = serverul, engleză după cod, lista reîncărcată', async () => {
+    const SERVER_RO =
+      'Toate locurile din echipă sunt ocupate (membri și invitații în așteptare). Elimină un membru ' +
+      'sau anulează o invitație ca să eliberezi un loc.'
+    fetchMock.mockResolvedValue(jsonResponse(409, { error: SERVER_RO, code: 'team_member_limit' }))
+    const user = userEvent.setup()
+    const ro = inLang(null, tab())
+    await screen.findByText('Ana')
+    await sendInvite(user, 'ion@restaurant.ro', /Trimite invitație/)
+    expect(await screen.findByText(SERVER_RO)).toBeInTheDocument()
+    await waitFor(() => expect(h.reloadFeatures).toHaveBeenCalledTimes(1))
+    ro.unmount()
+
+    inLang('en', tab())
+    await screen.findByText('Ana')
+    await sendInvite(user, 'john@restaurant.com', /Send invitation/)
+    expect(
+      await screen.findByText(
+        'All team seats are taken (members and pending invitations). Remove a member or cancel an ' +
+          'invitation to free up a seat.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Couldn’t send the invitation')).not.toBeInTheDocument()
   })
 })

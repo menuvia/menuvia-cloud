@@ -15,6 +15,9 @@ const ro = {
   errEmailNotConfirmed: 'Emailul nu e confirmat încă — deschide linkul de confirmare primit pe email.',
   errRateLimit: 'Prea multe încercări. Așteaptă puțin și încearcă din nou.',
   errGeneric: 'Nu am putut procesa cererea. Încearcă din nou.',
+  // Lotul C7b: hint `team_member_limit` din trigger-ul de la accept_invite.
+  errTeamFull:
+    'Echipa restaurantului e completă — cere proprietarului să elibereze un loc, apoi deschide din nou acest link.',
   alreadyUsed: 'Această invitație a fost deja folosită.',
   emailMismatch: 'Emailul contului tău nu corespunde cu emailul pentru care a fost trimisă invitația.',
   acceptFailed: 'Nu am putut accepta invitația. Încearcă din nou.',

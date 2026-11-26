@@ -23,6 +23,7 @@ type InviteErrorKey =
   | 'errEmailNotConfirmed'
   | 'errRateLimit'
   | 'errGeneric'
+  | 'errTeamFull'
 
 // Mesajele AuthError de la supabase-js vin în engleză („Invalid login
 // credentials", „User already registered"…) — le mapăm pe clase, cu textul
@@ -36,6 +37,16 @@ function authErrorKey(err: unknown): InviteErrorKey {
   if (/email not confirmed/i.test(msg)) return 'errEmailNotConfirmed'
   if (/rate limit|too many requests/i.test(msg)) return 'errRateLimit'
   return 'errGeneric'
+}
+
+// Refuzul lui `accept_invite` vine ca eroare PostgREST (obiect cu `hint`, nu
+// neapărat `Error`). Lotul C7b: echipa plină (trigger-ul limitei de membri,
+// mig 131/290, hint `team_member_limit` — contractul, nu textul) primește
+// mesajul ei, nu „ceva n-a mers”: omul află că trebuie eliberat un loc.
+function acceptErrorKey(err: unknown): InviteErrorKey {
+  if (err && typeof err === 'object' && (err as { hint?: unknown }).hint === 'team_member_limit')
+    return 'errTeamFull'
+  return authErrorKey(err)
 }
 
 const inp: React.CSSProperties = {
@@ -195,7 +206,7 @@ function InviteAcceptScreen({ token, navigate }: InviteAcceptProps) {
       await acceptInvite()
     } catch (err) {
       console.error('[InviteAcceptPage] direct accept error:', err)
-      setFormError(t(authErrorKey(err)))
+      setFormError(t(acceptErrorKey(err)))
       setSubmitting(false)
     }
   }
@@ -237,7 +248,7 @@ function InviteAcceptScreen({ token, navigate }: InviteAcceptProps) {
       await acceptInvite()
     } catch (err) {
       console.error('[InviteAcceptPage] submit error:', err)
-      setFormError(t(authErrorKey(err)))
+      setFormError(t(acceptErrorKey(err)))
       setSubmitting(false)
     }
   }

@@ -12,6 +12,10 @@ const en: Translation<typeof ro> = {
     one: '{n} member · Invitations expire in 7 days',
     other: '{n} members · Invitations expire in 7 days',
   },
+  seats_count: 'Seats taken: {used} of {limit} (members and pending invitations)',
+  seats_full:
+    'All team seats are taken. To invite someone new, remove a member or cancel a pending ' +
+    'invitation; you can resend an invitation that’s already pending. More seats need a higher plan.',
   founder_note:
     'In founder mode you can see the team, but invitations are sent only by the restaurant’s owner or ' +
     'manager, from their own account.',
@@ -51,6 +55,9 @@ const en: Translation<typeof ro> = {
     'We couldn’t confirm that the email was sent. The invitation appears in the list; if it doesn’t ' +
     'arrive within a few minutes, send it again.',
   inv_err_email_send_failed: 'The invitation email couldn’t be sent. Try again.',
+  inv_err_team_member_limit:
+    'All team seats are taken (members and pending invitations). Remove a member or cancel an ' +
+    'invitation to free up a seat.',
 
   pending_title: 'Pending invitations ({n})',
   pending_meta: '{role} · expires {date}',

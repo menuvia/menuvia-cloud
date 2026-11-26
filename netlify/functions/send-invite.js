@@ -28,6 +28,15 @@
 // NOU creat din acel formular pornește în limba lui (mig 331 copiază `ui_lang`
 // în profil), iar omul o schimbă din comutatorul din antet. Pe română linkul e
 // cel de dinainte (INV9).
+//
+// Locurile din echipă (lotul C7b): limita de membri a planului (mig 131/290)
+// se impunea DOAR la `accept_invite`, deci patronul trimitea invitații peste
+// limită, iar invitatul își făcea cont ca să primească o eroare. Acum, înainte
+// de insert, membrii + invitațiile în așteptare (adrese DISTINCTE, fără cea
+// invitată acum — invitația ei se înlocuiește) se compară cu limita din
+// `get_restaurant_features` → 409 `team_member_limit`. Owner-ul se numără, ca
+// în trigger. Autoritatea rămâne trigger-ul din DATE: limita necunoscută (RPC
+// picat, cheie lipsă, numărătoare eșuată) lasă invitația să plece, ca înainte.
 
 const { createClient } = require('@supabase/supabase-js')
 const { siteAppUrl, FROM_HELLO, LEGACY_NETLIFY_URL } = require('./lib/appUrl')
@@ -54,6 +63,53 @@ function escapeHtml(s) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
+}
+
+/**
+ * Echipa e completă? `true` DOAR când limita e CUNOSCUTĂ și membrii + celelalte
+ * invitații în așteptare o ating; orice necunoscut → `false` (trigger-ul de la
+ * `accept_invite` rămâne autoritatea). Limita e `limit` brut, ca în trigger
+ * (care ignoră `enabled`); `null` = nelimitat.
+ */
+async function teamSeatsFull(supabase, restaurantId, cleanEmail) {
+  const { data: feats, error: featErr } = await supabase.rpc('get_restaurant_features', {
+    p_restaurant_id: restaurantId,
+  })
+  if (featErr) {
+    console.error('[send-invite] get_restaurant_features failed:', featErr.message)
+    return false
+  }
+  const entry = feats && feats.features ? feats.features.max_team_members : null
+  const limit = entry ? entry.limit : undefined
+  if (typeof limit !== 'number' || !Number.isFinite(limit)) return false
+
+  const [members, pending] = await Promise.all([
+    supabase
+      .from('restaurant_memberships')
+      .select('id', { count: 'exact', head: true })
+      .eq('restaurant_id', restaurantId),
+    supabase
+      .from('invite_tokens')
+      .select('email')
+      .eq('restaurant_id', restaurantId)
+      .is('accepted_at', null)
+      .gt('expires_at', new Date().toISOString()),
+  ])
+  if (members.error || pending.error || typeof members.count !== 'number') {
+    console.error(
+      '[send-invite] team seat count failed:',
+      (members.error && members.error.message) || (pending.error && pending.error.message) || 'no count',
+    )
+    return false
+  }
+  // Adrese DISTINCTE: un retry `email_send_uncertain` poate lăsa două rânduri
+  // pentru aceeași adresă; omul ocupă tot un singur loc.
+  const others = new Set()
+  for (const row of pending.data || []) {
+    const e = String((row && row.email) || '').trim().toLowerCase()
+    if (e && e !== cleanEmail) others.add(e)
+  }
+  return members.count + others.size >= limit
 }
 
 /**
@@ -230,6 +286,15 @@ exports.handler = async (event) => {
     if (existingMembership) {
       return fail(409, 'already_member', 'Acest utilizator este deja membru.')
     }
+  }
+
+  // Locurile din echipă (vezi antetul): fără nume de plan în mesaj (mig 290).
+  if (await teamSeatsFull(supabase, restaurant_id, cleanEmail)) {
+    return fail(
+      409,
+      'team_member_limit',
+      'Toate locurile din echipă sunt ocupate (membri și invitații în așteptare). Elimină un membru sau anulează o invitație ca să eliberezi un loc.',
+    )
   }
 
   // Limba emailului: interogare SEPARATĂ de `full_name, email` — pe o bază

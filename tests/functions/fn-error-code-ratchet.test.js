@@ -81,7 +81,7 @@ const EXPECTED = {
   'netlify/functions/stripe-checkout.js': 18,
   'netlify/functions/stripe-portal.js': 9,
   'netlify/functions/stripe-connect.js': 12,
-  'netlify/functions/send-invite.js': 15,
+  'netlify/functions/send-invite.js': 16,
   'netlify/functions/ai-proxy.js': 22,
   'netlify/functions/ai-config.js': 16,
   'netlify/functions/ai-generate-image.js': 23,

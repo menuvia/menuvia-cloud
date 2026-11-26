@@ -13,6 +13,11 @@ const de: Translation<typeof ro> = {
     one: '{n} Mitglied · Einladungen laufen nach 7 Tagen ab',
     other: '{n} Mitglieder · Einladungen laufen nach 7 Tagen ab',
   },
+  seats_count: 'Belegte Plätze: {used} von {limit} (Mitglieder und ausstehende Einladungen)',
+  seats_full:
+    'Alle Plätze im Team sind belegt. Um jemanden neu einzuladen, entfernen Sie ein Mitglied oder ' +
+    'stornieren Sie eine ausstehende Einladung; eine bereits ausstehende Einladung können Sie ' +
+    'erneut senden. Für mehr Plätze ist ein höherer Tarif nötig.',
   founder_note:
     'Im Gründermodus sehen Sie das Team, aber Einladungen verschickt nur der Inhaber oder der Manager ' +
     'des Restaurants, aus dem eigenen Konto.',
@@ -56,6 +61,9 @@ const de: Translation<typeof ro> = {
     'nicht innerhalb weniger Minuten ankommt, senden Sie sie erneut.',
   inv_err_email_send_failed:
     'Die Einladungs-E-Mail konnte nicht gesendet werden. Bitte erneut versuchen.',
+  inv_err_team_member_limit:
+    'Alle Plätze im Team sind belegt (Mitglieder und ausstehende Einladungen). Entfernen Sie ein ' +
+    'Mitglied oder stornieren Sie eine Einladung, um einen Platz freizugeben.',
 
   pending_title: 'Ausstehende Einladungen ({n})',
   pending_meta: '{role} · läuft am {date} ab',

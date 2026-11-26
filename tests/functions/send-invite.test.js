@@ -46,6 +46,25 @@
 //         identic cu șablonul vechi), în en/fr/de fără niciun rest românesc.
 //         Mutația care pică: rezerva literală românească în renderInviteEmail
 //         (`s.restaurant_anon` → 'restaurantul tău').
+//   INV15 (lotul C7b) echipa completă: membri (owner inclus) + invitațiile în
+//         așteptare ale ALTOR adrese ating limita din `get_restaurant_features`
+//         → 409 `team_member_limit`, în română, fără nume de plan (mig 290),
+//         ÎNAINTEA oricărei scrieri și a emailului. Control POZITIV: cu un loc
+//         liber invitația pleacă (200). Mutația care pică: verificarea scoasă
+//         sau `>` în loc de `>=`.
+//   INV16 invitația în așteptare a ACELEIAȘI adrese (orice majuscule) nu ocupă
+//         un loc în plus — se înlocuiește; două rânduri pentru altă adresă
+//         ocupă UN loc. Mutația care pică: rândurile numărate fără deduplicare
+//         sau fără excluderea adresei invitate acum.
+//   INV17 forma numărătorii: membrii cu `count: 'exact', head: true` pe
+//         restaurant, invitațiile pe restaurant + `accepted_at is null` +
+//         `gt expires_at` (neexpirate) — o invitație expirată nu ține un loc.
+//         Mutația care pică: filtrul de expirare scos.
+//   INV18 limita necunoscută NU blochează (trigger-ul din DATE rămâne
+//         autoritatea): nelimitat (`limit: null`) → 200 fără nicio numărătoare;
+//         RPC-ul picat sau numărătoarea eșuată → 200, invitația pleacă; iar un
+//         membru existent primește tot `already_member`, nu `team_member_limit`.
+//         Mutația care pică: fail-closed pe eroarea RPC-ului.
 //
 // Rulează în jobul „Bridge tests" (vitest nu vede tests/functions).
 
@@ -411,5 +430,134 @@ describe('send-invite: limba emailului (lotul L8a)', () => {
       assert.ok(r.subject.includes(expected[l][0]) && r.html.includes(expected[l][1]), `${l}: ${text}`)
       assert.ok(!/restaurantul|coleg\b|tău/i.test(text), `${l}: rest românesc în ${text}`)
     }
+  })
+})
+
+// ── Lotul C7b: locurile din echipă ──────────────────────────────────────────
+describe('send-invite: locurile din echipă (lotul C7b)', () => {
+  // Starea comună a unui handler fresh (după un resetMocks în mijlocul testului).
+  function baseState() {
+    resetMocks()
+    resend.length = 0
+    state.authUser = { id: 'owner-1' }
+    state.rpcHandlers['check_rate_limit'] = () => ({ data: true, error: null })
+    state.fromHandlers['restaurants'] = () => ({ data: { name: 'Bistro' }, error: null })
+  }
+  // `members` = câți membri (owner inclus), `pending` = adresele invitațiilor
+  // în așteptare (rânduri), `limit` = max_team_members din RPC.
+  function scriptSeats({
+    limit = 10,
+    members = 1,
+    pending = [],
+    featError = null,
+    countError = null,
+    existingMember = false,
+  } = {}) {
+    state.rpcHandlers['get_restaurant_features'] = () =>
+      featError
+        ? { data: null, error: featError }
+        : { data: { plan: 'growth', features: { max_team_members: { enabled: true, limit } } }, error: null }
+    state.fromHandlers['restaurant_memberships'] = (ops) => {
+      const sel = ops.find((o) => o.m === 'select')
+      if (sel && sel.args[0] === 'role') return { data: { role: 'owner' }, error: null }
+      if (sel && sel.args[1] && sel.args[1].count === 'exact') {
+        return countError
+          ? { data: null, count: null, error: countError }
+          : { data: null, count: members, error: null }
+      }
+      return { data: existingMember ? { id: 'm-x' } : null, error: null }
+    }
+    state.fromHandlers['invite_tokens'] = (ops) => {
+      if (isInsert(ops)) return { data: { token: 'tok-new' }, error: null }
+      if (selectOf(ops) === 'email') return { data: pending.map((email) => ({ email })), error: null }
+      return { data: null, error: null }
+    }
+    state.fromHandlers['profiles'] = (ops) =>
+      ops.some((o) => o.m === 'ilike')
+        ? { data: existingMember ? { id: 'u-x' } : null, error: null }
+        : { data: { full_name: 'Ana', email: 'ana@x.test' }, error: null }
+  }
+  const seatQueries = () =>
+    state.fromCalls.filter(
+      (c) =>
+        (c.table === 'restaurant_memberships' &&
+          c.ops.some((o) => o.m === 'select' && o.args[1] && o.args[1].count)) ||
+        (c.table === 'invite_tokens' && selectOf(c.ops) === 'email'),
+    )
+
+  it('INV15: echipa completă → 409 team_member_limit înaintea oricărei scrieri; un loc liber trece', async () => {
+    scriptSeats({ limit: 10, members: 8, pending: ['a@x.ro', 'b@x.ro'] })
+    const res = await invite('ion@x.ro')
+    expectError(res, 409, 'team_member_limit')
+    assert.doesNotMatch(parseBody(res).error, /free|starter|growth|\bpro\b|enterprise|Meniu|Fiscalizare/i)
+    assert.equal(inviteOps().filter(isInsert).length, 0, 'invitația s-a creat peste limită')
+    assert.equal(inviteOps().filter(isDelete).length, 0)
+    assert.equal(resend.length, 0, 'emailul a plecat peste limită')
+
+    // Control pozitiv: 8 membri + 1 invitație = 9 din 10 → invitația pleacă.
+    baseState()
+    scriptSeats({ limit: 10, members: 8, pending: ['a@x.ro'] })
+    const ok = await invite('ion@x.ro')
+    assert.equal(ok.statusCode, 200, ok.body)
+    assert.equal(resend.length, 1)
+  })
+
+  it('INV16: aceeași adresă nu ocupă un loc în plus; dublurile altei adrese ocupă unul', async () => {
+    // 8 membri + Ion (în așteptare, se înlocuiește) + Ana de două ori = 9 din 10.
+    scriptSeats({ limit: 10, members: 8, pending: [' ION@x.ro', 'ana@x.ro', 'Ana@X.ro'] })
+    const res = await invite('ion@x.ro')
+    assert.equal(res.statusCode, 200, res.body)
+    assert.equal(inviteOps().filter(isInsert).length, 1)
+
+    // 9 membri + Ion + Ana (dublată) = 11 ≥ 10 pentru o adresă NOUĂ.
+    baseState()
+    scriptSeats({ limit: 10, members: 9, pending: ['ion@x.ro', 'ana@x.ro', 'ANA@x.ro'] })
+    expectError(await invite('nou@x.ro'), 409, 'team_member_limit')
+  })
+
+  it('INV17: numărătoarea e pe restaurant, iar invitațiile expirate nu țin un loc', async () => {
+    scriptSeats({ limit: 10, members: 3 })
+    const before = Date.now()
+    const res = await invite('ion@x.ro')
+    assert.equal(res.statusCode, 200, res.body)
+    assert.deepEqual(
+      rpcCallsFor('get_restaurant_features').map((c) => c.args),
+      [{ p_restaurant_id: RID }],
+    )
+    const [members, pending] = seatQueries()
+    assert.equal(members.table, 'restaurant_memberships')
+    assert.deepEqual(argOf(members.ops, 'select'), ['id', { count: 'exact', head: true }])
+    assert.deepEqual(argOf(members.ops, 'eq'), ['restaurant_id', RID])
+    assert.equal(pending.table, 'invite_tokens')
+    assert.deepEqual(argOf(pending.ops, 'eq'), ['restaurant_id', RID])
+    assert.deepEqual(argOf(pending.ops, 'is'), ['accepted_at', null])
+    const gt = argOf(pending.ops, 'gt')
+    assert.ok(gt && gt[0] === 'expires_at', 'invitațiile expirate ar ține locuri')
+    assert.ok(Date.parse(gt[1]) >= before - 1000, `pragul de expirare nu e „acum”: ${gt[1]}`)
+  })
+
+  it('INV18: limita necunoscută sau nelimitată nu blochează; membrul existent rămâne already_member', async () => {
+    scriptSeats({ limit: null, members: 500 })
+    let res = await invite('ion@x.ro')
+    assert.equal(res.statusCode, 200, res.body)
+    assert.equal(seatQueries().length, 0, 'pe nelimitat nu are ce număra')
+
+    for (const opts of [
+      { featError: { message: 'rpc down' } },
+      { members: 50, countError: { message: 'count failed' } },
+    ]) {
+      baseState()
+      scriptSeats({ limit: 10, ...opts })
+      res = await invite('ion@x.ro')
+      assert.equal(res.statusCode, 200, `${JSON.stringify(opts)}: ${res.body}`)
+      assert.equal(resend.length, 1)
+    }
+
+    baseState()
+    scriptSeats({ limit: 10, members: 10, existingMember: true })
+    // („Acest utilizator este deja membru.” n-are diacritice → fără expectError.)
+    res = await invite('ion@x.ro')
+    assert.equal(res.statusCode, 409, res.body)
+    assert.equal(parseBody(res).code, 'already_member', res.body)
   })
 })

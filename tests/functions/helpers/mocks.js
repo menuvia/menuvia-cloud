@@ -83,6 +83,8 @@ const CHAIN_METHODS = [
   'order',
   'is',
   'in',
+  // send-invite: invitațiile neexpirate (`gt expires_at`, locurile din echipă).
+  'gt',
   'gte',
   'lte',
   // automation-cron (scanarea stripe_events blocate, founder-alert.test.js).

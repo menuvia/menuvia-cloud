@@ -13,6 +13,8 @@ const de: Translation<typeof ro> = {
   errEmailNotConfirmed: 'Ihre E-Mail-Adresse ist noch nicht bestätigt — öffnen Sie den Bestätigungslink aus der E-Mail.',
   errRateLimit: 'Zu viele Versuche. Warten Sie kurz und versuchen Sie es erneut.',
   errGeneric: 'Wir konnten die Anfrage nicht bearbeiten. Versuchen Sie es erneut.',
+  errTeamFull:
+    'Das Team des Restaurants ist vollständig — bitten Sie den Inhaber, einen Platz freizugeben, und öffnen Sie diesen Link dann erneut.',
   alreadyUsed: 'Diese Einladung wurde bereits verwendet.',
   emailMismatch: 'Die E-Mail-Adresse Ihres Kontos stimmt nicht mit der überein, an die die Einladung gesendet wurde.',
   acceptFailed: 'Wir konnten die Einladung nicht annehmen. Versuchen Sie es erneut.',

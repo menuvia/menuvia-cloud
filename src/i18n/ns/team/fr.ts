@@ -15,6 +15,11 @@ const fr: Translation<typeof ro> = {
     many: '{n} de membres · Les invitations expirent sous 7 jours',
     other: '{n} membres · Les invitations expirent sous 7 jours',
   },
+  seats_count: 'Places occupées : {used} sur {limit} (membres et invitations en attente)',
+  seats_full:
+    'Toutes les places de l’équipe sont occupées. Pour inviter une nouvelle personne, retirez un ' +
+    'membre ou annulez une invitation en attente ; vous pouvez renvoyer une invitation déjà en ' +
+    'attente. Pour plus de places, une formule supérieure est nécessaire.',
   founder_note:
     'En mode fondateur, vous voyez l’équipe, mais seuls le propriétaire ou le manager du restaurant ' +
     'envoient les invitations, depuis leur propre compte.',
@@ -56,6 +61,9 @@ const fr: Translation<typeof ro> = {
     'Nous n’avons pas pu confirmer l’envoi de l’e-mail. L’invitation apparaît dans la liste ; si elle ' +
     'n’arrive pas d’ici quelques minutes, renvoyez-la.',
   inv_err_email_send_failed: 'L’e-mail d’invitation n’a pas pu être envoyé. Réessayez.',
+  inv_err_team_member_limit:
+    'Toutes les places de l’équipe sont occupées (membres et invitations en attente). Retirez un ' +
+    'membre ou annulez une invitation pour libérer une place.',
 
   pending_title: 'Invitations en attente ({n})',
   pending_meta: '{role} · expire le {date}',

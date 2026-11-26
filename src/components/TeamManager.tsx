@@ -11,6 +11,9 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import type { MemberRole } from '../lib/constants'
 import type { Restaurant } from '../hooks/useData'
 import { changeMemberRole, removeMember, revokeInvite } from '../lib/restaurants'
+// Locurile din echipă (lotul C7b): limita planului RESTAURANTULUI (regula 3).
+import { useFeatures } from '../hooks/useFeatures'
+import { teamSeats, isPendingInviteEmail } from '../lib/teamSeats'
 // Limba (lotul L6b): textele vin din `team` („Anulează”/„Reîncearcă” din
 // `common`); erorile sunt ținute ca DATE și traduse la randare — încărcarea
 // prin `describeStaffError` (în română exact `toUserMessage`), refuzul
@@ -52,6 +55,7 @@ const INVITE_ERROR_KEYS = {
   invite_create_failed: 'inv_err_invite_create_failed',
   email_send_uncertain: 'inv_err_email_send_uncertain',
   email_send_failed: 'inv_err_email_send_failed',
+  team_member_limit: 'inv_err_team_member_limit',
 } as const
 
 // Refuzul invitației, ca DATĂ: textul și codul serverului, sau rețeaua.
@@ -140,6 +144,9 @@ export default function TeamManager({
   const [members, setMembers] = useState<Member[]>([])
   const [invites, setInvites] = useState<Invite[]>([])
   const [loading, setLoading] = useState(true)
+  // Lista a venit măcar o dată: până atunci contorul de locuri nu spune nimic
+  // (altfel „1 din 10” cu lista încă goală).
+  const [loaded, setLoaded] = useState(false)
   // Eroare persistentă de încărcare: fără ea, un eșec pe interogarea de membri
   // colapsa la starea goală „Niciun membru încă" (minte că echipa e goală în loc
   // să spună că n-a putut încărca) — arătăm QueryError cu Reîncearcă.
@@ -150,6 +157,15 @@ export default function TeamManager({
   const [sending, setSending] = useState(false)
   const [invErr, setInvErr] = useState<InviteError | null>(null)
   const [removeTarget, setRemoveTarget] = useState<Member | null>(null)
+  const { features, reload: reloadFeatures } = useFeatures(restaurant.id)
+  // Locurile: membri (owner inclus) + invitațiile în așteptare, față de limita
+  // planului — oglinda verificării din send-invite.js. Echipa completă oprește
+  // trimiterea, DOAR dacă adresa tastată nu are deja o invitație în așteptare
+  // (retrimiterea o înlocuiește, nu ocupă un loc nou). Necunoscut → deschis.
+  const pendingEmails = invites.map((i) => i.email)
+  const seats = teamSeats(features, loaded ? members.length : null, pendingEmails)
+  const seatsFull = seats.kind === 'limited' && seats.full
+  const seatsBlocked = seatsFull && !isPendingInviteEmail(pendingEmails, email)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -208,6 +224,7 @@ export default function TeamManager({
       })
       setMembers(merged)
       setInvites((ir.data || []) as unknown as Invite[])
+      setLoaded(true)
     } catch (err) {
       console.error('[TeamManager] load error:', err)
       setError({ err })
@@ -221,7 +238,7 @@ export default function TeamManager({
 
   const sendInvite = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!email.trim()) return
+    if (!email.trim() || seatsBlocked) return
     setSending(true)
     setInvErr(null)
     try {
@@ -254,6 +271,9 @@ export default function TeamManager({
         // Emailul poate să fi plecat (timeout după trimitere): invitația nouă
         // există, deci lista trebuie să o arate, cum promite mesajul serverului.
         if (d.code === 'email_send_uncertain') await load()
+        // Echipa e completă pe server, deși contorul de aici nu știa (alt manager a
+        // invitat între timp, planul s-a schimbat): reîmprospătăm lista și planul.
+        if (d.code === 'team_member_limit') await Promise.all([load(), reloadFeatures()])
       } else {
         toast(tm.t('inv_sent', { email }))
         setEmail('')
@@ -332,6 +352,17 @@ export default function TeamManager({
         <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>
           {tm.tp('members_count', members.length)}
         </p>
+        {seats.kind === 'limited' && (
+          <p
+            style={{
+              color: seats.full ? D.goldL : D.t2,
+              fontSize: '0.78rem',
+              marginTop: 3,
+            }}
+          >
+            {tm.t('seats_count', { used: seats.used, limit: seats.limit })}
+          </p>
+        )}
       </div>
 
       {/* Invite form */}
@@ -352,6 +383,22 @@ export default function TeamManager({
         <div style={{ fontSize: '0.875rem', fontWeight: 600, color: D.t1, marginBottom: 14 }}>
           {tm.t('invite_title')}
         </div>
+        {seatsFull && (
+          <p
+            id="team-seats-full"
+            style={{
+              margin: '0 0 14px',
+              fontSize: 13,
+              lineHeight: 1.5,
+              color: D.goldL,
+              background: D.goldA,
+              borderRadius: 8,
+              padding: '8px 12px',
+            }}
+          >
+            {tm.t('seats_full')}
+          </p>
+        )}
         <form
           onSubmit={sendInvite}
           style={{
@@ -391,13 +438,15 @@ export default function TeamManager({
           </div>
           <button
             type="submit"
-            disabled={sending || !email.trim()}
+            disabled={sending || !email.trim() || seatsBlocked}
+            aria-describedby={seatsFull ? 'team-seats-full' : undefined}
             style={btn({
-              background: sending ? D.s3 : D.gold,
-              color: sending ? D.t3 : '#000',
+              background: sending || seatsBlocked ? D.s3 : D.gold,
+              color: sending || seatsBlocked ? D.t3 : '#000',
               height: 42,
               width: isMobile ? '100%' : undefined,
-              opacity: sending ? 0.7 : 1,
+              opacity: sending || seatsBlocked ? 0.7 : 1,
+              cursor: seatsBlocked ? 'not-allowed' : 'pointer',
             })}
           >
             {sending ? (

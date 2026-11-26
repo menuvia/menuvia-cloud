@@ -59,6 +59,7 @@ begin
     'get_cron_janitor_health',
     'get_database_size',
     'get_queue_backlog',
+    'get_restaurant_features',
     'get_schema_version',
     'get_table_bill',
     'kitchen_tickets_mark_stale',
