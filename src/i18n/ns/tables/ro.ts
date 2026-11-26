@@ -102,6 +102,85 @@ const ro = {
   // în română ajunge pe ecran mesajul erorii, identic cu acesta.
   pdf_noCards: 'Niciun QR de tipărit',
 
+  // ── Selecția meselor (lotul C5b): PDF doar pentru mesele alese, zona și
+  // activarea în lot, cardul PDF al unei mese. Texte NOI, deci cu pluralul
+  // românesc corect („1 masă”, „3 mese”, „20 de mese”).
+  pdf_buttonCount: {
+    one: 'Descarcă QR ({n} masă)',
+    few: 'Descarcă QR ({n} mese)',
+    other: 'Descarcă QR ({n} de mese)',
+  },
+  pdf_donePartial: {
+    one: 'PDF descărcat — {n} masă a rămas pe dinafară',
+    few: 'PDF descărcat — {n} mese au rămas pe dinafară',
+    other: 'PDF descărcat — {n} de mese au rămas pe dinafară',
+  },
+  pdf_skippedNoQr: {
+    one: '{n} masă fără QR n-a intrat în PDF.',
+    few: '{n} mese fără QR n-au intrat în PDF.',
+    other: '{n} de mese fără QR n-au intrat în PDF.',
+  },
+  pdf_skippedInactive: {
+    one: '{n} masă inactivă n-a intrat în PDF.',
+    few: '{n} mese inactive n-au intrat în PDF.',
+    other: '{n} de mese inactive n-au intrat în PDF.',
+  },
+  pdf_skipGenerate: 'Generează QR-urile lipsă',
+  pdf_skipGenerated: 'QR-urile lipsă au fost generate. Descarcă din nou PDF-ul.',
+  sel_barAria: 'Mesele selectate',
+  sel_count: {
+    one: '{n} masă selectată',
+    few: '{n} mese selectate',
+    other: '{n} de mese selectate',
+  },
+  sel_hint: 'Bifează mesele ca să le tipărești sau să le muți într-o zonă.',
+  sel_all: 'Selectează tot ({n})',
+  sel_clear: 'Deselectează',
+  sel_rowAria: 'Selectează {name}',
+  sel_zone: 'Selectează zona',
+  sel_zoneOff: 'Deselectează zona',
+  sel_zoneAria: 'Selectează mesele din zona {zone}',
+  sel_zoneOffAria: 'Deselectează mesele din zona {zone}',
+  sel_setZone: 'Setează zona…',
+  sel_activate: 'Activează',
+  sel_deactivate: 'Dezactivează',
+  sel_activateAria: 'Activează mesele selectate',
+  sel_deactivateAria: 'Dezactivează mesele selectate',
+  sel_activated: {
+    one: '{n} masă activată',
+    few: '{n} mese activate',
+    other: '{n} de mese activate',
+  },
+  sel_deactivated: {
+    one: '{n} masă dezactivată',
+    few: '{n} mese dezactivate',
+    other: '{n} de mese dezactivate',
+  },
+  sel_partial: 'Doar {done} din {total} mese au fost actualizate. Lista a fost reîmprospătată.',
+  zoneBulk_title: {
+    one: 'Zona pentru {n} masă',
+    few: 'Zona pentru {n} mese',
+    other: 'Zona pentru {n} de mese',
+  },
+  zoneBulk_label: 'Zonă',
+  zoneBulk_hint: 'Lasă câmpul gol ca mesele să rămână fără zonă.',
+  zoneBulk_done: {
+    one: 'Zona a fost setată pentru {n} masă',
+    few: 'Zona a fost setată pentru {n} mese',
+    other: 'Zona a fost setată pentru {n} de mese',
+  },
+  zoneBulk_cleared: {
+    one: 'Zona a fost scoasă de pe {n} masă',
+    few: 'Zona a fost scoasă de pe {n} mese',
+    other: 'Zona a fost scoasă de pe {n} de mese',
+  },
+  action_cardPdf: 'Card PDF',
+  action_cardPdfAria: 'Card PDF pentru {name}',
+  card_menuAria: 'Formatul cardului pentru {name}',
+  card_tent: 'Card pliabil',
+  card_tentHint: 'Tip cort, de pus pe masă',
+  toast_cardDownloaded: 'Card PDF descărcat pentru {name}',
+
   // ── Avertismentul de domeniu (VITE_APP_URL) ──
   domain_previewTitle: 'Detaliu tehnic: VITE_APP_URL nu e setat — se folosește URL-ul de preview.',
   domain_mismatchTitle: 'Detaliu tehnic: domeniul curent diferă de VITE_APP_URL.',

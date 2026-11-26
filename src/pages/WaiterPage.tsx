@@ -67,6 +67,7 @@ import { PageHeader } from '../components/ui/PageHeader'
 import { EmptyState } from '../components/ui/EmptyState'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { sortByDue } from '../lib/pickupOrders'
+import { sortTablesByName } from '../lib/tableSort'
 import { offlineDropReasonKey } from '../lib/offlineDrop'
 // Lotul L4b: textele ecranului vin din namespace-ul `waiter` (+ `orders` pentru
 // refuzul anulării, `common` pentru „Reîncearcă” / „Închide” și erori).
@@ -475,7 +476,9 @@ export default function WaiterPage() {
           setTablesLoadError({ err: e })
           setTables([])
         } else {
-          setTables((data ?? []) as typeof tables)
+          // Ordinea NATURALĂ (Masa 2 < Masa 10), nu cea de text a lui
+          // `.order('name')` — lib/tableSort.ts (lotul C5b).
+          setTables(sortTablesByName((data ?? []) as typeof tables))
         }
       })
     return () => {

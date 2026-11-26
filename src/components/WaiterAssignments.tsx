@@ -12,6 +12,7 @@ import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { confirm } from './ui/confirm'
+import { sortTablesByName } from '../lib/tableSort'
 // Lotul L4b: textele vin din namespace-ul `waiter`; erorile prin
 // `describeStaffError` (în română exact `toUserMessage` de dinainte).
 import { useT } from '../i18n/useT'
@@ -148,7 +149,9 @@ export default function WaiterAssignments({ restaurantId }: Props) {
         profile: { full_name: m.full_name, email: m.email },
       }))
       setWaiters(waiterList)
-      setTables((tabRes.data ?? []) as Table[])
+      // Ordinea NATURALĂ (Masa 2 < Masa 10), nu cea de text a lui
+      // `.order('name')` — lib/tableSort.ts (lotul C5b).
+      setTables(sortTablesByName((tabRes.data ?? []) as Table[]))
 
       // Build assignment map
       const map = new Map<string, Set<string>>()
