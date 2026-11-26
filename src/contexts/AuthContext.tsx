@@ -16,6 +16,16 @@ export interface Profile {
    * Tot `null` pe o bază fără mig 323 — clientul se poate deploya înainte.
    */
   ui_language: string | null
+  /**
+   * `true` = profilul s-a încărcat de pe o bază FĂRĂ coloana mig 323 (42703).
+   * Doar rezolvarea PERSONALULUI (`UiLangProvider`) îl citește, ca 'ro' — acolo
+   * toate conturile sunt „existente”, iar 323 le dă exact 'ro' (decizia
+   * fondatorului). Funnel-ul (autentificare, onboarding, parola nouă,
+   * invitația) NU: acolo `ui_language` rămâne null și decide limba aleasă pe
+   * dispozitiv — altfel un englez înscris pe o bază veche își făcea
+   * onboarding-ul în română (recenzia adversarială a activării).
+   */
+  ui_language_missing?: boolean
 }
 
 const PROFILE_COLUMNS = 'id, email, full_name, plan, terms_accepted_at'
@@ -71,22 +81,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Consecința nu e cosmetică: `TermsAcceptanceGate` citește
   // `terms_accepted_at` de aici, deci un profil străin ar putea sări
   // consimțământul pentru contul nou. Aceeași disciplină ca guard-ul de
-  // anulare din useOrders.
-  const profileReqRef = useRef<string | null>(null)
+  // anulare din useOrders. Jetonul e al CERERII, nu al contului: două
+  // încărcări ale ACELUIAȘI cont (o reîncărcare pornită înaintea unei salvări,
+  // alta după) treceau altfel amândouă, iar cea veche, sosită ultima, rescria
+  // profilul nou (recenzia CodeRabbit pe #391).
+  const profileReqRef = useRef<object | null>(null)
 
   async function loadProfile(userId: string) {
-    profileReqRef.current = userId
+    const request = {}
+    profileReqRef.current = request
     try {
       const ask = (withLang: boolean) => {
         const cols: string = withLang ? `${PROFILE_COLUMNS}, ui_language` : PROFILE_COLUMNS
         return supabase.from('profiles').select(cols).eq('id', userId).single()
       }
-      let { data, error } = await ask(profileHasUiLanguage)
-      if (profileHasUiLanguage && error?.code === '42703') {
+      // Semnalul „coloana lipsește” se decide din ce a văzut ACEASTĂ cerere, nu
+      // din steagul comun: o încărcare întârziată a contului A, terminată după
+      // A → B → A (B reînarmează steagul), și-ar fi pierdut altfel semnalul și
+      // contul ar fi urmat browserul (recenzia CodeRabbit pe #391).
+      // La fel reîncercarea fără coloană: o decide ce a CERUT această cerere,
+      // nu steagul comun citit după `await` (altă cerere îl poate fi coborât
+      // între timp, iar 42703-ul de aici ar rămâne fără reîncercare).
+      const askedWithColumn = profileHasUiLanguage
+      let missingColumn = !askedWithColumn
+      let { data, error } = await ask(askedWithColumn)
+      if (askedWithColumn && error?.code === '42703') {
         profileHasUiLanguage = false
+        missingColumn = true
         ;({ data, error } = await ask(false))
       }
-      if (data && profileReqRef.current === userId) {
+      if (data && profileReqRef.current === request) {
         const row = data as unknown as Record<string, unknown>
         setProfile({
           id: row.id as string,
@@ -95,6 +119,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           plan: (row.plan as string) ?? 'free',
           terms_accepted_at: (row.terms_accepted_at as string | null) ?? null,
           ui_language: typeof row.ui_language === 'string' ? row.ui_language : null,
+          // Baza fără mig 323 (coloana lipsește, 42703): semnalul separat de mai
+          // sus (vezi tipul), citit DOAR de panou.
+          ...(missingColumn ? { ui_language_missing: true } : {}),
         })
       }
     } catch (err) {
@@ -149,6 +176,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Alt cont / sesiune nouă: PostHog face reset() înainte de noua
           // identitate, ca profilul vechi să nu primească evenimentele noului.
           setAnalyticsUser(next.id)
+          // Coloana mig 323 se re-verifică la fiecare cont NOU: un tab deschis
+          // înainte de migrație (tableta comună) altfel încărca orice cont
+          // ulterior „fără limbă”, peste limba lui salvată (a patra rundă de
+          // recenzie). Pe o bază veche costă o cerere eșuată per intrare în cont.
+          profileHasUiLanguage = true
           void loadProfile(next.id)
         } else {
           // La ieșire, o încărcare încă în zbor pentru contul vechi nu mai are
@@ -181,7 +213,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (user) await loadProfile(user.id)
   }
   const applyProfileLanguage = (lang: string, accountId: string) => {
-    setProfile((p) => (p && p.id === accountId ? { ...p, ui_language: lang } : p))
+    // Apelată doar după un UPDATE REUȘIT pe `ui_language`: coloana există,
+    // deci și un tab deschis înainte de mig 323 o cere din nou la reîncărcare
+    // (altfel profilul rămânea fără limbă și salvarea „sărea” înapoi).
+    profileHasUiLanguage = true
+    setProfile((p) => (p && p.id === accountId ? { ...p, ui_language: lang, ui_language_missing: false } : p))
   }
   const activeUserId = () => lastUserIdRef.current
 

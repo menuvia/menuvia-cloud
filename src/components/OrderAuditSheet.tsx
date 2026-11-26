@@ -8,6 +8,8 @@ import { useEffect, useState } from 'react'
 import { fetchOrderAuditHistory, describeAuditEntry, type AuditEntry } from '../lib/orders'
 import { D } from '../lib/constants'
 import { useT } from '../i18n/useT'
+import { useUiLang } from '../i18n/UiLangContext'
+import { staffLocale } from '../i18n/format'
 import { ordersNs } from '../i18n/ns/orders'
 import { commonNs } from '../i18n/ns/common'
 import { describeStaffError } from '../i18n/staffErrors'
@@ -22,12 +24,13 @@ interface Props {
   timeZone?: string
 }
 
-// Ora rămâne formatată EXACT ca înainte ('ro-RO'): formatarea pe limba
-// personalului e un lot separat (regula L3a). Se schimbă doar FUSUL: istoricul
-// unei comenzi e pe ceasul localului, nu al dispozitivului. `safeTimeZone`, fiindcă
-// un fus invalid face Intl să arunce RangeError într-o randare.
-function formatTime(iso: string, timeZone: string | undefined): string {
-  return new Date(iso).toLocaleString('ro-RO', {
+// Ora în limba UTILIZATORULUI (`staffLocale`: în română exact „ro-RO” de
+// dinainte — din activarea limbilor, un englez nu mai vede ziua înaintea lunii
+// fără să știe) și pe FUSUL localului: istoricul unei comenzi e pe ceasul
+// localului, nu al dispozitivului. `safeTimeZone`, fiindcă un fus invalid face
+// Intl să arunce RangeError într-o randare.
+function formatTime(iso: string, timeZone: string | undefined, locale: string): string {
+  return new Date(iso).toLocaleString(locale, {
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',
@@ -41,6 +44,7 @@ export default function OrderAuditSheet({ orderId, orderShortId, onClose, timeZo
   const tr = useT(ordersNs)
   const { t } = tr
   const tc = useT(commonNs)
+  const timeLocale = staffLocale(useUiLang().lang)
   const [entries, setEntries] = useState<AuditEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -173,7 +177,7 @@ export default function OrderAuditSheet({ orderId, orderShortId, onClose, timeZo
                       {describeAuditEntry(e, tr)}
                     </span>
                     <span style={{ fontSize: 10, color: D.t3, whiteSpace: 'nowrap' }}>
-                      {formatTime(e.created_at, timeZone)}
+                      {formatTime(e.created_at, timeZone, timeLocale)}
                     </span>
                   </div>
                   <div style={{ fontSize: 11, color: D.t2, marginTop: 3 }}>

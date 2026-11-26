@@ -5,14 +5,19 @@
 //        [PICĂ: fallback pe română cât se încarcă]
 //   UT3  namespace fără fișier în limba cerută: textul în engleză, formatele
 //        (data) în limba utilizatorului.
-//   UT4  provider-ul fără `lang` impus: azi doar româna e activă, deci un cont
-//        cu `ui_language: 'fr'` vede tot româna (fundația e invizibilă).
-import { describe, it, expect, vi } from 'vitest'
+//   UT4  provider-ul fără `lang` impus, din activarea limbilor: un cont cu
+//        `ui_language: 'fr'` vede franceza (după Suspense, fără cadru în
+//        română); un cont fără limbă urmează browserul (en-US → engleza); un
+//        cont în română rămâne în română cu browserul în engleză (decizia
+//        fondatorului pentru conturile existente). Mutația care pică:
+//        `ENABLED_STAFF_LANGS` readus la `['ro']`.
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { Suspense } from 'react'
 import { render, screen } from '@testing-library/react'
 
+const h = vi.hoisted(() => ({ profileLang: 'fr' as string | null }))
 vi.mock('../../contexts/AuthContext', () => ({
-  useAuth: () => ({ profile: { ui_language: 'fr' } }),
+  useAuth: () => ({ profile: h.profileLang === null ? null : { ui_language: h.profileLang } }),
 }))
 
 import { UiLangProvider } from '../UiLangContext'
@@ -66,12 +71,35 @@ describe('useT', () => {
     expect(await screen.findByText('en: On 04/09/2026')).toBeTruthy()
   })
 
-  it('UT4 azi doar româna e activă, oricare ar fi alegerea contului', () => {
-    render(
-      <UiLangProvider>
-        <Save />
-      </UiLangProvider>,
-    )
+  afterEach(() => {
+    h.profileLang = 'fr'
+    window.localStorage.clear()
+    vi.restoreAllMocks()
+  })
+
+  it('UT4 contul în franceză vede franceza; fără limbă, browserul; contul român rămâne român', async () => {
+    const tree = () =>
+      render(
+        <UiLangProvider>
+          <Suspense fallback={<p>…</p>}>
+            <Save />
+          </Suspense>
+        </UiLangProvider>,
+      )
+    const fr = tree()
+    expect(await screen.findByText('Enregistrer · 3 produits')).toBeTruthy()
+    fr.unmount()
+
+    vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['en-US'])
+    window.localStorage.clear()
+    h.profileLang = null
+    const en = tree()
+    expect(await screen.findByText('Save · 3 items')).toBeTruthy()
+    en.unmount()
+
+    window.localStorage.clear()
+    h.profileLang = 'ro'
+    tree()
     expect(screen.getByText('Salvează · 3 produse')).toBeTruthy()
   })
 })

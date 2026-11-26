@@ -3,9 +3,10 @@
 //   AL1  fără nimic: română, textele de dinainte (control).
 //   AL2  `?lang=en`: engleză, iar alegerea devine preferința dispozitivului
 //        (`menuvia_ui_lang`) — omul rămâne în engleză și pe ecranul următor.
-//   AL3  `?lang=de`: rămâne română. Franceza și germana au dicționare, dar
-//        apar abia odată cu panoul (`FUNNEL_LANGS`). Mutația care pică:
-//        `FUNNEL_LANGS = STAFF_LANGS` (patron înscris în germană, panou român).
+//   AL3  `?lang=de`: germană (din activarea limbilor, `FUNNEL_LANGS` are toate
+//        patru), iar alegerea devine preferința dispozitivului; o limbă din
+//        afara celor patru (`?lang=it`) lasă româna și nu scrie nimic.
+//        Mutația care pică: `ENABLED_STAFF_LANGS` readus la `['ro']`.
 //   AL4  eroarea GoTrue CUNOSCUTĂ e tradusă în limba omului („Wrong email or
 //        password."); una NECUNOSCUTĂ: în engleză textul GoTrue (spune mai mult),
 //        în română mesajul generic, nu engleza brută.
@@ -47,7 +48,7 @@ import { authNs } from '../../i18n/ns/auth'
 import { UI_LANG_STORAGE_KEY } from '../../i18n/langs'
 
 beforeAll(async () => {
-  await preloadNamespace(authNs, 'en')
+  await Promise.all([preloadNamespace(authNs, 'en'), preloadNamespace(authNs, 'de')])
 })
 
 afterEach(() => {
@@ -90,8 +91,13 @@ describe('AuthPage — limba', () => {
     expect(localStorage.getItem(UI_LANG_STORAGE_KEY)).toBe('en')
   })
 
-  it('AL3 ?lang=de: rămâne română până se activează germana pentru personal', () => {
-    renderAt('/auth?lang=de')
+  it('AL3 ?lang=de: germană; ?lang=it: română, fără nimic scris', async () => {
+    const de = renderAt('/auth?lang=de')
+    expect(await screen.findByRole('heading', { name: 'Willkommen zurück' })).toBeInTheDocument()
+    expect(localStorage.getItem(UI_LANG_STORAGE_KEY)).toBe('de')
+    de.unmount()
+    localStorage.clear()
+    renderAt('/auth?lang=it')
     expect(screen.getByRole('heading', { name: 'Bun venit înapoi' })).toBeInTheDocument()
     expect(localStorage.getItem(UI_LANG_STORAGE_KEY)).toBeNull()
   })

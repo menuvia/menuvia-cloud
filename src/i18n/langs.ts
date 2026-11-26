@@ -9,21 +9,23 @@ export const STAFF_LANGS = ['ro', 'en', 'fr', 'de'] as const
 export type StaffLang = (typeof STAFF_LANGS)[number]
 
 /**
- * Limbile pe care le poate PRIMI un utilizator azi. O limbă intră aici abia
- * când panoul, ospătarul și bucătăria sunt complete în ea (decizia din plan:
- * comutatorul apare doar atunci) — până atunci orice preferință (URL, cont,
- * stocare, browser) cade pe română, deci fundația e invizibilă.
+ * Limbile pe care le poate PRIMI un utilizator. O limbă intră aici abia când
+ * panoul, ospătarul și bucătăria sunt complete în ea (decizia din plan:
+ * comutatorul apare doar atunci). Toate patru, din activarea limbilor
+ * personalului (nov 2026, după auditul de activare și precondițiile lui: mig
+ * 331 + lotul din client). Conturile existente rămân în română (mig 323).
+ * Lista e LITERALĂ: EL5 (`tests/functions/email-i18n.test.js`) o compară cu
+ * oglinda serverului din `netlify/functions/lib/emailLang.js`.
  */
-export const ENABLED_STAFF_LANGS: readonly StaffLang[] = ['ro']
+export const ENABLED_STAFF_LANGS: readonly StaffLang[] = ['ro', 'en', 'fr', 'de']
 
 /**
  * Limbile drumului de DINAINTEA panoului — autentificare, confirmarea
  * emailului, resetarea parolei, Termenii, onboarding-ul (lotul L2). Engleza e
  * aici din E4a (vizitatorii veniți de pe /en și de pe menuvia.com), deci nu
  * poate aștepta comutatorul personalului; orice limbă activată pentru personal
- * intră automat. Franceza și germana au dicționare gata, dar apar abia odată
- * cu panoul: un patron francez care se înscrie în franceză și aterizează
- * într-un panou românesc ar vedea exact ecranul amestecat pe care îl evităm.
+ * intră automat (franceza și germana, din activare: un patron francez care se
+ * înscrie în franceză aterizează într-un panou în franceză).
  */
 export const FUNNEL_LANGS: readonly StaffLang[] = STAFF_LANGS.filter(
   (l) => l === 'ro' || l === 'en' || ENABLED_STAFF_LANGS.includes(l),

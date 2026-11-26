@@ -9,7 +9,7 @@
 //
 // Audiențe (registrul EMAIL_AUDIENCE din process-email-queue.js):
 //   • personalul (patron / echipă): ro, en, fr, de — se folosește doar o limbă
-//     ACTIVĂ (`ENABLED_STAFF_LANGS`), deci fr/de stau gata, nevăzute;
+//     ACTIVĂ (`ENABLED_STAFF_LANGS` — toate patru, din activarea limbilor);
 //   • oaspetele (`reservation_reminder`): cele 7 limbi ale meniului;
 //   • `team_invite` (send-invite.js) și `signup_welcome` (welcome-email.js): 4.
 //

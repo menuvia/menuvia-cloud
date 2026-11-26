@@ -36,11 +36,11 @@ const ro = {
   lang_title: 'Limba interfeței',
   lang_saving: 'Se salvează…',
   lang_saveFailed: 'Limba nu s-a putut salva. Reîncearcă.',
-  // 42703: coloana `profiles.ui_language` (mig 323) lipsește — clientul a
-  // ajuns înaintea migrației.
+  // PGRST204 / 42703: coloana `profiles.ui_language` (mig 323) lipsește —
+  // clientul a ajuns înaintea migrației.
   lang_columnMissing:
     'Limba nu se poate salva încă în cont: serverul nu are ultima actualizare. Panoul rămâne în limba de acum.',
-  // Varianta SCURTĂ a lui 42703 pentru comutatorul compact din antetul
+  // Varianta SCURTĂ a aceluiași refuz pentru comutatorul compact din antetul
   // Ospătarului/Bucătăriei: acolo nu e niciun panou, iar sub select e loc puțin.
   lang_columnMissingShort: 'Limba nu se poate salva încă: serverul nu are ultima actualizare.',
   // Bannerul „casa nu e conectată” (BridgeOfflineBanner, pe Acasă și la

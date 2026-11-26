@@ -11,6 +11,11 @@
 //   KS0  control POZITIV al verificării „fără text românesc”: fila randată în
 //        română, comparată cu dicționarul englez, ARE resturi. Fără el,
 //        KS2–KS7 ar trece și cu o verificare stricată.
+//   KS16 valoarea stocului cu separatorul de mii al LIMBII utilizatorului:
+//        „12.345 lei” în română (exact ca înainte), „12,345 lei” în engleză —
+//        „12.345” e douăsprezece mii în română, dar doisprezece virgulă trei
+//        în engleză (recenzia adversarială a activării). Mutația care pică:
+//        `toLocaleString('ro-RO', …)` readus pe card.
 //   KS1  fără provider (azi, mereu româna): textele de dinainte — intro-ul,
 //        „1 sub prag”, „70 lei”, „1 ingredient sub prag”, „10 buc”, „/ min 20
 //        buc”, „4.00 lei / buc”, „TVA 11% (Mâncare)” și rezerva „TVA Grupa 2”,
@@ -501,5 +506,15 @@ describe('furnizorii, NIR-urile și profitabilitatea în limba personalului', ()
     await user.click(within(dlg).getByRole('button', { name: commonFr.save }))
     expect(within(dlg).getByText('Quantité invalide')).toBeInTheDocument()
     expect(romanianLeftovers(nodeText(dlg), stocksFr as Dict)).toEqual([])
+  })
+
+  it('KS16: valoarea stocului cu separatorul de mii al limbii', async () => {
+    data.ingredients = [ingredient({ current_stock: 1000, cost_per_unit: 12.345, min_stock_alert: null })]
+    const ro = render(tree(null, tab()))
+    expect(await screen.findByText('12.345 lei')).toBeInTheDocument()
+    ro.unmount()
+    render(tree('en', tab()))
+    expect(await screen.findByText('12,345 lei')).toBeInTheDocument()
+    expect(screen.queryByText('12.345 lei')).toBeNull()
   })
 })

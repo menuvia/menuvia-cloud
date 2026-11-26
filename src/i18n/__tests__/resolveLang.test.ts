@@ -1,7 +1,8 @@
 // Ce limbă vede personalul (lotul L0b).
 //   RL1  ordinea: URL → cont → stocare → browser → site.
-//   RL2  o limbă INACTIVĂ se sare (nu oprește căutarea); azi doar româna e
-//        activă, deci orice preferință dă 'ro' (fundația e invizibilă).
+//   RL2  o limbă INACTIVĂ se sare (nu oprește căutarea); cu româna singură
+//        activă orice preferință dă 'ro'; implicit, din activare, toate patru
+//        (o franceză din adresă câștigă).
 //   RL3  conturile dinainte de mig 323 ('ro') rămân în română chiar cu
 //        browserul și stocarea în engleză — decizia fondatorului.
 //   RL4  subeticheta primară: 'fr-CA' → 'fr'; gunoiul se ignoră.
@@ -10,8 +11,9 @@
 //   FL2  limbile browserului nu contează: un român cu browserul în engleză
 //        rămâne pe română pe menuvia.ro (ca înainte de L2a). Mutația care pică:
 //        `resolveFunnelLang` care trece `navigatorLangs` mai departe.
-//   FL3  FUNNEL_LANGS = româna + engleza + tot ce s-a activat pentru personal;
-//        franceza și germana NU, cât timp panoul nu le are.
+//   FL3  FUNNEL_LANGS = româna + engleza + tot ce s-a activat pentru personal:
+//        din activare, toate patru — franceza și germana se rezolvă pe drumul
+//        de dinaintea panoului (din adresă sau din stocare).
 //   FL4  indiciul `?hl=` din linkul invitației (limba emailului, precondiția B2
 //        a activării): după `?lang=` și după cont, ÎNAINTEA stocării
 //        dispozitivului; o limbă inactivă se sare. Mutația care pică: indiciul
@@ -34,9 +36,15 @@ describe('resolveUiLang', () => {
     expect(resolveUiLang({ enabled: ALL })).toBe('ro')
   })
 
-  it('RL2 limbile inactive se sar; azi totul dă română', () => {
+  it('RL2 limbile inactive se sar; din activare, implicit toate patru', () => {
     expect(resolveUiLang({ enabled: ['ro', 'en'], urlLang: 'fr', profileLang: 'en' })).toBe('en')
-    expect(resolveUiLang({ urlLang: 'fr', profileLang: 'en', storedLang: 'de', navigatorLangs: ['en'], siteLang: 'en' })).toBe('ro')
+    // O listă cu româna singură (starea de dinaintea activării) dă tot română.
+    expect(
+      resolveUiLang({ enabled: ['ro'], urlLang: 'fr', profileLang: 'en', storedLang: 'de', navigatorLangs: ['en'], siteLang: 'en' }),
+    ).toBe('ro')
+    // Implicit (ENABLED_STAFF_LANGS): franceza din adresă câștigă.
+    expect(resolveUiLang({ urlLang: 'fr', profileLang: 'en', storedLang: 'de', navigatorLangs: ['en'], siteLang: 'en' })).toBe('fr')
+    expect(ENABLED_STAFF_LANGS).toEqual(['ro', 'en', 'fr', 'de'])
   })
 
   it('RL3 contul vechi în română bate browserul și stocarea', () => {
@@ -67,7 +75,7 @@ describe('resolveFunnelLang', () => {
     expect(resolveFunnelLang(forced)).toBe('ro')
   })
 
-  it('FL3 româna, engleza și limbile activate; franceza/germana abia odată cu panoul', () => {
+  it('FL3 româna, engleza și limbile activate; franceza/germana odată cu panoul', () => {
     expect(FUNNEL_LANGS).toContain('ro')
     expect(FUNNEL_LANGS).toContain('en')
     for (const l of ENABLED_STAFF_LANGS) expect(FUNNEL_LANGS).toContain(l)
@@ -75,6 +83,11 @@ describe('resolveFunnelLang', () => {
       expect(FUNNEL_LANGS.includes(l)).toBe(ENABLED_STAFF_LANGS.includes(l))
       if (!ENABLED_STAFF_LANGS.includes(l)) expect(resolveFunnelLang({ urlLang: l, storedLang: l })).toBe('ro')
     }
+    // Din activare: franceza și germana se rezolvă NECONDIȚIONAT (nu vacuu).
+    expect(resolveFunnelLang({ urlLang: 'fr' })).toBe('fr')
+    expect(resolveFunnelLang({ storedLang: 'de' })).toBe('de')
+    // Control: o limbă din afara celor patru tot nu trece.
+    expect(resolveFunnelLang({ urlLang: 'it', storedLang: 'it' })).toBe('ro')
   })
 })
 

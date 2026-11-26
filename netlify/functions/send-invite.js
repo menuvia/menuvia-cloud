@@ -23,9 +23,11 @@
 // telefonul unui ospătar român. Primește în schimb, DOAR în afara românei,
 // `?hl=<limba emailului>` — un INDICIU nepersistent (precondiția B2 a
 // activării limbilor): pagina îl folosește după limba contului și înaintea
-// preferinței dispozitivului, fără să-l scrie nicăieri, ca omul care a primit
-// emailul în franceză să nu aterizeze pe un formular în română. Pe română
-// linkul e cel de dinainte (INV9).
+// preferinței dispozitivului, fără să-l scrie pe dispozitiv, ca omul care a
+// primit emailul în franceză să nu aterizeze pe un formular în română. Un cont
+// NOU creat din acel formular pornește în limba lui (mig 331 copiază `ui_lang`
+// în profil), iar omul o schimbă din comutatorul din antet. Pe română linkul e
+// cel de dinainte (INV9).
 
 const { createClient } = require('@supabase/supabase-js')
 const { siteAppUrl, FROM_HELLO, LEGACY_NETLIFY_URL } = require('./lib/appUrl')
