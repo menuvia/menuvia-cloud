@@ -27,8 +27,17 @@
 //        trece peste un an calendaristic.
 //   XD9  `viewDayTotals` (Statistici): rândurile `v_daily_orders` pe zile, un
 //        rând fără dată validă sărit, două rânduri ale aceleiași zile adunate.
+//   XD11 plafonul de ~10 ani (`MAX_SERIES_DAYS`) se taie de la capătul VECHI:
+//        „din 2015 până azi” păstrează ultimele 3700 de zile, terminate în
+//        `to`, deci vânzarea de săptămâna trecută e pe grafic. Mutația care
+//        pică: plafonul aplicat în bucla pornită din `from` (codul de
+//        dinainte — seria se oprea în februarie 2025 și avea venit 0).
+//        Control pozitiv: un interval de EXACT `MAX_SERIES_DAYS` zile începe
+//        tot în `from` (nu se taie nimic sub plafon). (XD10 e în
+//        AnalyticsLang.test.tsx.)
 import { describe, it, expect } from 'vitest'
 import {
+  MAX_SERIES_DAYS,
   WEEKLY_AFTER_DAYS,
   chartSeries,
   daysInRange,
@@ -38,7 +47,7 @@ import {
   viewDayTotals,
   type DayTotals,
 } from '../dailySeries'
-import { isValidYmd, weekStartYmd } from '../dates'
+import { addDaysYmd, isValidYmd, weekStartYmd } from '../dates'
 
 const totals = (entries: Array<[string, number, number]>): Map<string, DayTotals> =>
   new Map(entries.map(([d, orders, revenue]) => [d, { orders, revenue }]))
@@ -180,5 +189,26 @@ describe('seria zilnică a graficelor (C6a)', () => {
     ])
     const s = chartSeries('2026-11-02', '2026-11-05', t)
     expect(s.points.map((p) => p.orders)).toEqual([0, 5, 0, 0])
+  })
+
+  it('XD11: plafonul de ~10 ani păstrează zilele RECENTE, nu pe cele vechi', () => {
+    expect(MAX_SERIES_DAYS).toBe(3700)
+    // „De la 1 ianuarie 2015 până azi”: mai mult decât plafonul.
+    const all = daysInRange('2015-01-01', '2026-11-27')
+    expect(all).toHaveLength(MAX_SERIES_DAYS)
+    expect(all[all.length - 1]).toBe('2026-11-27')
+    expect(all[0]).toBe('2016-10-11')
+    expect(all[0]).toBe(addDaysYmd('2026-11-27', 1 - MAX_SERIES_DAYS))
+    // Singura vânzare e săptămâna trecută: ajunge pe grafic.
+    const s = chartSeries('2015-01-01', '2026-11-27', totals([['2026-11-20', 3, 500]]))
+    expect(s.granularity).toBe('week')
+    expect(s.points[s.points.length - 1]).toMatchObject({ from: '2026-11-23', to: '2026-11-27' })
+    expect(s.points.find((p) => p.from <= '2026-11-20' && p.to >= '2026-11-20')).toMatchObject({ orders: 3, revenue: 500 })
+    expect(s.points.reduce((a, p) => a + p.revenue, 0)).toBe(500)
+    // Control pozitiv: exact plafonul (și sub el) începe tot în `from`.
+    const exact = daysInRange('2016-10-11', '2026-11-27')
+    expect(exact).toHaveLength(MAX_SERIES_DAYS)
+    expect(exact[0]).toBe('2016-10-11')
+    expect(daysInRange('2016-10-12', '2026-11-27')[0]).toBe('2016-10-12')
   })
 })

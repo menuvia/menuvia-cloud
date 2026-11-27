@@ -34,7 +34,15 @@
 //        `downloadCsv(\`raport-menuvia-…\`)` readus în componentă. Din lotul
 //        C6a fișierul poartă intervalul în nume, începe cu UN BOM și e în
 //        dialectul limbii UTILIZATORULUI (franceza: „;” și virgula zecimală) —
-//        mutația care pică: `reportCsvDialect(tr.lang)`/un dialect fix „,”.
+//        mutația care pică: un dialect fix „,”/`reportCsvDialect('en')`.
+//   YA15 exportul CSV în ENGLEZĂ — singura limbă în care dialectul diferă
+//        („,” și punctul zecimal): rândul sumarului e `2,80.00,…`, un singur
+//        BOM, numele englez. Mutațiile care pică: `reportCsvDialect('ro')` și
+//        un dialect fix `{ sep: ';', decimal: ',' }` în ReportsTab (cu ro/fr/de
+//        pe același dialect, YA6 trece pe ambele). Control pozitiv: YA6.
+//        `reportCsvDialect(tr.lang)` NU se vede aici (chunk-ul englez e
+//        preîncărcat, deci `tr.lang` = limba UI) — îl prinde clichetul de clasă
+//        LF2 (formatLang.test.ts, sink-ul `reportCsvDialect`).
 // `sessionStorage` se golește înaintea fiecărui test: perioada aleasă se
 // păstrează pe sesiune (C6a), deci „Autre période” din YA5 ar porni YA6 pe
 // intervalul personalizat.
@@ -385,5 +393,24 @@ describe('Vânzări în limba personalului', () => {
       'Das PDF konnte nicht erstellt werden. Bitte erneut versuchen.',
     )
     quiet.mockRestore()
+  })
+
+  it('YA15: exportul CSV în engleză are „,” și punctul zecimal', async () => {
+    const user = userEvent.setup()
+    inLang('en', tab())
+    await screen.findByText('Supă de roșii')
+    await user.click(screen.getByRole('button', { name: /Export CSV/ }))
+    expect(m.download).toHaveBeenCalledTimes(1)
+    const [file, content] = m.download.mock.calls[0] as [string, string]
+    expect(file).toMatch(/^menuvia-report-\d{4}-\d{2}-\d{2}\.csv$/)
+    const lines = content.split('\n')
+    expect(lines[0]).toBe('\uFEFFMenuvia report — Today')
+    expect(content.split('\uFEFF')).toHaveLength(2)
+    expect(lines).toContain('2,80.00,40.00,30.00,20.00,10.00,15.00,5.00,1,1')
+    // Niciun rând de date în dialectul românesc/francez.
+    expect(lines).not.toContain('2;80,00;40,00;30,00;20,00;10,00;15,00;5,00;1;1')
+    expect(content).toContain('# Summary')
+    expect(content).toContain('Average ticket (lei)')
+    expect(content).toContain('Supă de roșii')
   })
 })

@@ -33,15 +33,24 @@ export interface ChartSeries {
  *  ar fi ilizibilă pe un interval personalizat de câteva luni). */
 export const WEEKLY_AFTER_DAYS = 62
 
-// Plafon de siguranță (~10 ani): un interval absurd nu blochează randarea.
-const MAX_DAYS = 3700
+/** Plafon de siguranță (~10 ani): un interval absurd nu blochează randarea.
+ *  Se taie de la CAPĂTUL VECHI — un „de la 2015 până azi” păstrează ultimii
+ *  ~10 ani, adică vânzările reale; tăiat de la început, graficul ar fi arătat
+ *  doar bare de 0 pe 2015–2025 sub cardurile cu totalurile adevărate. */
+export const MAX_SERIES_DAYS = 3700
 
-/** Toate zilele din [from, to], capete incluse, în ordine. Dată invalidă sau
- *  `from` > `to` → nicio zi (nu o buclă fără sfârșit pe un șir stricat). */
+/** Toate zilele din [from, to], capete incluse, în ordine (cel mult ultimele
+ *  `MAX_SERIES_DAYS`, terminate în `to`). Dată invalidă sau `from` > `to` →
+ *  nicio zi (nu o buclă fără sfârșit pe un șir stricat). */
 export function daysInRange(from: string, to: string): string[] {
   if (!isValidYmd(from) || !isValidYmd(to) || from > to) return []
+  // Șirurile YYYY-MM-DD se compară corect lexicografic. Podeaua e validată:
+  // sub anul 1000 `addDaysYmd` n-ar mai da patru cifre.
+  const floor = addDaysYmd(to, 1 - MAX_SERIES_DAYS)
+  const start = isValidYmd(floor) && from < floor ? floor : from
   const out: string[] = []
-  for (let d = from; d <= to && out.length < MAX_DAYS; d = addDaysYmd(d, 1)) out.push(d)
+  // Plafonul rămâne și în buclă: o centură, nu calea normală.
+  for (let d = start; d <= to && out.length < MAX_SERIES_DAYS; d = addDaysYmd(d, 1)) out.push(d)
   return out
 }
 
