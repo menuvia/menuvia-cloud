@@ -14,6 +14,8 @@
 //   3. din domeniul ales intră în PDF doar mesele ACTIVE cu QR; celelalte se
 //      NUMĂRĂ (fără QR / inactive), ca ecranul să le poată spune pe nume.
 // Id-urile selectate care nu mai există în listă (masă ștearsă) se ignoră.
+// Lista vizibilă e la fel de bună ca filtrele ei: un filtru pe care ecranul nu
+// mai îl arată nu are voie să rămână activ (`reconcileZoneFilter`, mai jos).
 // ─────────────────────────────────────────────────────────────
 
 /** Minimul unei mese pentru decizie. */
@@ -79,4 +81,43 @@ export function allSelected(
   rows: readonly { id: string }[],
 ): boolean {
   return rows.length > 0 && rows.every((r) => selected.has(r.id))
+}
+
+// ── Filtrele listei (recenzia lotului C5b) ──
+// Lista, „Selectează tot” și PDF-ul lucrează pe lista FILTRATĂ, deci un filtru
+// rămas fără ieșire vizibilă golea ecranul ȘI schimba ce se tipărea:
+//   - zona filtrată nu mai are mese (mutate în lot, redenumite, șterse):
+//     select-ul n-o mai oferă, deci „Toate zonele” apărea ales și alegerea lui
+//     nu declanșa nicio schimbare; fără nicio zonă select-ul nici nu se randa;
+//   - sub prag câmpurile se ascund, dar căutarea veche filtra în continuare.
+// Regula se aplică pe rândurile PROASPETE, la fiecare reîncărcare a listei
+// (TablesManager `load()`, singurul loc care scrie lista).
+
+/** Căutarea și filtrul pe zonă apar doar de la 9 mese (sub prag lista se scanează cu ochiul). */
+export function tableFiltersShown(tableCount: number): boolean {
+  return tableCount > 8
+}
+
+/**
+ * Filtrul pe zonă după o reîncărcare: rămâne doar cu bara de filtre vizibilă
+ * ȘI cu cel puțin o masă în zona lui. Când zona filtrată a dispărut, `follow`
+ * (zona în care tocmai au fost mutate mesele prin „Setează zona…”) îi ia locul
+ * dacă lista o are — redenumirea „Terasa” → „Terasă” rămâne pe aceleași mese;
+ * altfel filtrul se golește (toată lista). O mutare PARȚIALĂ lasă zona veche
+ * cu mese, deci filtrul rămâne pe ea.
+ */
+export function reconcileZoneFilter(
+  rows: readonly { zone: string | null }[],
+  current: string,
+  follow: string | null,
+): string {
+  if (current === '' || !tableFiltersShown(rows.length)) return ''
+  const has = (zone: string) => rows.some((r) => r.zone === zone)
+  if (has(current)) return current
+  return follow !== null && follow !== '' && has(follow) ? follow : ''
+}
+
+/** Căutarea după o reîncărcare: sub prag câmpul nu se vede, deci nu filtrează. */
+export function reconcileTableSearch(tableCount: number, current: string): string {
+  return tableFiltersShown(tableCount) ? current : ''
 }

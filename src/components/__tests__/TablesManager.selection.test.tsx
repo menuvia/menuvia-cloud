@@ -30,6 +30,23 @@
 //   QG11 „Card PDF” pe rând: un singur card (masa rândului), format pliabil,
 //        prefixul de fișier din slug; masa fără QR n-are butonul. Mutația care
 //        pică: cardul construit din toată lista.
+// Filtrele după o reîncărcare (recenzia lotului C5b; partea pură = ZF1–ZF2 în
+// tableSelection.test.ts). Lista, „Selectează tot” și PDF-ul lucrează pe lista
+// FILTRATĂ, deci un filtru rămas fără ieșire golea ecranul ȘI schimba ce se
+// tipărea. Mutația care pică ZF3, ZF4 și ZF6: împăcarea filtrelor scoasă din
+// `load()` (filtrul rămâne pe zona dispărută / căutarea ascunsă filtrează).
+//   ZF3  Terasa filtrată, „Selectează tot (5)”, redenumită „Terasă” în lot →
+//        filtrul URMEAZĂ mesele (select-ul arată „Terasă”, aceleași 5 rânduri),
+//        nu „Nicio masă…” sub un select care afișa „Toate zonele” fără să
+//        răspundă. Pică și fără `follow` (filtrul golit: 10 rânduri).
+//   ZF4  aceeași selecție, zona scoasă (câmp gol), fără alte zone → select-ul
+//        dispare și lista revine întreagă (înainte: goală și fără niciun
+//        control care s-o readucă, până la remontarea filei).
+//   ZF5  control POZITIV: mutarea a 2 din 5 mese în „Bar” lasă filtrul pe
+//        Terasa (încă are mese) — pică dacă filtrul ar sări mereu pe zona nouă
+//        sau s-ar goli la orice reîncărcare.
+//   ZF6  9 mese, căutarea „Masa 1” (control: filtrează la un rând), ștearsă
+//        Masa 1 → 8 mese: câmpul se ascunde ȘI se golește, lista arată cele 8.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -100,10 +117,20 @@ vi.mock('../../lib/supabase', () => {
     }
     return b
   }
+  // delete().eq('id', id).select('id') — scoate rândul din fixture.
+  const tablesDelete = () => ({
+    eq: (_c: string, id: unknown) => ({
+      select: () => {
+        h.rows = h.rows.filter((r: Row) => r.id !== id)
+        return ok({ data: [{ id }], error: null })
+      },
+    }),
+  })
   return {
     supabase: {
       from: (table: string) => {
-        if (table === 'tables') return { select: tablesSelect, update: tablesUpdate }
+        if (table === 'tables')
+          return { select: tablesSelect, update: tablesUpdate, delete: tablesDelete }
         if (table === 'qr_tokens')
           return {
             select: () => ({
@@ -325,5 +352,110 @@ describe('Mese & QR — ordine, selecție, PDF', () => {
     expect(await screen.findByText('Card PDF descărcat pentru Masa 2')).toBeInTheDocument()
     // Masa fără QR nu are card de tipărit.
     expect(screen.queryByRole('button', { name: 'Card PDF pentru Masa 3' })).not.toBeInTheDocument()
+  })
+})
+
+/** Masa 1…Masa N, toate cu QR; zona aleasă per index (0-based). */
+function seedTables(n: number, zoneOf: (i: number) => string | null) {
+  h.rows = Array.from({ length: n }, (_, i) => ({
+    ...table(`t${i + 1}`, `Masa ${i + 1}`, `masa-${i + 1}`),
+    zone: zoneOf(i),
+  }))
+  h.tokens = h.rows.map((r: Row) => token(r.id as string))
+}
+const masa = (from: number, to: number) =>
+  Array.from({ length: to - from + 1 }, (_, i) => `Masa ${from + i}`)
+const zoneSelect = () => screen.getByRole('combobox', { name: 'Filtrează după zonă' })
+const NO_MATCHES = 'Nicio masă nu corespunde filtrelor.'
+
+/** Filtrează pe Terasa (5 mese) și deschide „Setează zona…” pe `pick` din ele. */
+async function zoneBulkOnTerasa(
+  user: ReturnType<typeof userEvent.setup>,
+  pick: 'all' | string[],
+): Promise<HTMLElement> {
+  await screen.findByRole('checkbox', { name: 'Selectează Masa 10' })
+  await user.selectOptions(zoneSelect(), 'Terasa')
+  expect(rowOrder()).toEqual(masa(1, 5))
+  const bar = screen.getByRole('group', { name: 'Mesele selectate' })
+  if (pick === 'all') {
+    await user.click(within(bar).getByRole('button', { name: 'Selectează tot (5)' }))
+  } else {
+    for (const name of pick) await user.click(screen.getByRole('checkbox', { name: `Selectează ${name}` }))
+  }
+  await user.click(within(bar).getByRole('button', { name: 'Setează zona…' }))
+  const n = pick === 'all' ? 5 : pick.length
+  return screen.getByRole('dialog', { name: `Zona pentru ${n} mese` })
+}
+
+describe('Mese & QR — filtrele urmează lista după reîncărcare', () => {
+  it('ZF3: zona redenumită pe toate mesele ei → filtrul o urmează, lista nu se golește', async () => {
+    seedTables(10, (i) => (i < 5 ? 'Terasa' : 'Interior'))
+    const user = userEvent.setup()
+    render(<TablesManager restaurant={restaurant} canRotateQr />)
+    const dialog = await zoneBulkOnTerasa(user, 'all')
+    await user.type(within(dialog).getByLabelText('Zonă'), 'Terasă')
+    await user.click(within(dialog).getByRole('button', { name: 'Salvează' }))
+
+    expect(await screen.findByText('Zona a fost setată pentru 5 mese')).toBeInTheDocument()
+    expect(h.updates).toEqual([
+      {
+        patch: { zone: 'Terasă' },
+        eqs: [['restaurant_id', 'r1']],
+        ids: ['t1', 't2', 't3', 't4', 't5'],
+      },
+    ])
+    // Select-ul arată „Terasă” DOAR după reîncărcare (înainte: „Terasa”).
+    await waitFor(() => expect(zoneSelect()).toHaveValue('Terasă'))
+    expect(rowOrder()).toEqual(masa(1, 5))
+    expect(screen.queryByText(NO_MATCHES)).not.toBeInTheDocument()
+  })
+
+  it('ZF4: zona scoasă de pe toate mesele ei, fără alte zone → lista revine întreagă', async () => {
+    seedTables(10, (i) => (i < 5 ? 'Terasa' : null))
+    const user = userEvent.setup()
+    render(<TablesManager restaurant={restaurant} canRotateQr />)
+    const dialog = await zoneBulkOnTerasa(user, 'all')
+    // Câmpul gol = fără zonă.
+    await user.click(within(dialog).getByRole('button', { name: 'Salvează' }))
+
+    expect(await screen.findByText('Zona a fost scoasă de pe 5 mese')).toBeInTheDocument()
+    expect(h.updates.map((u: UpdateCall) => u.patch)).toEqual([{ zone: null }])
+    await waitFor(() => expect(rowOrder()).toEqual(masa(1, 10)))
+    // Nicio zonă rămasă: select-ul nu se mai randează — și nici nu mai e nevoie.
+    expect(screen.queryByRole('combobox', { name: 'Filtrează după zonă' })).not.toBeInTheDocument()
+    expect(screen.queryByText(NO_MATCHES)).not.toBeInTheDocument()
+  })
+
+  it('ZF5: control — mutarea parțială lasă filtrul pe zona veche, care încă are mese', async () => {
+    seedTables(10, (i) => (i < 5 ? 'Terasa' : 'Interior'))
+    const user = userEvent.setup()
+    render(<TablesManager restaurant={restaurant} canRotateQr />)
+    const dialog = await zoneBulkOnTerasa(user, ['Masa 1', 'Masa 2'])
+    await user.type(within(dialog).getByLabelText('Zonă'), 'Bar')
+    await user.click(within(dialog).getByRole('button', { name: 'Salvează' }))
+
+    expect(await screen.findByText('Zona a fost setată pentru 2 mese')).toBeInTheDocument()
+    expect(h.updates.map((u: UpdateCall) => u.ids)).toEqual([['t1', 't2']])
+    await waitFor(() => expect(rowOrder()).toEqual(masa(3, 5)))
+    expect(zoneSelect()).toHaveValue('Terasa')
+  })
+
+  it('ZF6: ștergerea care coboară lista la 8 mese ascunde căutarea și o golește', async () => {
+    seedTables(9, () => null)
+    const user = userEvent.setup()
+    render(<TablesManager restaurant={restaurant} canRotateQr />)
+    await screen.findByRole('checkbox', { name: 'Selectează Masa 9' })
+    await user.type(screen.getByRole('textbox', { name: 'Caută masă după nume' }), 'Masa 1')
+    // Control pozitiv: cu 9 mese căutarea se vede și filtrează.
+    expect(rowOrder()).toEqual(['Masa 1'])
+
+    await user.click(screen.getByRole('button', { name: 'Șterge masă' }))
+    const dialog = screen.getByRole('dialog', { name: 'Șterge masă' })
+    await user.click(within(dialog).getByRole('button', { name: 'Șterge' }))
+
+    expect(await screen.findByText('Masă ștearsă')).toBeInTheDocument()
+    await waitFor(() => expect(rowOrder()).toEqual(masa(2, 9)))
+    expect(screen.queryByRole('textbox', { name: 'Caută masă după nume' })).not.toBeInTheDocument()
+    expect(screen.queryByText(NO_MATCHES)).not.toBeInTheDocument()
   })
 })

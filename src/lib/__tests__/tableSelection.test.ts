@@ -20,8 +20,28 @@
 //   QG4  `withIds` întoarce un Set NOU (React vede schimbarea), adaugă/scoate
 //        un grup întreg; `allSelected` e fals pe grup gol (altfel butonul
 //        „Deselectează zona” ar apărea pe o zonă fără mese).
+// Filtrele listei după o reîncărcare (recenzia lotului C5b; prefixul ZF:
+// verificat cu grep în src/, tests/, supabase/, scripts/, docs/ și CLAUDE.md,
+// nefolosit înainte). Ecranul randat: ZF3–ZF6 în TablesManager.selection.test.tsx.
+//   ZF1  `reconcileZoneFilter`: zona care mai are mese RĂMÂNE (control
+//        pozitiv, și cu `follow` — mutarea parțială nu mută filtrul); zona
+//        dispărută ia `follow` doar dacă lista îl are, altfel se golește; fără
+//        filtru `follow` nu pornește unul; sub prag (8 mese) filtrul se golește
+//        chiar dacă zona există. Mutațiile care pică: `return current` fără
+//        verificarea pe rânduri (filtrul rămâne pe o zonă fără mese — lista
+//        goală, fără ieșire), `follow` ignorat, pragul scos.
+//   ZF2  pragul barei (9 mese) și căutarea: sub prag se golește, de la prag
+//        rămâne. Mutația care pică: `reconcileTableSearch` care întoarce mereu
+//        căutarea (filtrează ascuns după o ștergere).
 import { describe, it, expect } from 'vitest'
-import { allSelected, planQrPrint, withIds } from '../tableSelection'
+import {
+  allSelected,
+  planQrPrint,
+  reconcileTableSearch,
+  reconcileZoneFilter,
+  tableFiltersShown,
+  withIds,
+} from '../tableSelection'
 
 const T = (id: string, is_active = true, token: string | null = `tok-${id}`) => ({
   id,
@@ -80,5 +100,42 @@ describe('domeniul PDF-ului de QR', () => {
     expect(allSelected(added, [{ id: 'a' }, { id: 'b' }])).toBe(true)
     expect(allSelected(added, [{ id: 'a' }, { id: 'z' }])).toBe(false)
     expect(allSelected(added, [])).toBe(false)
+  })
+})
+
+/** `n` mese cu aceeași zonă (doar câmpul care contează). */
+const Z = (n: number, zone: string | null) => Array.from({ length: n }, () => ({ zone }))
+
+describe('filtrele listei după o reîncărcare', () => {
+  it('ZF1: zona filtrată rămâne doar dacă mai are mese; altfel o urmează pe cea nouă sau se golește', () => {
+    const before = [...Z(5, 'Terasa'), ...Z(5, 'Interior')]
+    // Control pozitiv: zona încă are mese → filtrul rămâne, chiar cu `follow`
+    // (o mutare parțială nu mută filtrul).
+    expect(reconcileZoneFilter(before, 'Terasa', null)).toBe('Terasa')
+    expect(reconcileZoneFilter(before, 'Terasa', 'Bar')).toBe('Terasa')
+    // „Terasa” → „Terasă” pe toate mesele ei: filtrul urmează mesele.
+    const renamed = [...Z(5, 'Terasă'), ...Z(5, 'Interior')]
+    expect(reconcileZoneFilter(renamed, 'Terasa', 'Terasă')).toBe('Terasă')
+    // Zona dispărută fără `follow` (masă ștearsă, editare) → toată lista.
+    expect(reconcileZoneFilter(renamed, 'Terasa', null)).toBe('')
+    // `follow` pe care lista nu-l are (UPDATE care n-a atins nimic) → toată
+    // lista, nu un filtru nou fără mese; câmpul gol = zona scoasă.
+    expect(reconcileZoneFilter(renamed, 'Terasa', 'Bar')).toBe('')
+    expect(reconcileZoneFilter([...Z(5, null), ...Z(5, 'Interior')], 'Terasa', '')).toBe('')
+    // Fără nicio zonă rămasă (select-ul nici nu se mai randează).
+    expect(reconcileZoneFilter(Z(10, null), 'Terasa', null)).toBe('')
+    // Fără filtru, `follow` nu pornește unul.
+    expect(reconcileZoneFilter(renamed, '', 'Terasă')).toBe('')
+    // Sub prag bara nu se vede → niciun filtru, chiar dacă zona există.
+    expect(reconcileZoneFilter(Z(8, 'Terasa'), 'Terasa', null)).toBe('')
+    expect(reconcileZoneFilter(Z(9, 'Terasa'), 'Terasa', null)).toBe('Terasa')
+  })
+
+  it('ZF2: pragul barei de filtre și căutarea ascunsă', () => {
+    expect([8, 9].map(tableFiltersShown)).toEqual([false, true])
+    expect(reconcileTableSearch(8, 'Masa 1')).toBe('')
+    // Control pozitiv: de la prag căutarea se vede, deci rămâne.
+    expect(reconcileTableSearch(9, 'Masa 1')).toBe('Masa 1')
+    expect(reconcileTableSearch(0, '')).toBe('')
   })
 })

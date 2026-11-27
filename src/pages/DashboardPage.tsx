@@ -1882,7 +1882,15 @@ export default function DashboardPage({
               )}
               {tab === 'mese' && (
                 <Suspense fallback={<InlineSpinner label={t('loading_tables')} />}>
-                  <TablesManager restaurant={restaurant} canRotateQr={!isPartner} />
+                  <TablesManager
+                    // Alt local = altă selecție, alte filtre și altă notiță de
+                    // PDF (mesele lăsate pe dinafară erau ale localului vechi),
+                    // iar o reîncărcare în zbor a celui vechi nu mai scrie peste
+                    // lista celui nou (instanța veche e demontată).
+                    key={restaurant.id}
+                    restaurant={restaurant}
+                    canRotateQr={!isPartner}
+                  />
                 </Suspense>
               )}
               {tab === 'analytics' && (

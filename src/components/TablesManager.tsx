@@ -22,7 +22,14 @@ import { downloadQrPdf, QR_PDF_NO_CARDS_HINT, type QrPdfFormat } from '../lib/qr
 import { tablesMissingActiveToken } from '../lib/qrTokens'
 import { bulkTableName, bulkTableNumber, bulkTableSeries, bulkTableSlug, slugifyTable } from '../lib/tableSlug'
 import { sortTablesByName } from '../lib/tableSort'
-import { allSelected, planQrPrint, withIds } from '../lib/tableSelection'
+import {
+  allSelected,
+  planQrPrint,
+  reconcileTableSearch,
+  reconcileZoneFilter,
+  tableFiltersShown,
+  withIds,
+} from '../lib/tableSelection'
 import { menuBaseLang } from '../lib/i18nMenu'
 import { pickupCopyT, pickupFeatureState } from '../lib/pickupCopy'
 import { pickupOnlyMode } from '../lib/pickupAvailability'
@@ -674,7 +681,9 @@ export default function TablesManager({
   // publică n-are coș, deci textele nu promit comenzi (lib/pickupCopy.ts).
   const menuFlipbook = resolveEffectiveMenuLayout(restaurant.theme_settings) === 'flipbook'
 
-  const load = useCallback(async () => {
+  // `followZone`: zona în care tocmai au fost mutate mesele selectate („Setează
+  // zona…”); filtrul o urmează dacă zona lui a dispărut (reconcileZoneFilter).
+  const load = useCallback(async (followZone: string | null = null) => {
     setLoading(true)
     setLoadError(null)
     try {
@@ -701,14 +710,21 @@ export default function TablesManager({
       // Ordinea NATURALĂ (Masa 2 < Masa 10), nu cea de text a lui
       // `.order('name')`: lista, grupurile pe zonă și cardurile PDF-ului o
       // moștenesc de aici (lib/tableSort.ts, lotul C5b).
-      setTables(
-        sortTablesByName(
-          (tData || []).map((t: Record<string, unknown>) => ({
-            ...(t as unknown as TableRow),
-            active_token: tokenMap[t.id as string] || null,
-          })),
-        ),
+      const rows: TableRow[] = sortTablesByName<TableRow>(
+        (tData || []).map((t: Record<string, unknown>) => ({
+          ...(t as unknown as TableRow),
+          active_token: tokenMap[t.id as string] || null,
+        })),
       )
+      setTables(rows)
+      // Filtrele nu rămân pe ceva ce lista nu mai are (recenzia lotului C5b):
+      // lista, „Selectează tot” și PDF-ul lucrează pe lista FILTRATĂ, deci o
+      // zonă dispărută sau o căutare ascunsă sub prag goleau ecranul fără nicio
+      // ieșire și schimbau ce se tipărea. Aici, în SINGURUL loc care scrie
+      // `tables`, pe rândurile proaspete (lib/tableSelection.ts). Funcțional:
+      // o alegere făcută cât reîncărcarea era în zbor se judecă la fel.
+      setZoneFilter((cur) => reconcileZoneFilter(rows, cur, followZone))
+      setSearch((cur) => reconcileTableSearch(rows.length, cur))
     } catch (e: unknown) {
       setLoadError({ err: e })
     }
@@ -898,6 +914,7 @@ export default function TablesManager({
   const zoneOptions = Array.from(
     new Set(tables.map((t) => t.zone).filter(Boolean) as string[]),
   ).sort((a, b) => a.localeCompare(b, 'ro'))
+  // Filtrele nu pot rămâne pe ceva ce lista nu mai are: le împacă `load()`.
   const q = search.trim().toLowerCase()
   const visibleTables = tables.filter(
     (t) =>
@@ -905,7 +922,7 @@ export default function TablesManager({
       (zoneFilter === '' || t.zone === zoneFilter),
   )
   // Bara de căutare/filtru apare doar când lista devine greu de scanat vizual.
-  const showFilters = tables.length > 8
+  const showFilters = tableFiltersShown(tables.length)
 
   // Selecția (lotul C5b) apare de la DOUĂ mese: cu una singură, „toate” e
   // deja selecția. Sub prag o selecție rămasă (după o ștergere) nu mai
@@ -1031,6 +1048,7 @@ export default function TablesManager({
   const updateSelected = async (
     patch: { zone: string | null } | { is_active: boolean },
     success: (n: number) => string,
+    followZone: string | null = null,
   ): Promise<boolean> => {
     const ids = selectedTables.map((t) => t.id)
     if (ids.length === 0) return false
@@ -1055,14 +1073,20 @@ export default function TablesManager({
     } catch (e) {
       toast(describeStaffError(e, tc, { fallback: tm.t('toast_updateFailed') }), 'error')
     }
-    await load()
+    await load(followZone)
     setSelBusy(false)
     return ok
   }
 
+  // Filtrul pe zonă URMEAZĂ mesele mutate dacă zona lui s-a golit (toate
+  // mesele ei erau în selecție): redenumirea „Terasa” → „Terasă” rămâne pe
+  // aceleași mese, iar zona scoasă (câmp gol) arată toată lista. Decizia se ia
+  // în `load()`, pe rândurile proaspete — nu aici, pe lista de dinainte.
   const applyZoneToSelected = async (zone: string | null) => {
-    const ok = await updateSelected({ zone }, (n) =>
-      zone === null ? tm.tp('zoneBulk_cleared', n) : tm.tp('zoneBulk_done', n),
+    const ok = await updateSelected(
+      { zone },
+      (n) => (zone === null ? tm.tp('zoneBulk_cleared', n) : tm.tp('zoneBulk_done', n)),
+      zone,
     )
     if (ok) setZoneBulkOpen(false)
   }
@@ -1443,7 +1467,12 @@ export default function TablesManager({
           title={tm.t('load_error')}
           description={describeStaffError(loadError.err, tc, { fallback: tm.t('load_error') })}
           action={
-            <Button variant="secondary" onClick={load} icon={<Icon name="refresh" size={16} />}>
+            <Button
+              variant="secondary"
+              // Fără argument: `onClick={load}` i-ar da evenimentul drept `followZone`.
+              onClick={() => void load()}
+              icon={<Icon name="refresh" size={16} />}
+            >
               {tc.t('retry')}
             </Button>
           }
