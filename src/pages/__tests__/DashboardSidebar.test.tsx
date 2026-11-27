@@ -116,6 +116,17 @@
 //        din care a fost creată, ÎNAINTE de comutare; control: dintr-un local
 //        românesc nu pleacă niciun UPDATE. Mutația care pică: patch-ul scos
 //        din handleLocationCreated (locația nouă rămânea în România, RON).
+//   DS27 (recenzia lotului M1, mig 334) o sursă românească pe Planul 3 cu EUR
+//        salvat dinaintea upgrade-ului: UPDATE-ul locației noi (și intenția
+//        păstrată) poartă fusul și limba, FĂRĂ monedă — serverul ar refuza
+//        UPDATE-ul întreg (`fiscal_currency_ron_only`). Control POZITIV: pe
+//        Planul 2 moneda se copiază. Mutația care pică: `regionalPatchFrom`
+//        în loc de `newLocationRegionalPatch` (moneda pleacă, totul pică).
+//   DS28 planul văzut de client e vechi (Planul 2), serverul refuză moneda:
+//        restul pleacă într-un al doilea UPDATE, intenția se rescrie fără
+//        monedă înaintea lui și se șterge după. Mutația care pică: refuzul
+//        tratat ca eșec obișnuit (un singur UPDATE, intenția cu moneda rămâne
+//        și se reîncearcă, refuzată, la fiecare încărcare).
 //   DS23 „Adaugă o locație" cu Setări modificate → întrebarea vine ÎNAINTE de
 //        creare (nicio recitire, niciun `setActive`); la refuz nimic, la acord
 //        recitirile, apoi `setActive`, apoi Acasă FĂRĂ a treia întrebare.
@@ -165,6 +176,8 @@ const { state, homeProps, ctx, limits } = vi.hoisted(() => ({
     openErrors: [] as string[],
     // Fiecare MONTARE a editorului hărții (DS21): harta inițială + callback-ul.
     floorMounts: [] as { initialLayout: unknown; onSaved: (layout: unknown) => void }[],
+    // DS28: serverul refuză orice UPDATE care poartă `currency` (mig 334).
+    refuseCurrency: false,
   },
   // Limitele planului (usePlanLimits): plafonul de restaurante + încărcarea.
   limits: { maxRestaurants: 1, loading: false },
@@ -498,6 +511,8 @@ async function renderDashboard(
       updateRestaurant={
         vi.fn(async (id: string, patch: unknown) => {
           ctx.calls.push(`update:${id}:${JSON.stringify(patch)}`)
+          if (ctx.refuseCurrency && patch != null && typeof patch === 'object' && 'currency' in patch)
+            return { error: { message: 'refuz', code: '23514', hint: 'fiscal_currency_ron_only' } }
           return { error: null }
         }) as unknown as ComponentProps<typeof DashboardPage>['updateRestaurant']
       }
@@ -547,6 +562,7 @@ beforeEach(() => {
   ctx.hold = null
   ctx.openErrors = []
   ctx.floorMounts = []
+  ctx.refuseCurrency = false
   limits.maxRestaurants = 1
   limits.loading = false
   state.loadError = false
@@ -971,6 +987,56 @@ describe('DashboardPage — „Toate locațiile" (lotul A)', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: 'stub-locatie-creata' }))
     await waitFor(() => expect(ctx.calls).toContain('setActive:rest-new'))
     expect(ctx.calls.some((c) => c.startsWith('update:'))).toBe(false)
+  })
+
+  // Patch-urile notate cu un prefix (`update:rest-new:`…), în ordine.
+  const patchesOn = (prefix: string): unknown[] =>
+    ctx.calls
+      .filter((c: string) => c.startsWith(prefix))
+      .map((c: string) => JSON.parse(c.slice(prefix.length)) as unknown)
+  const addLocationFrom = async (plan: DbPlan) => {
+    limits.maxRestaurants = 2
+    ctx.reloadRows = [membership('rest-1', 'owner'), membership('rest-new', 'owner')]
+    state.currency = 'EUR'
+    state.timezone = 'Europe/London'
+    state.language = 'en'
+    await renderDashboard(plan, { url: '/dashboard?tab=settings-account', anchor: false })
+    expect(await screen.findByText('stub-setari-account')).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'stub-locatie-creata' }))
+    await waitFor(() => expect(ctx.calls).toContain('setActive:rest-new'))
+  }
+
+  it('DS27: Planul 3 în România cu EUR salvat — locația nouă primește fusul și limba, fără monedă', async () => {
+    await addLocationFrom('pro')
+    const noCurrency = { timezone: 'Europe/London', language: 'en' }
+    expect(patchesOn('update:rest-new:')).toEqual([noCurrency])
+    expect(patchesOn('storePendingRegional:rest-new:')).toEqual([noCurrency])
+    expect(ctx.calls.indexOf('clearPendingRegional:rest-new')).toBeGreaterThan(
+      ctx.calls.findIndex((c: string) => c.startsWith('update:rest-new:')),
+    )
+  })
+
+  it('DS27 control: pe Planul 2 moneda se copiază', async () => {
+    await addLocationFrom('growth')
+    expect(patchesOn('update:rest-new:')).toEqual([
+      { currency: 'EUR', timezone: 'Europe/London', language: 'en' },
+    ])
+  })
+
+  it('DS28: serverul refuză moneda — restul pleacă fără ea, intenția se rescrie și se șterge', async () => {
+    ctx.refuseCurrency = true
+    await addLocationFrom('growth')
+    const full = { currency: 'EUR', timezone: 'Europe/London', language: 'en' }
+    const rest = { timezone: 'Europe/London', language: 'en' }
+    expect(patchesOn('update:rest-new:')).toEqual([full, rest])
+    expect(patchesOn('storePendingRegional:rest-new:')).toEqual([full, rest])
+    const secondStore = ctx.calls.lastIndexOf(`storePendingRegional:rest-new:${JSON.stringify(rest)}`)
+    const secondUpdate = ctx.calls.lastIndexOf(`update:rest-new:${JSON.stringify(rest)}`)
+    expect(secondStore).toBeLessThan(secondUpdate)
+    expect(ctx.calls.lastIndexOf('clearPendingRegional:rest-new')).toBeGreaterThan(secondUpdate)
+    expect(ctx.calls.indexOf(`update:rest-new:${JSON.stringify(rest)}`)).toBeLessThan(
+      ctx.calls.indexOf('setActive:rest-new'),
+    )
   })
 
   it('DS18: „Deschide" pe un id necunoscut → întâi recitire; dacă lipsește, eroare fără comutare', async () => {

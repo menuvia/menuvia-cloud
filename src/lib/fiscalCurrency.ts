@@ -9,9 +9,15 @@
 // `fiscal_currency_ron_only`). Aici e doar ce ARATĂ Setările: aceeași regulă,
 // pe rândul care se va SALVA (țara din formular), ca selectorul să nu ofere o
 // monedă pe care serverul o refuză și previzualizarea să arate ce vede
-// oaspetele.
+// oaspetele. Plus ce copiază „Adaugă o locație”: patch-ul regional fără o
+// monedă refuzată (`newLocationRegionalPatch`) și recunoașterea refuzului, ca
+// fusul și limba să nu cadă odată cu moneda.
 import type { PlanSurface } from './planSurface'
 import { resolveMenuCurrency, type MenuCurrency } from './currency'
+import { regionalPatchFrom, type RegionalPatch, type RegionalSource } from './countries'
+
+/** Hint-ul refuzului de scriere din mig 334 (`trg_restaurants_fiscal_currency_ron`). */
+export const FISCAL_CURRENCY_REFUSAL_HINT = 'fiscal_currency_ron_only'
 
 function countryCode(raw: string | null | undefined): string {
   // `restaurants.country` e NOT NULL cu default 'RO' (mig 296): lipsa = RO.
@@ -54,4 +60,44 @@ export function effectiveMenuCurrency(raw: unknown, locked: boolean | null): Men
  */
 export function fiscalCurrencyDrift(raw: unknown, locked: boolean | null): boolean {
   return locked === true && resolveMenuCurrency(raw) !== 'RON'
+}
+
+/**
+ * Eroarea întoarsă de o scriere (supabase-js NU aruncă: `{ error }` cu `hint`)
+ * e refuzul monedei din mig 334? Contractul e HINT-ul, nu textul.
+ */
+export function isFiscalCurrencyRefusal(error: unknown): boolean {
+  if (error == null || typeof error !== 'object') return false
+  return (error as { hint?: unknown }).hint === FISCAL_CURRENCY_REFUSAL_HINT
+}
+
+/** Patch-ul regional fără monedă; `null` când nu mai rămâne nimic de trimis. */
+export function regionalPatchWithoutCurrency(patch: RegionalPatch): RegionalPatch | null {
+  const rest: RegionalPatch = { ...patch }
+  delete rest.currency
+  return Object.keys(rest).length > 0 ? rest : null
+}
+
+/**
+ * Ce copiază „Adaugă o locație” (lotul G1) de la locația sursă, FĂRĂ o monedă
+ * pe care serverul ar refuza-o. `create_restaurant` face locația nouă în
+ * România (RO/RON), iar gate-ul de scriere din 334 judecă rândul NOU (owner +
+ * țara din patch): o sursă românească pe Planul 3 cu EUR salvat dinaintea
+ * upgrade-ului (drift-ul pe care 334 îl păstrează) ar face UPDATE-ul ÎNTREG să
+ * pice (23514) — fusul și limba copiate s-ar fi pierdut odată cu moneda, iar
+ * intenția păstrată s-ar fi reîncercat, și refuzat, la fiecare încărcare.
+ *   - suprafața e a SURSEI (doar owner-ul adaugă locații: același cont, deci
+ *     același plan), judecată cu țara ei salvată, ca `fiscalCurrencyLocked`;
+ *   - țara țintă e cea din patch; lipsa ei = România (default-ul locației noi);
+ *   - pe un plan NECUNOSCUT moneda rămâne: decide serverul, iar refuzul lui
+ *     (`isFiscalCurrencyRefusal`) scoate doar moneda, nu și restul.
+ */
+export function newLocationRegionalPatch(
+  source: RegionalSource | null | undefined,
+  surface: PlanSurface | null,
+): RegionalPatch | null {
+  const patch = regionalPatchFrom(source)
+  if (!patch?.currency) return patch
+  if (fiscalCurrencyLocked(surface, source?.country, patch.country ?? 'RO') !== true) return patch
+  return regionalPatchWithoutCurrency(patch)
 }
