@@ -23,6 +23,23 @@
 //        rând; o cantitate „2,5,1” e „Cantitate invalidă”, nu un rând aruncat
 //        tăcut. Mutația care pică: `parseFloat(it.unit_price) || 0` readus sau
 //        filtrul care arunca tăcut rândurile cu cantitate invalidă.
+// Recenzia lotului C4a:
+//   STK8 Escape pe o confirmare deschisă PESTE fișă („Renunți la modificările
+//        din fișă?”, apoi „Șterge Făină?”) anulează DOAR confirmarea: fișa rămâne
+//        deschisă cu costul tastat, nimic salvat, ajustat sau șters. Rulează cu
+//        dialogul ADEVĂRAT (<ConfirmRoot/>), ca Escape-ul să treacă prin capcana
+//        lui de focus. Mutația care pică: fostul `useEscapeClose` readus în
+//        fișă (ascultător simplu pe `document`, înregistrat primul → închidea
+//        fișa înaintea confirmării, iar modificarea se pierdea tăcut). Control
+//        pozitiv: rămasă singură, fișa se închide la Escape.
+//   STK9 control că mutarea pe `<FocusTrap onEscape>` n-a pierdut Escape-ul:
+//        „Ajustează stoc” și „Furnizor nou” se închid la Escape. Mutația care
+//        pică: `<FocusTrap />` fără `onEscape` în oricare dintre ele.
+//   STK10 NIR: prețul unitar se precompletează la precizia coloanei (numeric
+//        10,4): făina pe g la 0,0035 lei/g pornește „0.0035” și pleacă 0.0035.
+//        Mutația care pică: `cost_per_unit.toFixed(2)` readus — „0.00” era un 0
+//        EXPLICIT, care trecea de „Completează prețul unitar” și intra în costul
+//        mediu ponderat (mig 251). Control: un cost întreg (4) pornește „4”.
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -39,14 +56,22 @@ const h = vi.hoisted(() => ({
   pos: [] as PoInput[],
   confirm: [] as ConfirmOptions[],
   answer: false,
+  // STK8: confirmarea trece prin dialogul ADEVĂRAT (ConfirmRoot montat de test).
+  realConfirm: false,
+  deleted: [] as string[],
 }))
 
-vi.mock('../ui/confirm', () => ({
-  confirm: async (o: ConfirmOptions) => {
-    h.confirm.push(o)
-    return h.answer
-  },
-}))
+vi.mock('../ui/confirm', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../ui/confirm')>()
+  return {
+    ...real,
+    confirm: async (o: ConfirmOptions) => {
+      h.confirm.push(o)
+      if (h.realConfirm) return real.confirm(o)
+      return h.answer
+    },
+  }
+})
 vi.mock('../../lib/supabase', () => ({ supabase: {} }))
 vi.mock('../../lib/stocks', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../lib/stocks')>()
@@ -63,7 +88,9 @@ vi.mock('../../lib/stocks', async (importOriginal) => {
     updateIngredient: async (id: string, f: Partial<Ingredient>) => {
       h.updated.push([id, f])
     },
-    deleteIngredient: vi.fn(),
+    deleteIngredient: async (id: string) => {
+      h.deleted.push(id)
+    },
     adjustStockManual: async (id: string, n: number, notes?: string) => {
       h.adjusted.push([id, n, notes])
     },
@@ -81,6 +108,7 @@ vi.mock('../../lib/vat', async (importOriginal) => {
 })
 
 import StocksTab from '../StocksTab'
+import { ConfirmRoot } from '../ui/ConfirmDialog'
 
 function ingredient(over: Partial<Ingredient>): Ingredient {
   return {
@@ -109,6 +137,8 @@ beforeEach(() => {
   h.pos = []
   h.confirm = []
   h.answer = false
+  h.realConfirm = false
+  h.deleted = []
 })
 
 async function setup() {
@@ -247,5 +277,87 @@ describe('NIR (lotul C4a)', () => {
     await user.click(within(dlg).getByRole('button', { name: 'Salvează & recepționează' }))
     await waitFor(() => expect(h.pos).toHaveLength(1))
     expect(h.pos[0]!.items).toEqual([{ ingredient_id: 'i2', quantity: 2.5, unit_price: 4.5, vat_rate: 0 }])
+  })
+
+  it('STK10 prețul unitar se precompletează la 4 zecimale, nu la 2', async () => {
+    // Pe stoc 0 recepția pune costul EGAL cu prețul livrării (mig 251), deci
+    // un „0.00” precompletat ar fi făcut costul exact 0.
+    h.ingredients = [
+      ...h.ingredients,
+      ingredient({ id: 'i3', name: 'Făină albă', unit: 'g', current_stock: 0, cost_per_unit: 0.0035 }),
+    ]
+    const user = await setup()
+    const dlg = await openNir(user)
+    // Control: costul întreg al Făinii (4 lei/buc) pornește „4”.
+    await user.selectOptions(within(dlg).getAllByRole('combobox')[0]!, 'i1')
+    const price = within(dlg).getByRole('textbox', { name: 'Preț/unitate' })
+    expect(price).toHaveValue('4')
+
+    await user.selectOptions(within(dlg).getAllByRole('combobox')[0]!, 'i3')
+    expect(price).toHaveValue('0.0035')
+    await user.type(within(dlg).getByRole('textbox', { name: 'Cantitate' }), '1000')
+    await user.click(within(dlg).getByRole('button', { name: 'Salvează & recepționează' }))
+    await waitFor(() => expect(h.pos).toHaveLength(1))
+    expect(h.pos[0]!.items).toEqual([{ ingredient_id: 'i3', quantity: 1000, unit_price: 0.0035, vat_rate: 0 }])
+  })
+})
+
+describe('Escape pe dialogurile stivuite (recenzia lotului C4a)', () => {
+  it('STK8 Escape pe o confirmare peste fișă o anulează doar pe ea', async () => {
+    h.realConfirm = true
+    const user = userEvent.setup()
+    render(
+      <>
+        <StocksTab restaurantId="r1" showVat={false} />
+        <ConfirmRoot />
+      </>,
+    )
+    await screen.findByText('Zahăr')
+    const dlg = await openEdit(user)
+    const cost = within(dlg).getByLabelText('Cost per buc (lei)')
+    await user.clear(cost)
+    await user.type(cost, '5')
+
+    await user.click(within(dlg).getByRole('button', { name: 'Ajustează stoc' }))
+    await screen.findByRole('dialog', { name: 'Renunți la modificările din fișă?' })
+    await user.keyboard('{Escape}')
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Renunți la modificările din fișă?' })).toBeNull(),
+    )
+    expect(screen.getByRole('dialog', { name: 'Editează ingredient' })).toBeInTheDocument()
+    expect(within(dlg).getByLabelText('Cost per buc (lei)')).toHaveValue('5')
+    expect(screen.queryByRole('dialog', { name: 'Ajustează stoc' })).toBeNull()
+
+    // Aceeași clasă pe confirmarea de ștergere din fișă.
+    await user.click(within(dlg).getByRole('button', { name: 'Șterge' }))
+    await screen.findByRole('dialog', { name: 'Șterge Făină?' })
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Șterge Făină?' })).toBeNull())
+    expect(screen.getByRole('dialog', { name: 'Editează ingredient' })).toBeInTheDocument()
+    expect(within(dlg).getByLabelText('Cost per buc (lei)')).toHaveValue('5')
+    expect(h.confirm).toHaveLength(2)
+    expect(h.updated).toEqual([])
+    expect(h.adjusted).toEqual([])
+    expect(h.deleted).toEqual([])
+
+    // Control pozitiv: rămasă singură, fișa se închide la Escape.
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Editează ingredient' })).toBeNull())
+    expect(h.updated).toEqual([])
+  })
+
+  it('STK9 ajustarea și „Furnizor nou” se închid la Escape', async () => {
+    const user = await setup()
+    await user.click(screen.getAllByRole('button', { name: 'Ajustează stoc' })[0]!)
+    expect(screen.getByRole('dialog', { name: 'Ajustează stoc' })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Ajustează stoc' })).toBeNull())
+    expect(h.adjusted).toEqual([])
+
+    await user.click(screen.getByRole('button', { name: 'Furnizori' }))
+    await user.click(await screen.findByRole('button', { name: 'Adaugă furnizor' }))
+    expect(screen.getByRole('dialog', { name: 'Furnizor nou' })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Furnizor nou' })).toBeNull())
   })
 })

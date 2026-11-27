@@ -1,6 +1,8 @@
 // Căutarea din ecranele personalului (lotul C4a): lib/staffSearch.ts. Randarea
-// (lista de produse, „Alege produsele”, panoul „Epuizate”) e în
-// src/components/__tests__/StaffSearch.test.tsx (SRC4–SRC6).
+// e în trei fișiere din src/components/__tests__/: lista de produse în
+// ProductsTabSearch.test.tsx (SRC4), „Alege produsele” în
+// ModifiersTabPrice.test.tsx (SRC5), panoul „Epuizate” în
+// StaffSoldOutSheet.test.tsx (SRC6).
 // (Prefixul SRC: verificat cu grep în src/, tests/, e2e/, supabase/, docs/ și
 // CLAUDE.md, nefolosit înainte.)
 //   SRC1 „ciorba” găsește „Ciorbă de burtă”, „tuica” găsește „Țuică”, „TAITEI”

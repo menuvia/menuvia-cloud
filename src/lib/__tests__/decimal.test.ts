@@ -12,8 +12,23 @@
 //        și invalide).
 //   DC6  `decimalOrZero` (doar previzualizare): „2,5” → 2.5 (nu 2, ca
 //        parseFloat), gol și invalid → 0. Mutația care pică: `parseFloat(t) || 0`.
+// Recenzia lotului C4a:
+//   DC7  `unitCostInputText` (prețul precompletat pe NIR) păstrează precizia
+//        coloanei (numeric 10,4): 0,0035 → „0.0035”, 0,006 → „0.006”, iar textul
+//        trece EXACT prin `parseDecimalInput`; un cost care la 4 zecimale ar ieși
+//        0 (sau 0, null, NaN, negativ) lasă câmpul GOL, ca prețul să fie cerut.
+//        Mutația care pică: `toFixed(2)` (dădea „0.00” — un 0 explicit care
+//        trecea de „Completează prețul unitar” — și „0.01” pentru 0,006) sau
+//        `String(cost)` fără plafon (1e-7 → „1e-7”, respins de parser). Control:
+//        costurile obișnuite (4, 4.5, 12.3456) ies neschimbate.
 import { describe, it, expect } from 'vitest'
-import { decimalOrZero, parseDecimalInput, parseSignedDecimalInput, priceInputText } from '../decimal'
+import {
+  decimalOrZero,
+  parseDecimalInput,
+  parseSignedDecimalInput,
+  priceInputText,
+  unitCostInputText,
+} from '../decimal'
 
 describe('parseDecimalInput', () => {
   it('DC1 forme valide', () => {
@@ -65,5 +80,25 @@ describe('decimalOrZero', () => {
     expect(decimalOrZero('')).toBe(0)
     expect(decimalOrZero('abc')).toBe(0)
     expect(decimalOrZero('-3')).toBe(0)
+  })
+})
+
+describe('unitCostInputText', () => {
+  it('DC7 precizia coloanei, fără 0 explicit precompletat', () => {
+    expect(unitCostInputText(0.0035)).toBe('0.0035')
+    expect(unitCostInputText(0.006)).toBe('0.006')
+    expect(unitCostInputText(0.0001)).toBe('0.0001')
+    for (const c of [0.0035, 0.006, 0.0001, 4, 4.5, 12.3456]) {
+      expect(parseDecimalInput(unitCostInputText(c)), String(c)).toBe(c)
+    }
+    // Control: costurile obișnuite ies neschimbate.
+    expect(unitCostInputText(4)).toBe('4')
+    expect(unitCostInputText(4.5)).toBe('4.5')
+    expect(unitCostInputText(12.3456)).toBe('12.3456')
+    // Zgomot de virgulă mobilă: tot 4 zecimale.
+    expect(unitCostInputText(0.1 + 0.2)).toBe('0.3')
+    for (const c of [0, 0.00004, 1e-7, -1, Number.NaN, Number.POSITIVE_INFINITY, null, undefined]) {
+      expect(unitCostInputText(c), String(c)).toBe('')
+    }
   })
 })

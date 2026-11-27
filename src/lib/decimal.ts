@@ -47,3 +47,20 @@ export function decimalOrZero(text: string): number {
 export function priceInputText(price: number | null | undefined): string {
   return price != null && price !== 0 ? String(price) : ''
 }
+
+/**
+ * Costul unitar de pornire pe un rând de NIR, la precizia COLOANEI
+ * (`ingredients.cost_per_unit` e numeric(10,4), mig 026). Un ingredient pe
+ * g/ml costă de regulă sub un ban pe unitate (făina la 3,5 lei/kg = 0,0035
+ * lei/g): cu `toFixed(2)` câmpul pornea „0.00” — un 0 EXPLICIT, care trecea de
+ * „Completează prețul unitar” și intra în costul mediu ponderat (mig 251; pe
+ * stoc ≤ 0 costul devenea exact 0) — sau „0.01” (+67% la laptele de 0,006).
+ * Textul trece neschimbat prin `parseDecimalInput` (fără exponent: sub 1e-7
+ * `String` ar scrie „1e-7”, pe care parserul îl respinge). Un cost 0 sau care
+ * la 4 zecimale ar ieși 0 lasă câmpul GOL, deci prețul se cere explicit.
+ */
+export function unitCostInputText(cost: number | null | undefined): string {
+  if (cost == null || !Number.isFinite(cost) || cost <= 0) return ''
+  const rounded = Number(cost.toFixed(4))
+  return rounded > 0 ? String(rounded) : ''
+}

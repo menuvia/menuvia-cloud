@@ -49,7 +49,7 @@ import type {
   ProductProfitability,
 } from '../lib/stocks'
 import Autocomplete from './Autocomplete'
-import { decimalOrZero, parseDecimalInput } from '../lib/decimal'
+import { decimalOrZero, parseDecimalInput, unitCostInputText } from '../lib/decimal'
 import { nirDateLabel, stockFormErrorText, vatGroupLabel, type StockFormError } from '../lib/stockMessages'
 import { useT } from '../i18n/useT'
 import { useUiLang } from '../i18n/UiLangContext'
@@ -105,18 +105,12 @@ const inp = (style: React.CSSProperties = {}): React.CSSProperties => ({
   ...style,
 })
 
-// Escape închide modalul (același contract ca ui/ConfirmDialog). `active`
-// permite apelul necondiționat al hook-ului din secțiuni cu modal inline.
-function useEscapeClose(active: boolean, onClose: () => void) {
-  useEffect(() => {
-    if (!active) return
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [active, onClose])
-}
+// Escape închide modalele de aici prin `<FocusTrap onEscape>` (lotul C4a,
+// recenzie): DOAR dialogul din vârful stivei răspunde. Un ascultător simplu pe
+// `document` (fostul `useEscapeClose`) rula ÎNAINTEA celui al confirmării
+// deschise peste fișă („Renunți la modificările din fișă?”, „Șterge X?”) și
+// închidea fișa — Escape-ul care trebuia să ANULEZE confirmarea arunca tăcut
+// ce se tastase.
 
 export default function StocksTab({ restaurantId, showVat, timeZone = DEFAULT_RESTAURANT_TZ }: Props) {
   const { t, tp } = useT(stocksNs)
@@ -829,8 +823,6 @@ function IngredientModal({
   const fieldAria = (f: 'stock' | 'minAlert' | 'cost') =>
     badField === f ? { 'aria-invalid': true, 'aria-describedby': `ing-${f}-err` } : {}
 
-  useEscapeClose(true, onClose)
-
   return (
     <div onClick={onClose} style={modalBg}>
       <div
@@ -840,7 +832,7 @@ function IngredientModal({
         aria-labelledby="ing-modal-title"
         style={modalCard}
       >
-        <FocusTrap />
+        <FocusTrap onEscape={onClose} />
         <div
           id="ing-modal-title"
           style={{
@@ -1125,8 +1117,6 @@ function AdjustStockModal({
     }
   }
 
-  useEscapeClose(true, onClose)
-
   return (
     <div onClick={onClose} style={modalBg}>
       <div
@@ -1136,7 +1126,7 @@ function AdjustStockModal({
         aria-labelledby="adjust-modal-title"
         style={modalCard}
       >
-        <FocusTrap />
+        <FocusTrap onEscape={onClose} />
         <div
           id="adjust-modal-title"
           style={{
@@ -1232,9 +1222,6 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [vatId, setVatId] = useState('')
-
-  // Escape închide modalul inline „Furnizor nou" (a11y dialog).
-  useEscapeClose(showAdd, () => setShowAdd(false))
 
   const [loadError, setLoadError] = useState(false)
   async function load() {
@@ -1356,7 +1343,8 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
             aria-labelledby="supplier-modal-title"
             style={modalCard}
           >
-            <FocusTrap />
+            {/* Escape închide modalul inline „Furnizor nou” (a11y dialog). */}
+            <FocusTrap onEscape={() => setShowAdd(false)} />
             <div
               id="supplier-modal-title"
               style={{
@@ -1752,17 +1740,20 @@ function NirCreateModal({
     setRowErrors({})
   }
 
-  // Auto-fill unit price from ingredient cost when ingredient selected
+  // Prețul unitar se precompletează din costul ingredientului, la precizia
+  // coloanei (4 zecimale): cu `toFixed(2)` un cost de 0,0035 lei/g pornea „0.00”,
+  // un 0 explicit care trecea de verificarea prețului (lotul C4a, recenzie).
+  // Fără cost cunoscut, câmpul rămâne cum era.
   function selectIngredient(idx: number, ingId: string) {
     const ing = ingredients.find((i) => i.id === ingId)
+    const prefill = ing ? unitCostInputText(ing.cost_per_unit) : ''
     setItems((prev) =>
       prev.map((r, i) =>
         i === idx
           ? {
               ...r,
               ingredient_id: ingId,
-              unit_price:
-                ing && ing.cost_per_unit > 0 ? ing.cost_per_unit.toFixed(2) : r.unit_price,
+              unit_price: prefill !== '' ? prefill : r.unit_price,
             }
           : r,
       ),
