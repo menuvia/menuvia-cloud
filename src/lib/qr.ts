@@ -769,6 +769,25 @@ export function happyHourPercentForProduct(
   return best
 }
 
+/**
+ * Doar pentru NOTA din coș (lotul C8b): o regulă activă acoperă produsul
+ * (orice tip — procentul ȘI suma fixă se aplică la trimitere). Nu calculează
+ * nicio sumă: reducerea exactă (scope + plafon, cea mai bună regulă) o decide
+ * serverul la COMMIT (mig 077), iar totalul coșului rămâne prețul întreg.
+ */
+export function happyHourCoversProduct(
+  product: Pick<Product, 'id' | 'category_id'>,
+  rules: HappyHourRule[],
+): boolean {
+  return rules.some(
+    (r) =>
+      r.discount_value > 0 &&
+      (r.scope === 'all' ||
+        (r.scope === 'category' && r.category_id === product.category_id) ||
+        (r.scope === 'product' && r.product_id === product.id)),
+  )
+}
+
 // `computeIsOpen` / `todayHoursLabel` stau în lib/openHours.ts (lotul G2c): pe
 // fusul localului validat, cu ziua de serviciu — și în afara grafului meniului QR.
 

@@ -39,6 +39,7 @@ import {
   clearQrSessionSnapshot,
   reconcileQrSessionSnapshot,
   snapshotTablePaid,
+  withServerOrderTotal,
 } from '../lib/qrSession'
 import {
   makeServerPaidHandler,
@@ -249,6 +250,19 @@ export default function QrMenuPage({ token }: Props) {
   // spune că plata confirmată e `table` (toată nota) — un `split` e parțial,
   // iar felul vine din `table_payments.kind`, nu din URL (mig 312).
   const onServerPaid = makeServerPaidHandler(markTablePaidLocally)
+
+  // Totalul unei comenzi trimise, CONFIRMAT de server (lotul C8b): create_order
+  // întoarce suma DINAINTEA reducerii, iar Happy Hour se aplică la COMMIT (mig
+  // 077); la fel o editare de ospătar sau o reducere manuală. Numărul serverului
+  // înlocuiește totalul din listă — de acolo citesc butonul „Plătește masa”,
+  // „La bucătărie”, baza bacșișului și snapshot-ul. Nimic nu se recalculează
+  // aici: OrderTracker/ActiveOrdersBanner raportează ce a spus serverul.
+  function applyServerTotal(orderId: string, total: number): void {
+    setPreviousOrders((prev) => withServerOrderTotal(prev, orderId, total))
+    setConfirmation((prev) =>
+      prev == null ? prev : (withServerOrderTotal([prev], orderId, total)[0] ?? prev),
+    )
+  }
 
   // RESID-14: o scanare = un rând. `loadQr` se re-execută la schimbarea
   // token-ului, iar sub StrictMode efectul rulează de DOUĂ ori la montare —
@@ -835,6 +849,7 @@ export default function QrMenuPage({ token }: Props) {
         currency={menuCurrency}
         lang={lang}
         hideBranding={resolveHideBranding(ctx?.restaurant.theme_settings)}
+        onServerTotal={applyServerTotal}
       />
     )
   }
@@ -877,6 +892,7 @@ export default function QrMenuPage({ token }: Props) {
             sessionId={sessionId}
             currency={menuCurrency}
             lang={lang}
+            onServerTotal={applyServerTotal}
             onAddMore={() => {
               /* user is already in menu */
             }}
@@ -1897,11 +1913,14 @@ export default function QrMenuPage({ token }: Props) {
               announceAdded(item.product_name_snapshot)
             }}
             sentOrders={previousOrders}
+            // Doar nota „se aplică la trimitere” — fără nicio sumă în client.
+            happyHour={happyHour}
             // „Plătește masa": cu modulul de plăți online activ + sesiune → plata
             // din telefon (PayTableSheet, suma se recalculează pe server); altfel
             // fallback-ul istoric = cere nota (request-bill nu trimite coșul).
-            // Afișăm strict totalul comandat, ca suma de pe buton să corespundă
-            // cu ce se facturează (regula de aur).
+            // Totalurile din listă sunt cele CONFIRMATE de server după trimitere
+            // (applyServerTotal, lotul C8b — Happy Hour, editări, reduceri), ca
+            // suma de pe buton să corespundă cu ce se încasează (regula de aur).
             tableTotal={previousOrders
               .filter((o) => !paidOrderIds.has(o.id))
               .reduce((s, o) => s + o.total, 0)}

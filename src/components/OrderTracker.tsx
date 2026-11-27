@@ -7,10 +7,16 @@
 // ─────────────────────────────────────────────────────────────
 import { useState, useEffect, useRef } from 'react'
 import type { OrderConfirmationPayload } from '../lib/orders'
-import { getOrderPublicStatus, requestFiscalReceipt } from '../lib/orders'
+import {
+  getOrderPublicStatus,
+  requestFiscalReceipt,
+  serverOrderDiscount,
+  serverOrderTotal,
+} from '../lib/orders'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import PaymentConfirmedScreen from './PaymentConfirmedScreen'
 import { T, type PublicMenuStringKey } from '../lib/publicMenuStrings'
+import { Tf } from '../lib/guestI18n'
 import OrderClosedScreen from './OrderClosedScreen'
 import { legibleOn, readableTextOn } from '../lib/themes'
 
@@ -42,6 +48,11 @@ interface OrderTrackerProps {
   lang?: string
   // „Fără branding" (resolveHideBranding) — ecranele terminale îl respectă.
   hideBranding?: boolean
+  // Totalul confirmat de server diferă de cel cunoscut (Happy Hour aplicat la
+  // COMMIT, editare de ospătar, reducere manuală — lotul C8b). Părintele îl
+  // propagă în lista comenzilor: butonul „Plătește masa”, lista „La bucătărie”
+  // și baza bacșișului citesc de acolo.
+  onServerTotal?: (orderId: string, total: number) => void
 }
 
 function OrderTracker({
@@ -53,8 +64,20 @@ function OrderTracker({
   currency = 'RON',
   lang = 'ro',
   hideBranding = false,
+  onServerTotal,
 }: OrderTrackerProps) {
   const [status, setStatus] = useState<string>(confirmation.status ?? 'new')
+  // Totalul afișat e al SERVERULUI din momentul în care vine primul poll:
+  // `create_order` întoarce suma DINAINTEA reducerii (contract mig 191, HH1),
+  // iar Happy Hour se aplică la COMMIT (trigger amânat, mig 077). Până la
+  // primul răspuns, sau pe payload-ul minim fără bani, rămâne cel cunoscut.
+  const [displayTotal, setDisplayTotal] = useState<number>(Number(confirmation.total))
+  const [discountAmount, setDiscountAmount] = useState<number>(0)
+  // Ultimul total raportat părintelui: fără el, fiecare poll (5 s) ar re-scrie
+  // lista comenzilor cu aceeași valoare.
+  const reportedTotalRef = useRef<number>(Number(confirmation.total))
+  const onServerTotalRef = useRef(onServerTotal)
+  onServerTotalRef.current = onServerTotal
   const [tipsAmount, setTipsAmount] = useState<number>(0)
   const [paidAmount, setPaidAmount] = useState<number>(Number(confirmation.total))
   const [restaurantInfo, setRestaurantInfo] = useState<{
@@ -96,11 +119,22 @@ function OrderTracker({
       statusRef.current = p.status as string
       setStatus(p.status as string)
       setLimitedTracking(!('total' in p))
+      // După trimitere, banii vin din numărul serverului; reducerea NU se
+      // recalculează în client (regula Happy Hour din CLAUDE.md).
+      const serverTotal = serverOrderTotal(payload)
+      if (serverTotal != null) {
+        setDisplayTotal(serverTotal)
+        setDiscountAmount(serverOrderDiscount(payload))
+        if (serverTotal !== reportedTotalRef.current) {
+          reportedTotalRef.current = serverTotal
+          onServerTotalRef.current?.(confirmation.id, serverTotal)
+        }
+      }
       if (typeof p.tips_amount === 'number' || typeof p.tips_amount === 'string') {
         setTipsAmount(Number(p.tips_amount) || 0)
       }
       if (typeof p.paid_amount === 'number' || typeof p.paid_amount === 'string') {
-        setPaidAmount(Number(p.paid_amount) || Number(confirmation.total))
+        setPaidAmount(Number(p.paid_amount) || (serverTotal ?? Number(confirmation.total)))
       }
       if (p.fiscal_receipt_requested_at) {
         setFiscalRequestedAt(p.fiscal_receipt_requested_at as string)
@@ -179,6 +213,7 @@ function OrderTracker({
   const isClosed = status === 'closed'
   const isDone = status === 'served' || status === 'paid' || status === 'closed'
   const isCancelled = status === 'cancelled'
+  const showDiscount = discountAmount > 0 && !isCancelled
   // Accentul vine din Setări (7 culori) sau din temă: textul PESTE el și accentul
   // folosit ca TEXT trec AA prin calcul, nu prin alb fix (alb pe auriu = 2,66:1).
   const onAccent = readableTextOn(accent, PUB.text)
@@ -190,7 +225,7 @@ function OrderTracker({
   if (isClosed) {
     return (
       <OrderClosedScreen
-        confirmation={confirmation}
+        confirmation={{ ...confirmation, total: displayTotal }}
         lang={lang}
         accent={accent}
         restaurantName={restaurantInfo?.name ?? null}
@@ -279,11 +314,22 @@ function OrderTracker({
           fontSize: 20,
           fontWeight: 700,
           color: accentInk,
-          marginBottom: 32,
+          marginBottom: showDiscount ? 4 : 32,
         }}
       >
-        {fmtPrice(Number(confirmation.total), currency)}
+        {fmtPrice(displayTotal, currency)}
       </div>
+      {/* Reducerea vine din payload-ul serverului. Motivul (Happy Hour sau
+          reducere manuală) nu e în proiecția publică (mig 092), deci eticheta
+          e neutră: un „Happy Hour” pe o reducere de ospătar ar fi fals. */}
+      {showDiscount && (
+        <div
+          data-testid="ot-discount"
+          style={{ fontSize: 13, fontWeight: 600, color: '#357A4D', marginBottom: 28 }}
+        >
+          {Tf(lang, 'ot_discount', { amount: fmtPrice(discountAmount, currency) })}
+        </div>
+      )}
 
       {isCancelled ? (
         <div style={{ textAlign: 'center', padding: '24px 0' }}>
@@ -410,7 +456,7 @@ function OrderTracker({
         <div style={{ marginTop: 16, fontSize: '0.8rem', color: '#6B5A3F', textAlign: 'center' }}>
           {T(lang, 'ot_session_total')}{' '}
           {fmtPrice(
-            previousOrders.reduce((s, o) => s + Number(o.total), 0) + Number(confirmation.total),
+            previousOrders.reduce((s, o) => s + Number(o.total), 0) + displayTotal,
             currency,
           )}{' '}
           ({previousOrders.length + 1} {T(lang, 'order_many')})
@@ -453,6 +499,9 @@ interface ActiveOrdersBannerProps {
   currency?: MenuCurrency
   // Limba aleasă de oaspete în meniu — default 'ro'.
   lang?: string
+  // Totalul de server al unei comenzi diferă de cel din listă (lotul C8b,
+  // aceeași semantică ca la OrderTracker).
+  onServerTotal?: (orderId: string, total: number) => void
 }
 
 function ActiveOrdersBanner({
@@ -462,13 +511,19 @@ function ActiveOrdersBanner({
   sessionId = null,
   currency = 'RON',
   lang = 'ro',
+  onServerTotal,
 }: ActiveOrdersBannerProps) {
   const [expanded, setExpanded] = useState(false)
   const [statuses, setStatuses] = useState<Record<string, string>>(() =>
     Object.fromEntries(orders.map((o) => [o.id, o.status])),
   )
+  // Totalurile confirmate de server (payload complet, cu sesiune validă);
+  // lipsa unei intrări = se afișează totalul din listă.
+  const [serverTotals, setServerTotals] = useState<Record<string, number>>({})
   const statusesRef = useRef(statuses)
   statusesRef.current = statuses
+  const onServerTotalRef = useRef(onServerTotal)
+  onServerTotalRef.current = onServerTotal
 
   // Polling pentru toate comenzile active
   useEffect(() => {
@@ -490,7 +545,12 @@ function ActiveOrdersBanner({
       const results = await Promise.all(
         active.map(async (o) => {
           const payload = await getOrderPublicStatus(o.id, sessionId)
-          return { id: o.id, status: payload?.status ?? null }
+          return {
+            id: o.id,
+            status: payload?.status ?? null,
+            total: serverOrderTotal(payload),
+            known: Number(o.total),
+          }
         }),
       )
       if (cancelled) return
@@ -501,6 +561,21 @@ function ActiveOrdersBanner({
         }
         return next
       })
+      // Payload-ul minim (sesiune expirată, mig 092) n-are bani: lista rămâne.
+      const totals: Array<{ id: string; total: number; known: number }> = []
+      for (const r of results) {
+        if (r.total != null) totals.push({ id: r.id, total: r.total, known: r.known })
+      }
+      if (totals.length > 0) {
+        setServerTotals((prev) => {
+          const next = { ...prev }
+          for (const r of totals) next[r.id] = r.total
+          return next
+        })
+      }
+      for (const r of totals) {
+        if (r.total !== r.known) onServerTotalRef.current?.(r.id, r.total)
+      }
     }
 
     void pollAll()
@@ -522,7 +597,8 @@ function ActiveOrdersBanner({
     }
   }, [orders, sessionId])
 
-  const totalSpent = orders.reduce((s, o) => s + Number(o.total), 0)
+  const orderTotal = (o: OrderConfirmationPayload): number => serverTotals[o.id] ?? Number(o.total)
+  const totalSpent = orders.reduce((s, o) => s + orderTotal(o), 0)
   const onAccent = readableTextOn(accent, PUB.text)
   const activeCount = orders.filter((o) => {
     const st = statuses[o.id] || o.status
@@ -657,7 +733,7 @@ function ActiveOrdersBanner({
                     {meta.label}
                   </span>
                   <span style={{ fontSize: '0.78rem', color: PUB.muted }}>
-                    {fmtPrice(Number(order.total), currency)}
+                    {fmtPrice(orderTotal(order), currency)}
                   </span>
                 </div>
               </div>

@@ -10,6 +10,7 @@ import userEvent from '@testing-library/user-event'
 import QrCartSheet, { type QrCartSheetProps } from '../QrCartSheet'
 import { lineTotal } from '../../lib/orders'
 import type { CartItem } from '../../lib/orders'
+import type { HappyHourRule } from '../../lib/qr'
 import { makeCartItem, makeCategory, makeProduct, makeGroup, makeOption } from './fixtures'
 import { readableTextOn } from '../../lib/themes'
 
@@ -260,5 +261,58 @@ describe('QrCartSheet — ora comenzilor trimise pe fusul localului (G2c)', () =
   it('QCZ2b fus invalid → București, fără RangeError', () => {
     renderSheet({ sentOrders: sent, timeZone: 'Mars/Olympus' })
     expect(screen.getByText(/#A1B2 · 12:10/)).toBeInTheDocument()
+  })
+})
+
+// Lotul C8b: totalul coșului e prețul ÎNTREG (reducerea o aplică serverul la
+// COMMIT, mig 077 — nimic nu se recalculează în client), deci fără o notă
+// oaspetele vede apoi pe ecranul de urmărire un total mai mic, fără explicație.
+// Mutațiile care pică: nota scoasă (HHN1, HHN3); nota afișată pe orice regulă,
+// fără potrivirea pe categorie (HHN2); nota legată doar de reducerile
+// procentuale (HHN3 — suma fixă se aplică și ea la trimitere). HHN2 + HHN4 sunt
+// controalele: altă categorie / fără reguli → fără notă. Totalul NU se schimbă.
+describe('QrCartSheet — nota Happy Hour din coș (lotul C8b)', () => {
+  const product = makeProduct({ id: 'p-hh', name: 'Bere', category_id: 'c-bar', price: 10 })
+  const categories = [makeCategory({ id: 'c-bar', products: [product] })]
+  const cart = [
+    makeCartItem({ product_id: 'p-hh', product_name_snapshot: 'Bere', unit_price_snapshot: 10 }),
+  ]
+  function rule(overrides: Partial<HappyHourRule>): HappyHourRule {
+    return {
+      id: 'hh1',
+      name: 'Seara',
+      scope: 'category',
+      category_id: 'c-bar',
+      product_id: null,
+      discount_type: 'percent',
+      discount_value: 20,
+      max_discount: null,
+      ...overrides,
+    }
+  }
+
+  it('HHN1 regulă pe categoria liniei → nota apare, totalul rămâne prețul întreg', () => {
+    renderSheet({ cart, categories, happyHour: [rule({})] })
+    expect(screen.getByTestId('qc-hh-note')).toHaveTextContent(/Happy Hour se aplică automat/i)
+    expect(screen.getByRole('button', { name: /trimite comanda · 10\.00 lei/i })).toBeEnabled()
+  })
+
+  it('HHN2 regulă pe altă categorie → fără notă', () => {
+    renderSheet({ cart, categories, happyHour: [rule({ category_id: 'c-alt' })] })
+    expect(screen.queryByTestId('qc-hh-note')).not.toBeInTheDocument()
+  })
+
+  it('HHN3 sumă fixă pe toată comanda → nota apare', () => {
+    renderSheet({
+      cart,
+      categories,
+      happyHour: [rule({ scope: 'all', category_id: null, discount_type: 'amount', discount_value: 5 })],
+    })
+    expect(screen.getByTestId('qc-hh-note')).toBeInTheDocument()
+  })
+
+  it('HHN4 fără reguli active → fără notă', () => {
+    renderSheet({ cart, categories })
+    expect(screen.queryByTestId('qc-hh-note')).not.toBeInTheDocument()
   })
 })

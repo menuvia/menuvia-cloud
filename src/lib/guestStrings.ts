@@ -143,6 +143,18 @@ export const GUEST_STRINGS = {
     hu: 'Munkamenet bezárása',
     es: 'Cerrar la sesión',
   },
+  // Reducerea de pe comandă, citită din payload-ul serverului (lotul C8b).
+  // Neutră deliberat: proiecția publică nu poartă motivul (Happy Hour sau
+  // reducere manuală a ospătarului, mig 092).
+  ot_discount: {
+    ro: 'Reducere aplicată: −{amount}',
+    en: 'Discount applied: −{amount}',
+    de: 'Rabatt abgezogen: −{amount}',
+    fr: 'Remise appliquée : −{amount}',
+    it: 'Sconto applicato: −{amount}',
+    hu: 'Kedvezmény levonva: −{amount}',
+    es: 'Descuento aplicado: −{amount}',
+  },
   ot_session_total: {
     ro: 'Total sesiune:',
     en: 'Session total:',

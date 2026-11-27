@@ -3,7 +3,13 @@
 import { useState, useMemo, useRef, useEffect, useId } from 'react'
 import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
-import { createOrder, getPickupIdempotencyKey, rotatePickupIdempotencyKey } from '../lib/orders'
+import {
+  createOrder,
+  getOrderPublicStatus,
+  getPickupIdempotencyKey,
+  rotatePickupIdempotencyKey,
+  serverOrderTotal,
+} from '../lib/orders'
 import { buildPickupSlots } from '../lib/pickupSlots'
 import { formatTimeInZone, safeTimeZone } from '../lib/dates'
 import type { CartItem } from '../lib/orders'
@@ -46,6 +52,33 @@ export interface PickupCheckoutProps {
   // Limba aleasă de oaspete — toate textele sheet-ului. NU decide prefixul
   // implicit al telefonului (PH-4, lib/phone.ts).
   lang?: string
+}
+
+// Cât așteaptă confirmarea „Comanda a fost plasată” după totalul de server.
+// Comanda E creată deja (cheia e rotită): peste prag cădem pe totalul întors
+// de create_order, nu ținem oaspetele pe „Se trimite”.
+const SERVER_TOTAL_WAIT_MS = 4000
+
+/**
+ * Totalul de plătit la ridicare, confirmat de server (lotul C8b). Happy Hour
+ * se aplică la COMMIT (trigger amânat, mig 077), deci create_order întoarce
+ * suma DINAINTEA reducerii (contract mig 191, HH1). O comandă pickup n-are
+ * sesiune de masă, deci get_order_public_status întoarce payload-ul COMPLET
+ * (mig 092). UN singur apel; orice eșec sau depășire → `fallback`. Nu aruncă.
+ */
+async function confirmedOrderTotal(orderId: string, fallback: number): Promise<number> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), SERVER_TOTAL_WAIT_MS)
+    })
+    const status = await Promise.race([getOrderPublicStatus(orderId, null), timeout])
+    return serverOrderTotal(status) ?? fallback
+  } catch {
+    return fallback
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
 }
 
 export default function PickupCheckoutSheet({
@@ -163,7 +196,10 @@ export default function PickupCheckoutSheet({
       // sheet-ul montat și user-ul mai trimite o comandă, a doua nu va fi
       // dedup-uită silențios de server pe aceeași idempotency_key.
       idempotencyKeyRef.current = rotatePickupIdempotencyKey(idemScope)
-      onSuccess(result.short_id, pickupTime || null, result.total)
+      // Totalul de plătit la ridicare e al SERVERULUI (lotul C8b): create_order
+      // întoarce suma DINAINTEA reducerii, Happy Hour se aplică la COMMIT.
+      const total = await confirmedOrderTotal(result.id, Number(result.total))
+      onSuccess(result.short_id, pickupTime || null, total)
     } catch (err) {
       console.error('[PickupCheckout] error:', err)
       // Hint-urile din create_order (mig 191) + gate-ul de plan (mig 290) +

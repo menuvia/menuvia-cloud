@@ -92,6 +92,25 @@ export function snapshotTablePaid(
   )
 }
 
+/**
+ * Totalul CONFIRMAT de server pentru o comandă din sesiune (lotul C8b).
+ * `create_order` întoarce suma DINAINTEA reducerii (Happy Hour se aplică la
+ * COMMIT, mig 077), iar o editare de ospătar sau o reducere manuală o schimbă
+ * ulterior — numărul serverului înlocuiește totalul din listă, nimic nu se
+ * recalculează în client. Din listă citesc butonul „Plătește masa”, „La
+ * bucătărie”, baza bacșișului și snapshot-ul. Întoarce ACEEAȘI listă când nu
+ * se schimbă nimic (fără re-randări inutile, fără restart de polling). PURĂ.
+ */
+export function withServerOrderTotal<T extends { id: string; total: number }>(
+  orders: T[],
+  orderId: string,
+  total: number,
+): T[] {
+  if (!Number.isFinite(total) || total < 0) return orders
+  if (!orders.some((o) => o.id === orderId && o.total !== total)) return orders
+  return orders.map((o) => (o.id === orderId ? { ...o, total } : o))
+}
+
 export function clearQrSessionSnapshot(token: string): void {
   try {
     sessionStorage.removeItem(storageKey(token))

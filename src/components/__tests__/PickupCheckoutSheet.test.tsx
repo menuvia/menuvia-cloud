@@ -7,11 +7,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-const { createOrderMock } = vi.hoisted(() => ({ createOrderMock: vi.fn() }))
+const { createOrderMock, statusMock } = vi.hoisted(() => ({
+  createOrderMock: vi.fn(),
+  statusMock: vi.fn(),
+}))
 
 vi.mock('../../lib/orders', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/orders')>()
-  return { ...actual, createOrder: createOrderMock }
+  return { ...actual, createOrder: createOrderMock, getOrderPublicStatus: statusMock }
 })
 // Sloturi deterministe (fără ceas); componenta le formatează cu
 // toLocaleTimeString și trimite ISO-ul brut ca pickup_time.
@@ -24,6 +27,14 @@ import { getTheme } from '../../lib/themes'
 import { makeRestaurant, makeCartItem } from './fixtures'
 import type { CreateOrderArgs } from '../../lib/orders'
 import { readableTextOn } from '../../lib/themes'
+
+// Lotul C8b: după create_order reușit, sheet-ul cere O DATĂ totalul de server
+// (Happy Hour se aplică la COMMIT). Implicit: payload indisponibil → fallback pe
+// totalul întors, deci testele existente (S4 = 30) rămân controlul pozitiv.
+beforeEach(() => {
+  statusMock.mockReset()
+  statusMock.mockResolvedValue(null)
+})
 
 const STORAGE_KEY = 'menuvia_idem_pickup:demo'
 const PUB = {
@@ -132,6 +143,48 @@ describe('PickupCheckoutSheet — idempotența comenzii pickup', () => {
     const after = sessionStorage.getItem(STORAGE_KEY)
     expect(after).toBeTruthy()
     expect(after).not.toBe(sentKey(0))
+  })
+})
+
+// Lotul C8b: confirmarea ridicării arăta totalul DINAINTEA Happy Hour-ului
+// (create_order îl întoarce așa — contract mig 191, HH1), deci „Total de plată
+// la ridicare” spunea 30 lei pe o comandă de 27. Mutațiile care pică: onSuccess
+// cu `result.total` (SVT6); apel fără `null` ca sesiune sau repetat (SVT6);
+// un eșec al citirii care blochează confirmarea în loc să cadă pe totalul
+// întors (SVT7). Controlul pozitiv e S4 (fără payload → 30).
+describe('PickupCheckoutSheet — totalul confirmat de server (lotul C8b)', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+    createOrderMock.mockReset()
+    createOrderMock.mockResolvedValue({ id: 'o1', short_id: 'ABC123', status: 'new', total: 30 })
+  })
+
+  it('SVT6 onSuccess primește totalul de server, dintr-un singur apel fără sesiune', async () => {
+    statusMock.mockResolvedValue({
+      id: 'o1',
+      short_id: 'o1',
+      status: 'new',
+      total: 27,
+      discount_amount: 3,
+      created_at: '2026-09-07T09:00:00Z',
+    })
+    const onSuccess = vi.fn()
+    renderSheet(onSuccess)
+    await fillAndSubmit()
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1))
+    expect(onSuccess).toHaveBeenCalledWith('ABC123', '2026-09-07T10:00:00.000Z', 27)
+    expect(statusMock).toHaveBeenCalledTimes(1)
+    expect(statusMock).toHaveBeenCalledWith('o1', null)
+  })
+
+  it('SVT7 citirea eșuează → confirmarea vine oricum, cu totalul întors', async () => {
+    statusMock.mockRejectedValue(new TypeError('Failed to fetch'))
+    const onSuccess = vi.fn()
+    renderSheet(onSuccess)
+    await fillAndSubmit()
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1))
+    expect(onSuccess).toHaveBeenCalledWith('ABC123', '2026-09-07T10:00:00.000Z', 30)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })
 

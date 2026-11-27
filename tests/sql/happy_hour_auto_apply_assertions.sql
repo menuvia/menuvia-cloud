@@ -104,7 +104,8 @@ begin
   v_oid := (v_res->>'id')::uuid;
   -- Contractul mig 191: răspunsul poartă totalul PRE-discount (trigger-ul e
   -- DEFERRED, trage la COMMIT). Ancorat aici ca să nu fie „reparat" în două
-  -- locuri diferit (OrderTracker afișează prețul întreg — CLAUDE.md).
+  -- locuri diferit: clientul NU folosește acest număr după trimitere, citește
+  -- totalul post-COMMIT din get_order_public_status (lotul C8b — CLAUDE.md).
   if (v_res->>'total')::numeric <> 24.00 then
     raise exception 'HH1 FAIL: create_order a întors % (contractul pre-discount cere 24.00)', v_res->>'total'; end if;
 

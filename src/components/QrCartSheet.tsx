@@ -9,8 +9,8 @@ import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import { MAX_LINE_QTY, MAX_ORDER_NOTE } from '../lib/orders'
-import type { Category, Product } from '../lib/qr'
-import { hasMandatoryModifierGroups } from '../lib/qr'
+import type { Category, HappyHourRule, Product } from '../lib/qr'
+import { happyHourCoversProduct, hasMandatoryModifierGroups } from '../lib/qr'
 import { cartIssueCounts, cartIssueNoticeKey, cartLineIssue } from '../lib/cartReconcile'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import { thumbUrlFor } from '../lib/images'
@@ -73,6 +73,10 @@ export interface QrCartSheetProps {
   /** Fusul localului, BRUT din proiecția QR (mig 326) — ora comenzilor trimise.
    *  Lipsă (bază fără 326) sau invalid → București (`formatTimeInZone`). */
   timeZone?: string
+  /** Regulile Happy Hour active acum (public_happy_hour_now) — DOAR pentru
+   *  nota „se aplică la trimitere”; totalul coșului rămâne prețul întreg,
+   *  reducerea o calculează serverul la COMMIT (lotul C8b). */
+  happyHour?: HappyHourRule[]
 }
 
 // Eyebrow mic, all-caps, cu tracking — etichetă de secțiune.
@@ -116,6 +120,7 @@ export default function QrCartSheet({
   lang = 'ro',
   baseLang = 'ro',
   timeZone,
+  happyHour,
 }: QrCartSheetProps) {
   const hasSent = (sentOrders?.length ?? 0) > 0
   // Index produs → pentru thumbnail-uri în rândurile de coș.
@@ -245,6 +250,16 @@ export default function QrCartSheet({
   const soldOutInCart = issueCounts.sold_out
   const changedInCart = issueCounts.unavailable + issueCounts.options_changed
   const canSubmit = cart.length > 0 && !submitting && soldOutInCart === 0 && changedInCart === 0
+  // Happy Hour acoperă o linie din coș: totalul de mai jos e prețul întreg,
+  // reducerea o aplică serverul la trimitere — nota explică diferența pe care
+  // oaspetele o vede apoi pe ecranul de urmărire (lotul C8b). Fără sumă.
+  const rules = happyHour ?? []
+  const cartHasHappyHour =
+    rules.length > 0 &&
+    cart.some((item) => {
+      const prod = productById.get(item.product_id)
+      return prod != null && happyHourCoversProduct(prod, rules)
+    })
   // O SINGURĂ cale de trimitere, cu aceeași gardă pentru CTA și pentru
   // „Reîncearcă” din eroare: altfel reîncercarea trimitea un coș cu produs
   // epuizat (sau a doua oară, în timpul trimiterii).
@@ -856,6 +871,14 @@ export default function QrCartSheet({
         <div style={{ fontSize: 11, color: PUB.text3, textAlign: 'right', marginTop: -8 }}>
           {T(lang, 'qc_total_note')}
         </div>
+        {cartHasHappyHour && (
+          <div
+            data-testid="qc-hh-note"
+            style={{ fontSize: 12, color: PUB.text2, textAlign: 'right', marginTop: -10, lineHeight: 1.45 }}
+          >
+            {T(lang, 'hh_auto_note')}
+          </div>
+        )}
 
         {cartIssueNoticeKey(issueCounts) && (
           <div role="status" style={{ color: errorInk, fontSize: 13, lineHeight: 1.5, textAlign: 'center' }}>

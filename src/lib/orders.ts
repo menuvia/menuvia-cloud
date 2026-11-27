@@ -1114,6 +1114,33 @@ export async function getOrderPublicStatus(
   return data as PublicOrderStatus
 }
 
+// Banii unei comenzi DUPĂ trimitere vin din payload-ul serverului, nu din coș
+// (lotul C8b). `create_order` întoarce totalul DINAINTEA reducerii — contract
+// (mig 191, HH1): Happy Hour se aplică la COMMIT, printr-un trigger amânat
+// (mig 077), deci abia get_order_public_status poartă totalul de încasat. Tot
+// aici ajunge și o editare de ospătar sau o reducere manuală. Reducerea NU se
+// recalculează în client (scope + plafon = sumă imposibil de reprodus local).
+// Payload-ul MINIM (fără sesiune validă, mig 092) n-are bani → null, iar
+// apelantul păstrează ce știa. Funcții PURE.
+function moneyField(p: PublicOrderStatus | null | undefined, key: 'total' | 'discount_amount'): number | null {
+  if (p == null || !(key in p)) return null
+  const raw: unknown = p[key]
+  if (typeof raw !== 'number' && typeof raw !== 'string') return null
+  if (typeof raw === 'string' && raw.trim() === '') return null
+  const n = Number(raw)
+  return Number.isFinite(n) && n >= 0 ? n : null
+}
+
+/** Totalul de încasat confirmat de server, sau null (payload minim/stricat). */
+export function serverOrderTotal(p: PublicOrderStatus | null | undefined): number | null {
+  return moneyField(p, 'total')
+}
+
+/** Reducerea aplicată pe comandă (Happy Hour sau manuală); 0 dacă nu e cunoscută. */
+export function serverOrderDiscount(p: PublicOrderStatus | null | undefined): number {
+  return moneyField(p, 'discount_amount') ?? 0
+}
+
 // ── Cerere bon fiscal (migration 043) ──
 // Apelat de clientul final după plată. Marchează în DB că patronul trebuie
 // să tipărească bonul fiscal pentru această comandă. Notificarea ajunge la
