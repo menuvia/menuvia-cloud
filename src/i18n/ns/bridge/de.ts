@@ -19,8 +19,10 @@ const de: Translation<typeof ro> = {
   empty_desc:
     'Registrieren Sie ein Gerät, um den Installationsschlüssel für Menuvia Bridge zu erhalten (den PC, der mit dem Küchendrucker verbunden ist).',
   empty_step1: 'Registrieren Sie das Gerät hier: Sie erhalten den Schlüssel und die Datei config.json.',
-  empty_step2: 'Laden Sie Menuvia Bridge herunter und installieren Sie es, mit config.json im selben Ordner.',
-  empty_step3: 'Starten Sie „Verificare conexiune (check)“ im Startmenü.',
+  empty_step2:
+    'Laden Sie Menuvia Bridge herunter und installieren Sie es, mit config.json neben dem Installationsprogramm, in einem neuen, leeren Ordner.',
+  empty_step3:
+    'Das Installationsprogramm startet die Bridge am Ende; prüfen Sie dann hier, ob das Gerät auch nach 3 Minuten noch „● Online“ anzeigt.',
   last_seen: 'Letztes Signal: {when}',
   rel_never: 'nie',
   rel_now: 'gerade eben',
@@ -77,13 +79,15 @@ const de: Translation<typeof ro> = {
     'Der Download-Link ist noch nicht veröffentlicht — fragen Sie das Menuvia-Team nach dem Installationsprogramm.',
   step2_title: 'config.json herunterladen',
   step2_desc:
-    'Legen Sie die Datei vor dem Start in denselben Ordner wie das Installationsprogramm: Sie enthält die Serveradresse und den Geräteschlüssel, die Einrichtung übernimmt beides also selbst.',
+    'Legen Sie die Datei vor dem Start neben das Installationsprogramm, in einen neuen, leeren Ordner: Sie enthält die Serveradresse und den Geräteschlüssel, die Einrichtung übernimmt beides also selbst. Löschen Sie ältere Kopien von config.json (der Browser nennt die neue „config (1).json“).',
+  step2_tail:
+    'Bei der Einrichtung wird der Schlüssel nur mit seinem Ende angezeigt, und das muss {tail} sein. Sehen Sie ein anderes Ende (etwa weil die Bridge schon installiert war und das Installationsprogramm die bestehende Einrichtung behält), fügen Sie den Schlüssel unten bei „Device secret“ ein.',
   step2_kitchenNote: 'Die Einrichtung fragt dann nur noch nach der IP-Adresse des Thermodruckers.',
   step2_download: 'config.json herunterladen',
   step2_private: 'Die Datei enthält den Schlüssel: Bewahren Sie sie nur auf dem Bridge-PC auf.',
-  step3_title: 'Prüfung starten',
+  step3_title: 'Bridge starten und prüfen',
   step3_descKitchen:
-    'Im Startmenü: Menuvia Bridge → „Verificare conexiune (check)“. Sie muss den Menuvia-Server und den Drucker erreichen; danach erscheint das Gerät hier als „● Online“.',
+    'Das Installationsprogramm startet die Bridge am Ende (sonst: Startmenü → Menuvia Bridge → „Pornește bridge-ul“, oder starten Sie den PC neu). „Verificare conexiune (check)“ im selben Menü zeigt, ob sie den Menuvia-Server und den Drucker erreicht. Der Beweis, dass sie läuft: Das Gerät zeigt hier auch nach 3 Minuten noch „● Online“ — die Prüfung allein lässt es nur einige Minuten lang grün erscheinen.',
   key_label: 'Installationsschlüssel für die Bridge:',
   key_copy: 'Schlüssel kopieren',
   key_copied: 'Kopiert ✓',

@@ -69,9 +69,17 @@ iscc build\installer.iss
 Ce face installer-ul:
 - copiază `dist\menuvia-bridge.exe` în `C:\Program Files\MenuviaBridge\`;
 - copiază lângă el `config.json`-ul aflat în ACELAȘI folder cu installer-ul (cel
-  descărcat din panou — vezi mai jos), dacă există;
+  descărcat din panou — vezi mai jos), dacă există — **doar dacă în
+  `C:\Program Files\MenuviaBridge\` nu e deja unul** (`onlyifdoesntexist`): o
+  reinstalare / un upgrade păstrează configul completat de wizard (IP-ul
+  imprimantei, modul file, folderele) în loc să-l înlocuiască tăcut cu fișierul
+  brut din Descărcări. Un config existent se schimbă din „Configurare Menuvia
+  Bridge” (cheia nouă a unui dispozitiv re-înregistrat se lipește la „Device
+  secret”; wizardul arată coada cheii pe care o păstrează);
 - rulează wizardul `--setup` la final: cu `config.json` prezent, valorile lui sunt
   cele implicite (Enter = păstrează); fără el, owner-ul le introduce de mână;
+- apoi **pornește bridge-ul** (bifa „Pornește Menuvia Bridge acum”, după wizard)
+  — altfel bucla pornea abia la următorul logon;
 - opțional, autostart la logon (cheie HKLM Run);
 - scurtături în Start Menu: Configurare / Verificare / Pornește;
 - la dezinstalare, șterge `config.json` (conține secrete).
@@ -84,12 +92,22 @@ Ce face installer-ul:
 1. Owner: Dashboard → „Casă & tichete" (Planul 3) / „Imprimantă bucătărie"
    (Planul 2) → „Înregistrează". Fereastra care urmează are 3 pași.
 2. „Descarcă installer-ul" (linkul din `VITE_BRIDGE_DOWNLOAD_URL`) și
-   „Descarcă config.json" — **în același folder** (ex. Descărcări). config.json
-   are adresa serverului, cheia anon (publică) și `device_secret`-ul dispozitivului;
-   pe Planul 2 și `kitchen.enabled: true` + `fiscalnet.required: false` (PC fără
-   FiscalNet).
-3. Rulează `menuvia-bridge-setup.exe`: installer-ul ia config.json, wizardul îl
-   preia — pe Planul 3 doar Enter, pe Planul 2 se tastează IP-ul imprimantei termice.
-4. Start → Menuvia Bridge → `Verificare conexiune (check)` → vede Supabase +
-   FiscalNet (pe Planul 2: Supabase + imprimanta; pasul FiscalNet e sărit).
-5. Gata — dispozitivul apare „● Online" în panou (semnal în ultimele 3 minute).
+   „Descarcă config.json" — **unul lângă altul, într-un folder NOU și gol** (nu
+   direct în Descărcări: un `config.json` mai vechi rămas acolo ar fi cel copiat,
+   iar browserul îl salvează pe cel nou ca `config (1).json`; copiile vechi se
+   șterg). config.json are adresa serverului, cheia anon (publică) și
+   `device_secret`-ul dispozitivului; pe Planul 2 și `kitchen.enabled: true` +
+   `fiscalnet.required: false` (PC fără FiscalNet: bucla nu ridică bonuri fiscale,
+   le lasă pentru casa de marcat).
+3. Rulează `menuvia-bridge-setup.exe`: installer-ul ia config.json (doar la prima
+   instalare), wizardul îl preia — pe Planul 3 doar Enter, pe Planul 2 se tastează
+   IP-ul imprimantei termice. Wizardul arată coada cheii (`…a1b2`): trebuie să fie
+   cea din fereastra panoului.
+4. La final rămâne bifat „Pornește Menuvia Bridge acum” (altfel: Start → Menuvia
+   Bridge → „Pornește bridge-ul”, sau repornire). Opțional, Start → Menuvia Bridge →
+   `Verificare conexiune (check)` → vede Supabase + FiscalNet (pe Planul 2:
+   Supabase + imprimanta; pasul FiscalNet e sărit). Fereastra așteaptă Enter
+   înainte să se închidă (doar într-o consolă reală — rulat din pipe/CI iese imediat).
+5. Dovada: dispozitivul rămâne „● Online" în panou **și după 3 minute**.
+   Verificarea singură NU dovedește nimic: `bridge_validate_device` scrie
+   `last_seen_at`, deci pastila se aprinde ~3 minute și fără ca bucla să ruleze.

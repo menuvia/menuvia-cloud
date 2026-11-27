@@ -18,12 +18,20 @@
 //        cu el completat trece și păstrează `required=false`. Mutația care pică:
 //        o cheie redenumită de o parte (ex. `anonKey` în loc de
 //        `supabaseAnonKey`), pe care niciun test de formă n-ar vedea-o.
+//   BW7  coada cheii din fereastra panoului (`secretTail`) e EXACT ce afișează
+//        wizardul (`maskSecret` din `bridge/lib/setupDefaults.js` REAL):
+//        installer-ul nu mai înlocuiește un config.json existent, iar
+//        patronul vede dacă instalarea a păstrat altă cheie doar comparând
+//        cele două cozi. Mutația care pică: altă lungime a cozii (ex.
+//        `slice(-6)`) sau fără „…” de o singură parte. Control pozitiv: cheia
+//        reală de test dă „…zz99”, nu șirul gol (altfel egalitatea ar trece și
+//        cu ambele funcții întorcând '').
 import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { bridgeConfigJson, bridgeDownloadUrl, buildBridgeConfig } from '../bridgeSetup'
+import { bridgeConfigJson, bridgeDownloadUrl, buildBridgeConfig, secretTail } from '../bridgeSetup'
 
 const ROOT = process.cwd()
 const PUBLIC = { supabaseUrl: 'https://proj.supabase.co', supabaseAnonKey: 'anon-public-key' }
@@ -109,6 +117,17 @@ describe('lib/bridgeSetup', () => {
         else process.env[k] = v
       }
       rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('BW7 coada cheii din panou = cea din wizardul --setup', () => {
+    const req = createRequire(resolve(ROOT, 'package.json'))
+    const { maskSecret } = req(resolve(ROOT, 'bridge/lib/setupDefaults.js')) as {
+      maskSecret: (v: unknown) => string
+    }
+    expect(secretTail('dev-secret-0123456789abcdef-zz99')).toBe('…zz99')
+    for (const s of ['dev-secret-0123456789abcdef-zz99', SECRET, 'abcde', 'abcd', 'a', '']) {
+      expect(secretTail(s), s).toBe(maskSecret(s))
     }
   })
 })

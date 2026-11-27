@@ -6,7 +6,8 @@
 //
 // Panoul (BridgeTab) dă la descărcare un config.json cu adresa Supabase, cheia
 // anon și device_secret-ul dispozitivului abia înregistrat; installer-ul îl
-// copiază lângă exe (build/installer.iss, `{src}\config.json`), iar wizardul
+// copiază lângă exe doar dacă acolo nu e deja unul (build/installer.iss,
+// `{src}\config.json`, `onlyifdoesntexist`), iar wizardul
 // rulat la final îl citește aici: Enter = păstrează. Înainte wizardul cerea
 // „Supabase anon key" FĂRĂ valoare implicită — o cheie pe care patronul nu o
 // putea citi nicăieri — și propunea „nu" la imprimanta de bucătărie, deci pe

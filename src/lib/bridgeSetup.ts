@@ -62,9 +62,12 @@ export interface BridgeConfigInput extends BridgePublicConfig {
  *   - `kitchen.mode: 'tcp'` fără `host`: IP-ul imprimantei nu-l știe panoul,
  *     deci îl cere wizardul (singura întrebare la care trebuie răspuns);
  *   - `fiscalnet.required: false` — pe PC-ul din bucătărie nu există
- *     FiscalNet, iar `--check` raporta altfel „FiscalNet UNREACHABLE" și ieșea
- *     cu eroare. Bucla fiscală NU se oprește (o trecere ulterioară pe Planul 3
- *     ar produce bonuri vizibil eșuate în fila Bridge, nu bonuri pierdute).
+ *     FiscalNet: `--check` sare pasul (altfel „FiscalNet UNREACHABLE" și ieșire
+ *     cu eroare) ȘI bucla NU ridică bonuri fiscale. Coada bonurilor e pe
+ *     RESTAURANT, nu pe device, deci după o trecere pe Planul 3 cu o casă
+ *     înregistrată separat PC-ul din bucătărie ar fi furat bonuri și le-ar fi
+ *     făcut să pice (ECONNREFUSED); așa rămân `pending` pentru casa reală.
+ *     Dacă FiscalNet ajunge pe ACELAȘI PC, wizardul `--setup` întreabă.
  */
 export function buildBridgeConfig(input: BridgeConfigInput): Record<string, unknown> {
   const base: Record<string, unknown> = {
@@ -86,6 +89,19 @@ export function bridgeConfigJson(input: BridgeConfigInput): string {
 
 /** Numele fișierului: exact cel căutat de bridge lângă executabil. */
 export const BRIDGE_CONFIG_FILENAME = 'config.json'
+
+/**
+ * Coada cheii, EXACT cum o arată wizardul `--setup` (`maskSecret` din
+ * `bridge/lib/setupDefaults.js`: „…" + ultimele 4 caractere). Fereastra cheii
+ * o afișează ca patronul să vadă dacă instalarea a preluat cheia CORECTĂ:
+ * installer-ul nu mai înlocuiește un config.json existent, iar un fișier vechi
+ * rămas lângă installer (browserul îl numește pe cel nou „config (1).json")
+ * poate fi cel copiat — wizardul arată doar coada, deci comparația se face pe ea.
+ */
+export function secretTail(secret: string): string {
+  if (!secret) return ''
+  return secret.length <= 4 ? '…' : `…${secret.slice(-4)}`
+}
 
 /** Descarcă un fișier text generat în browser (tiparul `downloadCsv`). */
 export function downloadTextFile(filename: string, text: string, mime: string): void {

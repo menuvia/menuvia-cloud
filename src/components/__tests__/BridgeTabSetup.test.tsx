@@ -20,6 +20,15 @@
 //   BW6  Planul 3: config.json FĂRĂ secțiunea de bucătărie, iar fereastra
 //        rămâne în română (fiscal). Mutația care pică: `kitchenOnly: true`
 //        necondiționat.
+//   BW8  pasul 2 arată COADA cheii noi (`…zz99`, ce afișează wizardul) — un
+//        config.json vechi păstrat de installer se vede la instalare — iar
+//        pasul 3, pe AMBELE planuri, cere pornirea bridge-ului și „● Online”
+//        și după 3 minute: `--check` scrie singur last_seen_at, deci „apare
+//        Online după verificare” era o dovadă falsă. Mutațiile care pică:
+//        rândul cu coada scos; textul vechi al pasului 3 („apoi apare aici
+//        «● Online»”) pe oricare plan. Control pozitiv: rândul cu coada NU
+//        conține cheia întreagă (altfel „conține …zz99” ar trece și dacă s-ar
+//        afișa cheia în locul cozii).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -155,7 +164,7 @@ describe('BridgeTab — instalarea în 3 pași (C7a)', () => {
     expect(within(steps).getByText('Descarcă Menuvia Bridge')).toBeInTheDocument()
     expect(within(steps).queryByRole('link')).toBeNull()
     expect(within(steps).getByText(/Linkul de descărcare nu e publicat încă/)).toBeInTheDocument()
-    expect(within(steps).getByText(/Rulează verificarea/)).toBeInTheDocument()
+    expect(within(steps).getByText('Pornește bridge-ul și verifică')).toBeInTheDocument()
     expect(within(steps).getByTestId('bridge-device-secret')).toHaveTextContent(SECRET)
     // Starea goală din spate: aceiași pași, tot fără link.
     expect(within(screen.getByTestId('bridge-empty-steps')).queryByRole('link')).toBeNull()
@@ -190,5 +199,20 @@ describe('BridgeTab — instalarea în 3 pași (C7a)', () => {
       supabaseAnonKey: 'anon-test',
       deviceSecret: SECRET,
     })
+  })
+
+  it.each([false, true])('BW8: coada cheii la pasul 2, pornirea + 3 minute la pasul 3 (fiscal=%s)', async (fiscal) => {
+    const { steps } = await registerDevice(fiscal)
+    const tail = within(steps).getByTestId('bridge-secret-tail')
+    expect(tail).toHaveTextContent('…zz99')
+    expect(tail.textContent).not.toContain(SECRET)
+
+    const step3 = within(steps).getByText('Pornește bridge-ul și verifică').closest('li')
+    expect(step3).not.toBeNull()
+    const text = step3?.textContent ?? ''
+    expect(text).toMatch(/Installer-ul pornește bridge-ul la final/)
+    expect(text).toMatch(/„Pornește bridge-ul”/)
+    expect(text).toMatch(/și după 3 minute/)
+    expect(text).not.toMatch(/apoi (dispozitivul|casa) apare aici/)
   })
 })

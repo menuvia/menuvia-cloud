@@ -60,6 +60,10 @@ function createMockSupabase(opts = {}) {
         case 'bridge_confirm_receipt':
           state.confirms.push(params);
           return reply(true);
+        // Coada de tichete (mig 227), doar cât îi trebuie lui BZ5: o listă
+        // goală — testul verifică CE cozi interoghează bucla, nu tipărirea.
+        case 'bridge_get_pending_tickets':
+          return reply([]);
         default:
           res.writeHead(400);
           res.end(JSON.stringify({ message: `RPC necunoscut în mock: ${fn}` }));

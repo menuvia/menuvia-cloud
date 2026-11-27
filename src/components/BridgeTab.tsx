@@ -36,6 +36,7 @@ import {
   downloadTextFile,
   getBridgeDownloadUrl,
   getBridgePublicConfig,
+  secretTail,
 } from '../lib/bridgeSetup'
 import { useT } from '../i18n/useT'
 import { bridgeNs } from '../i18n/ns/bridge'
@@ -1476,6 +1477,15 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
                     </div>
                   </>
                 )}
+                {/* Installer-ul NU înlocuiește un config.json existent, iar un
+                    fișier vechi lângă installer poate fi cel copiat; wizardul
+                    arată doar coada cheii, deci comparația se face pe ea. */}
+                <div
+                  data-testid="bridge-secret-tail"
+                  style={{ fontSize: '0.74rem', color: D.t2, lineHeight: 1.5 }}
+                >
+                  {bt.t('step2_tail', { tail: secretTail(newSecret.secret) })}
+                </div>
                 <div style={{ fontSize: '0.78rem', color: D.t2, lineHeight: 1.55 }}>
                   {bt.t('key_label')}
                 </div>
@@ -1535,7 +1545,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
                 title={bt.t('step3_title')}
                 desc={
                   fiscalEnabled
-                    ? 'Din meniul Start: Menuvia Bridge → „Verificare conexiune (check)". Trebuie să vadă serverul Menuvia și FiscalNet; apoi casa apare aici „● Online".'
+                    ? 'Installer-ul pornește bridge-ul la final (altfel: meniul Start → Menuvia Bridge → „Pornește bridge-ul”, sau repornește PC-ul). „Verificare conexiune (check)” din același meniu spune dacă vede serverul Menuvia și FiscalNet. Dovada că rulează: casa rămâne aici „● Online” și după 3 minute — verificarea singură o aprinde doar câteva minute.'
                     : bt.t('step3_descKitchen')
                 }
               />

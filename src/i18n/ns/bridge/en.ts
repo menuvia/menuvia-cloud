@@ -19,8 +19,9 @@ const en: Translation<typeof ro> = {
   empty_desc:
     'Register a device to get the installation key for Menuvia Bridge (the PC connected to the kitchen printer).',
   empty_step1: 'Register the device here: you get the key and the config.json file.',
-  empty_step2: 'Download and install Menuvia Bridge, with config.json in the same folder.',
-  empty_step3: 'Run “Verificare conexiune (check)” from the Start menu.',
+  empty_step2: 'Download and install Menuvia Bridge, with config.json next to the installer, in a new, empty folder.',
+  empty_step3:
+    'The installer starts Bridge at the end; then check here that the device still shows “● Online” after 3 minutes.',
   last_seen: 'Last signal: {when}',
   rel_never: 'never',
   rel_now: 'just now',
@@ -75,13 +76,15 @@ const en: Translation<typeof ro> = {
   step1_missing: 'The download link isn’t published yet — ask the Menuvia team for the installer.',
   step2_title: 'Download config.json',
   step2_desc:
-    'Put it in the same folder as the installer before you run it: it holds the server address and the device key, so the setup picks them up by itself.',
+    'Put it next to the installer, in a new, empty folder, before you run it: it holds the server address and the device key, so the setup picks them up by itself. Delete older copies of config.json (the browser names the new one “config (1).json”).',
+  step2_tail:
+    'During setup the key is shown only by its ending, which must be {tail}. If you see a different ending (for example, Bridge was already installed and the installer keeps the existing setup), paste the key below at “Device secret”.',
   step2_kitchenNote: 'The setup will then only ask for the IP address of the thermal printer.',
   step2_download: 'Download config.json',
   step2_private: 'The file contains the key: keep it only on the Bridge PC.',
-  step3_title: 'Run the check',
+  step3_title: 'Start Bridge and check',
   step3_descKitchen:
-    'From the Start menu: Menuvia Bridge → “Verificare conexiune (check)”. It must reach the Menuvia server and the printer; the device then shows here as “● Online”.',
+    'The installer starts Bridge at the end (otherwise: Start menu → Menuvia Bridge → “Pornește bridge-ul”, or restart the PC). “Verificare conexiune (check)” in the same menu tells you whether it reaches the Menuvia server and the printer. Proof that it’s running: the device still shows “● Online” here after 3 minutes — the check alone only lights it up for a few minutes.',
   key_label: 'Installation key for Bridge:',
   key_copy: 'Copy key',
   key_copied: 'Copied ✓',

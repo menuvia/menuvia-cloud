@@ -1,7 +1,7 @@
 // Namespace `bridge` — fila „Imprimantă bucătărie” / „Casă & tichete”
 // (BridgeTab, lotul C7a): dispozitivele, înregistrarea, fereastra cu cheia și
-// pașii de instalare (descarcă programul, descarcă config.json, rulează
-// verificarea), tichetele de bucătărie.
+// pașii de instalare (descarcă programul, descarcă config.json, pornește
+// bridge-ul și verifică), tichetele de bucătărie.
 // UNDE se traduce: DOAR pe Planul 2 (imprimanta din bucătărie, nefiscală —
 // planul vândut și restaurantelor străine). Pe Planul 3 fila e ecran FISCAL și
 // rămâne în română prin lege (lib/fiscalScreens.ts): BridgeTab cere
@@ -38,8 +38,9 @@ const ro = {
   empty_desc:
     'Înregistrează un dispozitiv ca să primești cheia de instalare pentru Bridge-ul Menuvia (PC-ul conectat la imprimanta din bucătărie).',
   empty_step1: 'Înregistrează dispozitivul aici: primești cheia și fișierul config.json.',
-  empty_step2: 'Descarcă și instalează Menuvia Bridge, cu config.json în același folder.',
-  empty_step3: 'Rulează „Verificare conexiune (check)" din meniul Start.',
+  empty_step2: 'Descarcă și instalează Menuvia Bridge, cu config.json lângă installer, într-un folder nou și gol.',
+  empty_step3:
+    'Installer-ul pornește bridge-ul la final; verifică apoi aici că dispozitivul rămâne „● Online” și după 3 minute.',
   last_seen: 'Ultim semnal {when}',
   rel_never: 'niciodată',
   rel_now: 'acum',
@@ -98,13 +99,18 @@ const ro = {
   step1_missing: 'Linkul de descărcare nu e publicat încă — cere installer-ul echipei Menuvia.',
   step2_title: 'Descarcă config.json',
   step2_desc:
-    'Pune-l în același folder cu installer-ul, înainte să-l rulezi: conține adresa serverului și cheia dispozitivului, deci configurarea le preia singură.',
+    'Pune-l lângă installer, într-un folder nou și gol, înainte să-l rulezi: conține adresa serverului și cheia dispozitivului, deci configurarea le preia singură. Șterge copiile mai vechi de config.json (browserul îl numește pe cel nou „config (1).json”).',
+  // {tail} = „…” + ultimele 4 caractere ale cheii (secretTail = maskSecret din wizard).
+  step2_tail:
+    'La configurare cheia apare doar prin final, care trebuie să fie {tail}. Dacă vezi alt final (de exemplu, Bridge-ul era deja instalat, iar installer-ul păstrează configurarea existentă), lipește cheia de mai jos la „Device secret”.',
   step2_kitchenNote: 'Configurarea îți mai cere doar adresa IP a imprimantei termice.',
   step2_download: 'Descarcă config.json',
   step2_private: 'Fișierul conține cheia: păstrează-l doar pe PC-ul cu Bridge-ul.',
-  step3_title: 'Rulează verificarea',
+  // Verificarea singură NU dovedește că bridge-ul rulează: bridge_validate_device
+  // scrie last_seen_at, deci pastila e verde ~3 minute și fără buclă.
+  step3_title: 'Pornește bridge-ul și verifică',
   step3_descKitchen:
-    'Din meniul Start: Menuvia Bridge → „Verificare conexiune (check)". Trebuie să vadă serverul Menuvia și imprimanta; apoi dispozitivul apare aici „● Online".',
+    'Installer-ul pornește bridge-ul la final (altfel: meniul Start → Menuvia Bridge → „Pornește bridge-ul”, sau repornește PC-ul). „Verificare conexiune (check)” din același meniu spune dacă vede serverul Menuvia și imprimanta. Dovada că rulează: dispozitivul rămâne aici „● Online” și după 3 minute — verificarea singură îl aprinde doar câteva minute.',
   key_label: 'Cheia de instalare pentru Bridge:',
   key_copy: 'Copiază cheia',
   key_copied: 'Copiat ✓',
