@@ -13,6 +13,9 @@ const fr: Translation<typeof ro> = {
   pay_totalDue: 'Total à payer :',
   pay_partiallyPaid: 'Payé en partie :',
   pay_rest: 'Reste à payer :',
+  pay_paidLoading: 'Chargement des paiements déjà enregistrés sur la commande…',
+  pay_paidUnknown:
+    'Impossible de charger les paiements déjà enregistrés sur la commande : le reste à payer n’est donc pas connu. Le paiement pourra être confirmé une fois qu’ils seront chargés.',
   pay_discountLocked: 'La remise ne peut plus être modifiée : la commande a déjà des paiements enregistrés.',
   pay_discountEdit: 'Modifier / retirer la remise',
   pay_discountApply: 'Appliquer une remise',

@@ -13,6 +13,9 @@ const de: Translation<typeof ro> = {
   pay_totalDue: 'Zu zahlen:',
   pay_partiallyPaid: 'Teilweise bezahlt:',
   pay_rest: 'Offener Betrag:',
+  pay_paidLoading: 'Die bereits erfassten Zahlungen der Bestellung werden geladen…',
+  pay_paidUnknown:
+    'Die bereits erfassten Zahlungen der Bestellung konnten nicht geladen werden, daher ist der offene Betrag nicht bekannt. Sie können die Zahlung bestätigen, sobald sie geladen sind.',
   pay_discountLocked: 'Der Rabatt kann nicht mehr geändert werden: Für die Bestellung sind bereits Zahlungen erfasst.',
   pay_discountEdit: 'Rabatt ändern / entfernen',
   pay_discountApply: 'Rabatt gewähren',
