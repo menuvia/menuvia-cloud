@@ -26,6 +26,17 @@
 //         dinainte: 65 tastat + 10% → 66.00), iar un tap pe bacșișul deja ales
 //         nu atinge suma tastată. Mutația care pică: `chooseTips` care nu mai
 //         readuce câmpul la suma de plată.
+//   PMU6  un TOTAL schimbat cât modalul e deschis (reducere, Happy Hour,
+//         produse adăugate de pe alt dispozitiv — WaiterPage trimite comanda
+//         VIE) face suma tastată MOARTĂ: 110 tastat pe 100 → nota redusă la 90
+//         → câmpul arată 90, fără „depășește” și fără „Trece … la bacșiș”, iar
+//         la revenirea la 100 ciorna NU reînvie (100, nu 110); 100 tastat →
+//         produse adăugate (120) → câmpul arată 120 și pleacă 120. Control
+//         pozitiv: aceeași notă re-trimisă ca obiect nou (realtime fără
+//         schimbare) păstrează 110. Recenzie pe 21b8346. Mutațiile care pică:
+//         ciorna fără totalul ei (`amountDraft ?? grandTotal`, câmpul rămâne
+//         110 pe nota de 90 → `overpayment`) și ciorna ignorată fără ștergere
+//         (110 reapare la revenirea la 100).
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { PayModal } from '../WaiterOrderCard'
@@ -117,6 +128,44 @@ describe('PayModal — suma deja încasată necunoscută', () => {
     expect(input).toHaveValue(65)
     fireEvent.click(screen.getByRole('button', { name: '10%' }))
     expect(input).toHaveValue(66)
+  })
+
+  it('PMU6: un total schimbat cât modalul e deschis readuce câmpul la suma de plată', () => {
+    const onConfirm = vi.fn().mockResolvedValue({ ok: true })
+    const at = (total: number) => (
+      <PayModal
+        order={makeOrder({ status: 'served', total })}
+        alreadyPaid={0}
+        onConfirm={onConfirm}
+        onClose={() => {}}
+      />
+    )
+    const view = render(at(100))
+    const input = screen.getByRole('spinbutton')
+    fireEvent.change(input, { target: { value: '110' } })
+    expect(screen.getByText(/depășește restul/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /trece 10\.00 lei la bacșiș/i })).toBeInTheDocument()
+    // Control pozitiv: aceeași notă, obiect nou (realtime fără schimbare) —
+    // ciorna e legată de total, nu de identitatea obiectului.
+    view.rerender(at(100))
+    expect(input).toHaveValue(110)
+
+    // Reducere / Happy Hour aplicat din modal: 100 → 90.
+    view.rerender(at(90))
+    expect(input).toHaveValue(90)
+    expect(screen.queryByText(/depășește restul/i)).toBeNull()
+    expect(screen.queryByRole('button', { name: /la bacșiș/i })).toBeNull()
+    // Reducerea scoasă: 90 → 100. Ciorna de la 100 e moartă, nu reînvie.
+    view.rerender(at(100))
+    expect(input).toHaveValue(100)
+
+    // Produse adăugate de pe alt dispozitiv: 100 tastat → nota urcă la 120.
+    fireEvent.change(input, { target: { value: '100' } })
+    view.rerender(at(120))
+    expect(input).toHaveValue(120)
+    expect(screen.queryByText(/sub restul de plată/i)).toBeNull()
+    fireEvent.click(confirmButton())
+    expect(onConfirm).toHaveBeenCalledWith('cash', 120, 0)
   })
 
   it('PMU2: citire în curs → așteptare, fără preflight și fără reducere; cu 0 încasat reducerea apare', () => {

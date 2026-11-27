@@ -148,11 +148,23 @@ function PayModal({
   // commit: când sosea suma deja încasată (`null` → 40 pe 100), restul afișa
   // 60, butonul se activa, dar câmpul ținea „100.00” un cadru — un tap atunci
   // trimitea 100. Iar un efect pe `grandTotal` călca și suma TASTATĂ de
-  // ospătar (65 → 60 la reîncercarea citirii). Acum o editare rămâne a lui;
-  // doar un bacșiș SCHIMBAT (gestul lui, exact când efectul vechi rescria
-  // câmpul) îl re-sincronizează — vezi `chooseTips`.
-  const [amountDraft, setAmountDraft] = useState<string | null>(null)
-  const amount = amountDraft ?? grandTotal.toFixed(2)
+  // ospătar (65 → 60 la reîncercarea citirii). Acum o editare rămâne a lui
+  // cât timp nota e ACEEAȘI: ciorna ține `order.total` față de care a fost
+  // tastată. Un total schimbat (reducere, Happy Hour, produse adăugate de pe
+  // alt dispozitiv — WaiterPage trimite comanda VIE) face ciorna MOARTĂ, iar
+  // câmpul urmează din nou suma de plată, ca înainte: altfel 100 tastat pe o
+  // notă redusă la 90 pleca și era respins cu `overpayment`, iar „Trece 10.00
+  // lei la bacșiș” transforma reducerea în bacșiș dintr-un tap (PMU6). Sosirea
+  // sumei încasate NU schimbă `order.total`, deci PMU4 rămâne. Un bacșiș
+  // SCHIMBAT (gestul lui, exact când efectul vechi rescria câmpul) îl
+  // re-sincronizează și el — vezi `chooseTips`.
+  const [amountDraft, setAmountDraft] = useState<{ text: string; total: number } | null>(null)
+  const draftLive = amountDraft != null && amountDraft.total === order.total
+  // Ciorna moartă se șterge în ACEEAȘI randare (ajustare de stare la schimbarea
+  // unui prop, fără efect și fără cadru intermediar), ca o revenire la totalul
+  // vechi (reducere scoasă) să n-o reînvie.
+  if (amountDraft != null && !draftLive) setAmountDraft(null)
+  const amount = amountDraft != null && draftLive ? amountDraft.text : grandTotal.toFixed(2)
   /** Alegerea bacșișului; schimbă suma de plată → câmpul urmează din nou suma. */
   function chooseTips(mode: TipsMode, custom: string): void {
     if (tipsFor(mode, custom) !== tipsAmount) setAmountDraft(null)
@@ -567,7 +579,7 @@ function PayModal({
             type="number"
             value={amount}
             onChange={(e) => {
-              setAmountDraft(e.target.value)
+              setAmountDraft({ text: e.target.value, total: order.total })
               setErrorMsg(null)
             }}
             style={{
