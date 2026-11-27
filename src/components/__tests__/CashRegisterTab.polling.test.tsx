@@ -158,8 +158,9 @@ async function tick20s(): Promise<void> {
 
 // Câmpurile se citesc DIN NOU la fiecare verificare: o referință ținută dintr-un
 // dialog demontat își păstrează valoarea veche și ar face testul vacuu.
+// Câmp text (nu `type=number`) din lotul C2a: virgula trece pe orice browser.
 function amountInput(): HTMLElement {
-  return screen.getByRole('spinbutton')
+  return screen.getByRole('textbox', { name: /Fond inițial/ })
 }
 function notesInput(): HTMLElement {
   return screen.getByPlaceholderText(NOTES_PLACEHOLDER)
@@ -168,7 +169,7 @@ function notesInput(): HTMLElement {
 function expectFormIntact(): void {
   expect(screen.getByRole('dialog', { name: 'Deschidere tură' })).toBeInTheDocument()
   expect(screen.queryByText(SPINNER)).toBeNull()
-  expect(amountInput()).toHaveValue(250)
+  expect(amountInput()).toHaveValue('250')
   expect(notesInput()).toHaveValue('tura de seară')
 }
 
@@ -181,7 +182,7 @@ async function openFormOnEmptyRestaurant(): Promise<void> {
   fireEvent.change(notesInput(), { target: { value: 'tura de seară' } })
   // Control pozitiv: câmpurile chiar țin ce s-a tastat, iar până acum a rulat
   // doar încărcarea de la montare.
-  expect(amountInput()).toHaveValue(250)
+  expect(amountInput()).toHaveValue('250')
   expect(notesInput()).toHaveValue('tura de seară')
   expect(callsOf('get_current_shift')).toBe(1)
 }

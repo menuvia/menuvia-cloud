@@ -335,13 +335,19 @@ describe('WaiterPage — Planul 3: pasul următor pe card (lotul O7b)', () => {
   })
 
   it('WP9 dublu-tap „Servit” → „Plată parțială” (același card) NU deschide plata parțială', async () => {
-    // Mutația care pică: `onSplitOpen={openSplitBill}` (fără tapGuard) →
+    // Mutația care pică: `handleSplitOpen` fără tapGuard (WaiterPage.tsx) →
     // modalul de plată parțială deschis de al doilea tap.
+    // Aserțiunea e pe DIALOG, nu pe conținutul lui: din lotul C2a modalul
+    // (SplitBillModal) se deschide cu registrul NECUNOSCUT („Se citesc
+    // plățile…”), iar „Rămas:” apare abia după răspunsul RPC-ului — o aserțiune
+    // pe „Rămas:” imediat după tap trecea și cu modalul deschis (clichet mort).
     const { now } = await serveThenTap('Plată parțială')
-    expect(screen.queryByText('Rămas:')).not.toBeInTheDocument()
-    // control pozitiv: un tap DELIBERAT, după fereastră, deschide plata parțială
+    expect(screen.queryByRole('dialog', { name: 'Plată parțială' })).toBeNull()
+    // control pozitiv: un tap DELIBERAT, după fereastră, deschide plata
+    // parțială — dialogul e acolo pe loc, iar registrul se încarcă după.
     now.mockReturnValue(11_000_000 + STAFF_TAP_GUARD_MS + 100)
     fireEvent.click(screen.getByRole('button', { name: 'Plată parțială' }))
+    expect(screen.getByRole('dialog', { name: 'Plată parțială' })).toBeInTheDocument()
     expect(await screen.findByText('Rămas:')).toBeInTheDocument()
   })
 })

@@ -61,7 +61,10 @@ const MIGRATED_CEILINGS = {
   'src/components/_dashboard/ProductsToolbar.tsx': 2,
   'src/components/SettingsTab.tsx': 5,
   'src/components/TablesManager.tsx': 3,
-  'src/pages/WaiterPage.tsx': 3,
+  // 3 → 2 (lotul C2a): modalul „Plată parțială” s-a mutat în SplitBillModal,
+  // unde rămâne doar comutatorul de metodă (plăci de selecție).
+  'src/pages/WaiterPage.tsx': 2,
+  'src/components/SplitBillModal.tsx': 1,
   'src/pages/KitchenPage.tsx': 0,
   'src/components/_dashboard/PlanUpsellCard.tsx': 0,
   'src/components/_dashboard/SubscriptionCard.tsx': 0,
