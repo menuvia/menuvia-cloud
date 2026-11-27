@@ -41,6 +41,9 @@ import type promotionsRo from '../i18n/ns/promotions/ro'
 // Erorile ținute ca DATE (lotul L5b): validarea editorului e o cheie, refuzul
 // serverului e eroarea brută; textul se compune la RANDARE, în limba curentă.
 type EditorError = { kind: 'invalid'; key: StringKey<typeof promotionsRo> } | { kind: 'server'; err: unknown }
+// Bannerul filei. `fallback` = contextul unei erori fără clasă, tot ca CHEIE:
+// doar refuzul unei salvări al cărei editor s-a închis între timp îl pune.
+type TabError = { err: unknown; fallback?: StringKey<typeof promotionsRo> }
 // Erorile care țin DOAR de reducerea în procent (plafonul există doar acolo, iar
 // „max 100” nu se aplică unei sume în lei): la trecerea pe sumă fixă se șterg,
 // altfel mesajul rămânea lângă un câmp ascuns (recenzia lotului C4a).
@@ -126,8 +129,24 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
   const [categories, setCategories] = useState<Category[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
-  const [err, setErr] = useState<{ err: unknown } | null>(null)
+  const [err, setErr] = useState<TabError | null>(null)
   const [editing, setEditing] = useState<HappyHourRule | 'new' | null>(null)
+  // Identitatea deschiderii editorului (recenzia lotului C4a): crește la FIECARE
+  // deschidere și închidere. O salvare își ține minte valoarea de la pornire și
+  // închide editorul DOAR dacă e tot cel care a trimis-o — altfel succesul unei
+  // cereri vechi închidea un editor deschis între timp, cu ciorna lui cu tot.
+  // Așa editorul se poate închide oricând, și cât cererea e în aer: o cerere
+  // care nu se mai întoarce (conexiune pe jumătate închisă pe mobil, PWA reluat
+  // în mijlocul cererii) nu mai blochează panoul până la reîncărcare.
+  const editorSeq = useRef(0)
+  function openEditor(next: HappyHourRule | 'new') {
+    editorSeq.current += 1
+    setEditing(next)
+  }
+  function closeEditor() {
+    editorSeq.current += 1
+    setEditing(null)
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -174,15 +193,26 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
   async function handleSave(
     rule: Omit<HappyHourRule, 'id' | 'restaurant_id' | 'created_at' | 'updated_at'>,
   ) {
-    // Eroarea se propagă în RuleEditor (setErr LOCAL, vizibil în modal) — înainte
-    // era scrisă pe bannerul părintelui, ACOPERIT de overlay-ul modalului rămas
-    // deschis → CTA-ul principal eșua fără niciun feedback vizibil.
-    if (editing === 'new') {
-      await createHappyHourRule(restaurantId, rule)
-    } else if (editing) {
-      await updateHappyHourRule(editing.id, rule)
+    const seq = editorSeq.current
+    const target = editing
+    try {
+      if (target === 'new') {
+        await createHappyHourRule(restaurantId, rule)
+      } else if (target) {
+        await updateHappyHourRule(target.id, rule)
+      }
+    } catch (e) {
+      // Editorul care a trimis cererea e încă deschis: eroarea se propagă în el
+      // (setErr LOCAL, vizibil în modal, cu ce s-a tastat) — pe bannerul de aici
+      // ar fi ACOPERITĂ de overlay-ul modalului rămas deschis.
+      if (editorSeq.current === seq) throw e
+      // Închis între timp: pe banner, altfel refuzul s-ar pierde tăcut.
+      setErr({ err: e, fallback: 'err_save' })
+      return
     }
-    setEditing(null)
+    // Succesul închide doar editorul care l-a cerut; lista se reîncarcă oricum
+    // (regula creată cu editorul închis apare în ea).
+    if (editorSeq.current === seq) closeEditor()
     void load()
   }
 
@@ -237,7 +267,7 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
           </div>
         </div>
         <button
-          onClick={() => setEditing('new')}
+          onClick={() => openEditor('new')}
           style={btn({ background: D.gold, color: '#000', height: 40 })}
         >
           <Icon name="plus" size={16} />
@@ -255,7 +285,7 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
             marginBottom: 16,
           }}
         >
-          {describeStaffError(err.err, tc)}
+          {describeStaffError(err.err, tc, err.fallback ? { fallback: t(err.fallback) } : {})}
           <button
             onClick={() => setErr(null)}
             aria-label={t('closeError')}
@@ -332,7 +362,7 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
           description={payAtTable ? t('empty_payAtTable') : t('empty_auto')}
           action={
             <button
-              onClick={() => setEditing('new')}
+              onClick={() => openEditor('new')}
               style={btn({ background: D.gold, color: '#000', height: 40 })}
             >
               <Icon name="plus" size={16} />
@@ -348,7 +378,7 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
               rule={r}
               categories={categories}
               products={products}
-              onEdit={() => setEditing(r)}
+              onEdit={() => openEditor(r)}
               onDelete={() => void handleDelete(r)}
               onToggle={() => void toggleActive(r)}
             />
@@ -361,7 +391,7 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
           rule={editing === 'new' ? null : editing}
           categories={categories}
           products={products}
-          onClose={() => setEditing(null)}
+          onClose={closeEditor}
           onSave={handleSave}
         />
       )}
@@ -549,11 +579,14 @@ function RuleCard({
 // selecție de text trasă din panou închidea editorul și pierdea regula. Cu
 // formularul modificat, orice închidere (fundal, Escape, ✕, „Anulează”)
 // întreabă întâi. „Creează” e blocat cât timp cererea e în aer — un dublu-click
-// crea regula de DOUĂ ori — și la fel tot formularul și închiderea (recenzia
-// lotului C4a): o modificare tastată în timpul cererii nu intra în ea și se
-// pierdea la succes, iar un editor închis și redeschis în timpul cererii era
-// închis de succesul celei VECHI (`setEditing(null)` din părinte), cu ciorna
-// lui cu tot. Pe eroare totul se deblochează. Reducerea în sine se aplică pe SERVER
+// crea regula de DOUĂ ori — și la fel tot formularul (recenzia lotului C4a): o
+// modificare tastată în timpul cererii nu intra în ea și se pierdea la succes.
+// Pe eroare totul se deblochează. Închiderea rămâne liberă și în timpul cererii
+// (✕, Escape, fundalul): o cerere care nu se mai întoarce nu are voie să lase
+// editorul — un overlay pe tot ecranul, cu scroll-ul blocat și focusul prins —
+// fără nicio ieșire în afară de reîncărcarea paginii. Că un succes întârziat nu
+// închide un editor redeschis între timp ține părintele (`editorSeq`), iar un
+// refuz întârziat ajunge pe bannerul filei. Reducerea în sine se aplică pe SERVER
 // (trg_apply_happy_hour_auto, mig 077): aici doar definim regula, fără niciun
 // calcul de reducere în client.
 function RuleEditor({
@@ -620,9 +653,13 @@ function RuleEditor({
   const [initialSnapshot] = useState(snapshot)
 
   async function confirmDiscard(): Promise<boolean> {
-    // Cererea e în aer: nici „Anulează”, nici ✕/Escape/fundalul (toate trec pe
-    // aici, prin `confirmClose`) nu închid editorul până nu se termină.
-    if (savingRef.current) return false
+    // Cererea e în aer: ✕/Escape/fundalul (toate trec pe aici, prin
+    // `confirmClose`) închid FĂRĂ întrebarea „modificările se pierd”, care ar
+    // minți — închiderea nu anulează cererea, iar formularul e blocat, deci ce e
+    // în editor e exact ce s-a trimis. Rezultatul apare în listă (succes) sau pe
+    // bannerul filei (refuz), prin `handleSave` din părinte. („Anulează” e în
+    // formular, deci blocat: cererea nu se poate anula.)
+    if (savingRef.current) return true
     if (snapshot === initialSnapshot) return true
     return confirmDialog({
       title: t('discard_title'),

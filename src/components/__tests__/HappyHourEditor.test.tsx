@@ -38,12 +38,22 @@
 //        lângă un câmp ascuns; o eroare care încă se aplică (numele gol) RĂMÂNE.
 //        Mutația care pică: `setErr` scos din butonul „Sumă fixă”.
 //   HHM9 cât cererea e în aer, formularul e blocat (o modificare tastată atunci
-//        nu intra în cerere și se pierdea la succes), iar ✕ nu închide editorul
-//        nici cu „Renunță” acceptat (altfel succesul cererii vechi închidea un
-//        editor DESCHIS între timp, cu ciorna lui). După un refuz totul se
-//        deblochează cu ce s-a tastat; după succes editorul se închide
-//        (control). Mutația care pică: `fieldset disabled={saving}` scos sau
-//        garda `savingRef` scoasă din `confirmDiscard`.
+//        nu intra în cerere și se pierdea la succes), inclusiv „Anulează”
+//        (cererea nu se poate anula). După un refuz totul se deblochează cu ce
+//        s-a tastat; după succes editorul se închide (control). Mutația care
+//        pică: `fieldset disabled={saving}` scos.
+//   HHM10 ✕ închide editorul și cât cererea e în aer, FĂRĂ „Renunți la
+//        modificări?” (ar minți: cererea pleacă oricum) — o cerere care nu se mai
+//        întoarce nu mai lasă panoul blocat sub overlay până la reîncărcare.
+//        Succesul întârziat NU închide editorul redeschis între timp (ciorna
+//        lui rămâne), dar lista se reîncarcă și regula apare. Mutațiile care
+//        pică: `confirmDiscard` care refuză închiderea cât se salvează (blocajul
+//        de dinainte) sau `handleSave` care închide fără să compare `editorSeq`.
+//   HHM11 refuzul unei cereri al cărei editor a fost închis între timp ajunge pe
+//        bannerul filei, cu contextul „Eroare la salvare” (eroare fără clasă),
+//        nu se pierde tăcut. Mutația care pică: ramura care re-aruncă eroarea
+//        și când editorul s-a închis (ajungea într-un editor demontat), sau
+//        bannerul fără `fallback` (mesajul generic, fără context).
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -325,7 +335,7 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     })
   })
 
-  it('HHM9 cât se salvează, formularul și închiderea sunt blocate', async () => {
+  it('HHM9 cât se salvează, formularul e blocat; refuzul îl deblochează', async () => {
     h.holdCreate = true
     const { user, dlg } = await openNew()
     const name = within(dlg).getByLabelText('Nume *')
@@ -336,13 +346,6 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     expect(within(dlg).getByLabelText('Valoarea reducerii')).toBeDisabled()
     expect(within(dlg).getByRole('button', { name: 'Categorie' })).toBeDisabled()
     expect(within(dlg).getByRole('button', { name: 'Anulează' })).toBeDisabled()
-
-    // ✕ e în antetul dialogului (în afara formularului): nu închide și nu
-    // întreabă, chiar dacă „Renunță” ar fi acceptat.
-    h.answer = true
-    await user.click(within(dlg).getByRole('button', { name: 'Închide' }))
-    expect(h.confirm).toHaveLength(0)
-    expect(screen.getByRole('dialog', { name: 'Regulă nouă' })).toBeInTheDocument()
 
     // Refuzul deblochează totul, cu ce s-a tastat.
     h.pending?.reject({ message: 'Nu ai voie.', code: '42501' })
@@ -355,5 +358,53 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     expect(h.created).toHaveLength(2)
     h.pending?.resolve()
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  it('HHM10 ✕ închide și în timpul cererii; succesul întârziat nu închide editorul redeschis', async () => {
+    h.holdCreate = true
+    const { user, dlg } = await openNew()
+    await user.type(within(dlg).getByLabelText('Nume *'), 'Brunch')
+    await user.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
+    expect(h.created).toHaveLength(1)
+    expect(within(dlg).getByRole('button', { name: 'Se salvează…' })).toBeDisabled()
+
+    // Cererea „nu se mai întoarce”: ✕ închide editorul, fără întrebarea
+    // „Renunți la modificări?” (formularul era modificat, deci fără garda de
+    // salvare ar fi întrebat).
+    await user.click(within(dlg).getByRole('button', { name: 'Închide' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(h.confirm).toHaveLength(0)
+
+    // Panoul e liber: un editor nou se deschide și primește o ciornă.
+    await user.click(screen.getByRole('button', { name: 'Regulă nouă' }))
+    const again = screen.getByRole('dialog', { name: 'Regulă nouă' })
+    const draft = within(again).getByLabelText('Nume *')
+    await user.type(draft, 'Cină')
+
+    // Cererea veche reușește abia acum: lista se reîncarcă (regula apare), dar
+    // editorul nou rămâne deschis, cu ciorna lui.
+    h.rules = [...h.rules, rule({ id: 'r3', name: 'Brunch' })]
+    h.pending?.resolve()
+    expect(await screen.findByText('Brunch')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Regulă nouă' })).toBe(again)
+    expect(draft).toHaveValue('Cină')
+    expect(draft).toBeEnabled()
+    expect(h.created).toHaveLength(1)
+  })
+
+  it('HHM11 refuzul unei cereri cu editorul închis ajunge pe bannerul filei', async () => {
+    h.holdCreate = true
+    const { user, dlg } = await openNew()
+    await user.type(within(dlg).getByLabelText('Nume *'), 'Brunch')
+    await user.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
+    await user.click(within(dlg).getByRole('button', { name: 'Închide' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(screen.queryByText('Eroare la salvare')).toBeNull()
+
+    // O eroare fără clasă (nici drepturi, nici rețea, nici text românesc): pe
+    // banner, cu contextul salvării, nu mesajul generic.
+    h.pending?.reject({ message: 'internal error', code: 'XX000' })
+    expect(await screen.findByText('Eroare la salvare')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 })
