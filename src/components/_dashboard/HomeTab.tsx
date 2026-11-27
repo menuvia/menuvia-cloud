@@ -27,7 +27,13 @@ import { PlanUpsellCard } from './PlanUpsellCard'
 import { AgentCard } from './AgentCard'
 import { DEFAULT_RESTAURANT_TZ, toZonedYMD, zonedDayRange } from '../../lib/dates'
 import { useInView, revealStyle } from '../../lib/motion'
-import { LIVE_ORDERS_TAB, type HomeNavTarget } from '../../lib/dashboardNav'
+import type { HomeNavTarget } from '../../lib/dashboardNav'
+import {
+  beginOrderRead,
+  readHomeSetup,
+  rememberHomeSetup,
+  rememberOrderObservation,
+} from '../../lib/homeSetup'
 import { useT } from '../../i18n/useT'
 import { homeNs } from '../../i18n/ns/home'
 import { commonNs } from '../../i18n/ns/common'
@@ -87,12 +93,20 @@ interface Props {
   // Doar PROPRIETARUL vede upsell-ul: managerul n-are ce cumpăra (abonamentul
   // e pe contul proprietarului). Fail-closed: fără valoare, oferta nu apare.
   isOwner?: boolean
-  // `null` = necunoscut (citirea numărului de produse n-a reușit încă).
+  // Produsele pe care le vede OASPETELE (`countMenuProducts`, lib/homeSetup.ts):
+  // active, fără ciorne, într-o categorie. `null` = necunoscut.
   productCount: number | null
+  // Citirea lui `productCount` e ÎN ZBOR (lotul C1). Separă „încă se citește"
+  // (cardul de configurare așteaptă, nu clipește) de „citirea a eșuat" (pasul
+  // apare ca „stare necunoscută"). Implicit: nu se citește nimic.
+  productCountLoading?: boolean
   // Mod „doar ridicare" (food truck, E3): fără pași/metrici legate de mese.
   pickupOnly: boolean
   onNavigate: (tab: HomeNavTarget) => void
   onViewMenu: () => void
+  // Deschide DIRECT ecranul comenzilor (/waiter), ca butonul din bara laterală —
+  // nu fila-hub „Comenzi" cu două carduri, care cerea încă un click (lotul C1).
+  onViewOrders: () => void
   onPricing: () => void
   // Deschide magazinul Codvia (/codvia?slug=…) cu meniul restaurantului
   // pre-completat — suporturile vin cu QR-ul REAL al meniului deja tipărit.
@@ -139,10 +153,25 @@ function wasMenuChecked(restaurantId: string): boolean {
 
 // Metrica DOMINANTĂ — cifra cea mai importantă a zilei (comenzi azi).
 // Mare, serif, accent gold, ocupă o coloană proprie lângă cele secundare.
-function HeroMetric({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
+// Cu `onClick` devine buton (lotul C1): cifra mare duce la comenzi, ca „Vezi
+// comenzile"; înăuntru rămâne aceeași structură (eticheta, apoi valoarea).
+function HeroMetric({
+  label,
+  value,
+  hint,
+  onClick,
+  ariaLabel,
+}: {
+  label: string
+  value: string
+  hint?: string
+  onClick?: () => void
+  ariaLabel?: string
+}) {
+  const body = (
     <Card
       variant="raised"
+      interactive={onClick != null}
       style={{
         border: `1px solid ${D.goldBorder}`,
         display: 'flex',
@@ -177,6 +206,28 @@ function HeroMetric({ label, value, hint }: { label: string; value: string; hint
       </div>
       {hint && <div style={{ fontSize: '0.74rem', color: D.t3, marginTop: 8 }}>{hint}</div>}
     </Card>
+  )
+  if (!onClick) return body
+  // Primitiva <Button> (clichetul ui-button-ratchet: fără `<button style>` nou),
+  // varianta „ghost" = fără fundal; `style` doar pentru LAYOUT: cardul umple
+  // butonul, iar textul păstrează alinierea și greutatea lui.
+  return (
+    <Button
+      variant="ghost"
+      fullWidth
+      onClick={onClick}
+      aria-label={ariaLabel}
+      style={{
+        display: 'block',
+        padding: 0,
+        textAlign: 'left',
+        whiteSpace: 'normal',
+        lineHeight: 'inherit',
+        fontWeight: 'inherit',
+      }}
+    >
+      {body}
+    </Button>
   )
 }
 
@@ -278,11 +329,40 @@ function ExpandableCard({
   )
 }
 
+// Pașii de configurare, după id. Acțiunile rapide care fac același lucru ca un
+// pas poartă ACELAȘI id (și aceleași cuvinte): cât pasul e pe card și nefăcut,
+// acțiunea rapidă nu se mai repetă dedesubt (lotul C1).
+type SetupStepId = 'categories' | 'products' | 'tables' | 'menu' | 'team' | 'firstOrder'
+
+// Citirile din care se derivă pașii (fără `products`: numărul vine din
+// DashboardPage, cu `productCountLoading`).
+type SetupRead = 'tables' | 'categories' | 'team' | 'firstOrder'
+
 interface SetupItem {
+  id: SetupStepId
   label: string
-  // `null` = nu știm încă (citirea a eșuat sau e în zbor) — nici bifat, nici „de făcut".
+  // `null` = nu știm (citirea a eșuat sau e în zbor) — nici bifat, nici „de făcut".
   done: boolean | null
+  // Citirea pasului încă e în zbor. Un pas `null` ÎN ZBOR ține cardul ascuns
+  // (altfel clipea la fiecare revenire pe Acasă); unul `null` după o citire
+  // EȘUATĂ apare ca „stare necunoscută" (HT4).
+  loading: boolean
+  // Unde duce pasul; fără țintă, pasul deschide meniul public.
   target?: 'products' | 'categories' | 'mese' | 'echipa'
+}
+
+function withRead(prev: ReadonlySet<SetupRead>, k: SetupRead): ReadonlySet<SetupRead> {
+  if (prev.has(k)) return prev
+  const next = new Set(prev)
+  next.add(k)
+  return next
+}
+
+function withoutReads(prev: ReadonlySet<SetupRead>, ks: readonly SetupRead[]): ReadonlySet<SetupRead> {
+  if (!ks.some((k) => prev.has(k))) return prev
+  const next = new Set(prev)
+  for (const k of ks) next.delete(k)
+  return next
 }
 
 export default function HomeTab({
@@ -293,9 +373,11 @@ export default function HomeTab({
   isAdmin,
   isOwner = false,
   productCount,
+  productCountLoading = false,
   pickupOnly,
   onNavigate,
   onViewMenu,
+  onViewOrders,
   onPricing,
   onOrderQrStands,
   timeZone = DEFAULT_RESTAURANT_TZ,
@@ -310,10 +392,23 @@ export default function HomeTab({
   const th = useT(healthNs)
   // ── Cifrele zilei + datele de setup (HEAD counts, o singură rundă) ──
   const [ordersToday, setOrdersToday] = useState<number | null>(null)
-  const [tablesCount, setTablesCount] = useState<number | null>(null)
-  const [categoriesCount, setCategoriesCount] = useState<number | null>(null)
-  const [teamCount, setTeamCount] = useState<number | null>(null)
-  const [everOrdered, setEverOrdered] = useState<boolean | null>(null)
+  // Datele de setup pornesc din ultima valoare CUNOSCUTĂ în sesiune (lotul C1,
+  // lib/homeSetup.ts): Acasă se remontează la fiecare revenire, iar pornind de
+  // la `null` cardul de configurare apărea și dispărea la un local configurat.
+  const [tablesCount, setTablesCount] = useState<number | null>(
+    () => readHomeSetup(restaurantId).tablesCount,
+  )
+  const [categoriesCount, setCategoriesCount] = useState<number | null>(
+    () => readHomeSetup(restaurantId).categoriesCount,
+  )
+  const [teamCount, setTeamCount] = useState<number | null>(() => readHomeSetup(restaurantId).teamCount)
+  const [everOrdered, setEverOrdered] = useState<boolean | null>(
+    () => readHomeSetup(restaurantId).everOrdered,
+  )
+  // Citirile de setup TERMINATE (reușite sau eșuate) pentru restaurantul curent.
+  // În zbor ≠ eșuat: un pas necunoscut în zbor ține cardul ascuns, unul eșuat
+  // apare ca „stare necunoscută".
+  const [setupSettled, setSetupSettled] = useState<ReadonlySet<SetupRead>>(() => new Set())
   const [menuChecked, setMenuChecked] = useState(() => wasMenuChecked(restaurantId))
   const [health, setHealth] = useState<HealthScore | null>(null)
   // Lotul D: cifrele de acum/azi. `null` = încă nu știm; o citire EȘUATĂ intră
@@ -354,10 +449,16 @@ export default function HomeTab({
   // „necunoscut" în cel real le re-cerea degeaba.
   useEffect(() => {
     setMenuChecked(wasMenuChecked(restaurantId))
-    // Reset la schimbarea restaurantului: cifrele altui local nu se arată sub numele lui.
-    setTablesCount(null)
-    setCategoriesCount(null)
+    // La schimbarea restaurantului: cifrele LUI (din cache, dacă a fost văzut în
+    // sesiune) sau „necunoscut" — niciodată ale altui local sub numele lui.
+    const cached = readHomeSetup(restaurantId)
+    setTablesCount(cached.tablesCount)
+    setCategoriesCount(cached.categoriesCount)
+    setSetupSettled((prev) => withoutReads(prev, ['tables', 'categories']))
     let alive = true
+    const settle = (k: SetupRead): void => {
+      if (alive) setSetupSettled((prev) => withRead(prev, k))
+    }
     const head = { count: 'exact' as const, head: true }
     void Promise.all([
       supabase
@@ -365,16 +466,32 @@ export default function HomeTab({
         .select('id', head)
         .eq('restaurant_id', restaurantId)
         .eq('is_active', true)
-        .then(({ count, error }) => {
-          if (alive && !error) setTablesCount(count ?? 0)
-        }),
+        .then(
+          ({ count, error }) => {
+            if (!error) {
+              // Cache-ul e pe restaurant: rezultatul rămâne valid și dacă
+              // Acasă s-a închis între timp (următoarea vizită nu mai așteaptă).
+              rememberHomeSetup(restaurantId, { tablesCount: count ?? 0 })
+              if (alive) setTablesCount(count ?? 0)
+            }
+            settle('tables')
+          },
+          () => settle('tables'),
+        ),
       supabase
         .from('categories')
         .select('id', head)
         .eq('restaurant_id', restaurantId)
-        .then(({ count, error }) => {
-          if (alive && !error) setCategoriesCount(count ?? 0)
-        }),
+        .then(
+          ({ count, error }) => {
+            if (!error) {
+              rememberHomeSetup(restaurantId, { categoriesCount: count ?? 0 })
+              if (alive) setCategoriesCount(count ?? 0)
+            }
+            settle('categories')
+          },
+          () => settle('categories'),
+        ),
     ])
     return () => {
       alive = false
@@ -385,28 +502,47 @@ export default function HomeTab({
   // o dată. „Comenzi azi" e în efectul reîmprospătat de mai jos (lotul O7c):
   // aici era citită O SINGURĂ dată, la montare — cu Acasă lăsată deschisă cifra
   // rămânea înghețată, iar după miezul nopții arăta ziua de ieri. NU adăuga
-  // `reloadKey` aici: efectul golește pașii la „…", deci la fiecare reîmprospătare
+  // `reloadKey` aici: efectul repornește pașii, deci la fiecare reîmprospătare
   // cardul de configurare ar reapărea pentru un local deja configurat (HO5).
   useEffect(() => {
-    setEverOrdered(null)
-    setTeamCount(null)
+    const cached = readHomeSetup(restaurantId)
+    setEverOrdered(cached.everOrdered)
+    setTeamCount(cached.teamCount)
+    setSetupSettled((prev) => withoutReads(prev, ['firstOrder', 'team']))
     if (!hasOrdering) return
     let alive = true
+    const settle = (k: SetupRead): void => {
+      if (alive) setSetupSettled((prev) => withRead(prev, k))
+    }
     const head = { count: 'exact' as const, head: true }
     const counts: PromiseLike<void>[] = []
     // Prima comandă (oricând, inclusiv test) — pasul de ACTIVARE din checklist.
     // Test de EXISTENȚĂ (limit 1), nu count exact: count-ul agrega toate
     // comenzile restaurantului la fiecare mount, pentru un boolean care
-    // devine permanent true după prima comandă (OPT-1).
+    // devine permanent true după prima comandă (OPT-1). Marca se ia ÎNAINTE de
+    // cerere: dacă răspunsul sosește după o „Comenzi azi" pornită mai târziu
+    // care a văzut o comandă, „încă nicio comandă" de aici e informație mai
+    // veche și nu rescrie nici starea, nici cache-ul (HK12).
+    const existenceMark = beginOrderRead()
     counts.push(
       supabase
         .from('orders')
         .select('id')
         .eq('restaurant_id', restaurantId)
         .limit(1)
-        .then(({ data, error }) => {
-          if (alive && !error) setEverOrdered((data?.length ?? 0) > 0)
-        }),
+        .then(
+          ({ data, error }) => {
+            if (!error) {
+              // `!!length`, nu `length > 0`: SK5 citea textul de după `>` ca JSX.
+              const ordered = !!data?.length
+              if (rememberOrderObservation(restaurantId, existenceMark, ordered) && alive) {
+                setEverOrdered(ordered)
+              }
+            }
+            settle('firstOrder')
+          },
+          () => settle('firstOrder'),
+        ),
     )
     if (isAdmin) {
       counts.push(
@@ -414,9 +550,16 @@ export default function HomeTab({
           .from('restaurant_memberships')
           .select('user_id', head)
           .eq('restaurant_id', restaurantId)
-          .then(({ count, error }) => {
-            if (alive && !error) setTeamCount(count ?? 0)
-          }),
+          .then(
+            ({ count, error }) => {
+              if (!error) {
+                rememberHomeSetup(restaurantId, { teamCount: count ?? 0 })
+                if (alive) setTeamCount(count ?? 0)
+              }
+              settle('team')
+            },
+            () => settle('team'),
+          ),
       )
     }
     void Promise.all(counts)
@@ -477,6 +620,7 @@ export default function HomeTab({
       // Aceeași graniță de „azi" ca ReportsTab (lib/dates, DST-aware), recalculată
       // la FIECARE rulare: după miezul nopții cifra trece singură pe ziua nouă.
       // O citire eșuată intră în `failed` („—" + „Reîncearcă"), nu „…" la nesfârșit.
+      const ordersMark = beginOrderRead()
       jobs.push(
         supabase
           .from('orders')
@@ -486,8 +630,20 @@ export default function HomeTab({
           .gte('created_at', todayStart)
           .then(({ count, error }) => {
             if (error) return fail('orders')
+            // O comandă de azi implică o comandă vreodată (aceeași regulă ca
+            // `orderedOnce`), deci o ținem minte ca FAPT, nu doar ca cifră a
+            // zilei: în cache (altfel remontarea pornea din `everOrdered: false`
+            // și cardul reapărea cu „Prima comandă de test" de făcut, HK10) și în
+            // stare (altfel, după miezul nopții sau după anularea comenzii, cifra
+            // cădea la 0 și pasul se debifa pe același ecran, HK11). Doar pe > 0:
+            // un 0 azi nu spune nimic despre ieri. Ca observație, are marca
+            // plecării: o citire de existență pornită ÎNAINTEA ei nu o mai
+            // poate rescrie cu „nu" (HK12).
+            const n = count ?? 0
+            const remembered = n !== 0 && rememberOrderObservation(restaurantId, ordersMark, true)
             if (!alive) return
-            setOrdersToday(count ?? 0)
+            setOrdersToday(n)
+            if (remembered) setEverOrdered(true)
             ok('orders')
           }),
       )
@@ -598,32 +754,71 @@ export default function HomeTab({
   // `reloadKey` — HO5), dar „Comenzi azi" se reîmprospătează. O comandă neanulată
   // de azi implică o comandă vreodată, deci pasul se bifează și din cifra
   // proaspătă — altfel ecranul arăta „Comenzi azi: 1" lângă „Prima comandă de
-  // test" încă de făcut, până la o remontare (recenzia O7c, HO6).
+  // test" încă de făcut, până la o remontare (recenzia O7c, HO6). Din lotul C1
+  // citirea „Comenzi azi" scrie ea însăși `everOrdered: true` (stare + cache,
+  // HK10/HK11), iar o citire de existență pornită înaintea ei nu o rescrie
+  // (HK12). Derivarea rămâne ca regulă de ECRAN: „Comenzi azi: 1" nu stă
+  // niciodată lângă „Prima comandă de test" de făcut.
   const orderedOnce: boolean | null = (ordersToday ?? 0) > 0 ? true : everOrdered
+  const inFlight = (k: SetupRead): boolean => !setupSettled.has(k)
+  // Ordinea e cea în care pașii chiar se pot face (lotul C1): categoriile ÎNTÂI.
+  // Un produs „Fără categorie" nu apare în meniul oaspeților, deci cine urma
+  // lista de sus în jos adăuga produse care nu se vedeau nicăieri.
   const setupItems: SetupItem[] = [
-    { label: t('setup_addProducts'), done: atLeast(productCount, 1), target: 'products' },
-    { label: t('setup_createCategories'), done: atLeast(categoriesCount, 1), target: 'categories' },
+    {
+      id: 'categories',
+      label: t('setup_createCategories'),
+      done: atLeast(categoriesCount, 1),
+      loading: inFlight('categories'),
+      target: 'categories',
+    },
+    {
+      id: 'products',
+      label: t('setup_addProducts'),
+      done: atLeast(productCount, 1),
+      loading: productCountLoading,
+      target: 'products',
+    },
     ...(pickupOnly
       ? []
       : [
           {
+            id: 'tables' as const,
             label: t('setup_generateTableQrs'),
             done: atLeast(tablesCount, 1),
+            loading: inFlight('tables'),
             target: 'mese' as const,
           },
         ]),
-    { label: t('setup_checkPublicMenu'), done: menuChecked },
+    { id: 'menu', label: t('setup_viewPublicMenu'), done: menuChecked, loading: false },
     ...(hasOrdering && isAdmin
       ? [
-          { label: t('setup_inviteTeam'), done: atLeast(teamCount, 2), target: 'echipa' as const },
+          {
+            id: 'team' as const,
+            label: t('setup_inviteTeam'),
+            done: atLeast(teamCount, 2),
+            loading: inFlight('team'),
+            target: 'echipa' as const,
+          },
           // Pasul de ACTIVARE (PLAN_10 F4): fluxul e validat abia când o comandă
           // reală a intrat. Fostul item „Comenzile de la masă: active" era o bifă
           // permanentă — contrazicea regula „doar pași măsurabili" de mai sus.
-          {
-            label: pickupOnly ? t('setup_firstOrderPickup') : t('setup_firstOrderTable'),
-            done: orderedOnce,
-            target: 'mese' as const,
-          },
+          // „Doar ridicare": pasul spune „deschide meniul public", deci FĂRĂ țintă
+          // (deschide meniul public), nu fila Mese — acolo nu e nimic de comandat.
+          pickupOnly
+            ? {
+                id: 'firstOrder' as const,
+                label: t('setup_firstOrderPickup'),
+                done: orderedOnce,
+                loading: inFlight('firstOrder'),
+              }
+            : {
+                id: 'firstOrder' as const,
+                label: t('setup_firstOrderTable'),
+                done: orderedOnce,
+                loading: inFlight('firstOrder'),
+                target: 'mese' as const,
+              },
         ]
       : []),
   ]
@@ -633,6 +828,32 @@ export default function HomeTab({
   // tier 1, mai scurtă — un plătitor vedea „4/4 totul e gata" fără pașii de
   // comenzi) și fiecare pas CUNOSCUT ca făcut.
   const setupComplete = planKnown && setupItems.every((s) => s.done === true)
+  // Cardul se arată abia când NICIUN pas necunoscut nu mai e în zbor (lotul C1):
+  // la un local configurat, pornirea de la „necunoscut" făcea cardul să apară cu
+  // cercuri punctate și să dispară o clipă mai târziu, la fiecare vizită. Un pas
+  // necunoscut după o citire EȘUATĂ nu mai e în zbor, deci cardul apare cu el
+  // ca „stare necunoscută" (HT4) — nu se ascunde un diagnostic.
+  const setupWaiting = setupItems.some((s) => s.done == null && s.loading)
+  const showSetupCard = isAdmin && planKnown && !setupComplete && !setupWaiting
+  // Pasul e (sau va fi, cât citirile sunt în zbor) oferit de cardul de
+  // configurare: acțiunea rapidă cu același id nu se mai repetă dedesubt. Un pas
+  // care nu e în listă (mesele în „doar ridicare", echipa pe Planul 1) nu
+  // ascunde nimic.
+  const stepOnCard = (id: SetupStepId): boolean => {
+    if (!isAdmin || !planKnown || setupComplete) return false
+    const step = setupItems.find((s) => s.id === id)
+    return step != null && step.done !== true
+  }
+  // „Vezi comenzile" și cifra „Comenzi azi" duc la ecranul ospătarului, cu
+  // ACELAȘI gate ca butonul din bara laterală (planSurface.staff).
+  const canViewOrders = surface?.staff === true
+  const quickProducts = isAdmin && !stepOnCard('products')
+  const quickTables = isAdmin && !stepOnCard('tables')
+  const quickStands = isAdmin && qrStandsOpen === true
+  const quickMenu = !stepOnCard('menu')
+  const quickTeam = hasOrdering && isAdmin && !stepOnCard('team')
+  const anyQuickAction =
+    quickProducts || quickTables || quickStands || quickMenu || canViewOrders || quickTeam
 
   // Scorul și sugestiile pe ce ARE planul: fără componenta de bonuri/Bridge
   // fiscal pe Planul 2 (lib/health.ts).
@@ -642,10 +863,17 @@ export default function HomeTab({
     : []
   const shownScore = health ? planHealthScore(health, healthScope) : null
 
-  // Metricele secundare — aceeași importanță între ele, sub hero.
+  // „Comenzi azi" (hero): „—" pe citire eșuată, „…" cât se citește.
+  const ordersValue = failed.has('orders') ? '—' : ordersToday == null ? '…' : String(ordersToday)
+
+  // Metricele secundare — aceeași importanță între ele, sub hero. Fără metrica
+  // „Configurare" (lotul C1): cardul de dedesubt arată deja progresul și
+  // dispare singur la final, iar „6/6 totul e gata ✓" ocupa pe veci un loc
+  // între cifrele zilei.
   const secondaryMetrics = [
     {
-      label: t('metric_activeProducts'),
+      // Aceeași definiție ca pasul „Adaugă produse": ce vede oaspetele.
+      label: t('metric_menuProducts'),
       value: productCount == null ? '…' : String(productCount),
       hint: undefined as string | undefined,
     },
@@ -680,21 +908,6 @@ export default function HomeTab({
             label: t('metric_tipsToday'),
             value: failed.has('tips') ? '—' : tipsToday == null ? '…' : fmtPrice(tipsToday),
             hint: failed.has('tips') ? t('metric_loadFailedHint') : t('metric_tipsHint'),
-          },
-        ]
-      : []),
-    // Metrica „Configurare" doar pentru admin: checklist-ul (sursa pașilor) e gate-uit
-    // pe isAdmin mai jos — staff-ul ar vedea o cifră fără nicio listă/acțiune.
-    ...(isAdmin
-      ? [
-          {
-            label: t('metric_setup'),
-            value: planKnown ? `${setupDone}/${setupTotal}` : '…',
-            hint: setupComplete
-              ? t('metric_setupDoneHint')
-              : planKnown
-                ? t('metric_setupStepsHint')
-                : undefined,
           },
         ]
       : []),
@@ -736,11 +949,15 @@ export default function HomeTab({
             <div style={{ flex: '1 1 220px', minWidth: 200 }}>
               <HeroMetric
                 label={t('metric_ordersToday')}
-                value={
-                  failed.has('orders') ? '—' : ordersToday == null ? '…' : String(ordersToday)
-                }
+                value={ordersValue}
                 hint={
                   failed.has('orders') ? t('metric_loadFailedHint') : t('metric_ordersTodayHint')
+                }
+                onClick={canViewOrders ? onViewOrders : undefined}
+                ariaLabel={
+                  canViewOrders
+                    ? t('metric_ordersTodayAria', { label: t('metric_ordersToday'), value: ordersValue })
+                    : undefined
                 }
               />
             </div>
@@ -790,8 +1007,11 @@ export default function HomeTab({
           ocolea: invitații de echipă pe Planul 1 (fila Echipă e Plan 2+, iar
           serverul refuză apoi acceptarea), mese în bulk peste plafon, produse
           demo publicate pe meniul real (ux-owner-quicksetup-duplicate). Presetul
-          de cote TVA — singura lui parte fără pas aici — e în Setări → Comenzi & plăți → Cote TVA. */}
-      {isAdmin && planKnown && !setupComplete && (
+          de cote TVA — singura lui parte fără pas aici — e în Setări → Comenzi & plăți → Cote TVA.
+          Lotul C1: e SINGURA listă de pași de pe pagină (metrica „Configurare" a
+          ieșit, acțiunile rapide nu-i mai repetă pașii nefăcuți) și apare abia
+          după ce citirile s-au așezat (`showSetupCard`). */}
+      {showSetupCard && (
         <RevealItem delay={120}>
         <Card variant="flat">
           <div
@@ -846,7 +1066,7 @@ export default function HomeTab({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {setupItems.map((it) => (
               <button
-                key={it.label}
+                key={it.id}
                 onClick={() => {
                   if (it.done === true) return
                   if (it.target) onNavigate(it.target)
@@ -991,7 +1211,10 @@ export default function HomeTab({
         </RevealItem>
       )}
 
-      {/* Acțiuni rapide */}
+      {/* Acțiuni rapide — cu ACELEAȘI cuvinte ca pașii care fac același lucru,
+          iar un pas încă pe cardul de configurare nu se repetă aici (lotul C1).
+          Fără nicio acțiune rămasă, secțiunea nu se randează (titlu fără butoane). */}
+      {anyQuickAction && (
       <RevealItem delay={240}>
       <div>
         <div style={sectionTitle}>{t('quick_title')}</div>
@@ -1004,41 +1227,43 @@ export default function HomeTab({
         >
           {/* Editarea meniului și a meselor = owner/manager; restul echipei ar
               ajunge pe tab-uri care îi refuză fiecare salvare. */}
-          {isAdmin && (
+          {quickProducts && (
             <QuickAction
               icon="plus"
-              label={t('quick_addProduct')}
+              label={t('setup_addProducts')}
               onClick={() => onNavigate('products')}
             />
           )}
-          {isAdmin && (
+          {/* În „doar ridicare" nu există pasul de mese: QR-ul general e tot în
+              fila Mese & QR-uri, deci acțiunea rămâne, fără „pentru mese". */}
+          {quickTables && (
             <QuickAction
               icon="qr"
-              label={t('quick_generateQrs')}
+              label={pickupOnly ? t('quick_generateQrs') : t('setup_generateTableQrs')}
               onClick={() => onNavigate('mese')}
             />
           )}
-          {isAdmin && qrStandsOpen === true && (
+          {quickStands && (
             <QuickAction icon="box" label={t('quick_qrStands')} onClick={onOrderQrStands} />
           )}
-          <QuickAction icon="eye" label={t('quick_viewPublicMenu')} onClick={handleViewMenu} />
-          {hasOrdering && (
-            <QuickAction
-              icon="bell"
-              label={t('quick_viewOrders')}
-              onClick={() => onNavigate(LIVE_ORDERS_TAB)}
-            />
+          {quickMenu && (
+            <QuickAction icon="eye" label={t('setup_viewPublicMenu')} onClick={handleViewMenu} />
           )}
-          {hasOrdering && isAdmin && (
+          {/* Direct la ecranul comenzilor, nu la fila-hub „Comenzi" (lotul C1). */}
+          {canViewOrders && (
+            <QuickAction icon="bell" label={t('quick_viewOrders')} onClick={onViewOrders} />
+          )}
+          {quickTeam && (
             <QuickAction
               icon="users"
-              label={t('quick_inviteWaiter')}
+              label={t('setup_inviteTeam')}
               onClick={() => onNavigate('echipa')}
             />
           )}
         </div>
       </div>
       </RevealItem>
+      )}
 
       {/* Upsell-ul UNIC al panoului (lotul P), doar pentru PROPRIETAR (managerul
           n-are ce cumpăra) și doar pe un plan CUNOSCUT cu o țintă — cu planul

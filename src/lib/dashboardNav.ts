@@ -64,14 +64,16 @@ export type Tab =
   | 'ai'
 
 // Filele în care trimite Acasă (pașii de configurare, acțiunile rapide, banda
-// casei de marcat). Stau aici, nu în HomeTab.tsx: `comenzi` e un id de tab, nu
-// text, dar scanerul de text vizibil (SK5, doar fișiere .tsx) l-ar număra drept
-// cuvânt românesc (lotul L3a).
+// casei de marcat). Stau aici, nu în HomeTab.tsx: un id de tab nu e text, dar
+// scanerul de text vizibil (SK5, doar fișiere .tsx) l-ar număra drept cuvânt
+// românesc (lotul L3a). Fără `comenzi` (lotul C1): „Vezi comenzile" și cifra
+// „Comenzi azi" deschid DIRECT ecranul ospătarului (`onViewOrders`), nu fila-hub.
 export type HomeNavTarget = Extract<
   Tab,
-  'products' | 'categories' | 'mese' | 'raport' | 'comenzi' | 'echipa' | 'casa-marcat'
+  'products' | 'categories' | 'mese' | 'raport' | 'echipa' | 'casa-marcat'
 >
-export const LIVE_ORDERS_TAB = 'comenzi' satisfies HomeNavTarget
+// Fila-hub „Comenzi" (OrdersHub din DashboardPage: ospătar / bucătărie).
+export const LIVE_ORDERS_TAB = 'comenzi' satisfies Tab
 
 export interface SubTab {
   id: Tab

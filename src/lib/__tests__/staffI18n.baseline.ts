@@ -11,7 +11,7 @@
 // la valoarea lor; nu au voie să crească nici ele.
 export const STAFF_TEXT_BASELINE: Readonly<Record<string, number>> = {
   'src/components/BridgeTab.tsx': 123,
-  'src/components/CashRegisterTab.tsx': 104,
+  'src/components/CashRegisterTab.tsx': 101,
   'src/components/FounderActivationCard.tsx': 8,
   'src/components/FounderAiPanel.tsx': 22,
   'src/components/FounderPayoutRow.tsx': 35,
