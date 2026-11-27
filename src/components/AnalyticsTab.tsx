@@ -7,7 +7,15 @@ import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { analyticsAccess } from '../lib/features'
-import { formatYmd, lastDaysStartYmd, toRomaniaYMD } from '../lib/dates'
+import { lastDaysStartYmd, toRomaniaYMD } from '../lib/dates'
+import { chartSeries, seriesPointLabel, viewDayTotals } from '../lib/dailySeries'
+import {
+  ANALYTICS_DAYS_KEY,
+  ANALYTICS_DAY_OPTIONS,
+  ANALYTICS_DEFAULT_DAYS,
+  parseAnalyticsDays,
+} from '../lib/reportChoice'
+import { useSessionChoice } from '../hooks/useSessionChoice'
 import {
   LineChart,
   Line,
@@ -200,6 +208,13 @@ function DataTable({
   )
 }
 
+// Fereastra cerută (ziua românească), din care se construiește seria
+// graficului — fiecare zi, inclusiv cele fără comenzi (lotul C6a).
+interface DayRange {
+  from: string
+  to: string
+}
+
 // Cache de sesiune (nivel de modul): tab-urile mari sunt lazy + se demontează
 // la schimbare, deci re-vizitarea reface toate cele 5 query-uri. Analytics-ul pe
 // 30 de zile nu se schimbă de la secundă la secundă → în fereastra TTL servim
@@ -212,6 +227,7 @@ type AnalyticsSnapshot = {
   waiters: Record<string, unknown>[]
   hourly: Record<string, unknown>[]
   staffNames: Record<string, { full_name: string | null; email: string }>
+  dailyRange: DayRange
 }
 const ANALYTICS_TTL_MS = 60_000
 const analyticsCache = new Map<string, { ts: number; data: AnalyticsSnapshot }>()
@@ -225,6 +241,7 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
   const { lang: uiLang } = useUiLang()
   const isMobile = useIsMobile()
   const [daily, setDaily] = useState<Record<string, unknown>[]>([])
+  const [dailyRange, setDailyRange] = useState<DayRange | null>(null)
   const [products, setProducts] = useState<Record<string, unknown>[]>([])
   const [waiters, setWaiters] = useState<Record<string, unknown>[]>([])
   // Nume ospătari pe user_id — embed-ul profiles din view-ul agregat nu rezolvă
@@ -238,7 +255,10 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
   // Eroarea de încărcare ținută ca DATĂ (cauza), tradusă la randare: o
   // schimbare de limbă cu eroarea pe ecran o retraduce.
   const [error, setError] = useState<{ cause: unknown } | null>(null)
-  const [days, setDays] = useState(30)
+  // Intervalul ales supraviețuiește ieșirii din filă (lotul C6a): fila e
+  // leneșă și se demontează la schimbarea filei, deci înainte revenea mereu pe
+  // 30 de zile. `sessionStorage`, validat: doar unul dintre butoanele ecranului.
+  const [days, setDays] = useSessionChoice(ANALYTICS_DAYS_KEY, () => ANALYTICS_DEFAULT_DAYS, parseAnalyticsDays)
   // 'business' a fost eliminat din taxonomie (mig 062 → free/starter/growth/pro/enterprise).
   // Enterprise include tot Pro, deci ambele au acces.
   // analyticsAccess (lib/features.ts): pe RO identic cu `plan === 'pro' ||
@@ -254,6 +274,7 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
     const cached = analyticsCache.get(cacheKey)
     if (cached && Date.now() - cached.ts < ANALYTICS_TTL_MS) {
       setDaily(cached.data.daily)
+      setDailyRange(cached.data.dailyRange)
       setProducts(cached.data.products)
       setWaiters(cached.data.waiters)
       setHourly(cached.data.hourly)
@@ -270,7 +291,8 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
       // înainte era ziua UTC a unui instant al browserului, deci între 00:00 și
       // 02:00/03:00 ora României fereastra pornea cu o zi mai devreme.
       // „Ultimele N zile” = N date, inclusiv azi (`gte` e inclusiv).
-      const since = lastDaysStartYmd(toRomaniaYMD(new Date()), days)
+      const today = toRomaniaYMD(new Date())
+      const since = lastDaysStartYmd(today, days)
       const [d, p, w, h, m] = await Promise.all([
         supabase
           .from('v_daily_orders')
@@ -298,6 +320,7 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
         if (r.error) throw r.error
       }
       setDaily(d.data || [])
+      setDailyRange({ from: since, to: today })
       setProducts(p.data || [])
       setWaiters(w.data || [])
       setHourly(h.data || [])
@@ -321,6 +344,7 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
         ts: Date.now(),
         data: {
           daily: d.data || [],
+          dailyRange: { from: since, to: today },
           products: p.data || [],
           waiters: w.data || [],
           hourly: h.data || [],
@@ -381,14 +405,20 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
 
   // Ziua de pe axă în limba personalului (`staffLocale`: în română EXACT
   // „ro-RO”, ca înainte). `day` e o DATĂ fără oră (ziua românească, mig 267),
-  // deci se formatează ca dată (`formatYmd`), nu ca instant pe fusul
-  // browserului — acolo, la vest de UTC, ieșea ziua de DINAINTE (lotul G2b).
+  // deci se formatează ca dată (`seriesPointLabel` → `formatYmd`), nu ca
+  // instant pe fusul browserului — acolo, la vest de UTC, ieșea ziua de
+  // DINAINTE (lotul G2b). Seria are FIECARE zi a ferestrei (lotul C6a):
+  // `v_daily_orders` are rânduri doar pentru zilele cu comenzi, deci o zi
+  // închisă dispărea, iar linia „Venit pe zi” trecea peste ea; acum e un 0.
   // Cheile seriilor (`day`/`orders`) sunt interne recharts, nu text.
   const dayLocale = staffLocale(uiLang)
-  const chartData = daily.map((d) => ({
-    day: formatYmd(String(d.day), dayLocale, { day: '2-digit', month: '2-digit' }),
-    orders: Number(d.total_orders || 0),
-    revenue: Number(d.revenue || 0),
+  const series = dailyRange
+    ? chartSeries(dailyRange.from, dailyRange.to, viewDayTotals(daily, 'total_orders', 'revenue'))
+    : null
+  const chartData = (series?.points ?? []).map((p) => ({
+    day: seriesPointLabel(p, dayLocale),
+    orders: p.orders,
+    revenue: p.revenue,
   }))
   const payPie = [
     { name: ta.t('method_cash'), value: cashRev, color: D.green },
@@ -445,12 +475,15 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
           <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>{ta.tp('period_last', days)}</p>
         </div>
         <div style={{ display: 'flex', gap: 5 }}>
-          {[7, 14, 30].map((d) => (
+          {ANALYTICS_DAY_OPTIONS.map((d) => (
             <button
               key={d}
               onClick={() => setDays(d)}
+              aria-pressed={days === d}
               style={{
                 padding: '6px 14px',
+                // Touch target ≥44px, ca butoanele perioadei din Vânzări.
+                minHeight: 44,
                 borderRadius: 8,
                 border: 'none',
                 cursor: 'pointer',

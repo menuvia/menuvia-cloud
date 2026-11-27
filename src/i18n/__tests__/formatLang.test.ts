@@ -17,8 +17,12 @@
 //   LF3 fiecare scutire e încă găsită (registrul nu putrezește).
 //   LF4 control POZITIV al detectorului pe surse sintetice: fiecare formă
 //       interzisă e prinsă, cele legitime (text, `useUiLang`) nu.
-// Mutația care pică: `staffLocale(tr.lang)` readus în GdprCard (LF2), sau
-// sink-ul `staffLocale` scos din detector (LF4).
+// Dialectul unui CSV (separatorul + semnul zecimal, lotul C6a) e tot un FORMAT:
+// `…CsvDialect(<traducător>.lang)` e sink, ca `staffLocale` — fără el, un
+// englez cu chunk-ul eșuat ar primi un fișier cu „;” și virgulă zecimală.
+// Mutația care pică: `staffLocale(tr.lang)` readus în GdprCard (LF2),
+// `reportCsvDialect(tr.lang)` în ReportsTab (LF2), sau un sink scos din
+// detector (LF4).
 import { readFileSync, readdirSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -67,6 +71,7 @@ export function findViolations(src: string): string[] {
       { name: 'toLocale*String', re: new RegExp(`toLocale(?:Date|Time)?String\\(\\s*${ref}`) },
       { name: 'Intl', re: new RegExp(`new\\s+Intl\\.\\w+\\(\\s*${ref}`) },
       { name: 'format*()', re: new RegExp(`\\bformat\\w*\\([^()]*,\\s*${ref}\\s*\\)`) },
+      { name: '*CsvDialect', re: new RegExp(`\\b\\w*CsvDialect\\(\\s*${ref}`) },
     ]
     lines.forEach((line, i) => {
       for (const s of sinks) if (s.re.test(line)) hits.push(`${i + 1}: ${s.name}: ${line.trim()}`)
@@ -104,6 +109,7 @@ describe('clichet: formatele urmează limba utilizatorului, nu dicționarul serv
       'const ta = useT(ns)\nnew Intl.DateTimeFormat(ta.lang, {})',
       'function f(tr: Translator<typeof ro>) { return staffLocale(tr.lang) }',
       'const { t, lang } = useT(ns)\nconst l = staffLocale(lang)',
+      'const tr = useT(ns)\nconst d = reportCsvDialect(tr.lang)',
     ]
     for (const src of bad) expect(findViolations(src), src).toHaveLength(1)
     const good = [
@@ -113,6 +119,7 @@ describe('clichet: formatele urmează limba utilizatorului, nu dicționarul serv
       'const tr = useT(ns)\nreturn countryLabel(c.code, c.name, tr.lang)',
       'const { t, lang } = useT(ns)\nreturn <Dialog lang={lang} />',
       'const locale = staffLocale(useUiLang().lang)',
+      'const tr = useT(ns)\nconst { lang: uiLang } = useUiLang()\nconst d = reportCsvDialect(uiLang)',
     ]
     for (const src of good) expect(findViolations(src), src).toEqual([])
   })

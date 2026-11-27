@@ -31,7 +31,21 @@
 //        franceze (cu valorile neatinse), PDF-ul scrie liniile franceze și se
 //        salvează cu numele francez; un PDF eșuat afișează eroarea în limba
 //        curentă și se retraduce în germană. Mutația care pică:
-//        `downloadCsv(\`raport-menuvia-…\`)` readus în componentă.
+//        `downloadCsv(\`raport-menuvia-…\`)` readus în componentă. Din lotul
+//        C6a fișierul poartă intervalul în nume, începe cu UN BOM și e în
+//        dialectul limbii UTILIZATORULUI (franceza: „;” și virgula zecimală) —
+//        mutația care pică: un dialect fix „,”/`reportCsvDialect('en')`.
+//   YA15 exportul CSV în ENGLEZĂ — singura limbă în care dialectul diferă
+//        („,” și punctul zecimal): rândul sumarului e `2,80.00,…`, un singur
+//        BOM, numele englez. Mutațiile care pică: `reportCsvDialect('ro')` și
+//        un dialect fix `{ sep: ';', decimal: ',' }` în ReportsTab (cu ro/fr/de
+//        pe același dialect, YA6 trece pe ambele). Control pozitiv: YA6.
+//        `reportCsvDialect(tr.lang)` NU se vede aici (chunk-ul englez e
+//        preîncărcat, deci `tr.lang` = limba UI) — îl prinde clichetul de clasă
+//        LF2 (formatLang.test.ts, sink-ul `reportCsvDialect`).
+// `sessionStorage` se golește înaintea fiecărui test: perioada aleasă se
+// păstrează pe sesiune (C6a), deci „Autre période” din YA5 ar porni YA6 pe
+// intervalul personalizat.
 import { Suspense, type ReactNode } from 'react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
@@ -142,6 +156,7 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
+  window.sessionStorage.clear()
   m.errors = {}
   m.download.mockReset()
   m.pdfTexts = []
@@ -219,12 +234,15 @@ describe('Vânzări în limba personalului', () => {
   })
 
   it('YA1: fără provider, româna de dinainte (Planul 3)', async () => {
+    const user = userEvent.setup()
     const { container } = inLang(null, tab())
     expect(await screen.findByText('Supă de roșii')).toBeInTheDocument()
     for (const t of ['Venituri', 'Bon mediu', 'Tichete de masă', 'Card online', 'Alte metode', 'Comenzi QR', 'Comenzi ospătar'])
       expect(screen.getAllByText(t).length, t).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('50% din total')).toHaveLength(2)
-    expect(screen.getByText('Venituri zilnice')).toBeInTheDocument()
+    // „Azi” = o singură zi, deci fără grafic (lotul C6a: seria are zilele
+    // INTERVALULUI, nu zilele pe care le întoarce dublura, care ignoră filtrele).
+    expect(screen.queryByText('Venituri zilnice')).toBeNull()
     expect(screen.getByText('după cantitate comandată')).toBeInTheDocument()
     expect(container.textContent).toContain('Top 2 produse')
     expect(screen.getByText('Vânzări pe oră')).toBeInTheDocument()
@@ -238,15 +256,19 @@ describe('Vânzări în limba personalului', () => {
     expect(
       screen.getByText('Document operațional intern. Nu înlocuiește raportul Z fiscal al casei de marcat.'),
     ).toBeInTheDocument()
+    // Pe 7 zile, graficul cu titlul de dinainte.
+    await user.click(screen.getByRole('button', { name: '7 zile' }))
+    expect(await screen.findByText('Venituri zilnice')).toBeInTheDocument()
   })
 
   it('YA2: Planul 3 în engleză, fără resturi românești; sumele și datele neatinse', async () => {
+    const user = userEvent.setup()
     const { container } = inLang('en', tab())
     expect(await screen.findByText('Supă de roșii')).toBeInTheDocument()
     for (const t of ['Revenue', 'Average ticket', 'Meal vouchers', 'Online card', 'Other methods', 'QR orders', 'Waiter orders'])
       expect(screen.getAllByText(t).length, t).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('50% of total')).toHaveLength(2)
-    expect(screen.getByText('Daily revenue')).toBeInTheDocument()
+    expect(screen.queryByText('Daily revenue')).toBeNull() // „Today” = o zi, fără grafic
     expect(container.textContent).toContain('Top 2 products')
     expect(screen.getByText('by quantity ordered')).toBeInTheDocument()
     expect(screen.getByText('Sales by hour')).toBeInTheDocument()
@@ -265,6 +287,10 @@ describe('Vânzări în limba personalului', () => {
     expect(screen.getByText('Ciorbe')).toBeInTheDocument()
     expect(romanianLeftovers(visible(container), 'en')).toEqual([])
     expect(withoutData(nodeText(container))).not.toMatch(RO_LETTERS)
+    // Pe 7 zile: graficul, tot fără resturi românești.
+    await user.click(screen.getByRole('button', { name: '7 days' }))
+    expect(await screen.findByText('Daily revenue')).toBeInTheDocument()
+    expect(romanianLeftovers(visible(container), 'en')).toEqual([])
   })
 
   it('YA3: Planul 1/2 în germană și franceză — fără sume, fără nota Z, fără exporturi', async () => {
@@ -338,8 +364,12 @@ describe('Vânzări în limba personalului', () => {
     await user.click(screen.getByRole('button', { name: /Exporter en CSV/ }))
     expect(m.download).toHaveBeenCalledTimes(1)
     const [file, content] = m.download.mock.calls[0] as [string, string]
-    expect(file).toBe('rapport-menuvia-aujourd-hui.csv')
-    expect(content.split('\n')[0]).toBe('Rapport Menuvia — Aujourd’hui')
+    // Numele poartă ziua (o singură zi pe „Aujourd’hui”), nu eticheta perioadei.
+    expect(file).toMatch(/^rapport-menuvia-\d{4}-\d{2}-\d{2}\.csv$/)
+    // Un singur BOM, la octetul 0; dialectul limbii utilizatorului („;” + „,”).
+    expect(content.split('\n')[0]).toBe('\uFEFFRapport Menuvia — Aujourd’hui')
+    expect(content.split('\uFEFF')).toHaveLength(2)
+    expect(content.split('\n')).toContain('2;80,00;40,00;30,00;20,00;10,00;15,00;5,00;1;1')
     expect(content).toContain('# Synthèse')
     expect(content).toContain('Ticket moyen (lei)')
     expect(content).toContain('Supă de roșii')
@@ -363,5 +393,24 @@ describe('Vânzări în limba personalului', () => {
       'Das PDF konnte nicht erstellt werden. Bitte erneut versuchen.',
     )
     quiet.mockRestore()
+  })
+
+  it('YA15: exportul CSV în engleză are „,” și punctul zecimal', async () => {
+    const user = userEvent.setup()
+    inLang('en', tab())
+    await screen.findByText('Supă de roșii')
+    await user.click(screen.getByRole('button', { name: /Export CSV/ }))
+    expect(m.download).toHaveBeenCalledTimes(1)
+    const [file, content] = m.download.mock.calls[0] as [string, string]
+    expect(file).toMatch(/^menuvia-report-\d{4}-\d{2}-\d{2}\.csv$/)
+    const lines = content.split('\n')
+    expect(lines[0]).toBe('\uFEFFMenuvia report — Today')
+    expect(content.split('\uFEFF')).toHaveLength(2)
+    expect(lines).toContain('2,80.00,40.00,30.00,20.00,10.00,15.00,5.00,1,1')
+    // Niciun rând de date în dialectul românesc/francez.
+    expect(lines).not.toContain('2;80,00;40,00;30,00;20,00;10,00;15,00;5,00;1;1')
+    expect(content).toContain('# Summary')
+    expect(content).toContain('Average ticket (lei)')
+    expect(content).toContain('Supă de roșii')
   })
 })

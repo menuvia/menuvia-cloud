@@ -4,11 +4,14 @@
 // Extended (migration 033): vânzări per ospătar, oră, categorie + CSV.
 // Limba personalului (lotul L7): textele din namespace-ul `reports` (+ `common`
 // pentru rezerva erorilor și „Reîncearcă”), cerute SUS, înaintea oricărui
-// `return`. Eticheta perioadei, ziua de pe grafic și exporturile CSV/PDF sunt
-// compuse de lib/reportsExport.ts (în română byte-identice cu cele de
-// dinainte). Eroarea de încărcare e ținută ca DATĂ și tradusă la randare.
+// `return`. Eticheta perioadei și exporturile CSV/PDF sunt compuse de
+// lib/reportsExport.ts (textele românești sunt cele de dinainte; CSV-ul are din
+// lotul C6a forma pe care o deschide corect Excel-ul limbii). Seria graficului
+// e lib/dailySeries.ts, perioada aleasă se păstrează pe sesiune
+// (`useSessionChoice`). Eroarea de încărcare e ținută ca DATĂ și tradusă la
+// randare.
 // ─────────────────────────────────────────────────────────────
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import {
   BarChart,
   Bar,
@@ -26,7 +29,16 @@ import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { useIsMobile } from '../hooks/useIsMobile'
-import { DEFAULT_RESTAURANT_TZ, isoToZonedYMD, toZonedYMD, zonedDayRange } from '../lib/dates'
+import { DEFAULT_RESTAURANT_TZ, toZonedYMD, zonedDayRange } from '../lib/dates'
+import {
+  chartSeries,
+  reportDayTotals,
+  seriesPointLabel,
+  seriesSpansYears,
+  type DayTotals,
+} from '../lib/dailySeries'
+import { REPORTS_CHOICE_KEY, defaultReportsChoice, parseReportsChoice } from '../lib/reportChoice'
+import { useSessionChoice } from '../hooks/useSessionChoice'
 import { patchPdfDiacritics } from '../lib/pdf'
 import {
   fetchWaiterSales,
@@ -40,8 +52,8 @@ import {
 import {
   buildReportCsv,
   categoryRowLabel,
-  chartDayLabel,
   periodLabelT,
+  reportCsvDialect,
   reportPeriodRange,
   reportPdfFilename,
   reportPdfText,
@@ -192,13 +204,21 @@ export default function ReportsTab({ restaurantId, fiscalReports = true, timeZon
   // UTILIZATORULUI, nu limba dicționarului servit (clichetul LF din L6b).
   const { lang: uiLang } = useUiLang()
   const locale = staffLocale(uiLang)
-  const [period, setPeriod] = useState<Period>('today')
-  // Ziua curentă în fusul zilei de raportare (toISO/UTC dădea „ieri" între
-  // 00:00–03:00 ora României).
-  const [custom, setCustom] = useState(() => {
-    const today = toZonedYMD(new Date(), timeZone)
-    return { from: today, to: today }
-  })
+  // Perioada aleasă supraviețuiește ieșirii din filă (lotul C6a): fila e
+  // leneșă și se demontează la schimbarea filei, deci înainte revenea mereu pe
+  // „Azi” și pierdea intervalul personalizat. `sessionStorage`, validat pe ziua
+  // de azi în fusul zilei de raportare (toISO/UTC dădea „ieri" între 00:00–03:00
+  // ora României).
+  const [choice, setChoice] = useSessionChoice(
+    REPORTS_CHOICE_KEY,
+    () => defaultReportsChoice(toZonedYMD(new Date(), timeZone)),
+    (raw) => parseReportsChoice(raw, toZonedYMD(new Date(), timeZone)),
+  )
+  const period: Period = choice.period
+  const custom = choice.custom
+  const setPeriod = (p: Period) => setChoice((c) => ({ ...c, period: p }))
+  const setCustom = (f: (c: { from: string; to: string }) => { from: string; to: string }) =>
+    setChoice((c) => ({ ...c, custom: f(c.custom) }))
   const [loading, setLoading] = useState(true)
   // Eroarea ca DATĂ (tradusă la randare): o schimbare de limbă o retraduce.
   const [error, setError] = useState<{ err: unknown } | null>(null)
@@ -221,12 +241,21 @@ export default function ReportsTab({ restaurantId, fiscalReports = true, timeZon
     waiterOrders: 0,
     avgTicket: 0,
   })
-  // `at` = primul moment văzut în ziua respectivă: eticheta se formatează la
-  // randare, în limba personalului și în fusul zilei de raportare (`zi` e doar
-  // cheia internă YYYY-MM-DD, înlocuită la randare).
-  const [chartData, setChartData] = useState<
-    { zi: string; at: string; comenzi: number; revenue: number }[]
-  >([])
+  // Totalurile pe zi (cheia YYYY-MM-DD în fusul zilei de raportare) ȘI
+  // intervalul pentru care au fost cerute: seria graficului se construiește din
+  // ACEST interval (nu din perioada de pe ecran, care se poate schimba înainte
+  // să sosească datele noi).
+  const [dayTotals, setDayTotals] = useState<{
+    from: string
+    to: string
+    totals: Map<string, DayTotals>
+  } | null>(null)
+  // Graficul are FIECARE zi a intervalului (lotul C6a): o zi închisă e o bară
+  // de 0, nu dispare; peste 62 de zile, o bară pe săptămână.
+  const series = useMemo(
+    () => (dayTotals ? chartSeries(dayTotals.from, dayTotals.to, dayTotals.totals) : null),
+    [dayTotals],
+  )
   const [topProducts, setTopProducts] = useState<
     { name: string; qty: number; revenue: number; emoji: string }[]
   >([])
@@ -426,28 +455,13 @@ export default function ReportsTab({ restaurantId, fiscalReports = true, timeZon
         avgTicket,
       })
 
-      // ── Build daily chart data (client-side aggregation) ──
-      // Comenzile (count) se grupează după created_at; venitul după paid_at
-      // (consecvent cu metricile de mai sus). Cheia zilei = ziua (YYYY-MM-DD) în
-      // fusul zilei de raportare — doar cheie internă de Map (ordinea de
-      // inserție dă ordinea barelor); eticheta se formatează la randare
-      // (`chartDayLabel`, același fus). Formatter-ul e cache-uit în lib/dates
-      // (OPT-R2: nu un Intl.DateTimeFormat nou per comandă).
-      const dayKey = (iso: string) => isoToZonedYMD(iso, timeZone) ?? iso
-      const dayMap = new Map<string, { at: string; comenzi: number; revenue: number }>()
-      for (const o of allOrders) {
-        const key = dayKey(o.created_at as string)
-        const prev = dayMap.get(key) ?? { at: o.created_at as string, comenzi: 0, revenue: 0 }
-        prev.comenzi += 1
-        dayMap.set(key, prev)
-      }
-      for (const o of paidOrders) {
-        const key = dayKey(o.paid_at as string)
-        const prev = dayMap.get(key) ?? { at: o.paid_at as string, comenzi: 0, revenue: 0 }
-        prev.revenue += Number(o.paid_amount ?? o.total ?? 0)
-        dayMap.set(key, prev)
-      }
-      setChartData(Array.from(dayMap.entries()).map(([zi, v]) => ({ zi, ...v })))
+      // ── Totalurile pe zi ale graficului (agregare client-side) ──
+      // Comenzile (count) pe ziua created_at; venitul pe ziua paid_at
+      // (consecvent cu metricile de mai sus), ambele în fusul zilei de
+      // raportare (`reportDayTotals`, lib/dailySeries.ts). Seria cu FIECARE zi
+      // a intervalului se construiește la randare (`chartSeries`), deci ordinea
+      // barelor nu mai depinde de ordinea în care apar zilele aici.
+      setDayTotals({ from: range.from, to: range.to, totals: reportDayTotals(allOrders, paidOrders, timeZone) })
 
       // ── Top products — same orders, consistent data ──
       const orderIds = allOrders.map((o) => o.id as string)
@@ -569,13 +583,15 @@ export default function ReportsTab({ restaurantId, fiscalReports = true, timeZon
   // ─── Export CSV ──────────────────────────────────────────────
   function exportCsv() {
     const label = periodLabelT(tr, locale, period, range.from, range.to)
-    const { filename, content } = buildReportCsv(tr, label, {
-      metrics,
-      topProducts,
-      waiterSales,
-      categorySales,
-      hourlySales,
-    })
+    // Separatorul și virgula zecimală urmează limba UTILIZATORULUI (formatul,
+    // ca `locale`), nu limba dicționarului servit.
+    const { filename, content } = buildReportCsv(
+      tr,
+      label,
+      range,
+      { metrics, topProducts, waiterSales, categorySales, hourlySales },
+      reportCsvDialect(uiLang),
+    )
     downloadCsv(filename, content)
   }
 
@@ -681,6 +697,14 @@ export default function ReportsTab({ restaurantId, fiscalReports = true, timeZon
   } = metrics
   const qrPct = totalOrders > 0 ? Math.round((qrOrders / totalOrders) * 100) : 0
   const waiterPct = 100 - qrPct
+  // Punctele graficului: eticheta e ziua (formatul limbii utilizatorului); pe
+  // săptămâni prima ei zi, cu anul când intervalul trece peste un an.
+  const labelWithYear = series ? series.granularity === 'week' && seriesSpansYears(series) : false
+  const chartPoints = (series?.points ?? []).map((p) => ({
+    zi: seriesPointLabel(p, locale, labelWithYear),
+    revenue: p.revenue,
+    orders: p.orders,
+  }))
 
   if (error)
     return (
@@ -1059,8 +1083,12 @@ export default function ReportsTab({ restaurantId, fiscalReports = true, timeZon
             </div>
           </div>
 
-          {/* Chart venit zilnic — doar pe Plan 3 (venit = fiscal). Pe Plan 1/2 ascuns. */}
-          {fiscalReports && chartData.length > 1 && (
+          {/* Graficul pe zile (lotul C6a: FIECARE zi a intervalului, cu 0 pe
+              zilele fără vânzări; peste 62 de zile pe săptămâni). Pe Planul 3
+              venitul (venit = fiscal); pe Planurile 1/2 numărul de comenzi —
+              evidența operațională, fără sume. O singură zi („Azi”) = fără
+              grafic, ca înainte. */}
+          {series && series.points.length > 1 && (
             <div
               style={{
                 background: D.s2,
@@ -1071,12 +1099,12 @@ export default function ReportsTab({ restaurantId, fiscalReports = true, timeZon
               }}
             >
               <div style={{ fontSize: '0.82rem', fontWeight: 600, color: D.t1, marginBottom: 14 }}>
-                {tr.t('chart_dailyTitle')}
+                {fiscalReports
+                  ? tr.t(series.granularity === 'week' ? 'chart_weeklyTitle' : 'chart_dailyTitle')
+                  : tr.t(series.granularity === 'week' ? 'chart_weeklyOrdersTitle' : 'chart_dailyOrdersTitle')}
               </div>
               <ResponsiveContainer width="100%" height={160}>
-                <BarChart
-                  data={chartData.map((d) => ({ ...d, zi: chartDayLabel(locale, d.at, timeZone) }))}
-                  margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
+                <BarChart data={chartPoints} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={D_RAW.border} vertical={false} />
                   <XAxis
                     dataKey="zi"
@@ -1088,6 +1116,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true, timeZon
                     tick={{ fill: D_RAW.t3, fontSize: 10 }}
                     axisLine={false}
                     tickLine={false}
+                    allowDecimals={fiscalReports}
                   />
                   <Tooltip
                     contentStyle={{
@@ -1097,9 +1126,17 @@ export default function ReportsTab({ restaurantId, fiscalReports = true, timeZon
                       fontSize: '0.8rem',
                       color: D.t1,
                     }}
-                    formatter={(v) => [`${Number(v ?? 0).toFixed(0)} lei`, tr.t('chart_revenue')]}
+                    formatter={(v: unknown) =>
+                      fiscalReports
+                        ? [`${Number(v ?? 0).toFixed(0)} lei`, tr.t('chart_revenue')]
+                        : [String(v ?? 0), tr.t('chart_orders')]
+                    }
                   />
-                  <Bar dataKey="revenue" fill={D_RAW.gold} radius={[3, 3, 0, 0]} />
+                  <Bar
+                    dataKey={fiscalReports ? 'revenue' : 'orders'}
+                    fill={fiscalReports ? D_RAW.gold : D_RAW.goldL}
+                    radius={[3, 3, 0, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
