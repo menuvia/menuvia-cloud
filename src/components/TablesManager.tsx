@@ -709,8 +709,12 @@ export default function TablesManager({
       }
       // Ordinea NATURALĂ (Masa 2 < Masa 10), nu cea de text a lui
       // `.order('name')`: lista, grupurile pe zonă și cardurile PDF-ului o
-      // moștenesc de aici (lib/tableSort.ts, lotul C5b).
-      const rows: TableRow[] = sortTablesByName<TableRow>(
+      // moștenesc de aici (lib/tableSort.ts, lotul C5b). FĂRĂ argument de tip
+      // explicit: tipul se deduce din rândurile mapate, iar clichetul TN5
+      // (tableSort.test.ts) caută numele funcției urmat DIRECT de paranteză —
+      // forma cu tipul între ele îl făcea roșu pe un apel corect. (Tiparul nu
+      // se scrie literal aici: un comentariu l-ar satisface și fără apel.)
+      const rows: TableRow[] = sortTablesByName(
         (tData || []).map((t: Record<string, unknown>) => ({
           ...(t as unknown as TableRow),
           active_token: tokenMap[t.id as string] || null,
