@@ -15,6 +15,12 @@
 //     CUNOSCUTĂ și o reîmprospătează în fundal. O citire eșuată NU șterge
 //     valoarea ținută (regula de la `productCount`: ultima valoare cunoscută,
 //     niciodată un 0 inventat).
+// (3) `everOrdered` are DOUĂ surse (citirea de existență de la montare și
+//     „Comenzi azi", reîmprospătată), deci răspunsurile lor pot sosi în altă
+//     ordine decât au plecat. Câștigă citirea PORNITĂ ultima, nu cea sosită
+//     ultima: o existență pornită la montare care se întoarce târziu cu „încă
+//     nicio comandă" nu rescrie comanda văzută între timp de „Comenzi azi"
+//     (recenzia lotului C1). Singura cale de scriere e `rememberOrderObservation`.
 // ─────────────────────────────────────────────────────────────
 import { supabase } from './supabase'
 
@@ -54,18 +60,53 @@ const EMPTY: HomeSetupSnapshot = {
 }
 
 const setupCache = new Map<string, HomeSetupSnapshot>()
+// Marca citirii care a scris ULTIMA OARĂ `everOrdered`, per restaurant.
+const orderMarks = new Map<string, number>()
+// Contor strict crescător, comun tuturor restaurantelor: ordinea de PLECARE.
+let orderReadSeq = 0
 
 /** Ce știm despre restaurant din vizitele anterioare din sesiune. */
 export function readHomeSetup(restaurantId: string): HomeSetupSnapshot {
   return setupCache.get(restaurantId) ?? EMPTY
 }
 
-/** Ține minte valori citite CU SUCCES (o eroare nu ajunge aici). */
-export function rememberHomeSetup(restaurantId: string, patch: Partial<HomeSetupSnapshot>): void {
+/**
+ * Ține minte valori citite CU SUCCES (o eroare nu ajunge aici). `everOrdered`
+ * nu trece pe aici: are două surse care se pot întrece, vezi
+ * `rememberOrderObservation`.
+ */
+export function rememberHomeSetup(
+  restaurantId: string,
+  patch: Partial<Omit<HomeSetupSnapshot, 'everOrdered'>>,
+): void {
   setupCache.set(restaurantId, { ...readHomeSetup(restaurantId), ...patch })
+}
+
+/** Marca unei citiri care observă comenzile; se ia ÎNAINTE de a pleca cererea. */
+export function beginOrderRead(): number {
+  orderReadSeq += 1
+  return orderReadSeq
+}
+
+/**
+ * Ține minte ce a observat citirea pornită la `mark` despre comenzile
+ * restaurantului, DOAR dacă nicio citire pornită după ea n-a scris deja.
+ * Întoarce `true` dacă observația a fost primită — apelantul își actualizează
+ * starea doar atunci, ca ecranul și cache-ul să nu se contrazică.
+ */
+export function rememberOrderObservation(
+  restaurantId: string,
+  mark: number,
+  everOrdered: boolean,
+): boolean {
+  if ((orderMarks.get(restaurantId) ?? 0) > mark) return false
+  orderMarks.set(restaurantId, mark)
+  setupCache.set(restaurantId, { ...readHomeSetup(restaurantId), everOrdered })
+  return true
 }
 
 /** Golește cache-ul (testele; aceeași fixtură de restaurant între teste). */
 export function clearHomeSetupCache(): void {
   setupCache.clear()
+  orderMarks.clear()
 }

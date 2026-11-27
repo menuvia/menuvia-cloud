@@ -77,7 +77,14 @@ const { failing, counts, codvia, bridge, rows, rpcState, gteCalls, held } = vi.h
   // Ține rezultatul citirii `${tabel}:${coloane}` până se rezolvă `gate` — ca
   // testul să vadă ecranul cât o reîmprospătare e ÎN ZBOR (HO5). Implicit oprit.
   // `all` ține TOATE citirile (lotul C1, HK6–HK8: o vizită pe Acasă cu rețea lentă).
-  held: { key: '', gate: null as Promise<void> | null, all: null as Promise<void> | null },
+  // `firstOrder` ține DOAR citirea de existență a primei comenzi (`orders`, `id`,
+  // limit 1, HK12): „Comenzi azi" are aceleași coloane, deci cheia nu le desparte.
+  held: {
+    key: '',
+    gate: null as Promise<void> | null,
+    all: null as Promise<void> | null,
+    firstOrder: null as Promise<void> | null,
+  },
   rpcState: { calls: 0, results: [] as Array<{ data: unknown; error: unknown }> },
   codvia: { open: null as boolean | null },
   // Starea casei pe care ar întoarce-o RPC-ul; hook-ul o dă DOAR când HomeTab
@@ -93,9 +100,14 @@ vi.mock('../../../lib/supabase', () => {
   function chain(table: string) {
     const b: Record<string, unknown> = {}
     let cols = ''
+    let limitN: number | null = null
     for (const m of ['eq', 'neq', 'gte', 'gt', 'in', 'not', 'limit', 'order']) {
       b[m] = vi.fn(() => b)
     }
+    b.limit = vi.fn((n: number) => {
+      limitN = n
+      return b
+    })
     b.gte = vi.fn((col: string, value: unknown) => {
       gteCalls.push({ table, col, value })
       return b
@@ -115,7 +127,12 @@ vi.mock('../../../lib/supabase', () => {
               count: counts[table] ?? 0,
               error: null,
             }
-      const gate = held.all ?? (held.gate && held.key === `${table}:${cols}` ? held.gate : null)
+      // Rezultatul e calculat la PLECARE (mai sus), poarta amână doar sosirea.
+      const existence = table === 'orders' && cols === 'id' && limitN === 1
+      const gate =
+        held.all ??
+        (existence && held.firstOrder ? held.firstOrder : null) ??
+        (held.gate && held.key === `${table}:${cols}` ? held.gate : null)
       return (gate ? gate.then(() => result) : Promise.resolve(result)).then(onFulfilled, onRejected)
     }
     return b
@@ -157,7 +174,7 @@ vi.mock('../../../hooks/useCodviaOrdersOpen', () => ({
 
 import HomeTab from '../HomeTab'
 import { supabase } from '../../../lib/supabase'
-import { clearHomeSetupCache } from '../../../lib/homeSetup'
+import { clearHomeSetupCache, readHomeSetup } from '../../../lib/homeSetup'
 import { surfaceFor } from '../../../lib/__tests__/planSurfaceFixtures'
 import { planUpsellTarget, type PlanSurface } from '../../../lib/planSurface'
 
@@ -241,6 +258,7 @@ beforeEach(() => {
   held.key = ''
   held.gate = null
   held.all = null
+  held.firstOrder = null
   // Lotul C1: cache-ul citirilor de setup e la nivel de MODUL, iar toate testele
   // folosesc restaurantul `r1` — fără golire, un test ar porni din cifrele altuia.
   clearHomeSetupCache()
@@ -772,6 +790,13 @@ describe('HomeTab — «Comenzi azi» se reîmprospătează', () => {
 //        Control pozitiv: aceeași fixtură ca HK10, cardul e pe pagină înainte.
 //        Mutația care pică: citirea fără `setEverOrdered(true)` (pasul derivat
 //        doar din cifra zilei — cardul reapărea la 5/6).
+//   HK12 citirea de EXISTENȚĂ pornită la montare, sosită DUPĂ o „Comenzi azi"
+//        pornită mai târziu care a văzut comanda, nu o rescrie cu „încă nicio
+//        comandă" (recenzia CodeRabbit pe #394): când cifra zilei cade la 0,
+//        cardul nu reapare, iar cache-ul rămâne `everOrdered: true`. Control
+//        pozitiv: înainte de comandă cardul e pe pagină, 5/6. Mutațiile care
+//        pică: citirea de existență fără `rememberOrderObservation` (scrie
+//        direct în stare și în cache) și marca luată la SOSIRE în loc de plecare.
 
 // Ține minte dacă textul cardului a intrat VREODATĂ în DOM: înregistrarea unui
 // MutationObserver păstrează nodul adăugat chiar dacă React îl scoate imediat.
@@ -993,6 +1018,47 @@ describe('HomeTab — pași adevărați și o singură listă (lotul C1)', () =>
       await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^0$/))
       expect(card.seen()).toBe(false)
       expect(screen.getByRole('button', { name: 'Invită echipa' })).toBeInTheDocument()
+    } finally {
+      card.stop()
+    }
+  })
+
+  it('HK12 existența sosită târziu nu rescrie comanda văzută între timp', async () => {
+    counts.orders = 0
+    // Prima vizită: nicio comandă — „nu" ajunge în cache.
+    const first = renderHome(plan('growth'))
+    expect(await screen.findByRole('button', { name: FIRST_ORDER_STEP })).toBeInTheDocument()
+    first.unmount()
+    // A doua vizită: citirea de existență pleacă (vede „încă nicio comandă") și
+    // rămâne în zbor; restul citirilor se așază.
+    const existence = deferred()
+    held.firstOrder = existence.promise
+    renderHome(plan('growth'))
+    // Control pozitiv: ecranul pornește din cache, singurul pas rămas e comanda.
+    expect(await screen.findByRole('button', { name: FIRST_ORDER_STEP })).toBeInTheDocument()
+    expect(screen.getByText('5/6 pași completați')).toBeInTheDocument()
+    await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^0$/))
+    // Comanda de test intră; „Comenzi azi" (pornită DUPĂ existență) o vede.
+    counts.orders = 1
+    returnToPage()
+    await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^1$/))
+    await waitFor(() => expect(screen.queryByText('Configurare restaurant')).toBeNull())
+    // Abia acum sosește existența, cu rezultatul de la plecare: „nu".
+    await act(async () => {
+      existence.resolve()
+      await existence.promise
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    expect(readHomeSetup('r1').everOrdered).toBe(true)
+    const card = watchSetupCard()
+    try {
+      // Cifra zilei cade la 0 (ziua nouă): pasul rămâne făcut.
+      counts.orders = 0
+      returnToPage()
+      await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^0$/))
+      expect(card.seen()).toBe(false)
+      expect(screen.getByRole('button', { name: 'Invită echipa' })).toBeInTheDocument()
+      expect(readHomeSetup('r1').everOrdered).toBe(true)
     } finally {
       card.stop()
     }

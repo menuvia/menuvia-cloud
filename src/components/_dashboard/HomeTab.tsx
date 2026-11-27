@@ -28,7 +28,12 @@ import { AgentCard } from './AgentCard'
 import { DEFAULT_RESTAURANT_TZ, toZonedYMD, zonedDayRange } from '../../lib/dates'
 import { useInView, revealStyle } from '../../lib/motion'
 import type { HomeNavTarget } from '../../lib/dashboardNav'
-import { readHomeSetup, rememberHomeSetup } from '../../lib/homeSetup'
+import {
+  beginOrderRead,
+  readHomeSetup,
+  rememberHomeSetup,
+  rememberOrderObservation,
+} from '../../lib/homeSetup'
 import { useT } from '../../i18n/useT'
 import { homeNs } from '../../i18n/ns/home'
 import { commonNs } from '../../i18n/ns/common'
@@ -514,7 +519,11 @@ export default function HomeTab({
     // Prima comandă (oricând, inclusiv test) — pasul de ACTIVARE din checklist.
     // Test de EXISTENȚĂ (limit 1), nu count exact: count-ul agrega toate
     // comenzile restaurantului la fiecare mount, pentru un boolean care
-    // devine permanent true după prima comandă (OPT-1).
+    // devine permanent true după prima comandă (OPT-1). Marca se ia ÎNAINTE de
+    // cerere: dacă răspunsul sosește după o „Comenzi azi" pornită mai târziu
+    // care a văzut o comandă, „încă nicio comandă" de aici e informație mai
+    // veche și nu rescrie nici starea, nici cache-ul (HK12).
+    const existenceMark = beginOrderRead()
     counts.push(
       supabase
         .from('orders')
@@ -526,8 +535,9 @@ export default function HomeTab({
             if (!error) {
               // `!!length`, nu `length > 0`: SK5 citea textul de după `>` ca JSX.
               const ordered = !!data?.length
-              rememberHomeSetup(restaurantId, { everOrdered: ordered })
-              if (alive) setEverOrdered(ordered)
+              if (rememberOrderObservation(restaurantId, existenceMark, ordered) && alive) {
+                setEverOrdered(ordered)
+              }
             }
             settle('firstOrder')
           },
@@ -610,6 +620,7 @@ export default function HomeTab({
       // Aceeași graniță de „azi" ca ReportsTab (lib/dates, DST-aware), recalculată
       // la FIECARE rulare: după miezul nopții cifra trece singură pe ziua nouă.
       // O citire eșuată intră în `failed` („—" + „Reîncearcă"), nu „…" la nesfârșit.
+      const ordersMark = beginOrderRead()
       jobs.push(
         supabase
           .from('orders')
@@ -625,13 +636,14 @@ export default function HomeTab({
             // și cardul reapărea cu „Prima comandă de test" de făcut, HK10) și în
             // stare (altfel, după miezul nopții sau după anularea comenzii, cifra
             // cădea la 0 și pasul se debifa pe același ecran, HK11). Doar pe > 0:
-            // un 0 azi nu spune nimic despre ieri.
+            // un 0 azi nu spune nimic despre ieri. Ca observație, are marca
+            // plecării: o citire de existență pornită ÎNAINTEA ei nu o mai
+            // poate rescrie cu „nu" (HK12).
             const n = count ?? 0
-            const orderedToday = n !== 0
-            if (orderedToday) rememberHomeSetup(restaurantId, { everOrdered: true })
+            const remembered = n !== 0 && rememberOrderObservation(restaurantId, ordersMark, true)
             if (!alive) return
             setOrdersToday(n)
-            if (orderedToday) setEverOrdered(true)
+            if (remembered) setEverOrdered(true)
             ok('orders')
           }),
       )
@@ -744,8 +756,9 @@ export default function HomeTab({
   // proaspătă — altfel ecranul arăta „Comenzi azi: 1" lângă „Prima comandă de
   // test" încă de făcut, până la o remontare (recenzia O7c, HO6). Din lotul C1
   // citirea „Comenzi azi" scrie ea însăși `everOrdered: true` (stare + cache,
-  // HK10/HK11); derivarea rămâne pentru cursa în care citirea de existență
-  // (pornită la montare) sosește DUPĂ ea cu „încă nicio comandă".
+  // HK10/HK11), iar o citire de existență pornită înaintea ei nu o rescrie
+  // (HK12). Derivarea rămâne ca regulă de ECRAN: „Comenzi azi: 1" nu stă
+  // niciodată lângă „Prima comandă de test" de făcut.
   const orderedOnce: boolean | null = (ordersToday ?? 0) > 0 ? true : everOrdered
   const inFlight = (k: SetupRead): boolean => !setupSettled.has(k)
   // Ordinea e cea în care pașii chiar se pot face (lotul C1): categoriile ÎNTÂI.

@@ -19,6 +19,13 @@
 //   HV4  cache-ul: necunoscut → toate `null`; valorile se îmbină pe restaurant,
 //        nu se scurg la alt restaurant; golirea uită tot. Mutația care pică:
 //        `set(id, patch)` fără îmbinare (a doua citire șterge prima).
+//   HV5  `everOrdered` din două citiri care se întrec (recenzia lotului C1): o
+//        citire pornită ÎNAINTEA unei observații primite nu o rescrie, oricând
+//        ar sosi; una pornită DUPĂ se aplică, și cu „nu" (calea inițială, fără
+//        observație mai nouă, rămâne); marca e per restaurant; golirea o uită.
+//        Mutațiile care pică: fără verificarea mărcii (răspunsul vechi „nu"
+//        câștigă), marca globală în loc de per restaurant, golirea care păstrează
+//        marcile.
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 type Row = Record<string, unknown>
@@ -65,10 +72,12 @@ vi.mock('../supabase', () => {
 })
 
 import {
+  beginOrderRead,
   clearHomeSetupCache,
   countMenuProducts,
   readHomeSetup,
   rememberHomeSetup,
+  rememberOrderObservation,
 } from '../homeSetup'
 import { isGuestVisibleProduct } from '../menuTranslations'
 
@@ -141,7 +150,8 @@ describe('cache-ul citirilor de setup', () => {
       everOrdered: null,
     })
     rememberHomeSetup('r1', { tablesCount: 4 })
-    rememberHomeSetup('r1', { categoriesCount: 2, everOrdered: true })
+    rememberHomeSetup('r1', { categoriesCount: 2 })
+    expect(rememberOrderObservation('r1', beginOrderRead(), true)).toBe(true)
     expect(readHomeSetup('r1')).toEqual({
       tablesCount: 4,
       categoriesCount: 2,
@@ -152,5 +162,25 @@ describe('cache-ul citirilor de setup', () => {
     expect(readHomeSetup('r2').tablesCount).toBeNull()
     clearHomeSetupCache()
     expect(readHomeSetup('r1').tablesCount).toBeNull()
+  })
+
+  it('HV5 câștigă citirea pornită ultima, nu cea sosită ultima', () => {
+    // Existența pleacă la montare, „Comenzi azi" după ea.
+    const existence = beginOrderRead()
+    const today = beginOrderRead()
+    expect(rememberOrderObservation('r1', today, true)).toBe(true)
+    // Existența sosește târziu cu „încă nicio comandă": informație mai veche.
+    expect(rememberOrderObservation('r1', existence, false)).toBe(false)
+    expect(readHomeSetup('r1').everOrdered).toBe(true)
+    // O citire pornită DUPĂ observație se aplică, și cu „nu".
+    expect(rememberOrderObservation('r1', beginOrderRead(), false)).toBe(true)
+    expect(readHomeSetup('r1').everOrdered).toBe(false)
+    // Alt restaurant nu e blocat de marca lui r1 (calea inițială rămâne).
+    expect(rememberOrderObservation('r2', existence, false)).toBe(true)
+    expect(readHomeSetup('r2').everOrdered).toBe(false)
+    // Golirea uită și marcile.
+    clearHomeSetupCache()
+    expect(rememberOrderObservation('r1', existence, false)).toBe(true)
+    expect(readHomeSetup('r1').everOrdered).toBe(false)
   })
 })
