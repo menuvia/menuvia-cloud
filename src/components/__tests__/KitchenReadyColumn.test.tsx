@@ -10,9 +10,17 @@
 //        minute; cele mai vechi stau într-un rând „+2 așteaptă ospătarul”
 //        (aria-expanded=false) care, apăsat, le arată; totalul coloanei le
 //        numără pe toate. Mutația care pică: coloana randată fără
-//        `splitReadyColumn` (toate cardurile la vedere, fără rând).
+//        `splitReadyColumn` (toate cardurile la vedere, fără rând). Plasările
+//        sunt alese ca FIFO să INVERSEZE ambele grupe ([T4, T1] și [T3, T2]),
+//        deci pică și `sortByDue(split.recent)` / `sortByDue(split.waiting)`.
 //   KG7  ordinea din „Gata” e pe `ready_at`, cea mai recentă sus — nu FIFO pe
-//        plasare. Mutația care pică: `sortByDue` păstrat pe coloana „Gata”.
+//        plasare. Mutația care pică: `sortByDue` păstrat pe coloana „Gata”,
+//        inclusiv aplicat peste `split.recent`. Fixtura e aleasă ca FIFO pe
+//        plasare ([T6, T7, T5]) și ordinea de intrare ([T6, T5, T7]) să difere
+//        AMÂNDOUĂ de cea așteptată ([T5, T7, T6]) — prima variantă avea
+//        plasările în aceeași ordine ca `ready_at`, deci trecea și cu mutația.
+//        Control pozitiv: toate trei sunt sub 10 minute, deci fără rândul
+//        „așteaptă” (ordinea nu e mascată de împărțire).
 //   KG8  o comandă trece în rândul „așteaptă” odată cu trecerea timpului, fără
 //        niciun eveniment (ceasul paginii, 30 s). Mutația care pică: ceasul
 //        de 30 s scos (pagina se re-randa doar la o comandă nouă).
@@ -124,8 +132,15 @@ describe('KitchenOrderCard — cardul gata e calm', () => {
 
 describe('KitchenPage — coloana „Gata de servit”', () => {
   it('KG6 doar ultimele 10 minute la vedere; restul în „+2 așteaptă ospătarul”, care se deschide', () => {
+    // Plasările urmează firul real (plasată mai devreme → gata mai devreme),
+    // deci FIFO ar da [T4, T1] la vedere și [T3, T2] la deschidere.
     useOrdersMock.mockReturnValue(
-      ordersHook([ready('T1', 2), ready('T2', 12), ready('T3', 30), ready('T4', 5)]),
+      ordersHook([
+        ready('T1', 2, 20),
+        ready('T2', 12, 45),
+        ready('T3', 30, 60),
+        ready('T4', 5, 40),
+      ]),
     )
     render(<KitchenPage />)
     expect(readyTables()).toEqual(['T1', 'T4'])
@@ -139,9 +154,10 @@ describe('KitchenPage — coloana „Gata de servit”', () => {
   })
 
   it('KG7 ordinea e pe ready_at (cea mai recentă sus), nu pe plasare', () => {
-    // T5 plasată prima (acum 50 de min), dar gata abia acum un minut.
+    // T6 plasată prima (acum 50 de min), dar gata cel mai demult; T5 plasată
+    // ultima (acum 20), gata acum un minut. FIFO pe plasare ar da [T6, T7, T5].
     useOrdersMock.mockReturnValue(
-      ordersHook([ready('T6', 8, 20), ready('T5', 1, 50), ready('T7', 4, 30)]),
+      ordersHook([ready('T6', 8, 50), ready('T5', 1, 20), ready('T7', 4, 30)]),
     )
     render(<KitchenPage />)
     expect(readyTables()).toEqual(['T5', 'T7', 'T6'])
