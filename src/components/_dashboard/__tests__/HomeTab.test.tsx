@@ -3,11 +3,13 @@
 // (code-health-error-ignored-guards).
 //
 //   HT1  plan NECUNOSCUT (tier null), pașii de tier 1 toți făcuți: fără
-//        „totul e gata ✓", fără upsell, fără checklist; cifra Configurare e „…"
-//        Mutația care pică: codul vechi (tier 1 implicit) — „4/4 totul e gata ✓"
-//        și cardul „Vrei să primești comenzi…" pentru un plătitor.
-//   HT2  control pozitiv: plan 2 CUNOSCUT, toți pașii făcuți → „totul e gata ✓"
-//   HT3  productCount necunoscut (null): „Produse active" = „…", pasul „Adaugă
+//        upsell, fără checklist și (lotul C1) fără metrica „Configurare”.
+//        Mutația care pică: codul vechi (tier 1 implicit) — cardul „Vrei să
+//        primești comenzi…" pentru un plătitor.
+//   HT2  control pozitiv: plan 2 CUNOSCUT, toți pașii făcuți → cardul de
+//        configurare lipsește, iar acțiunile rapide ale pașilor sunt toate pe
+//        pagină (lotul C1: „totul e gata ✓” era metrica scoasă).
+//   HT3  productCount necunoscut (null): „Produse în meniu" = „…", pasul „Adaugă
 //        produse" e „stare necunoscută" (nu „de făcut"), iar setup-ul NU e gata
 //        Mutația care pică: `done: productCount > 0` (null → pas „de făcut").
 //   HT4  citirea categoriilor EȘUEAZĂ → pasul e „stare necunoscută", nu nebifat
@@ -29,8 +31,8 @@
 //        acolo de SettingsTabPlan SA1/SA2), deci pe Acasă nu mai apare pentru
 //        nimeni — HR2 cere acum ABSENȚA lui (o a doua copie ar fi exact
 //        dublura pe care lotul o scoate). Mutația care pică: cardul readus pe Acasă.
-//   HR3  personalul NE-admin: fără acțiunile de editare („Adaugă produs",
-//        „Generează QR-uri", „Suporturi QR fizice"); „Vezi meniul public"
+//   HR3  personalul NE-admin: fără acțiunile de editare („Adaugă produse",
+//        „Generează QR-uri…", „Suporturi QR fizice"); „Vezi meniul public"
 //        rămâne (control). Mutația care pică: acțiunile randate necondiționat.
 //
 // Lotul P (nov 2026): HomeTab primește `surface` (planSurface) + `upsell`
@@ -74,7 +76,15 @@ const { failing, counts, codvia, bridge, rows, rpcState, gteCalls, held } = vi.h
   gteCalls: [] as Array<{ table: string; col: string; value: unknown }>,
   // Ține rezultatul citirii `${tabel}:${coloane}` până se rezolvă `gate` — ca
   // testul să vadă ecranul cât o reîmprospătare e ÎN ZBOR (HO5). Implicit oprit.
-  held: { key: '', gate: null as Promise<void> | null },
+  // `all` ține TOATE citirile (lotul C1, HK6–HK8: o vizită pe Acasă cu rețea lentă).
+  // `firstOrder` ține DOAR citirea de existență a primei comenzi (`orders`, `id`,
+  // limit 1, HK12): „Comenzi azi" are aceleași coloane, deci cheia nu le desparte.
+  held: {
+    key: '',
+    gate: null as Promise<void> | null,
+    all: null as Promise<void> | null,
+    firstOrder: null as Promise<void> | null,
+  },
   rpcState: { calls: 0, results: [] as Array<{ data: unknown; error: unknown }> },
   codvia: { open: null as boolean | null },
   // Starea casei pe care ar întoarce-o RPC-ul; hook-ul o dă DOAR când HomeTab
@@ -90,9 +100,14 @@ vi.mock('../../../lib/supabase', () => {
   function chain(table: string) {
     const b: Record<string, unknown> = {}
     let cols = ''
+    let limitN: number | null = null
     for (const m of ['eq', 'neq', 'gte', 'gt', 'in', 'not', 'limit', 'order']) {
       b[m] = vi.fn(() => b)
     }
+    b.limit = vi.fn((n: number) => {
+      limitN = n
+      return b
+    })
     b.gte = vi.fn((col: string, value: unknown) => {
       gteCalls.push({ table, col, value })
       return b
@@ -112,7 +127,12 @@ vi.mock('../../../lib/supabase', () => {
               count: counts[table] ?? 0,
               error: null,
             }
-      const gate = held.gate && held.key === `${table}:${cols}` ? held.gate : null
+      // Rezultatul e calculat la PLECARE (mai sus), poarta amână doar sosirea.
+      const existence = table === 'orders' && cols === 'id' && limitN === 1
+      const gate =
+        held.all ??
+        (existence && held.firstOrder ? held.firstOrder : null) ??
+        (held.gate && held.key === `${table}:${cols}` ? held.gate : null)
       return (gate ? gate.then(() => result) : Promise.resolve(result)).then(onFulfilled, onRejected)
     }
     return b
@@ -154,6 +174,7 @@ vi.mock('../../../hooks/useCodviaOrdersOpen', () => ({
 
 import HomeTab from '../HomeTab'
 import { supabase } from '../../../lib/supabase'
+import { clearHomeSetupCache, readHomeSetup } from '../../../lib/homeSetup'
 import { surfaceFor } from '../../../lib/__tests__/planSurfaceFixtures'
 import { planUpsellTarget, type PlanSurface } from '../../../lib/planSurface'
 
@@ -165,8 +186,8 @@ function plan(p: 'starter' | 'growth' | 'pro' | null): Pick<Props, 'surface' | '
   return { surface, upsell: planUpsellTarget(surface, { fiscalMarket: true }) }
 }
 
-function renderHome(over: Partial<Props> = {}) {
-  const props: Props = {
+function homeProps(over: Partial<Props> = {}): Props {
+  return {
     restaurantId: 'r1',
     restaurantName: 'Bistro Test',
     ...plan('starter'),
@@ -176,11 +197,15 @@ function renderHome(over: Partial<Props> = {}) {
     pickupOnly: false,
     onNavigate: vi.fn(),
     onViewMenu: vi.fn(),
+    onViewOrders: vi.fn(),
     onPricing: vi.fn(),
     onOrderQrStands: vi.fn(),
     ...over,
   }
-  return render(<HomeTab {...props} />)
+}
+
+function renderHome(over: Partial<Props> = {}) {
+  return render(<HomeTab {...homeProps(over)} />)
 }
 
 // Valoarea unei metrici = elementul de după eticheta ei (MetricCard).
@@ -232,6 +257,11 @@ beforeEach(() => {
   gteCalls.length = 0
   held.key = ''
   held.gate = null
+  held.all = null
+  held.firstOrder = null
+  // Lotul C1: cache-ul citirilor de setup e la nivel de MODUL, iar toate testele
+  // folosesc restaurantul `r1` — fără golire, un test ar porni din cifrele altuia.
+  clearHomeSetupCache()
   for (const k of Object.keys(counts)) delete counts[k]
   Object.assign(counts, {
     tables: 4,
@@ -239,27 +269,38 @@ beforeEach(() => {
     orders: 3,
     restaurant_memberships: 3,
   })
-  // „Verifică meniul public" e singurul pas fără DB (localStorage per restaurant).
+  // „Vezi meniul public" e singurul pas fără DB (localStorage per restaurant).
   localStorage.setItem('menuvia.menu_checked.r1', '1')
 })
 
+// Acțiunile rapide care repetă un pas (lotul C1): apar abia când pasul e făcut.
+// Toate patru pe pagină = setup-ul s-a așezat și e complet.
+const STEP_QUICK_ACTIONS = [
+  'Adaugă produse',
+  'Generează QR-uri pentru mese',
+  'Vezi meniul public',
+  'Invită echipa',
+] as const
+
 describe('HomeTab — planul necunoscut și citirile eșuate', () => {
-  it('HT1: plan necunoscut → fără „totul e gata", fără upsell, fără checklist', async () => {
+  it('HT1: plan necunoscut → fără upsell, fără checklist, fără metrica „Configurare"', async () => {
     renderHome(plan(null))
     await waitFor(() => expect(metric('QR-uri active')).toHaveTextContent('4'))
-    expect(metric('Configurare')).toHaveTextContent('…')
-    expect(screen.queryByText('totul e gata ✓')).toBeNull()
+    expect(screen.queryByText('Configurare')).toBeNull()
     expect(upsellRegion()).toBeNull()
     expect(screen.queryByText('Configurare restaurant')).toBeNull()
     // Nici cifrele de comenzi (Plan 2+) nu se pretind cunoscute.
     expect(screen.queryByText('Comenzi azi')).toBeNull()
   })
 
-  it('HT2: control pozitiv — plan 2 cunoscut, totul făcut → „totul e gata ✓"', async () => {
+  it('HT2: control pozitiv — plan 2 cunoscut, totul făcut → fără card, toate acțiunile', async () => {
     renderHome(plan('growth'))
-    await waitFor(() => expect(screen.getByText('totul e gata ✓')).toBeInTheDocument())
-    expect(metric('Configurare')).toHaveTextContent('6/6')
+    for (const name of STEP_QUICK_ACTIONS) {
+      expect(await screen.findByRole('button', { name })).toBeInTheDocument()
+    }
     expect(screen.queryByText('Configurare restaurant')).toBeNull()
+    expect(screen.queryByText('Configurare')).toBeNull()
+    expect(screen.queryByText('totul e gata ✓')).toBeNull()
     // Lotul P: pe Planul 2 upsell-ul e „Plata la masă", nu cel de Planul 1.
     expect(screen.queryByText(OLD_UPSELL)).toBeNull()
     expect(upsellRegion()).toHaveAccessibleName('Ofertă: Plata la masă')
@@ -268,11 +309,11 @@ describe('HomeTab — planul necunoscut și citirile eșuate', () => {
   it('HT3: numărul de produse necunoscut nu devine 0 și nici pas „de făcut"', async () => {
     renderHome({ ...plan('growth'), productCount: null })
     await waitFor(() => expect(metric('QR-uri active')).toHaveTextContent('4'))
-    expect(metric('Produse active')).toHaveTextContent('…')
+    expect(metric('Produse în meniu')).toHaveTextContent('…')
     expect(
       await screen.findByRole('button', { name: 'Adaugă produse (stare necunoscută)' }),
     ).toBeInTheDocument()
-    expect(screen.queryByText('totul e gata ✓')).toBeNull()
+    expect(screen.getByText('Configurare restaurant')).toBeInTheDocument()
   })
 
   it('HT4: citirea categoriilor eșuează → pas „stare necunoscută", nu nebifat', async () => {
@@ -280,14 +321,15 @@ describe('HomeTab — planul necunoscut și citirile eșuate', () => {
     renderHome(plan('growth'))
     // Întâi citirea-soră (mesele, același lot) s-a așezat — deci și cea eșuată a
     // categoriilor. Fără așteptare, pasul era „necunoscut" doar fiindcă nimic nu
-    // sosise încă, iar mutația „eroare → 0" trecea testul.
+    // sosise încă, iar mutația „eroare → 0" trecea testul. Lotul C1: un pas
+    // necunoscut DUPĂ o citire eșuată nu mai e „în zbor", deci cardul apare.
     await waitFor(() => expect(metric('QR-uri active')).toHaveTextContent('4'))
     expect(
-      screen.getByRole('button', { name: 'Creează categorii (stare necunoscută)' }),
+      await screen.findByRole('button', { name: 'Creează categorii (stare necunoscută)' }),
     ).toBeInTheDocument()
     // Pașii cunoscuți rămân bifați corect lângă el.
     expect(screen.getByRole('button', { name: 'Adaugă produse (completat)' })).toBeInTheDocument()
-    expect(screen.queryByText('totul e gata ✓')).toBeNull()
+    expect(screen.getByText('Configurare restaurant')).toBeInTheDocument()
   })
 
   it('HT5: control pozitiv — tier 1 CUNOSCUT → upsell-ul apare', async () => {
@@ -318,7 +360,7 @@ describe('HomeTab — „Suporturi QR fizice" doar cât magazinul primește come
       const { unmount } = renderHome(plan('growth'))
       expect(await screen.findByText('Acțiuni rapide')).toBeInTheDocument()
       // Control: celelalte acțiuni sunt acolo.
-      expect(screen.getByRole('button', { name: 'Adaugă produs' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Adaugă produse' })).toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Suporturi QR fizice' })).toBeNull()
       unmount()
     }
@@ -342,7 +384,7 @@ describe('HomeTab — fiecare rol vede doar ce poate face', () => {
     expect(screen.queryByText('card-abonament')).toBeNull()
     expect(upsellRegion()).toBeNull()
     // Editarea rămâne a lui (control): e admin.
-    expect(screen.getByRole('button', { name: 'Adaugă produs' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Adaugă produse' })).toBeInTheDocument()
   })
 
   it('HR2: control pozitiv — proprietarul vede upsell-ul; abonamentul e în Setări', async () => {
@@ -358,8 +400,8 @@ describe('HomeTab — fiecare rol vede doar ce poate face', () => {
     renderHome({ ...plan('growth'), isAdmin: false, isOwner: false })
     expect(await screen.findByText('Acțiuni rapide')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Vezi meniul public' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Adaugă produs' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Generează QR-uri' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Adaugă produse' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Generează QR-uri/ })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Suporturi QR fizice' })).toBeNull()
     expect(screen.queryByText('card-abonament')).toBeNull()
   })
@@ -561,12 +603,17 @@ describe('HomeTab — cifrele zilei (lotul D)', () => {
 //        configurare NU reapare la un local configurat. Mutațiile care pică:
 //        fix-ul naiv (`reloadKey` adăugat efectului de setup, care golește
 //        pașii la „…") și `setOrdersToday(null)` la începutul efectului de citire.
+//        (Remontarea — fiecare revenire pe Acasă — e acoperită de HK6–HK8.)
 //   HO6  prima comandă de azi, sosită cu Acasă deschisă, bifează și pasul „Prima
 //        comandă de test" (recenzia O7c): `everOrdered` e citit o singură dată,
 //        dar „Comenzi azi" se reîmprospătează — fără derivare ecranul arăta
 //        „Comenzi azi: 7" lângă pasul încă de făcut. Echipa rămâne nefăcută, ca
 //        să rămână cardul (la 6/6 dispare). Control pozitiv: întâi „0" și pasul
-//        nebifat (4/6). Mutația care pică: pasul lăsat pe `done: everOrdered`.
+//        nebifat (4/6, din progresul cardului — lotul C1 a scos metrica
+//        „Configurare"). Mutația care pică: pasul lăsat pe `done: everOrdered`
+//        ÎMPREUNĂ cu citirea „Comenzi azi" fără `setEverOrdered(true)` — din
+//        recenzia lotului C1 sunt două căi spre aceeași bifă, iar fiecare singură
+//        ține HO6 verde (calea din citire e păzită separat de HK10/HK11).
 //   HO7  lotul G2b: cu `timeZone` = America/New_York, „azi” e ziua LOCALULUI —
 //        la 4 nov 03:30Z (22:30 pe 3 la New York) granița e 3 nov 05:00Z, iar
 //        după miezul nopții de acolo (4 nov 05:10Z) trece pe 4 nov 05:00Z.
@@ -656,7 +703,9 @@ describe('HomeTab — «Comenzi azi» se reîmprospătează', () => {
 
   it('HO5 în timpul reîmprospătării: cifra veche rămâne, configurarea nu reapare', async () => {
     renderHome(plan('growth'))
-    await waitFor(() => expect(screen.getByText('totul e gata ✓')).toBeInTheDocument())
+    // Lotul C1: „setup complet" = acțiunea rapidă a ultimului pas e pe pagină
+    // (apare doar cu pasul făcut), fostul „totul e gata ✓" fiind metrica scoasă.
+    expect(await screen.findByRole('button', { name: 'Invită echipa' })).toBeInTheDocument()
     await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^3$/))
     const d = deferred()
     held.key = 'orders:id'
@@ -667,7 +716,7 @@ describe('HomeTab — «Comenzi azi» se reîmprospătează', () => {
     // Citirea de reîmprospătare a plecat și e ținută în zbor.
     await waitFor(() => expect(createdAtBounds().length).toBe(n + 1))
     expect(metric('Comenzi azi')).toHaveTextContent(/^3$/)
-    expect(screen.getByText('totul e gata ✓')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Invită echipa' })).toBeInTheDocument()
     expect(screen.queryByText('Configurare restaurant')).toBeNull()
     d.resolve()
     await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^7$/))
@@ -681,12 +730,337 @@ describe('HomeTab — «Comenzi azi» se reîmprospătează', () => {
     // Control pozitiv: zero comenzi → pasul e „de făcut" (nu „necunoscut").
     expect(await screen.findByRole('button', { name: STEP })).toBeInTheDocument()
     await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^0$/))
-    await waitFor(() => expect(metric('Configurare')).toHaveTextContent('4/6'))
+    // Progresul se citește din card (lotul C1: metrica „Configurare" a ieșit).
+    expect(screen.getByText('4/6 pași completați')).toBeInTheDocument()
     counts.orders = 7
     returnToPage()
     await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^7$/))
     expect(await screen.findByRole('button', { name: `${STEP} (completat)` })).toBeInTheDocument()
-    expect(metric('Configurare')).toHaveTextContent('5/6')
+    expect(screen.getByText('5/6 pași completați')).toBeInTheDocument()
     expect(screen.getByText('Configurare restaurant')).toBeInTheDocument()
+  })
+})
+
+// ─── Lotul C1: pași adevărați și o singură listă ───────────────────────────
+//   HK1  categoriile sunt PRIMUL pas, înaintea produselor (un produs fără
+//        categorie nu apare oaspeților), iar cu 0 produse în meniu — ce dă
+//        `countMenuProducts` pentru 3 produse „Fără categorie" (HV1) — pasul
+//        „Adaugă produse" rămâne de făcut și NU se repetă ca acțiune rapidă.
+//        Mutațiile care pică: ordinea veche (produse, apoi categorii) și
+//        acțiunea rapidă randată fără `!stepOnCard('products')` (două butoane).
+//   HK2  „Vezi comenzile" și cifra „Comenzi azi" (acum buton) deschid DIRECT
+//        comenzile (`onViewOrders`), nu fila-hub `comenzi`. Mutațiile care pică:
+//        `onNavigate(LIVE_ORDERS_TAB)` readus; cifra lăsată ne-buton.
+//   HK3  gate-ul e `planSurface.staff`, ca butonul din bara laterală, nu
+//        `ordering`: pe o suprafață cu comenzi dar fără echipă, nici acțiunea,
+//        nici cifra-buton. Mutația care pică: gate-ul vechi `hasOrdering`.
+//        Control pozitiv: HK2.
+//   HK4  o singură listă: cât cardul e pe pagină, pașii NEFĂCUȚI nu se repetă
+//        în „Acțiuni rapide", cei făcuți rămân, cu ACELEAȘI cuvinte; fără
+//        metrica „Configurare" și fără vechiul „Invită ospătar". Mutațiile care
+//        pică: acțiunile randate necondiționat; metrica readusă.
+//   HK5  „doar ridicare": pasul „Prima comandă de test — deschide meniul public…"
+//        deschide meniul public, nu fila Mese; acțiunea rapidă a QR-urilor e
+//        „Generează QR-uri" (fără „pentru mese"). Mutația care pică: pasul cu
+//        `target: 'mese'` (codul vechi).
+//   HK6  un local CONFIGURAT, cu citirile ținute în zbor: cardul de configurare
+//        NU apare nicio clipă (MutationObserver: un nod adăugat rămâne în
+//        înregistrare chiar dacă e scos imediat). Mutația care pică: cardul
+//        randat pe `!setupComplete` fără `!setupWaiting` (codul vechi — clipea
+//        la fiecare revenire pe Acasă).
+//   HK7  control pozitiv pentru HK6: cu un pas de făcut, cardul apare după ce
+//        citirile se așază, iar observatorul îl vede (HK6 nu e vacuu).
+//   HK8  a doua vizită în sesiune pornește din cache: cu citirile noi ținute în
+//        zbor, acțiunile pașilor făcuți și „QR-uri active" sunt deja pe ecran,
+//        fără card. Mutația care pică: stările pornite de la `null` (fără
+//        `readHomeSetup`).
+//   HK9  numărul de produse ÎN ZBOR (`productCountLoading`) ține cardul ascuns;
+//        sosit, nu-l mai aprinde. Mutația care pică: `loading` al pasului de
+//        produse fixat pe `false` (cardul apare cu „stare necunoscută"). HT3 e
+//        controlul pozitiv: null DUPĂ citire (eșuată) = pasul „necunoscut".
+//   HK10 prima comandă VĂZUTĂ în sesiune (prin „Comenzi azi", cu Acasă deschisă)
+//        ajunge în cache: la revenirea pe Acasă, cu citirile noi ținute în zbor,
+//        cardul nu reapare cu „Prima comandă de test" de făcut (recenzia
+//        lotului C1: cache-ul ținea `everOrdered: false` de la prima vizită).
+//        Control pozitiv: înainte de comandă cardul e pe pagină, 5/6. Mutația
+//        care pică: citirea „Comenzi azi" fără `rememberHomeSetup(…,
+//        { everOrdered: true })`.
+//   HK11 pe ACELAȘI ecran, „Comenzi azi" care cade înapoi la 0 (ziua nouă după
+//        miezul nopții, comanda anulată) nu debifează pasul: comanda a existat.
+//        Control pozitiv: aceeași fixtură ca HK10, cardul e pe pagină înainte.
+//        Mutația care pică: citirea fără `setEverOrdered(true)` (pasul derivat
+//        doar din cifra zilei — cardul reapărea la 5/6).
+//   HK12 citirea de EXISTENȚĂ pornită la montare, sosită DUPĂ o „Comenzi azi"
+//        pornită mai târziu care a văzut comanda, nu o rescrie cu „încă nicio
+//        comandă" (recenzia CodeRabbit pe #394): când cifra zilei cade la 0,
+//        cardul nu reapare, iar cache-ul rămâne `everOrdered: true`. Control
+//        pozitiv: înainte de comandă cardul e pe pagină, 5/6. Mutațiile care
+//        pică: citirea de existență fără `rememberOrderObservation` (scrie
+//        direct în stare și în cache) și marca luată la SOSIRE în loc de plecare.
+
+// Ține minte dacă textul cardului a intrat VREODATĂ în DOM: înregistrarea unui
+// MutationObserver păstrează nodul adăugat chiar dacă React îl scoate imediat.
+function watchSetupCard(): { seen: () => boolean; stop: () => void } {
+  let seen = false
+  const check = (n: Node): void => {
+    if (!seen && (n.textContent ?? '').includes('Configurare restaurant')) seen = true
+  }
+  const observer = new MutationObserver((records) => {
+    for (const r of records) r.addedNodes.forEach(check)
+  })
+  observer.observe(document.body, { childList: true, subtree: true })
+  return {
+    seen: () => {
+      for (const r of observer.takeRecords()) r.addedNodes.forEach(check)
+      return seen
+    },
+    stop: () => observer.disconnect(),
+  }
+}
+
+// Lasă să ruleze efectele și microtask-urile (citirile ținute rămân în zbor).
+async function settleTicks(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+}
+
+describe('HomeTab — pași adevărați și o singură listă (lotul C1)', () => {
+  it('HK1 categoriile primele; 0 produse în meniu → „Adaugă produse" de făcut, o singură dată', async () => {
+    renderHome({ ...plan('growth'), productCount: 0 })
+    const products = await screen.findByRole('button', { name: 'Adaugă produse' })
+    const categories = screen.getByRole('button', { name: 'Creează categorii (completat)' })
+    expect(categories.compareDocumentPosition(products) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Adaugă produse' })).toHaveLength(1)
+    expect(metric('Produse în meniu')).toHaveTextContent(/^0$/)
+  })
+
+  it('HK2 „Vezi comenzile" și cifra „Comenzi azi" deschid direct comenzile', async () => {
+    const user = userEvent.setup()
+    const onViewOrders = vi.fn()
+    const onNavigate = vi.fn()
+    renderHome({ ...plan('growth'), onViewOrders, onNavigate })
+    await user.click(await screen.findByRole('button', { name: 'Vezi comenzile' }))
+    expect(onViewOrders).toHaveBeenCalledTimes(1)
+    await user.click(await screen.findByRole('button', { name: 'Comenzi azi: 3. Vezi comenzile' }))
+    expect(onViewOrders).toHaveBeenCalledTimes(2)
+    expect(onNavigate).not.toHaveBeenCalledWith('comenzi')
+  })
+
+  it('HK3 fără echipă pe plan (staff false): nici acțiunea, nici cifra-buton', async () => {
+    const noStaff: PlanSurface = { ...surfaceFor('growth'), staff: false }
+    renderHome({ surface: noStaff, upsell: null })
+    await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^3$/))
+    expect(screen.queryByRole('button', { name: 'Vezi comenzile' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Comenzi azi/ })).toBeNull()
+  })
+
+  it('HK4 o singură listă: pașii nefăcuți nu se repetă în „Acțiuni rapide"', async () => {
+    counts.tables = 0
+    counts.restaurant_memberships = 1
+    renderHome(plan('growth'))
+    expect(await screen.findByText('Configurare restaurant')).toBeInTheDocument()
+    // Nefăcute: doar rândul de pe card (același nume, un singur buton).
+    expect(screen.getAllByRole('button', { name: 'Generează QR-uri pentru mese' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Invită echipa' })).toHaveLength(1)
+    // Făcute: rândul bifat pe card + acțiunea rapidă, cu aceleași cuvinte.
+    expect(screen.getByRole('button', { name: 'Adaugă produse (completat)' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Adaugă produse' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Vezi meniul public (completat)' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Vezi meniul public' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Invită ospătar' })).toBeNull()
+    expect(screen.queryByText('Configurare')).toBeNull()
+  })
+
+  it('HK5 „doar ridicare": comanda de test deschide meniul public, nu fila Mese', async () => {
+    counts.orders = 0
+    const onNavigate = vi.fn()
+    const onViewMenu = vi.fn()
+    renderHome({ ...plan('growth'), pickupOnly: true, onNavigate, onViewMenu })
+    await userEvent
+      .setup()
+      .click(
+        await screen.findByRole('button', {
+          name: 'Prima comandă de test — deschide meniul public și comandă',
+        }),
+      )
+    expect(onViewMenu).toHaveBeenCalledTimes(1)
+    expect(onNavigate).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Generează QR-uri' })).toBeInTheDocument()
+  })
+
+  it('HK6 local configurat, citiri lente: cardul de configurare nu apare deloc', async () => {
+    const d = deferred()
+    held.all = d.promise
+    const card = watchSetupCard()
+    try {
+      renderHome(plan('growth'))
+      await settleTicks()
+      expect(screen.queryByText('Configurare restaurant')).toBeNull()
+      d.resolve()
+      for (const name of STEP_QUICK_ACTIONS) {
+        expect(await screen.findByRole('button', { name })).toBeInTheDocument()
+      }
+      expect(card.seen()).toBe(false)
+    } finally {
+      card.stop()
+    }
+  })
+
+  it('HK7 control pozitiv: cu un pas de făcut, cardul apare după citiri', async () => {
+    counts.tables = 0
+    const d = deferred()
+    held.all = d.promise
+    const card = watchSetupCard()
+    try {
+      renderHome(plan('growth'))
+      await settleTicks()
+      // Și aici cardul așteaptă citirile (nu apare cu cercuri punctate).
+      expect(screen.queryByText('Configurare restaurant')).toBeNull()
+      d.resolve()
+      expect(await screen.findByText('Configurare restaurant')).toBeInTheDocument()
+      expect(card.seen()).toBe(true)
+    } finally {
+      card.stop()
+    }
+  })
+
+  it('HK8 a doua vizită pornește din cache: fără așteptare, fără card', async () => {
+    const first = renderHome(plan('growth'))
+    for (const name of STEP_QUICK_ACTIONS) {
+      expect(await screen.findByRole('button', { name })).toBeInTheDocument()
+    }
+    first.unmount()
+    const d = deferred()
+    held.all = d.promise
+    const card = watchSetupCard()
+    try {
+      renderHome(plan('growth'))
+      // Citirile noi sunt ținute în zbor: ce e pe ecran vine din vizita anterioară.
+      for (const name of STEP_QUICK_ACTIONS) {
+        expect(screen.getByRole('button', { name })).toBeInTheDocument()
+      }
+      expect(metric('QR-uri active')).toHaveTextContent(/^4$/)
+      d.resolve()
+      await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^3$/))
+      expect(card.seen()).toBe(false)
+    } finally {
+      card.stop()
+    }
+  })
+
+  it('HK9 numărul de produse în zbor ține cardul ascuns; sosit, nu-l aprinde', async () => {
+    const card = watchSetupCard()
+    try {
+      const { rerender } = renderHome({
+        ...plan('growth'),
+        productCount: null,
+        productCountLoading: true,
+      })
+      // Restul citirilor s-au așezat: acțiunile pașilor lor făcuți sunt pe pagină.
+      for (const name of ['Generează QR-uri pentru mese', 'Vezi meniul public', 'Invită echipa']) {
+        expect(await screen.findByRole('button', { name })).toBeInTheDocument()
+      }
+      expect(screen.queryByText('Configurare restaurant')).toBeNull()
+      rerender(
+        <HomeTab {...homeProps({ ...plan('growth'), productCount: 12, productCountLoading: false })} />,
+      )
+      expect(await screen.findByRole('button', { name: 'Adaugă produse' })).toBeInTheDocument()
+      expect(card.seen()).toBe(false)
+    } finally {
+      card.stop()
+    }
+  })
+
+  // HK10/HK11: toți pașii făcuți în afară de comanda de test; comanda sosește
+  // cu Acasă deschisă, la reîmprospătare.
+  const FIRST_ORDER_STEP = 'Prima comandă de test — deschide QR-ul unei mese și comandă'
+  async function orderArrivesWhileOpen(): Promise<ReturnType<typeof renderHome>> {
+    counts.orders = 0
+    const view = renderHome(plan('growth'))
+    // Control pozitiv: singurul pas rămas e comanda de test, deci cardul e pe pagină.
+    expect(await screen.findByRole('button', { name: FIRST_ORDER_STEP })).toBeInTheDocument()
+    expect(screen.getByText('5/6 pași completați')).toBeInTheDocument()
+    counts.orders = 1
+    returnToPage()
+    await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^1$/))
+    await waitFor(() => expect(screen.queryByText('Configurare restaurant')).toBeNull())
+    return view
+  }
+
+  it('HK10 prima comandă văzută în sesiune ajunge în cache: la revenire, cardul nu reapare', async () => {
+    const first = await orderArrivesWhileOpen()
+    first.unmount()
+    const d = deferred()
+    held.all = d.promise
+    const card = watchSetupCard()
+    try {
+      renderHome(plan('growth'))
+      // Citirile noi sunt ținute în zbor: ecranul vine din cache și știe de comandă.
+      expect(screen.queryByText('Configurare restaurant')).toBeNull()
+      expect(screen.getByRole('button', { name: 'Invită echipa' })).toBeInTheDocument()
+      d.resolve()
+      await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^1$/))
+      expect(card.seen()).toBe(false)
+    } finally {
+      card.stop()
+    }
+  })
+
+  it('HK11 „Comenzi azi" care cade la 0 nu debifează comanda de test', async () => {
+    await orderArrivesWhileOpen()
+    const card = watchSetupCard()
+    try {
+      // Ziua nouă (sau comanda anulată): cifra zilei redevine 0.
+      counts.orders = 0
+      returnToPage()
+      await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^0$/))
+      expect(card.seen()).toBe(false)
+      expect(screen.getByRole('button', { name: 'Invită echipa' })).toBeInTheDocument()
+    } finally {
+      card.stop()
+    }
+  })
+
+  it('HK12 existența sosită târziu nu rescrie comanda văzută între timp', async () => {
+    counts.orders = 0
+    // Prima vizită: nicio comandă — „nu" ajunge în cache.
+    const first = renderHome(plan('growth'))
+    expect(await screen.findByRole('button', { name: FIRST_ORDER_STEP })).toBeInTheDocument()
+    first.unmount()
+    // A doua vizită: citirea de existență pleacă (vede „încă nicio comandă") și
+    // rămâne în zbor; restul citirilor se așază.
+    const existence = deferred()
+    held.firstOrder = existence.promise
+    renderHome(plan('growth'))
+    // Control pozitiv: ecranul pornește din cache, singurul pas rămas e comanda.
+    expect(await screen.findByRole('button', { name: FIRST_ORDER_STEP })).toBeInTheDocument()
+    expect(screen.getByText('5/6 pași completați')).toBeInTheDocument()
+    await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^0$/))
+    // Comanda de test intră; „Comenzi azi" (pornită DUPĂ existență) o vede.
+    counts.orders = 1
+    returnToPage()
+    await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^1$/))
+    await waitFor(() => expect(screen.queryByText('Configurare restaurant')).toBeNull())
+    // Abia acum sosește existența, cu rezultatul de la plecare: „nu".
+    await act(async () => {
+      existence.resolve()
+      await existence.promise
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    expect(readHomeSetup('r1').everOrdered).toBe(true)
+    const card = watchSetupCard()
+    try {
+      // Cifra zilei cade la 0 (ziua nouă): pasul rămâne făcut.
+      counts.orders = 0
+      returnToPage()
+      await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^0$/))
+      expect(card.seen()).toBe(false)
+      expect(screen.getByRole('button', { name: 'Invită echipa' })).toBeInTheDocument()
+      expect(readHomeSetup('r1').everOrdered).toBe(true)
+    } finally {
+      card.stop()
+    }
   })
 })
