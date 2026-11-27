@@ -72,6 +72,16 @@ function loadConfig() {
       encoding: String(env.FISCALNET_ENCODING || fnField(fromFile, 'encoding') || 'utf8').toLowerCase(),
       timeoutMs: num(env.FISCALNET_TIMEOUT_MS, fnField(fromFile, 'timeoutMs')) || 30000,
       pollResponseMs: num(env.FISCALNET_POLL_RESPONSE_MS, fnField(fromFile, 'pollResponseMs')) || 500,
+      // false DOAR explicit: config.json-ul de Plan 2 din panou (PC doar pentru
+      // imprimanta de bucătărie, fără FiscalNet — C7a). `--check` sare pasul
+      // FiscalNet ȘI bucla NU ridică bonuri fiscale (runCycle): coada e pe
+      // RESTAURANT, deci un PC fără FiscalNet care ar revendica bonuri le-ar
+      // face să pice (ECONNREFUSED → `error`) în cursă cu casa reală, după o
+      // trecere pe Planul 3. Neridicate, rămân `pending` pentru casa de marcat.
+      // Se întoarce pe „da” din wizardul `--setup` (întrebarea FiscalNet).
+      required: env.FISCALNET_REQUIRED != null
+        ? String(env.FISCALNET_REQUIRED) !== 'false'
+        : fnField(fromFile, 'required') !== false,
     },
     // Tichete de bucătărie (mig 227) — imprimantă termică, NU FiscalNet.
     // enabled=false implicit: bridge-urile existente nu-și schimbă comportamentul.

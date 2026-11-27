@@ -20,6 +20,7 @@ const { rpc, firstRow } = require('./lib/supabase');
 const { sendReceipt } = require('./lib/fiscalnet');
 const { printTicket } = require('./lib/kitchenPrinter');
 const { sleep, log } = require('./lib/util');
+const { wizardDefaults, maskSecret } = require('./lib/setupDefaults');
 
 async function validateDevice(cfg) {
   const row = firstRow(await rpc(cfg, 'bridge_validate_device', { p_device_secret: cfg.deviceSecret }));
@@ -120,11 +121,62 @@ async function processKitchenOnce(cfg) {
   return pending.length;
 }
 
+// Bucla fiscală rulează DOAR pe un PC cu FiscalNet. `fiscalnet.required=false`
+// = PC doar pentru imprimanta de bucătărie (config.json-ul de Plan 2, C7a).
+// `bridge_get_pending`/`bridge_claim_receipt` sunt pe RESTAURANT, nu pe device:
+// un astfel de PC care ar revendica bonuri le-ar trimite la un FiscalNet care nu
+// există (ECONNREFUSED, ne-ambiguu → `error`). După o trecere pe Planul 3 cu o
+// casă înregistrată separat, ar fura cam jumătate din bonurile încasate și le-ar
+// face să pice la întâmplare, iar „Retrimite” le-ar pune înapoi în aceeași cursă.
+// Neridicate, ele rămân `pending` pentru casa de marcat reală (și vizibile în
+// fila Bridge când casa lipsește). Lipsa câmpului = FiscalNet obligatoriu, ca
+// înainte (configurile vechi și cele de Plan 3 nu-l au).
+function fiscalEnabled(cfg) {
+  return !(cfg.fiscalnet && cfg.fiscalnet.required === false);
+}
+
+function kitchenEnabled(cfg) {
+  return Boolean(cfg.kitchen && cfg.kitchen.enabled);
+}
+
+// Un ciclu al buclei principale: ambele cozi CONCURENT (OPT-R2 — un FiscalNet
+// lent nu mai ține tichetele de bucătărie în așteptare; cozi independente:
+// tabele/RPC/hardware separate, mig 227 e NEfiscal → zero interacțiune
+// anti-duplicat), fiecare doar dacă PC-ul o servește. Întoarce câte a procesat.
+async function runCycle(cfg) {
+  const [nf, nk] = await Promise.all([
+    fiscalEnabled(cfg) ? processOnce(cfg) : Promise.resolve(0),
+    kitchenEnabled(cfg) ? processKitchenOnce(cfg) : Promise.resolve(0),
+  ]);
+  return nf + nk;
+}
+
 // `--setup`: wizard interactiv la prima rulare — scrie config.json fără ca
-// utilizatorul (non-tehnic) să editeze JSON manual.
+// utilizatorul (non-tehnic) să editeze JSON manual. Dacă lângă executabil există
+// deja un config.json (cel descărcat din panou, copiat de installer la PRIMA
+// instalare — C7a; la o reinstalare installer-ul păstrează configul existent),
+// valorile lui sunt cele implicite: Enter = păstrează; câmpurile pe care
+// wizardul nu le întreabă se păstrează neatinse.
 async function setup() {
   const fs = require('node:fs');
   const path = require('node:path');
+
+  // Când rulează ca .exe împachetat (SEA/pkg), scriem lângă executabil ca autostart-ul
+  // (cwd = system32) să găsească același config. În dev, scriem în cwd.
+  const packaged = !process.argv[1] || !process.argv[1].endsWith('.js');
+  const targetDir = packaged ? path.dirname(process.execPath) : process.cwd();
+  const target = path.join(targetDir, 'config.json');
+
+  let existing = {};
+  if (fs.existsSync(target)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) existing = parsed;
+    } catch (err) {
+      log('warn', `config.json existent ignorat (JSON invalid): ${err.message}`);
+    }
+  }
+  const d = wizardDefaults(existing);
 
   // Interactiv (TTY) → readline linie-cu-linie. Ne-interactiv (pipe/fișier) → citim
   // tot stdin upfront, altfel readline/promises se blochează pe EOF fără să scrie.
@@ -136,57 +188,94 @@ async function setup() {
   } else {
     queue = fs.readFileSync(0, 'utf8').split('\n');
   }
-  const ask = async (q, def) => {
-    const prompt = def ? `${q} [${def}]: ` : `${q}: `;
+  // `secret`: în prompt și în ecou apare doar coada cheii (`…a1b2`), nu cheia.
+  const ask = async (q, def, opts = {}) => {
+    const shown = opts.secret ? maskSecret(def) : def;
+    const prompt = shown ? `${q} [${shown}]: ` : `${q}: `;
     let a;
     if (rl) {
       a = (await rl.question(prompt)).trim();
     } else {
       process.stdout.write(prompt);
       a = (queue.length ? queue.shift() : '').trim();
-      process.stdout.write((a || def || '') + '\n');
+      process.stdout.write((a ? (opts.secret ? maskSecret(a) : a) : shown || '') + '\n');
     }
     return a || def || '';
   };
 
   log('info', 'Configurare Menuvia Bridge — apasă Enter pentru valoarea implicită.');
-  const cfg = {
-    supabaseUrl: await ask('Supabase URL', 'https://swjcptdylfmpvopdepqf.supabase.co'),
-    supabaseAnonKey: await ask('Supabase anon key (public)'),
-    deviceSecret: await ask('Device secret (Dashboard → Casă de marcat → Înregistrează)'),
-    fiscalnet: {},
-  };
-  const mode = (await ask('Transport (api/file)', 'api')).toLowerCase();
-  cfg.fiscalnet.mode = mode === 'file' ? 'file' : 'api';
-  if (cfg.fiscalnet.mode === 'file') {
-    cfg.fiscalnet.bonuriDir = await ask('Folder Bonuri', 'C:\\FiscalNet\\Bonuri');
-    cfg.fiscalnet.raspunsDir = await ask('Folder Raspuns', 'C:\\FiscalNet\\Raspuns');
-  } else {
-    cfg.fiscalnet.apiUrl = await ask('URL API FiscalNet', 'http://localhost:65400/api/receipt');
+  if (Object.keys(existing).length) {
+    log('info', `Am găsit ${target} — valorile lui sunt cele implicite (Enter = păstrează).`);
+    // Installer-ul NU suprascrie un config existent (onlyifdoesntexist), iar un
+    // config.json vechi rămas în Descărcări poate fi cel copiat la prima
+    // instalare: coada cheii e singurul mod de a vedea ce dispozitiv păstrăm.
+    if (d.deviceSecret) {
+      log(
+        'info',
+        `Cheia dispozitivului din el se termină în ${maskSecret(d.deviceSecret)}. ` +
+          'Dacă panoul îți arată altă cheie (dispozitiv înregistrat din nou), lipește-o pe cea nouă la „Device secret”.',
+      );
+    }
   }
-  // Imprimanta de bucătărie (tichete, mig 227) — opțională.
-  const wantKitchen = (await ask('Imprimantă de bucătărie pentru tichete? (da/nu)', 'nu')).toLowerCase();
+  const cfg = {
+    ...existing,
+    supabaseUrl: await ask('Supabase URL', d.supabaseUrl),
+    supabaseAnonKey: await ask('Supabase anon key (public)', d.supabaseAnonKey, { secret: true }),
+    deviceSecret: await ask('Device secret (panou → Casă & tichete / Imprimantă bucătărie → Înregistrează)', d.deviceSecret, {
+      secret: true,
+    }),
+    fiscalnet: { ...(existing.fiscalnet && typeof existing.fiscalnet === 'object' ? existing.fiscalnet : {}) },
+  };
+  // Pe un PC marcat „doar bucătărie" (config.json de Plan 2) întrebarea e
+  // singura cale de a-l face casă de marcat după o trecere pe Planul 3 cu
+  // FiscalNet instalat AICI: bucla nu ridică bonuri cât timp required=false
+  // (runCycle), iar installer-ul nu mai înlocuiește un config existent.
+  // Enter = rămâne doar bucătărie. Pe celelalte PC-uri întrebarea nu apare.
+  let fiscalHere = d.fiscalRequired;
+  if (!fiscalHere) {
+    const a = (await ask('FiscalNet (casa de marcat) e instalat pe acest PC? (da/nu)', 'nu')).toLowerCase();
+    fiscalHere = a === 'da' || a === 'yes' || a === 'y';
+    if (fiscalHere) delete cfg.fiscalnet.required;
+  }
+  if (fiscalHere) {
+    const mode = (await ask('Transport (api/file)', d.fiscalMode)).toLowerCase();
+    cfg.fiscalnet.mode = mode === 'file' ? 'file' : 'api';
+    if (cfg.fiscalnet.mode === 'file') {
+      cfg.fiscalnet.bonuriDir = await ask('Folder Bonuri', d.bonuriDir);
+      cfg.fiscalnet.raspunsDir = await ask('Folder Raspuns', d.raspunsDir);
+    } else {
+      cfg.fiscalnet.apiUrl = await ask('URL API FiscalNet', d.apiUrl);
+    }
+  } else {
+    // config.json-ul de Plan 2 (fiscalnet.required=false): PC doar pentru
+    // imprimanta de bucătărie, fără FiscalNet — nu întrebăm de transport.
+    log('info', 'FiscalNet: nefolosit pe acest PC (doar imprimanta de bucătărie) — bonurile fiscale rămân pentru casa de marcat.');
+  }
+  // Imprimanta de bucătărie (tichete, mig 227) — opțională; implicit „da" când
+  // config.json-ul din panou o cere (Planul 2).
+  const wantKitchen = (await ask('Imprimantă de bucătărie pentru tichete? (da/nu)', d.kitchen ? 'da' : 'nu')).toLowerCase();
+  const existingKitchen = existing.kitchen && typeof existing.kitchen === 'object' ? existing.kitchen : null;
   if (wantKitchen === 'da' || wantKitchen === 'yes' || wantKitchen === 'y') {
-    cfg.kitchen = { enabled: true };
-    const kMode = (await ask('Transport tichete (tcp/file)', 'tcp')).toLowerCase();
+    cfg.kitchen = { ...(existingKitchen || {}), enabled: true };
+    const kMode = (await ask('Transport tichete (tcp/file)', d.kitchenMode)).toLowerCase();
     cfg.kitchen.mode = kMode === 'file' ? 'file' : 'tcp';
     if (cfg.kitchen.mode === 'tcp') {
-      cfg.kitchen.host = await ask('IP imprimantă termică (port 9100)', '192.168.1.100');
-      cfg.kitchen.port = Number(await ask('Port', '9100')) || 9100;
+      cfg.kitchen.host = await ask('IP imprimantă termică (port 9100)', d.kitchenHost);
+      cfg.kitchen.port = Number(await ask('Port', d.kitchenPort)) || 9100;
     } else {
-      cfg.kitchen.dir = await ask('Folder tichete', 'C:\\Menuvia\\Tichete');
+      cfg.kitchen.dir = await ask('Folder tichete', d.kitchenDir);
     }
+  } else if (existingKitchen) {
+    cfg.kitchen = { ...existingKitchen, enabled: false };
+  } else {
+    delete cfg.kitchen;
   }
   if (rl) rl.close();
 
-  // Când rulează ca .exe împachetat (SEA/pkg), scriem lângă executabil ca autostart-ul
-  // (cwd = system32) să găsească același config. În dev, scriem în cwd.
-  const packaged = !process.argv[1] || !process.argv[1].endsWith('.js');
-  const targetDir = packaged ? path.dirname(process.execPath) : process.cwd();
-  const target = path.join(targetDir, 'config.json');
   fs.writeFileSync(target, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 });
   log('info', `Config scris în ${target}.`);
   log('info', 'Verifică apoi cu: menuvia-bridge --check');
+  log('info', 'Și pornește bridge-ul (installer-ul o face la final; altfel Start → „Pornește bridge-ul” sau repornește PC-ul).');
 }
 
 // `--check` (doctor): verifică config + Supabase + FiscalNet FĂRĂ să tipărească
@@ -198,7 +287,15 @@ async function doctor() {
   const dev = await validateDevice(cfg);
   log('info', `2/3 Supabase OK · ${dev.restaurant_name} (${dev.restaurant_id})`);
 
-  if (cfg.fiscalnet.mode === 'api') {
+  if (!fiscalEnabled(cfg)) {
+    // PC doar pentru imprimanta de bucătărie (config.json de Plan 2, C7a): fără
+    // FiscalNet aici, verificarea lui ar pica mereu și `--check` ar ieși cu
+    // eroare pe o instalare corectă. Nici bucla nu ridică bonuri (runCycle).
+    log(
+      'info',
+      '3/3 FiscalNet sărit · PC doar pentru imprimanta de bucătărie (fiscalnet.required=false): bonurile fiscale rămân pentru casa de marcat',
+    );
+  } else if (cfg.fiscalnet.mode === 'api') {
     try {
       // GET (NU POST!) — nu trimite comenzi, deci nu tipărește; orice răspuns HTTP
       // (chiar și 405) dovedește că FiscalNet ascultă pe port.
@@ -260,12 +357,30 @@ async function doctor() {
     }
   }
   if (!process.exitCode) log('info', 'Toate verificările au trecut ✓');
+  // Verificarea NU pornește bucla, dar bridge_validate_device scrie
+  // last_seen_at: panoul arată „● Online” ~3 minute și după ea. Dovada că
+  // bridge-ul rulează e pastila de după acele minute (C7a).
+  log(
+    'info',
+    'Verificarea nu pornește bridge-ul. Dacă nu rulează deja (fereastra Menuvia Bridge deschisă), pornește-l din Start → „Pornește bridge-ul” sau repornește PC-ul; în panou trebuie să rămână „● Online” și după 3 minute.',
+  );
 }
 
 async function main() {
   const cfg = loadConfig();
   const dev = await validateDevice(cfg);
   log('info', `Conectat: ${dev.restaurant_name} (${dev.restaurant_id}) · transport=${cfg.fiscalnet.mode}`);
+  if (!fiscalEnabled(cfg)) {
+    // O singură dată, la pornire: pe acest PC bonurile fiscale NU se ridică.
+    log(
+      'info',
+      'Bonuri fiscale: ignorate pe acest PC (fiscalnet.required=false — PC doar pentru imprimanta de bucătărie). ' +
+        'Rămân în coadă pentru casa de marcat. Dacă FiscalNet e instalat aici: Start → „Configurare Menuvia Bridge” → FiscalNet „da”.',
+    );
+  }
+  if (!fiscalEnabled(cfg) && !kitchenEnabled(cfg)) {
+    log('warn', 'Nimic de tipărit pe acest PC: nici FiscalNet, nici imprimanta de bucătărie (kitchen.enabled) — rulează „Configurare Menuvia Bridge”.');
+  }
 
   // Heartbeat periodic (best-effort, nu blochează bucla).
   const hb = setInterval(() => {
@@ -285,17 +400,10 @@ async function main() {
 
   while (running) {
     try {
-      // Ambele cozi într-un ciclu: bonuri fiscale + tichete de bucătărie.
-      // Tichetele rulează doar cu kitchen.enabled — bridge-urile existente
-      // (fără secțiunea kitchen în config) nu-și schimbă comportamentul.
-      // OPT-R2: cozile rulează CONCURENT — un FiscalNet lent nu mai ține
-      // tichetele de bucătărie în așteptare (cozi independente: tabele/RPC/
-      // hardware separate, mig 227 e NEfiscal → zero interacțiune anti-duplicat).
-      const [nf, nk] = await Promise.all([
-        processOnce(cfg),
-        cfg.kitchen.enabled ? processKitchenOnce(cfg) : Promise.resolve(0),
-      ]);
-      const n = nf + nk;
+      // Bonuri fiscale (doar cu FiscalNet pe PC) + tichete de bucătărie (doar
+      // cu kitchen.enabled — bridge-urile fără secțiunea kitchen nu-și schimbă
+      // comportamentul). Vezi runCycle.
+      const n = await runCycle(cfg);
       if (n === 0) await sleep(cfg.pollIntervalMs);
     } catch (err) {
       log('error', 'Ciclu eșuat', err.message);
@@ -307,13 +415,38 @@ async function main() {
   log('info', 'Bridge oprit curat');
 }
 
+// Scurtătura „Verificare conexiune (check)" din meniul Start deschide o consolă
+// NOUĂ, care se închidea în clipa în care `--check` ieșea: patronul nu vedea nici
+// rezultatul, nici „pornește bridge-ul" de la final, iar singurul semn rămânea
+// pastila din panou — aprinsă chiar de verificare (bridge_validate_device scrie
+// last_seen_at), deci FALSĂ (C7a). Cu o consolă reală (TTY pe intrare ȘI pe
+// ieșire) așteptăm Enter; fără TTY (teste, pipe, fumul din bridge-release.yml,
+// autostart-ul) ieșim imediat — altfel s-ar agăța așteptând o tastă.
+async function pauseIfInteractive(input = process.stdin, output = process.stdout) {
+  if (!input || !input.isTTY || !output || !output.isTTY) return false;
+  const rl = require('node:readline/promises').createInterface({ input, output });
+  try {
+    await rl.question('Apasă Enter ca să închizi fereastra.');
+  } finally {
+    rl.close();
+  }
+  return true;
+}
+
 if (require.main === module) {
   const argv = process.argv;
   const entry = argv.includes('--setup') ? setup : argv.includes('--check') ? doctor : main;
-  entry().catch((err) => {
-    log('error', 'Bridge a crăpat', err.message);
-    process.exit(1);
-  });
+  entry()
+    .catch((err) => {
+      log('error', 'Bridge a crăpat', err.message);
+      process.exitCode = 1;
+    })
+    // Doar verificarea așteaptă: un eșec (cheie respinsă, config invalid) e
+    // exact cazul în care textul trebuie citit. Bucla și wizardul ies ca înainte.
+    .then(() => (entry === doctor ? pauseIfInteractive().catch(() => false) : false))
+    .then(() => {
+      if (process.exitCode) process.exit(process.exitCode);
+    });
 }
 
-module.exports = { processOnce, processKitchenOnce, validateDevice, doctor, setup };
+module.exports = { processOnce, processKitchenOnce, runCycle, validateDevice, doctor, setup, pauseIfInteractive };

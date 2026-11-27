@@ -7,7 +7,8 @@ import { supabase } from './supabase'
 export interface BridgeConnectionStatus {
   /** Există măcar un dispozitiv înregistrat pentru restaurant. */
   registered: boolean
-  /** A bătut în ultimele 3 minute (pragul e în RPC, mig 265). */
+  /** A bătut în ultimele 3 minute (pragul e în RPC, mig 265; oglinda din
+   *  client, pentru fila Bridge, e `BRIDGE_LIVENESS_MS` din lib/bridgeLiveness.ts). */
   connected: boolean
   /** Ultimul heartbeat, ISO. `null` când nu există dispozitive. */
   last_seen_at: string | null

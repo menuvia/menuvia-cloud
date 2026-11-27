@@ -1,0 +1,86 @@
+# Menuvia Bridge pentru Windows: exe (@yao-pkg/pkg) + installer (Inno Setup,
+# bridge/build/installer.iss) — lotul C7a. Rulare MANUALĂ (Actions → „Bridge
+# release (Windows)" → Run workflow) sau la un tag `bridge-v*`.
+#
+# NU publică nimic singur: artefactul (menuvia-bridge-setup.exe + exe-ul simplu +
+# SHA256SUMS.txt) îl descarcă FONDATORUL din pagina rulării și îl găzduiește pe un
+# URL https ales de el; URL-ul ajunge în VITE_BRIDGE_DOWNLOAD_URL (Netlify UI și
+# variabila de repo pentru deploy-vps.yml — docs/VPS_RUNBOOK.md §2), iar fila
+# Bridge arată butonul „Descarcă installer-ul". Fără URL butonul nu apare (fără
+# link mort). Repo-ul e public: un GitHub Release automat ar fi un canal de
+# distribuție pe care nu l-a ales nimeni.
+name: Bridge release (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'bridge-v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: exe + installer
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: bridge
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      # Aceleași teste ca jobul „Bridge tests" din test.yml, dar pe Windows —
+      # acolo rulează de fapt bridge-ul.
+      - name: Teste bridge
+        run: npm test
+
+      - name: Exe (@yao-pkg/pkg)
+        run: npx --yes @yao-pkg/pkg@6 menuvia-bridge.js --targets node22-win-x64 --output dist/menuvia-bridge.exe
+
+      # Fum: exe-ul pornește și ajunge la validarea configului (fără config.json
+      # pică cu „Config invalid", nu cu un modul lipsă din împachetare).
+      - name: Fum exe (--check fără config)
+        run: |
+          set +e
+          out="$(./dist/menuvia-bridge.exe --check 2>&1)"
+          code=$?
+          set -e
+          echo "$out"
+          if [ "$code" -eq 0 ] || ! printf '%s' "$out" | grep -q 'Config invalid'; then
+            echo "::error::exe-ul nu pornește corect (cod $code)"
+            exit 1
+          fi
+
+      # Inno Setup 6: preinstalat pe imaginile Windows; dacă lipsește, din choco.
+      # Romanian.isl NU e printre limbile oficiale ale distribuției (stă la
+      # „Unofficial" în depozitul Inno Setup) — fără el iscc pică pe [Languages].
+      - name: Installer (Inno Setup)
+        run: |
+          ISS_DIR="/c/Program Files (x86)/Inno Setup 6"
+          if [ ! -f "$ISS_DIR/ISCC.exe" ]; then
+            choco install innosetup -y --no-progress
+          fi
+          if [ ! -f "$ISS_DIR/Languages/Romanian.isl" ]; then
+            curl -fsSL -o "$ISS_DIR/Languages/Romanian.isl" \
+              https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/Romanian.isl
+          fi
+          "$ISS_DIR/ISCC.exe" build/installer.iss
+          cp build/Output/menuvia-bridge-setup.exe dist/
+          (cd dist && sha256sum menuvia-bridge.exe menuvia-bridge-setup.exe > SHA256SUMS.txt && cat SHA256SUMS.txt)
+
+      - name: Artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: menuvia-bridge-windows
+          path: |
+            bridge/dist/menuvia-bridge-setup.exe
+            bridge/dist/menuvia-bridge.exe
+            bridge/dist/SHA256SUMS.txt
+          retention-days: 30
+          if-no-files-found: error

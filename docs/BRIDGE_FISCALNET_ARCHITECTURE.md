@@ -148,12 +148,24 @@ Plan original (repo separat `menuvia-bridge`, Node.js):
 - **Polling:** la 5s pentru pending receipts
 - **Realtime (v2):** Supabase Realtime subscribe pe `pending_receipts` pentru reacție instant
 
-Pași de instalare la client:
-1. Owner intră în Dashboard → tab "Casă de marcat" → "+ Înregistrează casă"
-2. Primește device_secret (UUID lung)
-3. Descarcă `menuvia-bridge-setup.exe` de pe menuvia.ro/download
-4. Rulează installer, paste device_secret
-5. Bridge rulează în tray, conectează automat la FiscalNet folder
+Pași de instalare la client (lotul C7a — detaliul în `bridge/BUILD.md`):
+1. Owner intră în Dashboard → tab "Casă & tichete" → "+ Înregistrează casă"
+2. Fereastra de după înregistrare are 3 pași: „Descarcă installer-ul" (linkul din
+   `VITE_BRIDGE_DOWNLOAD_URL` — artefactul workflow-ului
+   `.github/workflows/bridge-release.yml`, găzduit de fondator; fără variabilă
+   butonul nu apare: NU există o pagină /download pe site), „Descarcă config.json"
+   (adresa, cheia anon, device_secret — generat în browser) și „Pornește bridge-ul
+   și verifică"
+3. Pune config.json lângă `menuvia-bridge-setup.exe`, într-un folder nou și gol,
+   și rulează installer-ul: îl copiază lângă exe (doar dacă acolo nu e deja unul —
+   o reinstalare păstrează configul existent), iar wizardul `--setup` îl preia (Enter)
+4. Installer-ul pornește bridge-ul la final; „Verificare conexiune (check)" din
+   Start → Menuvia Bridge e diagnoza (fereastra așteaptă Enter, ca rezultatul să
+   poată fi citit)
+5. Bridge rulează, conectează automat la FiscalNet; panoul îl arată „● Online"
+   cât timp `last_seen_at` are sub 3 minute (pragul din mig 265). Dovada e
+   pastila de DUPĂ 3 minute: și `--check` scrie `last_seen_at`
+   (`bridge_validate_device`, mig 045)
 
 ---
 

@@ -2005,8 +2005,10 @@ export default function DashboardPage({
                   adaugă secțiunile fiscale. Fila e minTier 2 în NAV_GROUPS. */}
               {tab === 'casa-marcat' && (
                 <Suspense fallback={<InlineSpinner label={t('loading_generic')} />}>
-                  {/* Ecran fiscal: în română prin lege (lib/fiscalScreens.ts). */}
-                  <div lang="ro">
+                  {/* Pe planul cu bon: ecran fiscal, în română prin lege
+                      (lib/fiscalScreens.ts). Pe Planul 2 e doar imprimanta din
+                      bucătărie, nefiscală — în limba personalului (C7a). */}
+                  <div lang={fiscalSurface ? 'ro' : undefined}>
                     <BridgeTab restaurantId={restaurant.id} fiscalEnabled={fiscalSurface} />
                   </div>
                 </Suspense>
