@@ -276,7 +276,13 @@ declare
     'enforce_feature_for_restaurant', 'get_restaurant_features', 'restaurant_has_feature',
     -- gate-uri care NU ating niciun feature românesc (verificat la mig 296)
     'enforce_ordering_enabled', 'enforce_team_member_limit', 'enforce_team_member_limit_stmt',
-    'enqueue_sms', 'fn_normalize_hide_branding', 'get_sms_usage', 'resolve_qr_token'
+    'enqueue_sms', 'fn_normalize_hide_branding', 'get_sms_usage', 'resolve_qr_token',
+    -- mig 334: al patrulea punct de trecere, pentru un rând IPOTETIC (owner +
+    -- țară) la BEFORE INSERT/UPDATE, unde rândul nou nu e vizibil în tabelă.
+    -- Poartă ACELAȘI gate de țară (feature_requires_ro), primește feature-ul ca
+    -- parametru — nu numește niciunul românesc; paritatea cu
+    -- restaurant_has_feature e FCR5 (tests/sql/auto/334_fiscal_menu_currency_ron.sql).
+    'restaurant_row_has_feature'
   ];
   v_found text[];
   v_ro_leak text;

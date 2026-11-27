@@ -199,9 +199,14 @@ const fr: Translation<typeof ro> = {
     'La langue dans laquelle vous avez rédigé les noms et les descriptions des produits. Les traductions s’ajoutent pour les autres langues.',
   cur_title: 'Devise du menu',
   cur_descPay:
-    'La devise dans laquelle les prix s’affichent sur le menu public et le menu QR. L’abonnement Menuvia et la fiscalisation ne sont pas concernés.',
+    'La devise dans laquelle les prix s’affichent sur le menu public et le menu QR. L’abonnement Menuvia n’est pas concerné. Pour un établissement en Roumanie avec ticket fiscal, la devise reste le RON.',
   cur_desc: 'La devise dans laquelle les prix s’affichent sur le menu public et le menu QR. L’abonnement Menuvia n’est pas concerné.',
   cur_ron: 'RON (lei)',
+  cur_descFiscal:
+    'Le ticket fiscal, la facture et le paiement en ligne sont en lei : le menu affiche donc les prix en lei (RON). Une autre devise n’est possible que pour un établissement situé hors de Roumanie.',
+  cur_driftNote:
+    'La devise enregistrée est {code}. Les clients voient déjà les prix en lei, mais le paiement en ligne à table reste désactivé tant que vous n’avez pas choisi RON et enregistré.',
+  cur_lockedRefusal: 'Pour un établissement avec ticket fiscal, la devise du menu reste le RON (lei).',
 
   mod_title: 'Modules optionnels',
   mod_desc:

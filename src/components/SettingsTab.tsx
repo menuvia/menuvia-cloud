@@ -5,7 +5,8 @@ import { changeRestaurantSlug } from '../lib/restaurants'
 import { D, PLAN_LABELS, AMENITIES, type AmenityId } from '../lib/constants'
 import { THEMES, FLIPBOOK_MAX_PAGES, resolveEffectiveMenuLayout } from '../lib/themes'
 import { MENU_LANGS, menuBaseLang } from '../lib/i18nMenu'
-import { MENU_CURRENCIES, resolveMenuCurrency } from '../lib/currency'
+import { MENU_CURRENCIES } from '../lib/currency'
+import { effectiveMenuCurrency, fiscalCurrencyDrift, fiscalCurrencyLocked } from '../lib/fiscalCurrency'
 import type { PlanSurface } from '../lib/planSurface'
 import { pickupSettingsCopyT } from '../lib/pickupCopy'
 import { encodeForUpload } from '../lib/imageEncode'
@@ -393,7 +394,13 @@ export default function SettingsTab({
   const slugifyWhileTyping = (s: string) => s.toLowerCase().replace(/[^a-z0-9-]+/g, '-')
 
   const saveHints: Readonly<Record<string, string>> | undefined =
-    tc.lang === 'ro' ? undefined : { country_owner_only: st.t('country_ownerOnly') }
+    tc.lang === 'ro'
+      ? undefined
+      : {
+          country_owner_only: st.t('country_ownerOnly'),
+          // Mig 334: pe un local din România cu bon fiscal moneda e RON.
+          fiscal_currency_ron_only: st.t('cur_lockedRefusal'),
+        }
 
   const handleSave = async () => {
     setSaving(true)
@@ -488,6 +495,11 @@ export default function SettingsTab({
   // la „Comenzi & plăți” vede consecința ÎNAINTE să salveze; altfel aceeași
   // pagină ar spune „Flipbook” într-o filă și ar promite comenzi în cealaltă.
   const menuFlipbook = resolveEffectiveMenuLayout(form.theme_settings) === 'flipbook'
+  // Moneda meniului pe un local din România cu bon fiscal e RON (mig 334,
+  // regula de aur — impusă în DATE la citire și la scriere). Judecată pe țara
+  // din FORMULAR, ca serverul pe rândul NOU: o mutare RO→DE în aceeași salvare
+  // eliberează moneda. `null` = planul necunoscut, nimic blocat.
+  const currencyLocked = fiscalCurrencyLocked(surface, restaurant.country, form.country)
   const pickupTexts = pickupSettingsCopyT(st)
   const pickupDesc = pickupTexts.pickupCardDescription(true, menuFlipbook)
 
@@ -566,11 +578,21 @@ export default function SettingsTab({
                       // default-urile țării vechi (lotul G1); o alegere de mână
                       // rămâne. Totul rămâne în formular până la „Salvează”.
                       const next = e.target.value
-                      setForm((f) => ({
-                        ...f,
-                        country: next,
-                        ...followCountryDefaults(f.country, next, { currency: f.currency, timezone: f.timezone }),
-                      }))
+                      // Înapoi în România pe un plan cu bon fiscal: moneda
+                      // devine RON (serverul ar refuza altfel salvarea, mig 334).
+                      const lockedNext = fiscalCurrencyLocked(surface, restaurant.country, next) === true
+                      setForm((f) => {
+                        const regional = followCountryDefaults(f.country, next, {
+                          currency: f.currency,
+                          timezone: f.timezone,
+                        })
+                        return {
+                          ...f,
+                          country: next,
+                          ...regional,
+                          ...(lockedNext ? { currency: 'RON' } : {}),
+                        }
+                      })
                     }}
                     disabled={user?.id !== restaurant.owner_id}
                     style={{
@@ -1067,8 +1089,9 @@ export default function SettingsTab({
                   themeSettings={form.theme_settings}
                   restaurantName={form.name}
                   // Moneda din STAREA formularului — preview-ul reflectă LIVE
-                  // alegerea din selectorul „Moneda meniului", nu valoarea salvată.
-                  currency={resolveMenuCurrency(form.currency)}
+                  // alegerea din selectorul „Moneda meniului", nu valoarea salvată;
+                  // pe un local cu bon fiscal, RON — exact ce vede oaspetele (mig 334).
+                  currency={effectiveMenuCurrency(form.currency, currencyLocked)}
                   // Limba de BAZĂ a meniului, tot din formular: oaspetele vede
                   // implicit meniul în ea, nu în limba personalului.
                   lang={menuBaseLang(form.language)}
@@ -1621,11 +1644,20 @@ export default function SettingsTab({
               </div>
             </SettingsCard>
 
-            {/* Moneda meniului (mig 205) — pista internațională, planurile 1-2. */}
+            {/* Moneda meniului (mig 205) — pista internațională, planurile 1-2.
+                Pe un local din România cu bon fiscal (mig 334) doar RON rămâne
+                selectabil; selectorul NU se dezactivează întreg, ca o monedă
+                salvată înainte de urcarea pe Planul 3 să poată fi corectată. */}
             <SettingsCard
               icon="info"
               title={st.t('cur_title')}
-              desc={surface?.payments === true ? st.t('cur_descPay') : st.t('cur_desc')}
+              desc={
+                currencyLocked === true
+                  ? st.t('cur_descFiscal')
+                  : surface?.payments === true
+                    ? st.t('cur_descPay')
+                    : st.t('cur_desc')
+              }
               right={
                 <select
                   aria-label={st.t('cur_title')}
@@ -1644,13 +1676,19 @@ export default function SettingsTab({
                   }}
                 >
                   {MENU_CURRENCIES.map((c) => (
-                    <option key={c} value={c}>
+                    <option key={c} value={c} disabled={currencyLocked === true && c !== 'RON'}>
                       {c === 'RON' ? st.t('cur_ron') : c}
                     </option>
                   ))}
                 </select>
               }
-            />
+            >
+              {fiscalCurrencyDrift(form.currency, currencyLocked) && (
+                <div style={{ fontSize: '0.75rem', color: D.amber, lineHeight: 1.5 }}>
+                  {st.t('cur_driftNote', { code: String(form.currency) })}
+                </div>
+              )}
+            </SettingsCard>
           </>
         )}
 

@@ -409,8 +409,17 @@ begin
     ('e9e9e9e9-9999-4999-8999-eeeeeeeeeeee','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb',
      'c3c3c3c3-3333-4333-8333-cccccccccccc','open');
 
+  -- Din mig 334 un local RO cu bon fiscal NU mai poate SCRIE altă monedă decât
+  -- RON (trg_restaurants_fiscal_currency_ron). Starea EUR rămâne posibilă doar
+  -- pe calea REALĂ de drift — moneda salvată cât owner-ul e pe un plan fără bon,
+  -- apoi upgrade (planul stă pe profiles, nu se atinge rândul) — exact cazul în
+  -- care gate-ul de monedă din 209 rămâne ultima plasă a plății online.
+  update public.profiles set plan = 'growth'
+   where id = 'a1a1a1a1-1111-4111-8111-aaaaaaaaaaaa';
   update public.restaurants set currency = 'EUR'
    where id = 'b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb';
+  update public.profiles set plan = 'enterprise'
+   where id = 'a1a1a1a1-1111-4111-8111-aaaaaaaaaaaa';
 
   begin
     perform public.begin_table_payment('e9e9e9e9-9999-4999-8999-eeeeeeeeeeee','tok_tp_race');
