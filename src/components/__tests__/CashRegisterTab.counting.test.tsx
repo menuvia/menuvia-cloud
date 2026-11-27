@@ -20,6 +20,13 @@
 //         Control pozitiv: corectat, butonul se activează.
 //   CSC6  deschiderea turei: fondul golit → „Deschide tură” dezactivat; „250,5”
 //         pleacă drept 250.5. Mutația care pică: `Number('')` = fond 0 acceptat.
+//   CSC7  Escape pe confirmarea „Închizi tura cu X lei numărați?” o închide DOAR
+//         pe ea: „Închidere tură” rămâne, cu suma și nota tastate, și nimic nu
+//         pleacă la server. Dialogul de confirmare e cel REAL (<ConfirmRoot/>),
+//         nu mock-ul. Control pozitiv: rămas singur, modalul se închide la
+//         Escape. Mutația care pică: ascultătorul propriu `keydown` pe
+//         `document` din `Modal` (CashRegisterTab.tsx), care închidea modalul
+//         la orice Escape, ignorând stiva de dialoguri (FocusTrap).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, act, fireEvent, within } from '@testing-library/react'
 import type { CurrentShift } from '../../lib/cashShifts'
@@ -30,10 +37,12 @@ interface RpcCall {
   args: Record<string, unknown>
 }
 
-const { calls, shifts, confirmMock } = vi.hoisted(() => ({
+const { calls, shifts, confirmMock, realConfirm } = vi.hoisted(() => ({
   calls: [] as RpcCall[],
   shifts: {} as Record<string, unknown>,
   confirmMock: vi.fn<(opts: ConfirmOptions) => Promise<boolean>>(),
+  // CSC7: confirmarea trece prin dialogul REAL (<ConfirmRoot/>), nu prin mock.
+  realConfirm: { on: false },
 }))
 
 // Doar transportul e fals: wrapper-ele reale din lib/cashShifts rulează
@@ -68,9 +77,18 @@ vi.mock('../../lib/supabase', () => {
   return { supabase: { rpc: vi.fn(rpc), from: vi.fn(() => chain()) } }
 })
 vi.mock('../../lib/analytics', () => ({ track: vi.fn() }))
-vi.mock('../ui/confirm', () => ({ confirm: (opts: ConfirmOptions) => confirmMock(opts) }))
+// `_setConfirmHandler` rămâne cel real: <ConfirmRoot/> (CSC7) se înregistrează
+// în modulul original, iar `actual.confirm` îl citește de acolo.
+vi.mock('../ui/confirm', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../ui/confirm')>()
+  return {
+    ...actual,
+    confirm: (opts: ConfirmOptions) => (realConfirm.on ? actual.confirm(opts) : confirmMock(opts)),
+  }
+})
 
 import CashRegisterTab from '../CashRegisterTab'
+import { ConfirmRoot } from '../ui/ConfirmDialog'
 
 function shift(over: Partial<CurrentShift> = {}): CurrentShift {
   return {
@@ -117,6 +135,7 @@ beforeEach(() => {
   calls.length = 0
   for (const k of Object.keys(shifts)) delete shifts[k]
   confirmMock.mockReset()
+  realConfirm.on = false
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
 })
 
@@ -206,6 +225,45 @@ describe('CashRegisterTab — câmpul gol nu e 0 lei', () => {
     fireEvent.change(countedInput(), { target: { value: '12,5' } })
     expect(screen.queryByRole('alert')).toBeNull()
     expect(closeShiftButton()).toBeEnabled()
+  })
+})
+
+describe('CashRegisterTab — Escape pe confirmarea de închidere', () => {
+  it('CSC7: Escape închide doar confirmarea; „Închidere tură” rămâne cu suma și nota', async () => {
+    realConfirm.on = true
+    shifts.r1 = shift({ cash_expected: 1200 })
+    render(
+      <>
+        <ConfirmRoot />
+        <CashRegisterTab restaurantId="r1" />
+      </>,
+    )
+    fireEvent.click(await screen.findByRole('button', { name: /Închide tură/ }))
+    const closeDialog = () => screen.queryByRole('dialog', { name: 'Închidere tură' })
+    const confirmation = () => screen.queryByRole('dialog', { name: /^Închizi tura cu/ })
+    const notes = () => screen.getByPlaceholderText('ex: am dat 50 lei la livrare, fără chitanță')
+    fireEvent.change(countedInput(), { target: { value: '1250,50' } })
+    fireEvent.change(notes(), { target: { value: 'am dat 50 lei la livrare' } })
+
+    // „Trimite Raport Z” e bifat implicit → confirmarea apare la fiecare închidere.
+    fireEvent.click(closeShiftButton())
+    await flush()
+    expect(confirmation()).toBeInTheDocument()
+    expect(closeDialog()).toBeInTheDocument()
+
+    fireEvent.keyDown(document.activeElement ?? document, { key: 'Escape' })
+    await flush()
+    expect(confirmation()).toBeNull()
+    expect(closeDialog()).toBeInTheDocument()
+    expect(countedInput()).toHaveValue('1250,50')
+    expect(notes()).toHaveValue('am dat 50 lei la livrare')
+    expect(closeCalls()).toHaveLength(0)
+
+    // Control pozitiv: rămas singur, modalul răspunde la Escape.
+    fireEvent.keyDown(document.activeElement ?? document, { key: 'Escape' })
+    await flush()
+    expect(closeDialog()).toBeNull()
+    expect(closeCalls()).toHaveLength(0)
   })
 })
 

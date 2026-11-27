@@ -1458,14 +1458,6 @@ function Modal({
   const dialogRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onClose])
-
-  useEffect(() => {
     // Mută focusul în modal la deschidere, doar dacă niciun câmp din interior
     // nu l-a preluat deja (ex: input-urile cu autoFocus).
     if (document.activeElement === document.body) {
@@ -1505,7 +1497,11 @@ function Modal({
           overflow: 'auto',
         }}
       >
-        <FocusTrap />
+        {/* Escape prin capcana de focus, conștientă de stivă: o confirmare
+            deschisă peste modal (ex. „Închizi tura cu X lei numărați?”, lotul
+            C2a) se închide singură, fără să arunce și numărătoarea tastată
+            dedesubt — un ascultător propriu pe `document` le închidea pe ambele. */}
+        <FocusTrap onEscape={onClose} />
         <div
           style={{
             display: 'flex',
