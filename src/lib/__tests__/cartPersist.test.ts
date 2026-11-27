@@ -31,10 +31,20 @@
 //        uită `selected_extras` sau `upsell_source` — reîncărcarea ar pierde
 //        tăcut extra-urile plătite sau atribuirea upsell-ului]
 //   CK11 cablajul pe /q și /m: hidratare în inițializator (/q), golire LÂNGĂ
-//        rotirea cheii de idempotență și la reset, salvare, repreluare la
-//        prețurile de acum, limba restaurată după încărcare. [PICĂ: golirea
-//        scoasă de pe calea de succes — coșul trimis reînvie cu o cheie NOUĂ,
-//        adică exact comanda dublă]
+//        rotirea cheii de idempotență și la reset, salvare, limba restaurată
+//        după încărcare. [PICĂ: golirea scoasă de pe calea de succes — coșul
+//        trimis reînvie cu o cheie NOUĂ, adică exact comanda dublă]
+//   CK12 repreluarea coșului REHIDRATAT la prețurile de acum, pe /q și /m,
+//        verificată pe CORPUL efectului de hidratare (felia de la
+//        `const before = hydratedCartRef.current` la lista lui de dependențe),
+//        nu pe un `repriceCart(before, menu)` oarecare: pe /m textul ăsta
+//        exista deja în `refreshMenu`, deci o căutare în tot fișierul trecea
+//        și cu efectul ȘTERS. Ref-ul se consumă DUPĂ garda „meniu încărcat”,
+//        iar anunțul de prețuri schimbate pleacă din efect. [PICĂ: efectul
+//        șters (coșul de ieri rămâne cu prețurile de ieri, fără anunț), ref-ul
+//        golit înaintea gărzii (consumat pe meniul încă gol), ref-ul nealimentat
+//        din coșul salvat, anunțul scos].
+//        Control pozitiv: aceeași felie pe codul curent conține toți pașii.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -294,14 +304,12 @@ describe('cartPersist — cablajul pe /q și /m', () => {
     expect(reset).toMatch(/clearSavedCart\(cartScope\)/)
 
     expect(qr).toMatch(/saveCart\(cartScope, \{/)
-    expect(qr).toMatch(/repriceCart\(before, menu\)/)
     expect(qr).toMatch(/restoredMenuLang\(restoredLangRef\.current, availableLangs, baseLang\)/)
 
     const pub = read('src/pages/PublicMenuPage.tsx')
     expect(pub).toMatch(/kind: 'pickup', restaurantId: pickupCartId/)
     expect(pub).toMatch(/loadSavedCart\(pickupCartScope\)/)
     expect(pub).toMatch(/saveCart\(pickupCartScope, \{/)
-    expect(pub).toMatch(/repriceCart\(before, menu\)/)
     expect(pub).toMatch(/restoredMenuLang\(restoredLangRef\.current, availableLangs, baseLang\)/)
     // Ridicarea reușită golește coșul salvat înainte de confirmare.
     const pStart = pub.indexOf('onSuccess={(short_id, pickup_time, total) => {')
@@ -309,5 +317,59 @@ describe('cartPersist — cablajul pe /q și /m', () => {
     expect(pStart).toBeGreaterThan(0)
     expect(pEnd).toBeGreaterThan(pStart)
     expect(pub.slice(pStart, pEnd)).toMatch(/clearSavedCart\(pickupCartScope\)/)
+  })
+
+  // Felia efectului de hidratare: de la citirea ref-ului până la lista lui de
+  // dependențe. Ancorele sunt text care există DOAR în acest efect (nu în
+  // `refreshMenu`, care citește `cartRef.current`), deci un efect șters face
+  // ca felia să lipsească, nu ca aserția să găsească alt apel.
+  function hydrationEffect(src: string, deps: string): string {
+    const start = src.indexOf('const before = hydratedCartRef.current')
+    expect(start).toBeGreaterThan(0)
+    const end = src.indexOf(deps, start)
+    expect(end).toBeGreaterThan(start)
+    return src.slice(start, end)
+  }
+
+  function expectGuardBeforeConsume(effect: string, guard: string): void {
+    const g = effect.indexOf(guard)
+    const consume = effect.indexOf('hydratedCartRef.current = null')
+    expect(g).toBeGreaterThan(0)
+    expect(consume).toBeGreaterThan(g)
+    // Repreluarea folosește coșul HIDRATAT, apoi actualizarea e funcțională.
+    const reprice = effect.indexOf('repriceCart(before, menu)')
+    expect(reprice).toBeGreaterThan(consume)
+    const update = effect.indexOf('setCart((prev) => repriceCart(prev, menu).cart)')
+    expect(update).toBeGreaterThan(reprice)
+  }
+
+  it('CK12 coșul rehidratat trece pe prețurile de acum, în efectul de hidratare', () => {
+    const qr = read('src/pages/QrMenuPage.tsx')
+    // Sursa ref-ului: coșul salvat, doar dacă are linii.
+    const qrRefSource = new RegExp(
+      String.raw`useRef<CartItem\[\] \| null>\(\s*` +
+        String.raw`savedCart != null && savedCart\.cart\.length > 0 \? savedCart\.cart : null,?\s*\)`,
+    )
+    expect(qr).toMatch(qrRefSource)
+    const qrEffect = hydrationEffect(qr, '}, [menuLoaded, categories])')
+    expectGuardBeforeConsume(qrEffect, 'if (before == null || !menuLoaded) return')
+    expect(qrEffect).toContain('setHydratedRepriced(true)')
+    // Anunțul (toast) pleacă din efectul care urmărește steagul.
+    const nStart = qr.indexOf('if (!hydratedRepriced) return')
+    const nEnd = qr.indexOf('}, [hydratedRepriced, orderingAllowed, lang, toast])', nStart)
+    expect(nStart).toBeGreaterThan(0)
+    expect(nEnd).toBeGreaterThan(nStart)
+    expect(qr.slice(nStart, nEnd)).toContain("toast.info(T(lang, 'cart_prices_updated'))")
+
+    const pub = read('src/pages/PublicMenuPage.tsx')
+    // Sursa ref-ului: coșul de ridicare salvat, doar dacă are linii.
+    expect(pub).toMatch(/hydratedCartRef\.current = saved\.cart\s*\n\s*setCart\(saved\.cart\)/)
+    const pubEffect = hydrationEffect(pub, '}, [loading, categories])')
+    expectGuardBeforeConsume(
+      pubEffect,
+      'if (before == null || loading || categories.length === 0) return',
+    )
+    // Anunțul de pe /m: cheile repreluate alimentează `pricesUpdated`.
+    expect(pubEffect).toContain('setRepricedKeys(')
   })
 })
