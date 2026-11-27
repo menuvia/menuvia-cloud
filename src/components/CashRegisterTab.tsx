@@ -1054,7 +1054,7 @@ function CloseShiftModal({
     // omul vede suma pe care o trimite înainte ca tura să se închidă.
     if (closeShiftNeedsConfirm(diffCents, sendZ)) {
       confirmingRef.current = true
-      let ok = false
+      let ok: boolean
       try {
         ok = await confirmDialog({
           ...closeShiftConfirmCopy(countedCents, expectedCents, sendZ),

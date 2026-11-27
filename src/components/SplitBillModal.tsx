@@ -87,7 +87,7 @@ export function SplitBillModal({ order, onClose }: SplitBillModalProps) {
     const cents = check.cents
     submittingRef.current = true
     setSubmitting(true)
-    let fullyPaid = false
+    let fullyPaid: boolean
     try {
       const result = await addPartialPayment(order.id, cents / 100, method)
       fullyPaid = result.fully_paid
