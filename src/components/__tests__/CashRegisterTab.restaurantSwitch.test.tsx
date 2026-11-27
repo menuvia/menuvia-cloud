@@ -72,6 +72,9 @@ vi.mock('../../lib/supabase', () => {
   return { supabase: { rpc: vi.fn(rpc), from: vi.fn(() => chain()) } }
 })
 vi.mock('../../lib/analytics', () => ({ track: trackMock }))
+// Închiderea cu Raport Z cere confirmare (lotul C2a): aici e acceptată direct,
+// testul privește restaurantul turei, nu dialogul (acela: CashRegisterTab.counting).
+vi.mock('../ui/confirm', () => ({ confirm: () => Promise.resolve(true) }))
 
 import CashRegisterTab from '../CashRegisterTab'
 
@@ -191,7 +194,9 @@ describe('CashRegisterTab — tura aparține restaurantului pentru care a fost c
 
     fireEvent.click(closeButton() as HTMLElement)
     expect(closeDialog()).not.toBeNull()
-    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '150' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /Numerar numărat/ }), {
+      target: { value: '150' },
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Închide tura' }))
     await flush()
 

@@ -13,6 +13,9 @@ const en: Translation<typeof ro> = {
   pay_totalDue: 'Total due:',
   pay_partiallyPaid: 'Partly paid:',
   pay_rest: 'Left to pay:',
+  pay_paidLoading: 'Loading the payments already recorded on this order…',
+  pay_paidUnknown:
+    'We couldn’t load the payments already recorded on this order, so the amount left to pay isn’t known. You can confirm the payment once they’ve loaded.',
   pay_discountLocked: 'The discount can no longer be changed: the order already has payments recorded.',
   pay_discountEdit: 'Change / remove discount',
   pay_discountApply: 'Apply discount',

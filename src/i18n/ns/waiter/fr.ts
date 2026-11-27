@@ -134,6 +134,15 @@ const fr: Translation<typeof ro> = {
   split_errUnknown: 'Erreur inconnue',
   split_errGeneric: 'Le paiement n’a pas été enregistré. Vérifiez et réessayez.',
   split_errOverpayment: 'Le montant dépasse le reste à payer. Vérifiez le montant et réessayez.',
+  split_loadingPayments: 'Chargement des paiements enregistrés…',
+  split_loadError:
+    'Impossible de charger les paiements déjà enregistrés : on ne sait donc pas ce qui reste à payer. Le paiement pourra être ajouté une fois qu’ils seront chargés.',
+  split_fillRest: 'Le reste : {amount} lei',
+  split_amountInvalid: 'Montant non valide : saisissez un montant supérieur à 0 (ex. : 25,50).',
+  split_over: 'Le montant dépasse le reste à payer ({rest} lei) : le serveur refusera le paiement.',
+  split_coversRest: 'Ce montant couvre le reste : la commande passe à « Payée » et le ticket fiscal est émis.',
+  split_okPartial: 'Paiement de {amount} lei enregistré.',
+  split_okFull: 'Le reste a été réglé : la commande est maintenant payée et le ticket fiscal est émis à la caisse.',
 
   loyalty_button: 'Fidélité — code client',
   loyalty_placeholder: 'Ex. : A1B2C3',
