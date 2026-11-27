@@ -40,6 +40,12 @@
 //        Mutația care pică: `cost_per_unit.toFixed(2)` readus — „0.00” era un 0
 //        EXPLICIT, care trecea de „Completează prețul unitar” și intra în costul
 //        mediu ponderat (mig 251). Control: un cost întreg (4) pornește „4”.
+//   STK11 NIR: trecerea unui rând de la Făină (4 lei, precompletat „4”) la
+//        Zahăr (cost 0) GOLEȘTE prețul — rămânea „4”, prețul ALTUI ingredient,
+//        care pleca la server și intra în costul mediu ponderat (mig 251) și în
+//        profitabilitate; acum „Completează prețul unitar”, nimic trimis.
+//        Control: prețul tastat apoi pentru Zahăr („3,5”) pleacă 3.5. Mutația
+//        care pică: `prefill !== '' ? prefill : r.unit_price` readus.
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -299,6 +305,29 @@ describe('NIR (lotul C4a)', () => {
     await user.click(within(dlg).getByRole('button', { name: 'Salvează & recepționează' }))
     await waitFor(() => expect(h.pos).toHaveLength(1))
     expect(h.pos[0]!.items).toEqual([{ ingredient_id: 'i3', quantity: 1000, unit_price: 0.0035, vat_rate: 0 }])
+  })
+
+  it('STK11 un ingredient fără cost nu moștenește prețul celui de dinainte', async () => {
+    const user = await setup()
+    const dlg = await openNir(user)
+    const pick = within(dlg).getAllByRole('combobox')[0]!
+    const price = within(dlg).getByRole('textbox', { name: 'Preț/unitate' })
+    await user.selectOptions(pick, 'i1')
+    expect(price).toHaveValue('4')
+    await user.selectOptions(pick, 'i2')
+    expect(price).toHaveValue('')
+    await user.type(within(dlg).getByRole('textbox', { name: 'Cantitate' }), '2')
+    await user.click(within(dlg).getByRole('button', { name: 'Salvează & recepționează' }))
+    expect(within(dlg).getByRole('alert')).toHaveTextContent('Completează prețul unitar')
+    expect(h.pos).toEqual([])
+
+    // Control: prețul tastat pentru Zahăr pleacă.
+    await user.type(price, '3,5')
+    await user.click(within(dlg).getByRole('button', { name: 'Salvează & recepționează' }))
+    await waitFor(() => expect(h.pos).toHaveLength(1))
+    expect(h.pos[0]!.items).toEqual([
+      { ingredient_id: 'i2', quantity: 2, unit_price: 3.5, vat_rate: 0 },
+    ])
   })
 })
 

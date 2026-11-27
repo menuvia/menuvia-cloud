@@ -13,8 +13,14 @@
 //   XF3  „-5” → „nu poate fi negativ”, „abc” → „nu e un număr valid”, cu
 //        aria-invalid + aria-describedby pe câmp; tastarea șterge eroarea.
 //        Mutația care pică: `if (isNaN(p) || p < 0) return` (refuz tăcut) readus.
+// Recenzia lotului C4a:
+//   XF4  un preț prea mare (309 cifre de 9 — `Infinity` pentru `parseFloat`)
+//        e „nu e un număr valid”: `onAdd` nu se cheamă, iar ciorna rămâne (nu
+//        se golește formularul ca la succes). Control: același câmp cu „4,50”
+//        pleacă. Mutația care pică: garda `Number.isFinite` scoasă din
+//        `parseDecimalInput` (Infinity trecea de `Number.isNaN`).
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ExtraForm } from '../ExtraForm'
 
@@ -73,5 +79,25 @@ describe('ExtraForm (lotul C4a)', () => {
     alert = screen.getByRole('alert')
     expect(alert).toHaveTextContent('Prețul nu e un număr valid (ex. 12,50)')
     expect(onAdd).not.toHaveBeenCalled()
+  })
+
+  it('XF4 un preț prea mare nu pleacă', async () => {
+    const onAdd = vi.fn()
+    const user = userEvent.setup()
+    render(<ExtraForm onAdd={onAdd} />)
+    await user.type(nameBox(), 'Trufe')
+    fireEvent.change(price(), { target: { value: '9'.repeat(309) } })
+    await user.click(addBtn())
+    expect(screen.getByRole('alert')).toHaveTextContent('Prețul nu e un număr valid (ex. 12,50)')
+    expect(price()).toHaveAttribute('aria-invalid', 'true')
+    expect(onAdd).not.toHaveBeenCalled()
+    expect(nameBox()).toHaveValue('Trufe')
+    expect(price()).toHaveValue('9'.repeat(309))
+
+    // Control: un preț obișnuit pleacă din același câmp.
+    await user.clear(price())
+    await user.type(price(), '4,50')
+    await user.click(addBtn())
+    expect(onAdd).toHaveBeenCalledWith('Trufe', 4.5, '')
   })
 })

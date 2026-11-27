@@ -41,6 +41,13 @@ import type promotionsRo from '../i18n/ns/promotions/ro'
 // Erorile ținute ca DATE (lotul L5b): validarea editorului e o cheie, refuzul
 // serverului e eroarea brută; textul se compune la RANDARE, în limba curentă.
 type EditorError = { kind: 'invalid'; key: StringKey<typeof promotionsRo> } | { kind: 'server'; err: unknown }
+// Erorile care țin DOAR de reducerea în procent (plafonul există doar acolo, iar
+// „max 100” nu se aplică unei sume în lei): la trecerea pe sumă fixă se șterg,
+// altfel mesajul rămânea lângă un câmp ascuns (recenzia lotului C4a).
+const PERCENT_ONLY_ERRORS: readonly StringKey<typeof promotionsRo>[] = [
+  'err_capInvalid',
+  'err_pctMax',
+]
 
 interface Props {
   restaurantId: string
@@ -542,7 +549,11 @@ function RuleCard({
 // selecție de text trasă din panou închidea editorul și pierdea regula. Cu
 // formularul modificat, orice închidere (fundal, Escape, ✕, „Anulează”)
 // întreabă întâi. „Creează” e blocat cât timp cererea e în aer — un dublu-click
-// crea regula de DOUĂ ori. Reducerea în sine se aplică pe SERVER
+// crea regula de DOUĂ ori — și la fel tot formularul și închiderea (recenzia
+// lotului C4a): o modificare tastată în timpul cererii nu intra în ea și se
+// pierdea la succes, iar un editor închis și redeschis în timpul cererii era
+// închis de succesul celei VECHI (`setEditing(null)` din părinte), cu ciorna
+// lui cu tot. Pe eroare totul se deblochează. Reducerea în sine se aplică pe SERVER
 // (trg_apply_happy_hour_auto, mig 077): aici doar definim regula, fără niciun
 // calcul de reducere în client.
 function RuleEditor({
@@ -609,6 +620,9 @@ function RuleEditor({
   const [initialSnapshot] = useState(snapshot)
 
   async function confirmDiscard(): Promise<boolean> {
+    // Cererea e în aer: nici „Anulează”, nici ✕/Escape/fundalul (toate trec pe
+    // aici, prin `confirmClose`) nu închid editorul până nu se termină.
+    if (savingRef.current) return false
     if (snapshot === initialSnapshot) return true
     return confirmDialog({
       title: t('discard_title'),
@@ -691,7 +705,21 @@ function RuleEditor({
 
   return (
     <Modal title={rule ? t('edit_title') : t('newRule')} onClose={onClose} width={540} confirmClose={confirmDiscard}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* `fieldset disabled` blochează ORICE control dinăuntru, inclusiv unul
+          adăugat mai târziu — fără un `disabled={saving}` de ținut minte pe
+          fiecare. Stilul anulează chenarul implicit al lui `fieldset`. */}
+      <fieldset
+        disabled={saving}
+        style={{
+          border: 0,
+          margin: 0,
+          padding: 0,
+          minWidth: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 14,
+        }}
+      >
         <div>
           <label htmlFor={ids.name} style={lbl}>
             {t('field_name')}
@@ -868,6 +896,9 @@ function RuleEditor({
               onClick={() => {
                 setDiscountType('amount')
                 setMaxDiscount('')
+                setErr((e) =>
+                  e?.kind === 'invalid' && PERCENT_ONLY_ERRORS.includes(e.key) ? null : e,
+                )
               }}
               style={btn({
                 background: discountType === 'amount' ? D.goldA : D.s3,
@@ -983,7 +1014,7 @@ function RuleEditor({
             {saving ? t('saving') : rule ? t('saveChanges') : t('create')}
           </button>
         </div>
-      </div>
+      </fieldset>
     </Modal>
   )
 }

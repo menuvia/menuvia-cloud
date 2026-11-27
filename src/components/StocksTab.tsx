@@ -1743,17 +1743,20 @@ function NirCreateModal({
   // Prețul unitar se precompletează din costul ingredientului, la precizia
   // coloanei (4 zecimale): cu `toFixed(2)` un cost de 0,0035 lei/g pornea „0.00”,
   // un 0 explicit care trecea de verificarea prețului (lotul C4a, recenzie).
-  // Fără cost cunoscut, câmpul rămâne cum era.
+  // Un ingredient ALES ia mereu prețul lui, chiar și golul (cost 0 sau
+  // necunoscut → prețul se cere explicit): înainte un gol păstra prețul
+  // rândului, deci trecerea de la Făină (4 lei) la un ingredient fără cost lăsa
+  // „4” — prețul ALTUI ingredient, care intra în costul mediu ponderat (mig 251)
+  // și în profitabilitate. Doar întoarcerea la „Alege ingredientul” îl păstrează.
   function selectIngredient(idx: number, ingId: string) {
     const ing = ingredients.find((i) => i.id === ingId)
-    const prefill = ing ? unitCostInputText(ing.cost_per_unit) : ''
     setItems((prev) =>
       prev.map((r, i) =>
         i === idx
           ? {
               ...r,
               ingredient_id: ingId,
-              unit_price: prefill !== '' ? prefill : r.unit_price,
+              unit_price: ing ? unitCostInputText(ing.cost_per_unit) : r.unit_price,
             }
           : r,
       ),

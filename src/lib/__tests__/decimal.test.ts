@@ -21,6 +21,12 @@
 //        trecea de „Completează prețul unitar” — și „0.01” pentru 0,006) sau
 //        `String(cost)` fără plafon (1e-7 → „1e-7”, respins de parser). Control:
 //        costurile obișnuite (4, 4.5, 12.3456) ies neschimbate.
+//   DC8  un număr prea MARE e NaN, nu `Infinity`: 309 cifre de 9 au formă de
+//        preț, dar `parseFloat` le dă `Infinity`, care trecea de orice
+//        `Number.isNaN` și pleca în JSON ca `null` (la plafonul Happy Hour,
+//        „fără plafon”). Și cu minus, și cu zecimale; în previzualizare → 0.
+//        Control: 308 cifre de 9 (încă finit) rămân număr. Mutația care pică:
+//        garda `Number.isFinite` scoasă din `parseDecimalInput`.
 import { describe, it, expect } from 'vitest'
 import {
   decimalOrZero,
@@ -50,6 +56,22 @@ describe('parseDecimalInput', () => {
     expect(priceInputText(0)).toBe('')
     expect(priceInputText(null)).toBe('')
     expect(priceInputText(32.5)).toBe('32.5')
+  })
+})
+
+describe('numerele prea mari (recenzia lotului C4a)', () => {
+  it('DC8 Infinity e NaN, nu un număr', () => {
+    const huge = '9'.repeat(309)
+    expect(Number.parseFloat(huge)).toBe(Number.POSITIVE_INFINITY)
+    for (const t of [huge, `${huge},5`, ` ${huge} `]) {
+      expect(Number.isNaN(parseDecimalInput(t)), t.slice(0, 12)).toBe(true)
+    }
+    expect(Number.isNaN(parseSignedDecimalInput(`-${huge}`))).toBe(true)
+    expect(Number.isNaN(parseSignedDecimalInput(huge))).toBe(true)
+    expect(decimalOrZero(huge)).toBe(0)
+    // Control: cel mai mare număr de aceeași formă care încă e finit.
+    const big = parseDecimalInput('9'.repeat(308))
+    expect(big != null && Number.isFinite(big)).toBe(true)
   })
 })
 

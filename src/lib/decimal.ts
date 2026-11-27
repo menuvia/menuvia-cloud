@@ -13,12 +13,21 @@
 // de număr e acum o EROARE lângă câmp, niciodată un 0 tăcut.
 // ─────────────────────────────────────────────────────────────
 
-/** „12,50”, „12.5”, „12.”, „7” → număr; gol → null; orice altceva → NaN. */
+/**
+ * „12,50”, „12.5”, „12.”, „7” → număr; gol → null; orice altceva → NaN.
+ *
+ * Și un număr prea MARE e NaN (recenzia lotului C4a): 309 cifre de 9 au formă
+ * de preț, dar `parseFloat` le dă `Infinity`, care trecea de orice
+ * `Number.isNaN` și pleca la server ca `null` în JSON — la plafonul Happy Hour,
+ * `null` înseamnă „fără plafon”. Regula stă AICI, nu la fiecare câmp, ca toți
+ * apelanții (preț, extra, opțiune, stoc, NIR, Happy Hour) s-o primească odată.
+ */
 export function parseDecimalInput(text: string): number | null {
   const t = text.trim().replace(/\s+/g, '').replace(',', '.')
   if (t === '') return null
   if (!/^\d+(\.\d*)?$|^\.\d+$/.test(t)) return Number.NaN
-  return Number.parseFloat(t)
+  const n = Number.parseFloat(t)
+  return Number.isFinite(n) ? n : Number.NaN
 }
 
 /**

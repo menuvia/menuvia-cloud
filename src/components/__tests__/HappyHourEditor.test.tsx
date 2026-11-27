@@ -27,8 +27,25 @@
 //   HHM6 ștergerea trece prin confirm() (ui/confirm): refuzată → nimic șters;
 //        acceptată → regula aleasă e ștearsă. Mutația care pică: ștergerea
 //        fără confirmare.
+// Recenzia lotului C4a:
+//   HHM7 o valoare sau un plafon prea mare (309 cifre de 9 — `Infinity` pentru
+//        `parseFloat`) e o eroare, nu o regulă trimisă: un plafon `Infinity`
+//        pleca în JSON ca `null`, adică „fără plafon”. Control: „50” pe sumă
+//        fixă pleacă. Mutația care pică: garda `Number.isFinite` scoasă din
+//        `parseDecimalInput`.
+//   HHM8 trecerea pe „Sumă fixă” șterge erorile care țin DOAR de procent
+//        (plafon invalid, „Procent max 100”) — plafonul dispare, mesajul rămânea
+//        lângă un câmp ascuns; o eroare care încă se aplică (numele gol) RĂMÂNE.
+//        Mutația care pică: `setErr` scos din butonul „Sumă fixă”.
+//   HHM9 cât cererea e în aer, formularul e blocat (o modificare tastată atunci
+//        nu intra în cerere și se pierdea la succes), iar ✕ nu închide editorul
+//        nici cu „Renunță” acceptat (altfel succesul cererii vechi închidea un
+//        editor DESCHIS între timp, cu ciorna lui). După un refuz totul se
+//        deblochează cu ce s-a tastat; după succes editorul se închide
+//        (control). Mutația care pică: `fieldset disabled={saving}` scos sau
+//        garda `savingRef` scoasă din `confirmDiscard`.
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { HappyHourRule } from '../../lib/happyHour'
 import type { ConfirmOptions } from '../ui/confirm'
@@ -236,5 +253,107 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     h.answer = true
     await user.click(screen.getByRole('button', { name: 'Șterge regula Seara' }))
     await waitFor(() => expect(h.deleted).toEqual(['r2']))
+  })
+
+  it('HHM7 o valoare sau un plafon prea mare e o eroare', async () => {
+    const huge = '9'.repeat(309)
+    const { user, dlg } = await openNew()
+    await user.type(within(dlg).getByLabelText('Nume *'), 'Happy')
+    const cap = within(dlg).getByLabelText('Plafon maxim în lei, opțional')
+    fireEvent.change(cap, { target: { value: huge } })
+    await user.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
+    expect(within(dlg).getByRole('alert')).toHaveTextContent('Plafonul nu e un număr valid')
+    expect(cap).toHaveAttribute('aria-invalid', 'true')
+    expect(h.created).toHaveLength(0)
+
+    await user.click(within(dlg).getByRole('button', { name: 'Sumă fixă (lei)' }))
+    const value = within(dlg).getByLabelText('Valoarea reducerii')
+    fireEvent.change(value, { target: { value: huge } })
+    await user.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
+    expect(within(dlg).getByRole('alert')).toHaveTextContent('Valoarea nu e un număr valid')
+    expect(value).toHaveAttribute('aria-invalid', 'true')
+    expect(h.created).toHaveLength(0)
+
+    // Control: o sumă obișnuită pleacă.
+    fireEvent.change(value, { target: { value: '50' } })
+    await user.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
+    await waitFor(() => expect(h.created).toHaveLength(1))
+    expect(h.created[0]).toMatchObject({
+      discount_type: 'amount',
+      discount_value: 50,
+      max_discount: null,
+    })
+  })
+
+  it('HHM8 „Sumă fixă” șterge doar erorile de procent', async () => {
+    const { user, dlg } = await openNew()
+    await user.type(within(dlg).getByLabelText('Nume *'), 'Happy')
+    await user.type(within(dlg).getByLabelText('Plafon maxim în lei, opțional'), 'abc')
+    await user.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
+    expect(within(dlg).getByRole('alert')).toHaveTextContent('Plafonul nu e un număr valid')
+    await user.click(within(dlg).getByRole('button', { name: 'Sumă fixă (lei)' }))
+    expect(within(dlg).queryByRole('alert')).toBeNull()
+    expect(within(dlg).queryByLabelText('Plafon maxim în lei, opțional')).toBeNull()
+
+    // „Procent max 100” nu se aplică unei sume în lei: 150 lei pleacă.
+    await user.click(within(dlg).getByRole('button', { name: 'Procent (%)' }))
+    const value = within(dlg).getByLabelText('Valoarea reducerii')
+    await user.clear(value)
+    await user.type(value, '150')
+    await user.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
+    expect(within(dlg).getByRole('alert')).toHaveTextContent('Procent max 100')
+    await user.click(within(dlg).getByRole('button', { name: 'Sumă fixă (lei)' }))
+    expect(within(dlg).queryByRole('alert')).toBeNull()
+    expect(value).not.toHaveAttribute('aria-invalid')
+
+    // Control: o eroare care încă se aplică (numele gol) rămâne.
+    await user.click(within(dlg).getByRole('button', { name: 'Procent (%)' }))
+    await user.clear(within(dlg).getByLabelText('Nume *'))
+    await user.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
+    expect(within(dlg).getByRole('alert')).toHaveTextContent('Numele e obligatoriu')
+    await user.click(within(dlg).getByRole('button', { name: 'Sumă fixă (lei)' }))
+    expect(within(dlg).getByRole('alert')).toHaveTextContent('Numele e obligatoriu')
+    expect(h.created).toHaveLength(0)
+
+    await user.type(within(dlg).getByLabelText('Nume *'), 'Happy')
+    await user.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
+    await waitFor(() => expect(h.created).toHaveLength(1))
+    expect(h.created[0]).toMatchObject({
+      discount_type: 'amount',
+      discount_value: 150,
+      max_discount: null,
+    })
+  })
+
+  it('HHM9 cât se salvează, formularul și închiderea sunt blocate', async () => {
+    h.holdCreate = true
+    const { user, dlg } = await openNew()
+    const name = within(dlg).getByLabelText('Nume *')
+    await user.type(name, 'Brunch')
+    await user.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
+    expect(h.created).toHaveLength(1)
+    expect(name).toBeDisabled()
+    expect(within(dlg).getByLabelText('Valoarea reducerii')).toBeDisabled()
+    expect(within(dlg).getByRole('button', { name: 'Categorie' })).toBeDisabled()
+    expect(within(dlg).getByRole('button', { name: 'Anulează' })).toBeDisabled()
+
+    // ✕ e în antetul dialogului (în afara formularului): nu închide și nu
+    // întreabă, chiar dacă „Renunță” ar fi acceptat.
+    h.answer = true
+    await user.click(within(dlg).getByRole('button', { name: 'Închide' }))
+    expect(h.confirm).toHaveLength(0)
+    expect(screen.getByRole('dialog', { name: 'Regulă nouă' })).toBeInTheDocument()
+
+    // Refuzul deblochează totul, cu ce s-a tastat.
+    h.pending?.reject({ message: 'Nu ai voie.', code: '42501' })
+    await waitFor(() => expect(name).toBeEnabled())
+    expect(name).toHaveValue('Brunch')
+    expect(within(dlg).getByRole('button', { name: 'Anulează' })).toBeEnabled()
+
+    // Control: după succes editorul se închide.
+    await user.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
+    expect(h.created).toHaveLength(2)
+    h.pending?.resolve()
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 })
