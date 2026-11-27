@@ -10,9 +10,10 @@
 //     făcută între timp nu se vedea. Părintele trimite comanda VIE;
 //   - o plată care achita tot închidea modalul fără niciun mesaj: acum toast;
 //   - „0”, „-5” erau ignorate tăcut, iar `type=number` refuza virgula pe unele
-//     browsere: suma se citește cu `parseDecimalInput` și se compară în CENȚI
+//     browsere: suma se citește cu `parseDecimalCents` și se compară în CENȚI
 //     (mig 291 cere egalitate exactă), cu motivul afișat sub câmp;
-//   - un tap pe fundal închidea modalul și în timpul cererii.
+//   - un tap pe fundal (sau pe „Închide”) închidea modalul și în timpul
+//     cererii.
 // Gate-ul de bani rămâne în RPC (`add_partial_payment`, mig 291); aici e doar
 // validare de input. Supra-încasarea e semnalată, nu blocată (convenția
 // PayModal): serverul o respinge cu `overpayment`.
@@ -373,7 +374,17 @@ export function SplitBillModal({ order, onClose }: SplitBillModalProps) {
         >
           {submitting ? tw.t('split_processing') : tw.t('split_add')}
         </Button>
-        <Button variant="secondary" fullWidth className="pressable" onClick={onClose}>
+        {/* Ca fundalul: cât plata e în zbor, „Închide” e blocat. Închiderea
+            demonta modalul (și `submittingRef`), iar unul redeschis înainte de
+            răspuns citea registrul fără plata în zbor și o putea trimite a doua
+            oară — `add_partial_payment` înregistrează fiecare apel separat. */}
+        <Button
+          variant="secondary"
+          fullWidth
+          className="pressable"
+          disabled={submitting}
+          onClick={onClose}
+        >
           {tc.t('close')}
         </Button>
       </div>

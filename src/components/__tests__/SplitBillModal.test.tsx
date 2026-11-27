@@ -28,6 +28,11 @@
 //         înregistrată” (plata A FOST înregistrată — o retrimitere ar fi
 //         încasare dublă), ci alerta registrului. Mutația care pică: re-citirea
 //         înapoi în același `try` cu plata.
+//   SPB9  cât plata e în zbor, „Închide” e dezactivat și un tap nu închide;
+//         după răspuns, închide (control pozitiv). Închiderea demonta modalul
+//         (și `submittingRef`), iar unul redeschis înainte de răspuns putea
+//         trimite aceeași plată a doua oară (recenzie CodeRabbit pe #392).
+//         Mutația care pică: `disabled={submitting}` scos de pe „Închide”.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import type { OrderPaymentRow } from '../../lib/orders'
@@ -200,6 +205,30 @@ describe('SplitBillModal — suma în cenți și achitarea restului', () => {
     // Control pozitiv: după răspuns, fundalul închide.
     fireEvent.click(backdrop)
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('SPB9: „Închide” e blocat cât plata e în zbor', async () => {
+    h.getOrderPayments.mockResolvedValue([])
+    const inFlight = deferred<{ ok: boolean; total_paid: number; remaining: number; fully_paid: boolean }>()
+    h.addPartialPayment.mockReturnValueOnce(inFlight.promise)
+    const { onClose } = renderModal(100)
+    await screen.findByText('Rămas:')
+    const closeButton = () => screen.getByRole('button', { name: 'Închide' })
+    expect(closeButton()).toBeEnabled()
+    fireEvent.change(amountInput(), { target: { value: '30' } })
+    fireEvent.click(addButton())
+    expect(closeButton()).toBeDisabled()
+    fireEvent.click(closeButton())
+    expect(onClose).not.toHaveBeenCalled()
+
+    await act(async () => {
+      inFlight.resolve({ ok: true, total_paid: 30, remaining: 70, fully_paid: false })
+    })
+    // Control pozitiv: după răspuns, „Închide” închide.
+    expect(closeButton()).toBeEnabled()
+    fireEvent.click(closeButton())
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(h.addPartialPayment).toHaveBeenCalledTimes(1)
   })
 
   it('SPB6: plată parțială reușită + re-citire eșuată → fără „nu a fost înregistrată”', async () => {

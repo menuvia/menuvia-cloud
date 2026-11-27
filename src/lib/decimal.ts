@@ -7,12 +7,48 @@
 // rămâne acum text; se transformă în număr doar ce are formă de preț.
 // ─────────────────────────────────────────────────────────────
 
-/** „12,50”, „12.5”, „12.”, „7” → număr; gol → null; orice altceva → NaN. */
+const DECIMAL_SHAPE = /^\d+(\.\d*)?$|^\.\d+$/
+
+// Spațiul din INTERIORUL sumei e acceptat doar ca separator de mii, în grupe
+// de exact trei cifre („1 250,50”). Înainte orice spațiu se ștergea înainte
+// de validare: „12 50” (spațiu tastat în loc de virgulă) devenea 1250, iar
+// „1 2” devenea 12 — o sumă pe care omul n-a tastat-o, trimisă tăcut pe o
+// cale de bani (recenzie CodeRabbit pe #392). `\s` prinde și spațiul
+// neîntrerupt, pe care îl pun numerele formatate copiate.
+const GROUPED_THOUSANDS = /^\d{1,3}(?:\s\d{3})+(?:[.,]\d*)?$/
+
+/** Forma canonică („1250.50”), sau textul tăiat dacă nu are formă de sumă. */
+function normalizeDecimalText(text: string): string {
+  const t = text.trim()
+  const ungrouped = GROUPED_THOUSANDS.test(t) ? t.replace(/\s+/g, '') : t
+  return ungrouped.replace(',', '.')
+}
+
+/** „12,50”, „12.5”, „12.”, „7”, „1 250” → număr; gol → null; orice altceva → NaN. */
 export function parseDecimalInput(text: string): number | null {
-  const t = text.trim().replace(/\s+/g, '').replace(',', '.')
+  const t = normalizeDecimalText(text)
   if (t === '') return null
-  if (!/^\d+(\.\d*)?$|^\.\d+$/.test(t)) return Number.NaN
+  if (!DECIMAL_SHAPE.test(t)) return Number.NaN
   return Number.parseFloat(t)
+}
+
+/**
+ * Aceeași formă ca `parseDecimalInput`, dar direct în CENȚI întregi, rotunjiți
+ * ZECIMAL la două zecimale, cu jumătatea în sus — ca `numeric(…, 2)` din
+ * Postgres, unde ajunge suma. `Math.round(1.005 * 100)` dă 100, fiindcă 1,005
+ * nu există în binar (produsul e 100,4999…), deci clientul ar fi trimis 1,00
+ * unde serverul ar fi păstrat 1,01. Gol → null; orice altceva → NaN, inclusiv
+ * o sumă care nu încape într-un întreg sigur de cenți (un „1” urmat de sute de
+ * zerouri e finit ca lei, dar Infinity ca cenți).
+ */
+export function parseDecimalCents(text: string): number | null {
+  const t = normalizeDecimalText(text)
+  if (t === '') return null
+  if (!DECIMAL_SHAPE.test(t)) return Number.NaN
+  const [whole = '', frac = ''] = t.split('.')
+  const roundUp = frac.length > 2 && frac.charAt(2) >= '5' ? 1 : 0
+  const cents = Number((whole || '0') + frac.padEnd(2, '0').slice(0, 2)) + roundUp
+  return Number.isSafeInteger(cents) ? cents : Number.NaN
 }
 
 /** Prețul de pornire în câmp: 0 (produs nou) = câmp gol. */

@@ -7,7 +7,7 @@
 // invers. Validarea e de INPUT (formă, > 0); supra-încasarea e doar semnalată
 // — serverul rămâne gate-ul și o respinge cu `overpayment`.
 // ─────────────────────────────────────────────────────────────
-import { parseDecimalInput } from './decimal'
+import { parseDecimalCents } from './decimal'
 
 /** Suma plăților din registru, în cenți întregi (fiecare plată rotunjită separat). */
 export function sumPaymentsCents(payments: ReadonlyArray<{ amount: number }>): number {
@@ -34,11 +34,13 @@ export type SplitAmountCheck =
  * cenți cu restul. `rest` null = restul nu e cunoscut (plățile nu s-au citit).
  */
 export function checkSplitAmount(text: string, rest: number | null): SplitAmountCheck {
-  const n = parseDecimalInput(text)
-  if (n == null) return { kind: 'empty' }
-  if (!Number.isFinite(n)) return { kind: 'invalid' }
-  const cents = Math.round(n * 100)
-  if (cents <= 0) return { kind: 'invalid' }
+  // Cenți rotunjiți ZECIMAL („1,005” → 101, ca `numeric(10,2)`); NaN = nu e o
+  // sumă, inclusiv una care nu încape într-un întreg sigur de cenți — înainte
+  // „1” urmat de 307 zerouri era finit ca lei, Infinity ca cenți, și trecea
+  // drept `over`, adică trimisibil.
+  const cents = parseDecimalCents(text)
+  if (cents == null) return { kind: 'empty' }
+  if (Number.isNaN(cents) || cents <= 0) return { kind: 'invalid' }
   if (rest == null) return { kind: 'ok', cents, coversRest: false }
   if (cents > rest) return { kind: 'over', cents, overByCents: cents - rest }
   return { kind: 'ok', cents, coversRest: cents === rest }

@@ -7,6 +7,12 @@
 //   SPL3  față de rest: sub → ok fără acoperire, egal → acoperă restul, peste →
 //         `over` cu diferența (semnalat, nu blocat); rest necunoscut → ok fără
 //         acoperire. Control pozitiv: egalitatea pe cenți, nu pe lei.
+//   SPL4  sumele care nu sunt ce a tastat omul nu pleacă (recenzie CodeRabbit
+//         pe #392): „1 2” și „12 50” sunt ne-valide (nu 12 / 1250), „1” urmat
+//         de 307 zerouri e ne-valid (nu `over` cu Infinity de cenți, deci
+//         trimisibil), iar „1.005” e 101 cenți, ca `numeric(10,2)`. Mutațiile
+//         care pică: spațiile șterse înainte de validare; `Math.round(n * 100)`
+//         fără garda pe întregul sigur.
 import { describe, it, expect } from 'vitest'
 import { sumPaymentsCents, remainingCents, checkSplitAmount, centsText } from '../partialPayments'
 
@@ -33,5 +39,19 @@ describe('partialPayments', () => {
     expect(checkSplitAmount('50,05', 5005)).toEqual({ kind: 'ok', cents: 5005, coversRest: true })
     expect(checkSplitAmount('50.06', 5005)).toEqual({ kind: 'over', cents: 5006, overByCents: 1 })
     expect(checkSplitAmount('50', null)).toEqual({ kind: 'ok', cents: 5000, coversRest: false })
+  })
+
+  it('SPL4 nicio sumă pe care omul n-a tastat-o', () => {
+    for (const bad of ['1 2', '12 50', '1' + '0'.repeat(307)]) {
+      expect(checkSplitAmount(bad, 5000), bad.slice(0, 20)).toEqual({ kind: 'invalid' })
+      expect(checkSplitAmount(bad, null), bad.slice(0, 20)).toEqual({ kind: 'invalid' })
+    }
+    expect(checkSplitAmount('1.005', 101)).toEqual({ kind: 'ok', cents: 101, coversRest: true })
+    // Control pozitiv: separatorul de mii rămâne o sumă, iar peste rest e `over`.
+    expect(checkSplitAmount('1 250', 5000)).toEqual({
+      kind: 'over',
+      cents: 125000,
+      overByCents: 120000,
+    })
   })
 })

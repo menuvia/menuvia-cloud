@@ -102,6 +102,8 @@ interface PayModalProps {
   onApplyHappyHour?: (() => void) | undefined
 }
 
+type TipsMode = 'none' | '5' | '10' | '15' | 'custom'
+
 function PayModal({
   order,
   alreadyPaid,
@@ -122,7 +124,7 @@ function PayModal({
   // Cale de bani: blocăm butonul cât timp plata e în curs, ca un dublu-click
   // rapid să nu trimită plata de două ori.
   const [submitting, setSubmitting] = useState(false)
-  const [tipsMode, setTipsMode] = useState<'none' | '5' | '10' | '15' | 'custom'>('none')
+  const [tipsMode, setTipsMode] = useState<TipsMode>('none')
   const [tipsCustom, setTipsCustom] = useState('')
   // Restul de achitat = total − plăți parțiale deja încasate (mig 172). Cât
   // timp suma încasată nu e cunoscută, restul afișat e totalul, dar nimic nu
@@ -132,15 +134,31 @@ function PayModal({
   const orderTotal = Math.max(0, order.total - paidSoFar)
 
   // Calculează tips în funcție de mod
-  const tipsAmount: number = (() => {
-    if (tipsMode === 'none') return 0
-    if (tipsMode === 'custom') return Math.max(0, parseFloat(tipsCustom) || 0)
-    const pct = Number(tipsMode)
+  function tipsFor(mode: TipsMode, custom: string): number {
+    if (mode === 'none') return 0
+    if (mode === 'custom') return Math.max(0, parseFloat(custom) || 0)
+    const pct = Number(mode)
     return Math.round(orderTotal * (pct / 100) * 100) / 100
-  })()
+  }
+  const tipsAmount: number = tipsFor(tipsMode, tipsCustom)
 
   const grandTotal = orderTotal + tipsAmount
-  const [amount, setAmount] = useState(String(grandTotal.toFixed(2)))
+  // Suma înmânată: `null` = câmpul URMEAZĂ suma de plată, derivată în ACEEAȘI
+  // randare (recenzie CodeRabbit pe #392). Înainte un efect o rescria DUPĂ
+  // commit: când sosea suma deja încasată (`null` → 40 pe 100), restul afișa
+  // 60, butonul se activa, dar câmpul ținea „100.00” un cadru — un tap atunci
+  // trimitea 100. Iar un efect pe `grandTotal` călca și suma TASTATĂ de
+  // ospătar (65 → 60 la reîncercarea citirii). Acum o editare rămâne a lui;
+  // doar un bacșiș SCHIMBAT (gestul lui, exact când efectul vechi rescria
+  // câmpul) îl re-sincronizează — vezi `chooseTips`.
+  const [amountDraft, setAmountDraft] = useState<string | null>(null)
+  const amount = amountDraft ?? grandTotal.toFixed(2)
+  /** Alegerea bacșișului; schimbă suma de plată → câmpul urmează din nou suma. */
+  function chooseTips(mode: TipsMode, custom: string): void {
+    if (tipsFor(mode, custom) !== tipsAmount) setAmountDraft(null)
+    setTipsMode(mode)
+    setTipsCustom(custom)
+  }
   // Refuzul serverului, afișat aici (bannerul paginii stă sub overlay).
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   // Pre-flight (informativ, NU blocant — serverul e gate-ul, mig 264) pe suma
@@ -180,11 +198,6 @@ function PayModal({
     setTipsMode('custom')
     setTipsCustom((Math.round((handed - orderTotal) * 100) / 100).toFixed(2))
   }
-
-  // Re-sync amount când se schimbă order.total sau tips
-  useEffect(() => {
-    setAmount(String(grandTotal.toFixed(2)))
-  }, [grandTotal])
 
   const hasDiscount = order.discount_type != null && order.discount_amount > 0
   const subtotal = hasDiscount ? orderTotal + order.discount_amount : orderTotal
@@ -501,7 +514,7 @@ function PayModal({
               return (
                 <button
                   key={opt}
-                  onClick={() => setTipsMode(opt)}
+                  onClick={() => chooseTips(opt, tipsCustom)}
                   style={{
                     flex: 1,
                     padding: '8px 0',
@@ -524,7 +537,7 @@ function PayModal({
             <input
               type="number"
               value={tipsCustom}
-              onChange={(e) => setTipsCustom(e.target.value)}
+              onChange={(e) => chooseTips(tipsMode, e.target.value)}
               placeholder="0.00"
               step="0.50"
               min="0"
@@ -554,7 +567,7 @@ function PayModal({
             type="number"
             value={amount}
             onChange={(e) => {
-              setAmount(e.target.value)
+              setAmountDraft(e.target.value)
               setErrorMsg(null)
             }}
             style={{

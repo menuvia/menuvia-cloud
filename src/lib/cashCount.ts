@@ -8,15 +8,16 @@
 // `type=number` refuză virgula, „12,5” ajungea tot ca '' → 0. Același tipar la
 // deschiderea turei: câmp golit = fond 0.
 //
-// Acum suma se citește cu `parseDecimalInput` (virgulă SAU punct), un câmp gol
-// înseamnă NICIO sumă (nu 0), iar valoarea se ține în CENȚI întregi. Validarea
-// e de INPUT, nu un gate de business: serverul rămâne autoritatea pe tură.
+// Acum suma se citește cu `parseDecimalCents` (virgulă SAU punct), un câmp gol
+// înseamnă NICIO sumă (nu 0), iar valoarea se ține în CENȚI întregi, rotunjiți
+// zecimal ca `numeric(10,2)` din `cash_shifts`. Validarea e de INPUT, nu un
+// gate de business: serverul rămâne autoritatea pe tură.
 //
 // Textele de mai jos sunt în română și DOAR în română: Casă & Tură e ecran
 // fiscal (raportul Z, sertarul — lib/fiscalScreens.ts), deci nu au chei în
 // dicționarele personalului. Stau aici, lângă funcțiile pure care le compun.
 // ─────────────────────────────────────────────────────────────
-import { parseDecimalInput } from './decimal'
+import { parseDecimalCents } from './decimal'
 
 export interface CashInput {
   /** 'empty' = nimic tastat (NU 0); 'invalid' = text care nu e o sumă. */
@@ -27,12 +28,13 @@ export interface CashInput {
 
 /** „1250,50”, „1250.5”, „0” → cenți; „” → empty; „-5”, „12,5,3”, „abc” → invalid. */
 export function readCashInput(text: string): CashInput {
-  const n = parseDecimalInput(text)
-  if (n == null) return { state: 'empty', cents: null }
-  // `parseDecimalInput` respinge deja semnul; `isFinite` prinde un șir de
-  // sute de cifre (parseFloat → Infinity).
-  if (!Number.isFinite(n) || n < 0) return { state: 'invalid', cents: null }
-  return { state: 'ok', cents: Math.round(n * 100) }
+  const cents = parseDecimalCents(text)
+  if (cents == null) return { state: 'empty', cents: null }
+  // `parseDecimalCents` respinge deja semnul și orice sumă care nu încape
+  // într-un întreg sigur de cenți (NaN): „1” urmat de 307 zerouri era finit ca
+  // lei, dar Infinity ca cenți, și pleca la `close_shift` ca `null`.
+  if (Number.isNaN(cents)) return { state: 'invalid', cents: null }
+  return { state: 'ok', cents }
 }
 
 /** Suma din server (lei, posibil cu zecimale binare) în cenți întregi. */

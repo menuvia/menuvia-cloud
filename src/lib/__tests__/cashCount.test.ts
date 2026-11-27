@@ -13,6 +13,11 @@
 //         `>` sau Z ignorat.
 //   CSL5  textul confirmării spune suma numărată, lipsa/surplusul față de
 //         așteptat și că Z-ul nu se poate anula — doar când Z pleacă.
+//   CSL6  rotunjirea e ZECIMALĂ, ca `numeric(10,2)` din `cash_shifts`: „1.005”
+//         e 101 cenți, nu 100 (recenzie CodeRabbit pe #392); „1” urmat de 307
+//         zerouri e ne-valid — finit ca lei, Infinity ca cenți, pleca la
+//         `close_shift` ca `null`; „12 50” nu e 1250. Mutațiile care pică:
+//         `Math.round(n * 100)` readus; garda pe întregul sigur scoasă.
 import { describe, it, expect } from 'vitest'
 import {
   readCashInput,
@@ -43,6 +48,16 @@ describe('readCashInput', () => {
   it('CSL3 forme ne-valide → invalid, fără sumă', () => {
     for (const t of ['-5', '12,5,3', 'abc', '1e3', '9'.repeat(400)]) {
       expect(readCashInput(t), t).toEqual({ state: 'invalid', cents: null })
+    }
+  })
+})
+
+describe('readCashInput — cenți exacți', () => {
+  it('CSL6 rotunjire zecimală; sume care nu încap sau cu spațiu în loc de virgulă → invalid', () => {
+    expect(readCashInput('1.005')).toEqual({ state: 'ok', cents: 101 })
+    expect(readCashInput('1 250,50')).toEqual({ state: 'ok', cents: 125050 })
+    for (const t of ['1' + '0'.repeat(307), '12 50']) {
+      expect(readCashInput(t), t.slice(0, 20)).toEqual({ state: 'invalid', cents: null })
     }
   })
 })
