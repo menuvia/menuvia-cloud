@@ -71,6 +71,8 @@ const fr: Translation<typeof ro> = {
   err_category: 'Choisissez une catégorie',
   err_product: 'Choisissez un produit',
   err_save: 'Erreur lors de l’enregistrement',
+  err_saveTimeout:
+    'L’enregistrement n’a pas pu être confirmé : le serveur n’a pas répondu à temps. La liste des règles a été rechargée — vérifiez-y si la règle a été enregistrée avant de réessayer.',
   saving: 'Enregistrement…',
   discard_title: 'Abandonner les modifications ?',
   discard_desc: 'La règle n’est pas enregistrée et vos modifications seront perdues.',

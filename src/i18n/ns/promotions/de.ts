@@ -71,6 +71,8 @@ const de: Translation<typeof ro> = {
   err_category: 'Wählen Sie eine Kategorie',
   err_product: 'Wählen Sie ein Produkt',
   err_save: 'Fehler beim Speichern',
+  err_saveTimeout:
+    'Das Speichern konnte nicht bestätigt werden: Der Server hat nicht rechtzeitig geantwortet. Die Regelliste wurde neu geladen – prüfen Sie dort, ob die Regel gespeichert wurde, bevor Sie es erneut versuchen.',
   saving: 'Wird gespeichert…',
   discard_title: 'Änderungen verwerfen?',
   discard_desc: 'Die Regel ist nicht gespeichert, und Ihre Änderungen gehen verloren.',

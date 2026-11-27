@@ -85,6 +85,11 @@ const ro = {
   err_category: 'Selectează o categorie',
   err_product: 'Selectează un produs',
   err_save: 'Eroare la salvare',
+  // Salvarea n-a primit răspuns la timp (HAPPY_HOUR_SAVE_TIMEOUT_MS, recenzia
+  // lotului C4a): cererea s-a anulat, dar un INSERT poate fi totuși ajuns în
+  // bază, iar lista de sub editor s-a reîncărcat — de aici „verifică”.
+  err_saveTimeout:
+    'Salvarea nu a putut fi confirmată: serverul n-a răspuns la timp. Lista regulilor s-a reîncărcat — verifică în ea dacă regula s-a salvat înainte să încerci din nou.',
   saving: 'Se salvează…',
   // Închiderea editorului cu modificări nesalvate (fundal, Escape, ✕, „Anulează”).
   discard_title: 'Renunți la modificări?',

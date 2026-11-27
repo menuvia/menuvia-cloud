@@ -70,6 +70,8 @@ const en: Translation<typeof ro> = {
   err_category: 'Select a category',
   err_product: 'Select a product',
   err_save: 'Error while saving',
+  err_saveTimeout:
+    'The save could not be confirmed: the server did not respond in time. The rule list has been reloaded — check there whether the rule was saved before you try again.',
   saving: 'Saving…',
   discard_title: 'Discard your changes?',
   discard_desc: 'The rule is not saved, and your changes will be lost.',
