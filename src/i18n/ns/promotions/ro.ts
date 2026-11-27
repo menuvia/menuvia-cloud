@@ -86,11 +86,26 @@ const ro = {
   err_product: 'Selectează un produs',
   err_save: 'Eroare la salvare',
   // Salvarea n-a primit răspuns la timp (HAPPY_HOUR_SAVE_TIMEOUT_MS, recenzia
-  // lotului C4a): cererea s-a anulat, dar un INSERT poate fi totuși ajuns în
-  // bază, iar lista de sub editor s-a reîncărcat — de aici „verifică”.
-  err_saveTimeout:
-    'Salvarea nu a putut fi confirmată: serverul n-a răspuns la timp. Lista regulilor s-a reîncărcat — verifică în ea dacă regula s-a salvat înainte să încerci din nou.',
+  // lotului C4a): cererea s-a anulat, iar fila a VERIFICAT singură lista
+  // reîncărcată (lista stă sub editor, deci omul n-o poate citi). Fiecare text
+  // spune ce s-a aflat; „nu se dublează” e adevărat fiindcă o reîncercare de
+  // creare verifică întâi lista încă o dată, iar o modificare repetată scrie
+  // același rând.
+  err_notSavedCreate:
+    'Serverul n-a răspuns la timp, iar regula nu apare în lista reîncărcată: nu s-a salvat. Poți încerca din nou — o nouă încercare nu dublează regula.',
+  err_notSavedUpdate:
+    'Serverul n-a răspuns la timp, iar regula din lista reîncărcată nu are valorile tale: modificarea nu s-a salvat. Poți încerca din nou.',
+  err_saveUnverified:
+    'Serverul n-a răspuns la timp, iar lista regulilor nu s-a putut reîncărca: nu se știe dacă salvarea a ajuns. Verifică conexiunea și încearcă din nou — o nouă încercare nu dublează regula.',
+  // O regulă nouă se trimite doar cu o listă de încredere (altfel o creare
+  // fără răspuns n-ar mai putea fi verificată): aici nu a plecat nimic.
+  err_listUnavailable:
+    'Lista regulilor nu s-a putut încărca, deci regula nu s-a trimis încă. Verifică conexiunea și încearcă din nou.',
   saving: 'Se salvează…',
+  // Butonul cât fila verifică lista (după termen sau înaintea unei reîncercări).
+  verifying: 'Se verifică…',
+  // Mesajul (toast) când verificarea găsește salvarea: editorul s-a închis.
+  saved_late: 'Regula s-a salvat — confirmarea a venit după ce conexiunea și-a revenit.',
   // Închiderea editorului cu modificări nesalvate (fundal, Escape, ✕, „Anulează”).
   discard_title: 'Renunți la modificări?',
   discard_desc: 'Regula nu e salvată, iar modificările se pierd.',

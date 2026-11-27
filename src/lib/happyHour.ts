@@ -42,12 +42,18 @@ export interface HappyHourSuggestion {
 export const DAY_LABELS = ['Du', 'Lu', 'Ma', 'Mi', 'Jo', 'Vi', 'Sâ'] as const // index 0..6 → matches DOW 1..7
 
 // ── CRUD ──────────────────────────────────────────────────────
-export async function fetchHappyHourRules(restaurantId: string): Promise<HappyHourRule[]> {
-  const { data, error } = await supabase
+// `signal` (opțional): reîncărcarea de VERIFICARE de după o salvare fără
+// răspuns (HappyHourTab) are și ea termen, iar la termen se anulează.
+export async function fetchHappyHourRules(
+  restaurantId: string,
+  signal?: AbortSignal,
+): Promise<HappyHourRule[]> {
+  const query = supabase
     .from('happy_hour_rules')
     .select('*')
     .eq('restaurant_id', restaurantId)
     .order('created_at', { ascending: false })
+  const { data, error } = await (signal ? query.abortSignal(signal) : query)
   if (error) throw error
   return (data ?? []) as HappyHourRule[]
 }
@@ -55,8 +61,9 @@ export async function fetchHappyHourRules(restaurantId: string): Promise<HappyHo
 // `signal` (opțional) ANULEAZĂ cererea, nu doar o ignoră (recenzia lotului
 // C4a): supabase-js nu are timeout, iar editorul Happy Hour își mărginește
 // salvarea în timp (HappyHourTab) — fără anulare, o cerere abandonată ar fi
-// putut ajunge la server și DUPĂ ce omul a primit „nu s-a putut confirma”. (Una
-// ajunsă deja acolo poate fi comisă oricum; de aceea mesajul cere verificarea.)
+// putut ajunge la server și DUPĂ ce omul a primit „nu s-a putut confirma”. Una
+// ajunsă deja acolo poate fi comisă oricum; de aceea, la termen, fila verifică
+// lista reîncărcată în loc să lase omul să reîncerce orbește (o creare dublată).
 // Pe o cerere anulată, supabase-js întoarce eroarea (`AbortError`), deci
 // funcțiile aruncă, ca la orice refuz.
 export async function createHappyHourRule(

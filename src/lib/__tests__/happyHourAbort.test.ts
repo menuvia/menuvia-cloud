@@ -12,6 +12,12 @@
 //        id. Mutația care pică: la fel.
 //   HHA3 control: fără semnal, aceeași cerere (rândul cu restaurantul, filtrul
 //        pe id), fără `abortSignal`; un refuz al serverului aruncă, ca înainte.
+//   HHA4 fetchHappyHourRules cu semnal (reîncărcarea de VERIFICARE de după o
+//        salvare fără răspuns, mărginită de HAPPY_HOUR_VERIFY_TIMEOUT_MS) →
+//        `abortSignal(semnal)` după `order`, cu ACELAȘI semnal; fără semnal
+//        (încărcarea obișnuită), aceeași cerere fără `abortSignal` (control).
+//        Mutația care pică: semnalul netransmis builderului (verificarea ar
+//        rămâne în aer după termenul ei).
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HappyHourRule } from '../happyHour'
 
@@ -29,7 +35,7 @@ const h = vi.hoisted(() => ({
 vi.mock('../supabase', () => {
   function builder(): Record<string, unknown> {
     const b: Record<string, unknown> = {}
-    for (const m of ['insert', 'update', 'select', 'eq', 'single']) {
+    for (const m of ['insert', 'update', 'select', 'eq', 'order', 'single']) {
       b[m] = (...args: unknown[]) => {
         h.calls.push(m)
         if (m === 'insert' || m === 'update' || m === 'eq') h.args.push(args)
@@ -56,7 +62,7 @@ vi.mock('../supabase', () => {
   }
 })
 
-import { createHappyHourRule, updateHappyHourRule } from '../happyHour'
+import { createHappyHourRule, fetchHappyHourRules, updateHappyHourRule } from '../happyHour'
 
 const FIELDS: NewRule = {
   name: 'Happy',
@@ -112,5 +118,20 @@ describe('salvarea unei reguli Happy Hour se poate anula', () => {
     expect(h.calls).toEqual(['from:happy_hour_rules', 'insert', 'select', 'single'])
     expect(h.args).toEqual([[{ restaurant_id: 'rest-1', ...FIELDS }]])
     expect(h.signals).toHaveLength(0)
+  })
+
+  it('HHA4 reîncărcarea de verificare leagă semnalul de cerere', async () => {
+    h.result = { data: [{ id: 'r1' }], error: null }
+    const ctrl = new AbortController()
+    await expect(fetchHappyHourRules('rest-1', ctrl.signal)).resolves.toEqual([{ id: 'r1' }])
+    expect(h.calls).toEqual(['from:happy_hour_rules', 'select', 'eq', 'order', 'abortSignal'])
+    expect(h.signals).toHaveLength(1)
+    expect(h.signals[0]).toBe(ctrl.signal)
+
+    // Control: încărcarea obișnuită, fără semnal.
+    h.calls = []
+    await fetchHappyHourRules('rest-1')
+    expect(h.calls).toEqual(['from:happy_hour_rules', 'select', 'eq', 'order'])
+    expect(h.signals).toHaveLength(1)
   })
 })

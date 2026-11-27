@@ -1958,7 +1958,15 @@ export default function DashboardPage({
               )}
               {tab === 'happy-hour' && (
                 <Suspense fallback={<InlineSpinner label={t('loading_generic')} />}>
-                  <HappyHourTab restaurantId={restaurant.id} payAtTable={fiscalSurface} />
+                  {/* Cheia restaurantului (ca FloorPlanEditor): o schimbare de
+                      locație montează fila din nou, deci o încărcare întârziată a
+                      locației de dinainte nu mai poate lăsa fila pe spinner
+                      (recenzia CodeRabbit pe #393). */}
+                  <HappyHourTab
+                    key={restaurant.id}
+                    restaurantId={restaurant.id}
+                    payAtTable={fiscalSurface}
+                  />
                 </Suspense>
               )}
               {tab === 'invoices' && fiscalSurface && (

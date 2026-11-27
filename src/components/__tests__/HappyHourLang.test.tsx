@@ -86,6 +86,13 @@ vi.mock('../../lib/supabase', () => {
 })
 vi.mock('../../hooks/usePollWhileVisible', () => ({ usePollWhileVisible: () => {} }))
 vi.mock('../../hooks/useIsMobile', () => ({ useIsMobile: () => false }))
+// Fila anunță o salvare confirmată abia de verificare printr-un toast
+// (HappyHourEditor.test, HHM10); aici nu se ajunge acolo, dar hook-ul cere
+// providerul.
+vi.mock('../ui/useToast', () => {
+  const toast = { success: () => {}, error: () => {}, warning: () => {}, info: () => {}, dismiss: () => {} }
+  return { useToast: () => toast }
+})
 
 import HappyHourTab from '../HappyHourTab'
 import { preloadNamespace, type Dict } from '../../i18n/core'

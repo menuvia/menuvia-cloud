@@ -71,9 +71,17 @@ const fr: Translation<typeof ro> = {
   err_category: 'Choisissez une catégorie',
   err_product: 'Choisissez un produit',
   err_save: 'Erreur lors de l’enregistrement',
-  err_saveTimeout:
-    'L’enregistrement n’a pas pu être confirmé : le serveur n’a pas répondu à temps. La liste des règles a été rechargée — vérifiez-y si la règle a été enregistrée avant de réessayer.',
+  err_notSavedCreate:
+    'Le serveur n’a pas répondu à temps et la règle n’apparaît pas dans la liste rechargée : elle n’a pas été enregistrée. Vous pouvez réessayer — une nouvelle tentative ne duplique pas la règle.',
+  err_notSavedUpdate:
+    'Le serveur n’a pas répondu à temps et la règle de la liste rechargée n’a pas vos valeurs : la modification n’a pas été enregistrée. Vous pouvez réessayer.',
+  err_saveUnverified:
+    'Le serveur n’a pas répondu à temps et la liste des règles n’a pas pu être rechargée : on ne sait pas si l’enregistrement a abouti. Vérifiez la connexion et réessayez — une nouvelle tentative ne duplique pas la règle.',
+  err_listUnavailable:
+    'La liste des règles n’a pas pu être chargée, la règle n’a donc pas encore été envoyée. Vérifiez la connexion et réessayez.',
   saving: 'Enregistrement…',
+  verifying: 'Vérification…',
+  saved_late: 'La règle a été enregistrée — la confirmation est arrivée après le rétablissement de la connexion.',
   discard_title: 'Abandonner les modifications ?',
   discard_desc: 'La règle n’est pas enregistrée et vos modifications seront perdues.',
   discard_confirm: 'Abandonner',
