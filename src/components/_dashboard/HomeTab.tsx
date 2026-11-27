@@ -619,8 +619,19 @@ export default function HomeTab({
           .gte('created_at', todayStart)
           .then(({ count, error }) => {
             if (error) return fail('orders')
+            // O comandă de azi implică o comandă vreodată (aceeași regulă ca
+            // `orderedOnce`), deci o ținem minte ca FAPT, nu doar ca cifră a
+            // zilei: în cache (altfel remontarea pornea din `everOrdered: false`
+            // și cardul reapărea cu „Prima comandă de test" de făcut, HK10) și în
+            // stare (altfel, după miezul nopții sau după anularea comenzii, cifra
+            // cădea la 0 și pasul se debifa pe același ecran, HK11). Doar pe > 0:
+            // un 0 azi nu spune nimic despre ieri.
+            const n = count ?? 0
+            const orderedToday = n !== 0
+            if (orderedToday) rememberHomeSetup(restaurantId, { everOrdered: true })
             if (!alive) return
-            setOrdersToday(count ?? 0)
+            setOrdersToday(n)
+            if (orderedToday) setEverOrdered(true)
             ok('orders')
           }),
       )
@@ -731,7 +742,10 @@ export default function HomeTab({
   // `reloadKey` — HO5), dar „Comenzi azi" se reîmprospătează. O comandă neanulată
   // de azi implică o comandă vreodată, deci pasul se bifează și din cifra
   // proaspătă — altfel ecranul arăta „Comenzi azi: 1" lângă „Prima comandă de
-  // test" încă de făcut, până la o remontare (recenzia O7c, HO6).
+  // test" încă de făcut, până la o remontare (recenzia O7c, HO6). Din lotul C1
+  // citirea „Comenzi azi" scrie ea însăși `everOrdered: true` (stare + cache,
+  // HK10/HK11); derivarea rămâne pentru cursa în care citirea de existență
+  // (pornită la montare) sosește DUPĂ ea cu „încă nicio comandă".
   const orderedOnce: boolean | null = (ordersToday ?? 0) > 0 ? true : everOrdered
   const inFlight = (k: SetupRead): boolean => !setupSettled.has(k)
   // Ordinea e cea în care pașii chiar se pot face (lotul C1): categoriile ÎNTÂI.

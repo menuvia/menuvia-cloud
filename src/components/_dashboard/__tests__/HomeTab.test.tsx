@@ -592,7 +592,10 @@ describe('HomeTab — cifrele zilei (lotul D)', () => {
 //        „Comenzi azi: 7" lângă pasul încă de făcut. Echipa rămâne nefăcută, ca
 //        să rămână cardul (la 6/6 dispare). Control pozitiv: întâi „0" și pasul
 //        nebifat (4/6, din progresul cardului — lotul C1 a scos metrica
-//        „Configurare"). Mutația care pică: pasul lăsat pe `done: everOrdered`.
+//        „Configurare"). Mutația care pică: pasul lăsat pe `done: everOrdered`
+//        ÎMPREUNĂ cu citirea „Comenzi azi" fără `setEverOrdered(true)` — din
+//        recenzia lotului C1 sunt două căi spre aceeași bifă, iar fiecare singură
+//        ține HO6 verde (calea din citire e păzită separat de HK10/HK11).
 //   HO7  lotul G2b: cu `timeZone` = America/New_York, „azi” e ziua LOCALULUI —
 //        la 4 nov 03:30Z (22:30 pe 3 la New York) granița e 3 nov 05:00Z, iar
 //        după miezul nopții de acolo (4 nov 05:10Z) trece pe 4 nov 05:00Z.
@@ -757,6 +760,18 @@ describe('HomeTab — «Comenzi azi» se reîmprospătează', () => {
 //        sosit, nu-l mai aprinde. Mutația care pică: `loading` al pasului de
 //        produse fixat pe `false` (cardul apare cu „stare necunoscută"). HT3 e
 //        controlul pozitiv: null DUPĂ citire (eșuată) = pasul „necunoscut".
+//   HK10 prima comandă VĂZUTĂ în sesiune (prin „Comenzi azi", cu Acasă deschisă)
+//        ajunge în cache: la revenirea pe Acasă, cu citirile noi ținute în zbor,
+//        cardul nu reapare cu „Prima comandă de test" de făcut (recenzia
+//        lotului C1: cache-ul ținea `everOrdered: false` de la prima vizită).
+//        Control pozitiv: înainte de comandă cardul e pe pagină, 5/6. Mutația
+//        care pică: citirea „Comenzi azi" fără `rememberHomeSetup(…,
+//        { everOrdered: true })`.
+//   HK11 pe ACELAȘI ecran, „Comenzi azi" care cade înapoi la 0 (ziua nouă după
+//        miezul nopții, comanda anulată) nu debifează pasul: comanda a existat.
+//        Control pozitiv: aceeași fixtură ca HK10, cardul e pe pagină înainte.
+//        Mutația care pică: citirea fără `setEverOrdered(true)` (pasul derivat
+//        doar din cifra zilei — cardul reapărea la 5/6).
 
 // Ține minte dacă textul cardului a intrat VREODATĂ în DOM: înregistrarea unui
 // MutationObserver păstrează nodul adăugat chiar dacă React îl scoate imediat.
@@ -928,6 +943,56 @@ describe('HomeTab — pași adevărați și o singură listă (lotul C1)', () =>
       )
       expect(await screen.findByRole('button', { name: 'Adaugă produse' })).toBeInTheDocument()
       expect(card.seen()).toBe(false)
+    } finally {
+      card.stop()
+    }
+  })
+
+  // HK10/HK11: toți pașii făcuți în afară de comanda de test; comanda sosește
+  // cu Acasă deschisă, la reîmprospătare.
+  const FIRST_ORDER_STEP = 'Prima comandă de test — deschide QR-ul unei mese și comandă'
+  async function orderArrivesWhileOpen(): Promise<ReturnType<typeof renderHome>> {
+    counts.orders = 0
+    const view = renderHome(plan('growth'))
+    // Control pozitiv: singurul pas rămas e comanda de test, deci cardul e pe pagină.
+    expect(await screen.findByRole('button', { name: FIRST_ORDER_STEP })).toBeInTheDocument()
+    expect(screen.getByText('5/6 pași completați')).toBeInTheDocument()
+    counts.orders = 1
+    returnToPage()
+    await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^1$/))
+    await waitFor(() => expect(screen.queryByText('Configurare restaurant')).toBeNull())
+    return view
+  }
+
+  it('HK10 prima comandă văzută în sesiune ajunge în cache: la revenire, cardul nu reapare', async () => {
+    const first = await orderArrivesWhileOpen()
+    first.unmount()
+    const d = deferred()
+    held.all = d.promise
+    const card = watchSetupCard()
+    try {
+      renderHome(plan('growth'))
+      // Citirile noi sunt ținute în zbor: ecranul vine din cache și știe de comandă.
+      expect(screen.queryByText('Configurare restaurant')).toBeNull()
+      expect(screen.getByRole('button', { name: 'Invită echipa' })).toBeInTheDocument()
+      d.resolve()
+      await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^1$/))
+      expect(card.seen()).toBe(false)
+    } finally {
+      card.stop()
+    }
+  })
+
+  it('HK11 „Comenzi azi" care cade la 0 nu debifează comanda de test', async () => {
+    await orderArrivesWhileOpen()
+    const card = watchSetupCard()
+    try {
+      // Ziua nouă (sau comanda anulată): cifra zilei redevine 0.
+      counts.orders = 0
+      returnToPage()
+      await waitFor(() => expect(metric('Comenzi azi')).toHaveTextContent(/^0$/))
+      expect(card.seen()).toBe(false)
+      expect(screen.getByRole('button', { name: 'Invită echipa' })).toBeInTheDocument()
     } finally {
       card.stop()
     }
