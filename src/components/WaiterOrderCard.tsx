@@ -158,7 +158,18 @@ function PayModal({
   // sumei încasate NU schimbă `order.total`, deci PMU4 rămâne. Un bacșiș
   // SCHIMBAT (gestul lui, exact când efectul vechi rescria câmpul) îl
   // re-sincronizează și el — vezi `chooseTips`.
-  const [amountDraft, setAmountDraft] = useState<{ text: string; total: number } | null>(null)
+  //
+  // Ciorna ține și RESTUL (în cenți) față de care a fost tastată — `null` dacă
+  // a fost tastată cât suma încasată era necunoscută. Textul rămâne (PMU4),
+  // dar oferta „Trece X lei la bacșiș” e ascunsă cât restul s-a schimbat de la
+  // tastare: 105 tastat pe „100” necunoscut, apoi 40 încasat → rest 60, iar un
+  // tap ar fi trecut 45 la bacșiș, din care 40 sunt restul de dat clientului
+  // (recenzie pe 007da9f, PMU7). Oferta revine după o retastare față de restul
+  // cunoscut.
+  const draftRestCents = paidKnown ? Math.round(orderTotal * 100) : null
+  const [amountDraft, setAmountDraft] = useState<
+    { text: string; total: number; rest: number | null } | null
+  >(null)
   const draftLive = amountDraft != null && amountDraft.total === order.total
   // Ciorna moartă se șterge în ACEEAȘI randare (ajustare de stare la schimbarea
   // unui prop, fără efect și fără cadru intermediar), ca o revenire la totalul
@@ -204,7 +215,11 @@ function PayModal({
       : netCents > restCents
         ? t('pay_preOver', { net: netOnBill.toFixed(2), rest: orderTotal.toFixed(2) })
         : null
-  const canMoveOverToTips = paidKnown && amountValid && netCents > restCents
+  const canMoveOverToTips =
+    paidKnown &&
+    amountValid &&
+    netCents > restCents &&
+    (amountDraft == null || amountDraft.rest === restCents)
   /** Mută diferența peste rest în bacșiș: suma înmânată rămâne, nota ajunge exact la rest. */
   function moveOverToTips(): void {
     setTipsMode('custom')
@@ -579,7 +594,7 @@ function PayModal({
             type="number"
             value={amount}
             onChange={(e) => {
-              setAmountDraft({ text: e.target.value, total: order.total })
+              setAmountDraft({ text: e.target.value, total: order.total, rest: draftRestCents })
               setErrorMsg(null)
             }}
             style={{

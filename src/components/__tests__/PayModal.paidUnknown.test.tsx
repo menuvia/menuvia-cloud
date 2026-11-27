@@ -37,6 +37,14 @@
 //         ciorna fără totalul ei (`amountDraft ?? grandTotal`, câmpul rămâne
 //         110 pe nota de 90 → `overpayment`) și ciorna ignorată fără ștergere
 //         (110 reapare la revenirea la 100).
+//   PMU7  suma tastată cât restul era NECUNOSCUT nu oferă „Trece X lei la
+//         bacșiș” după ce sosește suma încasată: 105 tastat pe 100, apoi 40
+//         încasat → rest 60, câmpul rămâne 105 și preflight-ul avertizează, dar
+//         fără butonul de bacșiș (un tap ar fi trecut 45 la bacșiș, din care 40
+//         sunt restul de dat clientului). Control pozitiv: retastat față de
+//         restul cunoscut (106), butonul revine („Trece 46.00 lei la bacșiș”).
+//         Recenzie pe 007da9f. Mutația care pică: oferta fără condiția pe
+//         restul ciornei (`netCents > restCents` singur).
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { PayModal } from '../WaiterOrderCard'
@@ -118,6 +126,32 @@ describe('PayModal — suma deja încasată necunoscută', () => {
     expect(screen.getByRole('spinbutton')).toHaveValue(60)
     fireEvent.click(confirmButton())
     expect(onConfirm).toHaveBeenLastCalledWith('cash', 60, 0)
+  })
+
+  it('PMU7: suma tastată pe rest necunoscut nu oferă mutarea în bacșiș după sosirea restului', () => {
+    const view = render(
+      <PayModal
+        order={ORDER()}
+        alreadyPaid={null}
+        alreadyPaidFailed
+        onRetryAlreadyPaid={() => {}}
+        onConfirm={vi.fn()}
+        onClose={() => {}}
+      />,
+    )
+    const input = screen.getByRole('spinbutton')
+    fireEvent.change(input, { target: { value: '105' } })
+    view.rerender(
+      <PayModal order={ORDER()} alreadyPaid={40} onConfirm={vi.fn()} onClose={() => {}} />,
+    )
+    expect(input).toHaveValue(105)
+    expect(screen.getByRole('status')).toHaveTextContent(/depășește restul/i)
+    expect(screen.queryByRole('button', { name: /la bacșiș/i })).toBeNull()
+
+    // Control pozitiv: retastat față de restul cunoscut (60), oferta revine.
+    // (Altă valoare: React nu emite onChange pe aceeași valoare.)
+    fireEvent.change(input, { target: { value: '106' } })
+    expect(screen.getByRole('button', { name: /trece 46\.00 lei la bacșiș/i })).toBeInTheDocument()
   })
 
   it('PMU5: bacșișul schimbat re-sincronizează câmpul; același bacșiș nu', () => {
