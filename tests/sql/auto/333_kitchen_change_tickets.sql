@@ -46,9 +46,20 @@
 --        niciun ANULAT. [PICĂ: pasul (1) scos — tichetul comenzii anulate pleacă
 --         la imprimantă mai târziu]
 --   KC7  niciun ANULAT pe: janitorul 288 (`expire_stale_orders`, fără JWT), pe o
---        anulare din `ready`, pe o comandă fără tichet ajuns la bridge.
---        [PICĂ: gate-ul pe `auth.uid()` scos → janitorul tipărește; gate-ul pe
---         old.status scos]
+--        anulare din `ready` fără muncă nouă după ce bucătăria a terminat (doar o
+--        RETIPĂRIRE după ready — (b); o MODIFICARE tipărită ÎNAINTE de ready —
+--        (f)), pe o MODIFICARE de după servire rămasă netipărită (g), pe o
+--        comandă fără tichet ajuns la bridge (c). ANULAT pe: originalul în
+--        `error` (d), pe o comandă SERVITĂ la care s-a adăugat ulterior un
+--        produs, cu tichetul de MODIFICARE tipărit (e — recenzia C3c: altfel
+--        bucătăria gătea tiramisu-ul unei comenzi anulate) și pe o MODIFICARE
+--        tipărită între ready și servire (h).
+--        [PICĂ: gate-ul pe `auth.uid()` scos → (a); gate-ul pe old.status scos
+--         → (b); gate-ul vechi, doar new/confirmed/preparing → (e); retipărirea
+--         numărată drept muncă nouă (`not kt.is_reprint` scos) → (b); ancora pe
+--         `created_at` în loc de ready_at/served_at → (f); filtrul de status pe
+--         tichetul de după terminare scos → (g); ancora pe servire (`greatest`
+--         în loc de `least`) → (h)]
 --   KC8  7 limbi × 5 surse: antetele MODIFICARE/ANULAT din tabela de mai jos,
 --        linia sursei = cea a tichetului nou (329) în fiecare limbă, ora
 --        SCHIMBĂRII (now(), nu a comenzii) pe fusul localului (New York),
@@ -145,6 +156,20 @@ end $f$;
 
 create function pg_temp.kc_count(p_order uuid) returns int
 language sql as $f$ select count(*)::int from public.kitchen_tickets where order_id = p_order $f$;
+
+-- `now()` e înghețat pe toată tranzacția suitei, deci comanda, tichetul
+-- original, ready_at și served_at ar avea același moment. KC7 are nevoie de
+-- ordinea REALĂ: comanda și originalul acum 30 min, gata acum 20, servită acum
+-- 10 (doar momentele deja setate se mută) — tot ce se scrie după e „acum”.
+create function pg_temp.kc_backdate(p_order uuid) returns void
+language sql as $f$
+  update public.kitchen_tickets set created_at = now() - interval '30 minutes' where order_id = p_order;
+  update public.orders
+     set created_at = now() - interval '30 minutes',
+         ready_at   = case when ready_at  is not null then now() - interval '20 minutes' end,
+         served_at  = case when served_at is not null then now() - interval '10 minutes' end
+   where id = p_order;
+$f$;
 
 -- Liniile comenzii ca payload pentru update_order_items: fiecare linie existentă
 -- cu `source_item_id` și extra-urile EI (clientul O3b), cantitatea neschimbată.
@@ -459,9 +484,9 @@ begin
   raise notice 'KC6 PASS: tichetul netipărit al comenzii anulate e anulat și nu mai poate fi revendicat';
 end $$;
 
--- ── KC7: fără ANULAT pe janitor, pe anulare din ready, fără tichet la bridge ─
+-- ── KC7: când iese (și când NU iese) ANULAT ─────────────────────────────────
 do $$
-declare v_oid uuid; v_res jsonb; v_old_sub text;
+declare v_oid uuid; v_res jsonb; v_old_sub text; v_n int;
 begin
   -- (a) janitorul 288: comandă `new` veche de 13 h, tichet tipărit, fără JWT.
   v_oid := pg_temp.kc_order();
@@ -478,16 +503,28 @@ begin
     raise exception 'KC7 FAIL (a): janitorul a pus un ANULAT în coadă (% tichete)', pg_temp.kc_count(v_oid);
   end if;
 
-  -- (b) anulare din `ready` (bucătăria a terminat) → niciun ANULAT.
+  -- (b) anulare din `ready` (bucătăria a terminat), pe calea reală; după ready
+  --     s-a cerut doar o RETIPĂRIRE (aceeași comandă, nu muncă nouă), tipărită
+  --     → niciun ANULAT.
   v_oid := pg_temp.kc_order();
   perform pg_temp.kc_print(v_oid);
-  update public.orders set status = 'ready' where id = v_oid;
+  perform public.advance_order(v_oid, 'start_preparing');
+  perform public.advance_order(v_oid, 'mark_ready');
+  perform pg_temp.kc_backdate(v_oid);
+  if (public.kitchen_ticket_reprint(v_oid) ->> 'ok')::boolean is not true then
+    raise exception 'KC7 SETUP (b): retipărirea a fost refuzată';
+  end if;
+  perform pg_temp.kc_print(v_oid);
+  if (select count(*) from public.kitchen_tickets where order_id = v_oid and is_reprint and status = 'success') <> 1 then
+    raise exception 'KC7 SETUP (b): retipărirea de după ready nu a ajuns la imprimantă';
+  end if;
   perform public.advance_order(v_oid, 'cancel', null, null, null, 'Clientul a plecat');
   if (select status from public.orders where id = v_oid) is distinct from 'cancelled' then
     raise exception 'KC7 SETUP: comanda ready nu s-a anulat';
   end if;
-  if pg_temp.kc_count(v_oid) <> 1 then
-    raise exception 'KC7 FAIL (b): ANULAT pe o comandă anulată din ready';
+  if pg_temp.kc_count(v_oid) <> 2 then
+    raise exception 'KC7 FAIL (b): ANULAT pe o comandă anulată din ready, fără muncă nouă după ready (% tichete)',
+      pg_temp.kc_count(v_oid);
   end if;
 
   -- (c) niciun tichet ajuns la bridge (originalul anulat de admin) → niciun ANULAT.
@@ -509,7 +546,100 @@ begin
                      and payload like '*** ANULAT ***%') then
     raise exception 'KC7 FAIL (d): tichetul în error (posibil tipărit) nu a primit ANULAT';
   end if;
-  raise notice 'KC7 PASS: janitor / din ready / fără tichet la bridge → niciun ANULAT; error → ANULAT';
+
+  -- (e) recenzia C3c: masa SERVITĂ mai cere un desert. update_order_items
+  --     acceptă ready/served, deci „+1x Cola” iese la bucătărie DUPĂ ce ea a
+  --     terminat comanda; anularea (clienții au plecat) TREBUIE să tipărească
+  --     ANULAT, altfel bucătăria îl pregătește pentru o comandă anulată.
+  v_oid := pg_temp.kc_order();
+  perform pg_temp.kc_print(v_oid);
+  perform public.advance_order(v_oid, 'start_preparing');
+  perform public.advance_order(v_oid, 'mark_ready');
+  perform public.advance_order(v_oid, 'mark_served');
+  perform pg_temp.kc_backdate(v_oid);
+  perform public.update_order_items(v_oid, pg_temp.kc_keep(v_oid)
+    || jsonb_build_array(jsonb_build_object('product_id', '333d0000-0000-4000-8000-000000000002', 'quantity', 1)), null);
+  if (select status from public.orders where id = v_oid) is distinct from 'served'
+     or not exists (select 1 from public.kitchen_tickets where order_id = v_oid and status = 'pending'
+                     and payload like '*** MODIFICARE ***%' and payload like '%+1x Cola EO%') then
+    raise exception 'KC7 SETUP (e): tichetul de MODIFICARE pe comanda servită lipsește';
+  end if;
+  perform pg_temp.kc_print(v_oid);
+  perform public.advance_order(v_oid, 'cancel', null, null, null, 'Clientii au plecat');
+  select count(*) into v_n from public.kitchen_tickets
+   where order_id = v_oid and status = 'pending' and not is_reprint
+     and payload like '*** ANULAT ***%' and payload like '%-1x Cola EO%';
+  if v_n <> 1 or pg_temp.kc_count(v_oid) <> 3 then
+    raise exception 'KC7 FAIL (e): comandă servită + MODIFICARE tipărită, apoi anulată → % ANULAT / % tichete (aștept 1 / 3)',
+      v_n, pg_temp.kc_count(v_oid);
+  end if;
+
+  -- (f) MODIFICARE tipărită cât comanda era încă `preparing` (acum 15 min),
+  --     apoi bucătăria a terminat (ready acum 5 min) → anularea din ready NU
+  --     tipărește ANULAT: diferența era deja gătită. Ancora e momentul
+  --     terminării, nu crearea comenzii.
+  v_oid := pg_temp.kc_order();
+  perform pg_temp.kc_print(v_oid);
+  perform public.advance_order(v_oid, 'start_preparing');
+  perform pg_temp.kc_backdate(v_oid);
+  perform public.update_order_items(v_oid, pg_temp.kc_keep(v_oid)
+    || jsonb_build_array(jsonb_build_object('product_id', '333d0000-0000-4000-8000-000000000002', 'quantity', 1)), null);
+  perform pg_temp.kc_print(v_oid);
+  update public.kitchen_tickets set created_at = now() - interval '15 minutes'
+   where order_id = v_oid and created_at = now();
+  perform public.advance_order(v_oid, 'mark_ready');
+  update public.orders set ready_at = now() - interval '5 minutes' where id = v_oid;
+  if (select count(*) from public.kitchen_tickets where order_id = v_oid and status = 'success') <> 2 then
+    raise exception 'KC7 SETUP (f): originalul + MODIFICAREA trebuie să fie tipărite';
+  end if;
+  perform public.advance_order(v_oid, 'cancel', null, null, null, 'Clientul a plecat');
+  if pg_temp.kc_count(v_oid) <> 2 then
+    raise exception 'KC7 FAIL (f): ANULAT din ready deși MODIFICAREA era de dinainte de ready (% tichete)',
+      pg_temp.kc_count(v_oid);
+  end if;
+
+  -- (g) MODIFICARE de după servire încă `pending` (bridge offline) → la
+  --     anulare devine `cancelled` și nu mai pleacă; bucătăria n-a văzut-o
+  --     niciodată, deci niciun ANULAT.
+  v_oid := pg_temp.kc_order();
+  perform pg_temp.kc_print(v_oid);
+  perform public.advance_order(v_oid, 'start_preparing');
+  perform public.advance_order(v_oid, 'mark_ready');
+  perform public.advance_order(v_oid, 'mark_served');
+  perform pg_temp.kc_backdate(v_oid);
+  perform public.update_order_items(v_oid, pg_temp.kc_keep(v_oid)
+    || jsonb_build_array(jsonb_build_object('product_id', '333d0000-0000-4000-8000-000000000002', 'quantity', 1)), null);
+  perform public.advance_order(v_oid, 'cancel', null, null, null, 'Clientii au plecat');
+  if pg_temp.kc_count(v_oid) <> 2
+     or not exists (select 1 from public.kitchen_tickets where order_id = v_oid and status = 'cancelled'
+                     and error_code = 'ORDER_CANCELLED' and payload like '*** MODIFICARE ***%') then
+    raise exception 'KC7 FAIL (g): MODIFICAREA netipărită a comenzii servite: % tichete (aștept originalul + ea, anulată, fără ANULAT)',
+      pg_temp.kc_count(v_oid);
+  end if;
+
+  -- (h) MODIFICARE tipărită între ready (acum 20 min) și servire (acum 10 min):
+  --     ospătarul a servit originalul, desertul e încă pe foc → ANULAT. Ancora
+  --     e PRIMUL moment de terminare (`least`), nu servirea.
+  v_oid := pg_temp.kc_order();
+  perform pg_temp.kc_print(v_oid);
+  perform public.advance_order(v_oid, 'start_preparing');
+  perform public.advance_order(v_oid, 'mark_ready');
+  perform pg_temp.kc_backdate(v_oid);
+  perform public.update_order_items(v_oid, pg_temp.kc_keep(v_oid)
+    || jsonb_build_array(jsonb_build_object('product_id', '333d0000-0000-4000-8000-000000000002', 'quantity', 1)), null);
+  perform pg_temp.kc_print(v_oid);
+  update public.kitchen_tickets set created_at = now() - interval '15 minutes'
+   where order_id = v_oid and created_at = now();
+  perform public.advance_order(v_oid, 'mark_served');
+  update public.orders set served_at = now() - interval '10 minutes' where id = v_oid;
+  perform public.advance_order(v_oid, 'cancel', null, null, null, 'Clientii au plecat');
+  select count(*) into v_n from public.kitchen_tickets
+   where order_id = v_oid and status = 'pending' and payload like '*** ANULAT ***%';
+  if v_n <> 1 or pg_temp.kc_count(v_oid) <> 3 then
+    raise exception 'KC7 FAIL (h): MODIFICARE între ready și servire, apoi anulare → % ANULAT / % tichete (aștept 1 / 3)',
+      v_n, pg_temp.kc_count(v_oid);
+  end if;
+  raise notice 'KC7 PASS: janitor / ready fără muncă nouă / MODIFICARE netipărită / fără tichet la bridge → niciun ANULAT; error / MODIFICARE tipărită după ready → ANULAT';
 end $$;
 
 -- ── KC8: 7 limbi × 5 surse (R3, New York) ───────────────────────────────────

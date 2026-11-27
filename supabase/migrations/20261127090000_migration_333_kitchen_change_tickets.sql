@@ -56,7 +56,11 @@
 --            revendicat întâi (→ `sent`, intră la (2)), ori claim-ul lui dă
 --            {claimed:false} și nu tipărește nimic;
 --        (2) tichetul ANULAT, doar dacă: comanda venea din new/confirmed/
---            preparing (bucătăria o putea găti încă), anularea e făcută de un
+--            preparing (bucătăria o putea găti încă) SAU din ready/served cu
+--            un tichet de lucru (nu retipărire) ajuns la bridge DUPĂ momentul
+--            terminării (`least(ready_at, served_at)`) — update_order_items
+--            acceptă ready/served, deci un produs adăugat la o masă servită
+--            iese ca MODIFICARE și trebuie oprit (recenzia C3c), anularea e făcută de un
 --            OM (`auth.uid()` ne-NULL — janitorul 288, `expire_stale_orders` pe
 --            pg_cron fără JWT, ar fi tipărit un ANULAT pentru fiecare comandă
 --            uitată, la ore distanță), featurea + imprimanta există și un
@@ -967,8 +971,26 @@ begin
      where order_id = new.id and status = 'pending';
 
     -- (2) Tichetul ANULAT — doar pentru o comandă pe care bucătăria o putea
-    --     găti încă (new / confirmed / preparing) ...
-    if old.status not in ('new', 'confirmed', 'preparing') then
+    --     găti încă: new / confirmed / preparing, SAU ready / served cu un
+    --     tichet de LUCRU (nu o retipărire) ajuns la bridge DUPĂ ce bucătăria a
+    --     terminat. update_order_items acceptă ready/served, deci un „+1x
+    --     Tiramisu” la o masă servită iese ca MODIFICARE; fără ANULAT, bucătăria
+    --     l-ar găti pentru o comandă anulată (recenzia C3c). Ancora e momentul
+    --     terminării — `least` ignoră NULL-ul (served direct din preparing n-are
+    --     ready_at); fără niciunul, crearea comenzii (originalul e pus în coadă
+    --     în aceeași tranzacție, deci nu e „după”). O MODIFICARE încă `pending`
+    --     a fost anulată la pasul (1): n-a văzut-o nimeni, deci nu contează.
+    if old.status in ('ready', 'served') then
+      if not exists (
+        select 1 from public.kitchen_tickets kt
+         where kt.order_id = new.id
+           and not kt.is_reprint
+           and kt.status in ('sent', 'success', 'error')
+           and kt.created_at > coalesce(least(old.ready_at, old.served_at), old.created_at)
+      ) then
+        return null;
+      end if;
+    elsif old.status not in ('new', 'confirmed', 'preparing') then
       return null;
     end if;
     -- ... anulată de un OM: janitorul 288 (expire_stale_orders, pg_cron, fără
@@ -1101,6 +1123,14 @@ begin
      or position('prints_kitchen_receipts' in v_src) = 0
      or v_src ~* 'now\(\)[[:space:]]*-' then
     raise exception 'ASSERT FAIL (mig 333): enqueue_kitchen_cancel_ticket a pierdut un invariant';
+  end if;
+  -- ... și ramura ready/served (recenzia C3c): muncă nouă tipărită DUPĂ ce
+  -- bucătăria a terminat → ANULAT. Fără ea, un produs adăugat la o masă
+  -- servită se gătea pentru o comandă anulată.
+  if position('old.status in (''ready'', ''served'')' in v_src) = 0
+     or position('not kt.is_reprint' in v_src) = 0
+     or position('kt.created_at > coalesce(least(old.ready_at, old.served_at), old.created_at)' in v_src) = 0 then
+    raise exception 'ASSERT FAIL (mig 333): enqueue_kitchen_cancel_ticket fără ANULAT pe ready/served cu muncă nouă';
   end if;
 
   -- (c) trigger-ul: AFTER UPDATE ROW (tgtype 17 EXACT), UPDATE OF status ȘI
