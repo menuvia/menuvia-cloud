@@ -35,6 +35,8 @@ import {
   normalizeMenuSearch,
   langFromSearch,
   consumeRequestedMenuLang,
+  replaceUrlLang,
+  browserIsCrawler,
 } from '../lib/i18nMenu'
 import type { CartItem } from '../lib/orders'
 import { addOrMergeCartItem, lineTotal } from '../lib/orders'
@@ -152,9 +154,6 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   // Moneda meniului (mig 205) — get_restaurant_by_slug o expune de la mig 148.
   const menuCurrency = resolveMenuCurrency(restaurant?.currency)
 
-  // SEO dinamic: titlu/meta/Open Graph + JSON-LD schema.org Restaurant/Menu, ca
-  // Google să indexeze „<Restaurant> — Meniu" cu rich results, nu titlul generic.
-  useMenuSeo(restaurant, categories, menuCurrency)
   const isDark = useMemo(() => isDarkTheme(theme), [theme])
   // Paginile de flipbook validate (doar https, max 30) — [] dacă lipsesc.
   const flipbookPages = useMemo(
@@ -377,12 +376,25 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     () => availableMenuLangs(categories, restaurant?.menu_languages, baseLang),
     [categories, restaurant?.menu_languages, baseLang],
   )
+
+  // SEO dinamic în limba AFIȘATĂ (lotul C8e): titlu/meta/Open Graph, canonical +
+  // hreflang pe adresele `?lang=`, JSON-LD schema.org Restaurant/Menu din
+  // categoriile TRADUSE — ca Google să indexeze fiecare limbă la adresa ei.
+  useMenuSeo(restaurant, localizedCategories, menuCurrency, menuLang, availableLangs)
+
+  // Adresa urmează limba afișată (lotul C8e): alegerea manuală, cererea `?lang=`
+  // și auto-detectul își scriu limba în `?lang=` (replaceState), deci un link
+  // copiat deschide meniul în aceeași limbă, iar canonicul (useMenuSeo) descrie
+  // exact conținutul de la adresa curentă.
   // Auto-selectează limba browserului DOAR dacă meniul e tradus în ea și
   // vizitatorul n-a ales manual încă (ex. turist german → meniul în germană).
   const handleMenuLangChange = useCallback(
     (code: string) => {
       userPickedLangRef.current = true
       setPickedLang(code === baseLang ? null : code)
+      // Și baza se scrie explicit: un link cu `?lang=<bază>` NU mai pornește
+      // auto-detectul la destinatar (alegerea a fost a omului, nu a browserului).
+      replaceUrlLang(code)
     },
     [baseLang],
   )
@@ -403,6 +415,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
       urlLangRef.current = null
       userPickedLangRef.current = true
       setPickedLang(pick)
+      // O limbă neoferită arată baza, deci adresa spune baza (fixată: tot fără
+      // auto-detect, ca la reîncărcare); o cerere `?lang=EN` se normalizează.
+      replaceUrlLang(pick ?? baseLang)
       return
     }
     // Reset defensiv: dacă limba curentă nu mai e disponibilă (ex. nav SPA către
@@ -412,11 +427,19 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     if (menuLang !== baseLang && !availableLangs.includes(menuLang)) {
       setPickedLang(null)
       userPickedLangRef.current = false
+      replaceUrlLang(null)
       return
     }
     if (userPickedLangRef.current || menuLang !== baseLang) return
+    // Roboții de indexare rămân pe bază: Googlebot randează în en-US, iar cu
+    // auto-detect adresa de bază i-ar arăta engleza — limba de bază n-ar mai fi
+    // indexată nicăieri. Celelalte limbi le găsește prin hreflang.
+    if (browserIsCrawler()) return
     const detected = detectBrowserLang(availableLangs, baseLang)
-    if (detected) setPickedLang(detected)
+    if (detected) {
+      setPickedLang(detected)
+      replaceUrlLang(detected)
+    }
   }, [availableLangs, menuLang, baseLang, loading, error])
 
   const allProducts = useMemo(

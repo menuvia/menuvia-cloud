@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import { T } from '../lib/publicMenuStrings'
 import { Tf, guestLocale } from '../lib/guestI18n'
@@ -53,6 +53,10 @@ interface Props {
   PUB: PubColors
   lang: string
   onClose: () => void
+  /** Selectorul de limbă, deasupra formularului (lotul C8e): pe /rezervare/:slug
+   *  foaia e deschisă din prima și acoperă pastilele din pagină, iar limba
+   *  aleasă e și cea a confirmării (mig 328). Pe meniuri limba se alege acolo. */
+  langSwitch?: ReactNode
 }
 
 interface PublicSettings {
@@ -90,7 +94,15 @@ interface CreateResult {
 // fusul LOCALULUI (`isoToZonedYMD` + `formatYmd`, `formatTimeInZone`), cu fus
 // invalid → București (înainte, un fus invalid arunca RangeError la randare).
 
-export default function ReservationSheet({ restaurant, theme, accent, PUB, lang, onClose }: Props) {
+export default function ReservationSheet({
+  restaurant,
+  theme,
+  accent,
+  PUB,
+  lang,
+  onClose,
+  langSwitch,
+}: Props) {
   useBodyScrollLock(true)
   // Fusul OPERAȚIONAL al localului (fus lipsă sau invalid → București, ca
   // `safe_time_zone` pe server) — sloturile, „azi/mâine/max" și confirmarea.
@@ -186,14 +198,25 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
         new Set(
           ((tz ?? []) as { zone: string | null }[]).map((r) => r.zone).filter(Boolean) as string[],
         ),
-      ).sort((a, b) => a.localeCompare(b, guestLocale(lang)))
+      )
       setZones(uniq)
     }
     void load()
     return () => {
       cancelled = true
     }
-  }, [restaurant.id, lang])
+    // DOAR pe restaurant, NU pe limbă (lotul C8e): pe /rezervare/:slug limba se
+    // schimbă cu foaia deschisă, iar un refetch dădea `settings` o identitate
+    // nouă → `slot` nou → efectul de disponibilitate deselecta masa aleasă pe
+    // hartă și rezervarea pleca pe alocare automată. Ordinea zonelor (singurul
+    // lucru dependent de limbă) se derivă mai jos, în `sortedZones`.
+  }, [restaurant.id])
+
+  // Zonele în ordinea alfabetică a limbii oaspetelui — derivate, fără refetch.
+  const sortedZones = useMemo(
+    () => [...zones].sort((a, b) => a.localeCompare(b, guestLocale(lang))),
+    [zones, lang],
+  )
 
   // „Azi", „Mâine" și ultima zi rezervabilă, pe ziua LOCALULUI (nu a
   // telefonului): un oaspete din alt fus vedea „azi" ziua lui. Se calculează la
@@ -599,12 +622,14 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
             </div>
           )}
           {/* Anulare online pe cod (mig 256/257) — linkul poartă codul, ca
-              clientul să anuleze în 2 tap-uri (anti no-show din audit). */}
+              clientul să anuleze în 2 tap-uri (anti no-show din audit), și
+              limba în care a rezervat (lotul C8e): pagina de anulare citește
+              `?lang=`, deci nu cade pe limba browserului. */}
           {restaurant.slug && (
             <div style={{ fontSize: 12, color: PUB.text3, marginBottom: 22 }}>
               {T(lang, 'rs_cannot_make_it')}{' '}
               <a
-                href={`/rezervare/${restaurant.slug}?cancel=${encodeURIComponent(result.confirmation_code)}`}
+                href={`/rezervare/${restaurant.slug}?cancel=${encodeURIComponent(result.confirmation_code)}&lang=${encodeURIComponent(lang)}`}
                 style={{ color: accentInk, textDecoration: 'underline' }}
               >
                 {T(lang, 'rs_cancel_online')}
@@ -679,6 +704,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
         {T(lang, 'reserve_trust')}
       </div>
       <div style={{ padding: '6px 22px 22px', flex: 1, overflowY: 'auto' }}>
+        {langSwitch != null && <div style={{ padding: '12px 0 2px' }}>{langSwitch}</div>}
         {/* Party size */}
         <div id={partyLabelId} style={labelStyle}>
           {T(lang, 'reserve_party_label')}
@@ -785,7 +811,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
         )}
 
         {/* Zone (only if any zones defined) */}
-        {zones.length > 0 && (
+        {sortedZones.length > 0 && (
           <>
             <div id={zoneLabelId} style={labelStyle}>
               {T(lang, 'reserve_zone_label')}
@@ -804,7 +830,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
                 {chipMark(zone === null)}
                 {T(lang, 'reserve_zone_any')}
               </button>
-              {zones.map((z) => (
+              {sortedZones.map((z) => (
                 <button
                   key={z}
                   type="button"

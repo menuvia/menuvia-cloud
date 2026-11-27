@@ -36,9 +36,11 @@ const RESTAURANT = {
 }
 
 // Limba paginii se ia din navigator — fixăm 'ro' ca aserțiunile pe mesaje să
-// fie deterministe (piața primară e România).
+// fie deterministe (piața primară e România). Și `languages`: pagina parcurge
+// TOATĂ lista de preferințe (lotul C8e), iar jsdom o dă `['en-US', 'en']`.
 function forceRomanian() {
   Object.defineProperty(window.navigator, 'language', { value: 'ro-RO', configurable: true })
+  Object.defineProperty(window.navigator, 'languages', { value: ['ro-RO'], configurable: true })
 }
 
 function renderWithCancelCode(code: string | null) {

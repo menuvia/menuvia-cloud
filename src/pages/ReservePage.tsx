@@ -21,6 +21,16 @@ import { resolveHideBranding, resolveTheme } from '../lib/themes'
 import { PageSpinner } from '../components/PageLoader'
 import { T } from '../lib/publicMenuStrings'
 import { Tf, browserGuestLang } from '../lib/guestI18n'
+import {
+  MENU_LANGS,
+  browserIsCrawler,
+  initialReservePageLang,
+  langFromSearch,
+  menuBaseLang,
+  replaceUrlLang,
+} from '../lib/i18nMenu'
+import { menuType } from '../lib/menuType'
+import { LangSwitcher } from '../components/menu/MenuHeader'
 import { useDocumentLang } from '../hooks/useDocumentLang'
 
 // Chunk-ul sheet-ului e cerut ÎN PARALEL cu RPC-ul restaurantului (perf-guest-5):
@@ -29,6 +39,10 @@ import { useDocumentLang } from '../hooks/useDocumentLang'
 // deci modulul se descarcă o singură dată.
 const loadReservationSheet = () => import('../components/ReservationSheet')
 const ReservationSheet = lazy(loadReservationSheet)
+
+// Toate cele 7 limbi (lotul C8e): textele paginii, ale SMS-ului și ale emailului
+// de confirmare există în toate (mig 328); LangSwitcher pune baza prima.
+const RESERVE_LANGS: string[] = MENU_LANGS.map((l) => l.code)
 
 export default function ReservePage({
   slug,
@@ -45,14 +59,46 @@ export default function ReservePage({
   // ieșire (ux-guest-1). `reloadNonce` re-rulează încărcarea la „Reîncearcă".
   const [loadError, setLoadError] = useState(false)
   const [reloadNonce, setReloadNonce] = useState(0)
+  // Adresa de la sosire, citită O DATĂ: `?lang=` se rescrie la alegerea limbii
+  // (replaceState), iar `?cancel=` nu are voie să depindă de acea rescriere.
+  const [initialSearch] = useState<string>(() =>
+    typeof window !== 'undefined' ? window.location.search : '',
+  )
+  // Limba paginii (lotul C8e) — și a confirmării: ReservationSheet o trimite ca
+  // `guest_language` (mig 328), deci SMS-ul și emailul pleacă în ea. Pornirea:
+  // `?lang=` (linkul de anulare, un link distribuit), apoi preferințele
+  // browserului (toată lista `navigator.languages`, prima din cele 7), apoi
+  // limba de BAZĂ a localului; pastilele o schimbă. Înainte era doar limba browserului,
+  // fără selector: un român cu telefonul în engleză primea SMS-uri în engleză.
+  const [pickedLang, setPickedLang] = useState<string | null>(null)
+  const baseLang = menuBaseLang(restaurant?.language)
+  const startLang = useMemo(
+    () =>
+      initialReservePageLang({
+        search: initialSearch,
+        browserLang: browserGuestLang(),
+        crawler: browserIsCrawler(),
+        base: baseLang,
+      }),
+    [initialSearch, baseLang],
+  )
+  const lang = pickedLang ?? startLang
+  // Limba ALEASĂ explicit: din pastile sau sosită în adresă (`?lang=`). Doar ea
+  // merge mai departe la meniu — una ghicită din browser ar opri auto-detectul
+  // meniului (`?lang=` e o cerere, iar o limbă neoferită fixează baza), deși el
+  // știe ce limbi oferă meniul tradus și ar găsi una potrivită.
+  const explicitLang = pickedLang ?? langFromSearch(initialSearch)
+  useDocumentLang(lang)
+  const pickLang = (code: string) => {
+    setPickedLang(code)
+    // Adresa poartă alegerea: un refresh sau linkul copiat rămân în limba ei.
+    replaceUrlLang(code)
+  }
   // Anulare pe cod (mig 256/257): ?cancel=COD deschide cardul cu codul
   // pre-completat (linkul din emailuri/ecranul de succes); linkul discret de
   // sub butoane îl deschide manual. Sheet-ul de REZERVARE nu se deschide
   // peste fluxul de anulare.
-  const initialCancel =
-    typeof window !== 'undefined'
-      ? (new URLSearchParams(window.location.search).get('cancel') ?? '')
-      : ''
+  const initialCancel = new URLSearchParams(initialSearch).get('cancel') ?? ''
   const [cancelOpen, setCancelOpen] = useState<boolean>(initialCancel !== '')
   const [cancelCode, setCancelCode] = useState<string>(initialCancel)
   const [cancelBusy, setCancelBusy] = useState(false)
@@ -93,11 +139,6 @@ export default function ReservePage({
       setCancelError(T(lang, 'err_invalid_code'))
     }
   }
-
-  // Limba: a browserului, dintre cele 7 ale meniului (pagina nu are selector
-  // — vine dintr-un link, nu din meniul tradus); altfel EN, ca T().
-  const lang = browserGuestLang()
-  useDocumentLang(lang)
 
   // Prefetch-ul chunk-ului, în același commit cu efectul de încărcare de mai
   // jos (deci în paralel cu RPC-ul). Pe fluxul de anulare (?cancel=) sheet-ul
@@ -153,6 +194,8 @@ export default function ReservePage({
     [theme],
   )
   const accent = restaurant?.primary_color ?? theme.colors.accent
+  // Eticheta pastilelor de limbă: aceeași scală ca pe meniuri (LangSwitcher).
+  const typo = useMemo(() => menuType(theme.fonts), [theme])
 
   if (loading) return <PageSpinner />
 
@@ -272,8 +315,21 @@ export default function ReservePage({
       {restaurant.address && (
         <div style={{ color: PUB.text2, fontSize: 14, marginBottom: 4 }}>{restaurant.address}</div>
       )}
-      <div style={{ color: PUB.text3, fontSize: 13, marginBottom: 28 }}>
+      <div style={{ color: PUB.text3, fontSize: 13, marginBottom: 20 }}>
         {T(lang, 'rp_tagline')}
+      </div>
+      <div style={{ width: '100%', maxWidth: 420, marginBottom: 24 }}>
+        <LangSwitcher
+          center
+          languages={RESERVE_LANGS}
+          baseLang={baseLang}
+          activeLang={lang}
+          onLangChange={pickLang}
+          accent={accent}
+          PUB={PUB}
+          labelStyle={typo.label}
+          ariaLabel={T(lang, 'rp_lang_switch_aria')}
+        />
       </div>
 
       {cancelOpen && (
@@ -375,8 +431,15 @@ export default function ReservePage({
         >
           {T(lang, 'reserve_cta')}
         </button>
+        {/* Meniul se deschide în limba ALEASĂ (`?lang=`, semantica O6c: o
+            limbă pe care meniul nu o oferă lasă baza). Fără alegere, nimic:
+            meniul își face singur auto-detectul pe limbile traduse — un francez
+            cu engleza a doua, pe un meniu tradus doar în engleză, primește
+            engleza, nu baza fixată de un `?lang=fr` pe care nu l-a cerut. */}
         <button
-          onClick={() => navigate(`/m/${slug}`)}
+          onClick={() =>
+            navigate(explicitLang != null ? `/m/${slug}?lang=${explicitLang}` : `/m/${slug}`)
+          }
           style={{
             background: 'transparent',
             color: PUB.text2,
@@ -436,6 +499,23 @@ export default function ReservePage({
             PUB={PUB}
             lang={lang}
             onClose={() => setSheetOpen(false)}
+            langSwitch={
+              <>
+                <LangSwitcher
+                  languages={RESERVE_LANGS}
+                  baseLang={baseLang}
+                  activeLang={lang}
+                  onLangChange={pickLang}
+                  accent={accent}
+                  PUB={PUB}
+                  labelStyle={typo.label}
+                  ariaLabel={T(lang, 'rp_lang_switch_aria')}
+                />
+                <div style={{ marginTop: 6, fontSize: 12, color: PUB.text3 }}>
+                  {T(lang, 'rp_lang_hint')}
+                </div>
+              </>
+            }
           />
         </Suspense>
       )}

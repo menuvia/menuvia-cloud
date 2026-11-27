@@ -2612,4 +2612,55 @@ export const GUEST_STRINGS = {
     hu: 'Le kell mondanod egy foglalást?',
     es: '¿Necesitas cancelar una reserva?',
   },
+  // ── Limba paginii de rezervare (lotul C8e) ──
+  // Pastilele aleg și limba în care pleacă confirmarea și reamintirea (mig 328):
+  // nu e doar limba ecranului, de aici eticheta „limba rezervării".
+  rp_lang_switch_aria: {
+    ro: 'Alege limba rezervării',
+    en: 'Choose the booking language',
+    de: 'Sprache der Reservierung wählen',
+    fr: 'Choisir la langue de la réservation',
+    it: 'Scegli la lingua della prenotazione',
+    hu: 'Válaszd ki a foglalás nyelvét',
+    es: 'Elige el idioma de la reserva',
+  },
+  rp_lang_hint: {
+    ro: 'Confirmarea și reamintirea vin în limba aleasă.',
+    en: 'Your confirmation and reminder will be in this language.',
+    de: 'Bestätigung und Erinnerung bekommst du in dieser Sprache.',
+    fr: 'La confirmation et le rappel vous parviendront dans cette langue.',
+    it: 'Conferma e promemoria ti arriveranno in questa lingua.',
+    hu: 'A visszaigazolást és az emlékeztetőt ezen a nyelven kapod.',
+    es: 'La confirmación y el recordatorio te llegarán en este idioma.',
+  },
+  // ── SEO-ul meniului public /m/:slug (lotul C8e, useMenuSeo) ──
+  // Titlul și descrierea din Google și din previzualizări, în limba AFIȘATĂ
+  // (înainte, fixe în română și pe un meniu cu altă limbă de bază).
+  seo_menu_title: {
+    ro: '{name} — Meniu',
+    en: '{name} — Menu',
+    de: '{name} – Speisekarte',
+    fr: '{name} — Menu',
+    it: '{name} — Menù',
+    hu: '{name} – Étlap',
+    es: '{name} — Carta',
+  },
+  seo_menu_desc: {
+    ro: 'Meniul lui {name}. Vezi preparatele și prețurile.',
+    en: 'The menu of {name}. See the dishes and prices.',
+    de: 'Die Speisekarte von {name}. Sieh dir Gerichte und Preise an.',
+    fr: 'Le menu de {name}. Découvrez les plats et les prix.',
+    it: 'Il menù di {name}. Scopri piatti e prezzi.',
+    hu: '{name} étlapja. Nézd meg az ételeket és az árakat.',
+    es: 'La carta de {name}. Consulta los platos y los precios.',
+  },
+  seo_menu_desc_addr: {
+    ro: 'Meniul lui {name}, {address}. Vezi preparatele și prețurile.',
+    en: 'The menu of {name}, {address}. See the dishes and prices.',
+    de: 'Die Speisekarte von {name}, {address}. Sieh dir Gerichte und Preise an.',
+    fr: 'Le menu de {name}, {address}. Découvrez les plats et les prix.',
+    it: 'Il menù di {name}, {address}. Scopri piatti e prezzi.',
+    hu: '{name} étlapja – {address}. Nézd meg az ételeket és az árakat.',
+    es: 'La carta de {name}, {address}. Consulta los platos y los precios.',
+  },
 } as const

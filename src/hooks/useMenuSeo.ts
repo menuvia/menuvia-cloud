@@ -7,15 +7,27 @@
 // results. Googlebot execută JS și citește meta/JSON-LD injectate la runtime,
 // deci setarea lor din client îmbunătățește real discovery-ul.
 //
-// Setează: document.title, meta description, Open Graph, Twitter card, canonical,
-// și JSON-LD schema.org Restaurant + hasMenu (rich results). Restaurează la
+// Setează: document.title, meta description, Open Graph (+ og:locale și
+// og:locale:alternate), Twitter card, canonical, `<link rel=alternate hreflang>`
+// per limbă oferită și JSON-LD schema.org Restaurant + hasMenu — TOATE în limba
+// AFIȘATĂ (lotul C8e; calculul e pur, în lib/menuSeo.ts). Restaurează la
 // unmount (SPA: revenirea la marketing nu lasă meta stale).
+//
+// Rezidual consemnat: crawlerele de previzualizare (WhatsApp, Facebook) NU
+// rulează JS, deci văd tot tag-urile statice din index.html — o injecție pe
+// server (edge) ar fi un pas separat.
 import { useEffect } from 'react'
 import type { Restaurant, Category } from '../lib/qr'
 import type { MenuCurrency } from '../lib/currency'
+import { publicBaseUrl } from '../lib/domain'
+import { buildMenuSeo } from '../lib/menuSeo'
+import type { MenuSeo } from '../lib/menuSeo'
 
-// Upsert un <meta> după (attr, key): îl găsește sau îl creează, îi setează
-// content. Întoarce true dacă l-a CREAT (ca să-l putem șterge la cleanup).
+// Marcajul elementelor CREATE de hook (alternate hreflang, og:locale:alternate):
+// sunt mai multe cu același `rel`/`property`, deci nu se pot regăsi după cheie.
+const SEO_ATTR = 'data-menuvia-menu-seo'
+const JSONLD_ID = 'menuvia-menu-jsonld'
+
 function upsertMeta(attr: 'name' | 'property', key: string, content: string): boolean {
   let el = document.head.querySelector<HTMLMetaElement>(`meta[${attr}="${key}"]`)
   const created = el == null
@@ -40,117 +52,92 @@ function upsertLink(rel: string, href: string): { el: HTMLLinkElement; created: 
   return { el, created }
 }
 
-function trimTo(s: string | null | undefined, max: number): string {
-  const t = (s ?? '').replace(/\s+/g, ' ').trim()
-  return t.length > max ? t.slice(0, max - 1).trimEnd() + '…' : t
-}
+/** Aplică `seo` în <head>; întoarce funcția care reface starea de dinainte. */
+function applyMenuSeo(seo: MenuSeo): () => void {
+  const prevTitle = document.title
+  document.title = seo.title
 
-// JSON-LD schema.org: Restaurant + hasMenu (secțiuni + iteme cu preț).
-function buildJsonLd(restaurant: Restaurant, categories: Category[], currency: MenuCurrency): object {
-  const sections = categories
-    .filter((c) => (c.products?.length ?? 0) > 0)
-    .map((c) => ({
-      '@type': 'MenuSection',
-      name: c.name,
-      hasMenuItem: c.products.map((p) => ({
-        '@type': 'MenuItem',
-        name: p.name,
-        ...(p.description ? { description: trimTo(p.description, 300) } : {}),
-        offers: {
-          '@type': 'Offer',
-          price: Number(p.price).toFixed(2),
-          priceCurrency: currency,
-        },
-      })),
-    }))
+  // Meta-urile pe care le CREĂM (nu existau) le ștergem la cleanup; pe cele
+  // existente (din index.html) doar le-am suprascris — le restaurăm din snapshot.
+  const created: Array<{ attr: 'name' | 'property'; key: string }> = []
+  const restore: Array<{ el: HTMLMetaElement; content: string }> = []
+  const setMeta = (attr: 'name' | 'property', key: string, content: string) => {
+    const existing = document.head.querySelector<HTMLMetaElement>(`meta[${attr}="${key}"]`)
+    if (existing) restore.push({ el: existing, content: existing.getAttribute('content') ?? '' })
+    if (upsertMeta(attr, key, content)) created.push({ attr, key })
+  }
+  const url = seo.canonical ?? window.location.href
+  setMeta('name', 'description', seo.description)
+  setMeta('property', 'og:title', seo.title)
+  setMeta('property', 'og:description', seo.description)
+  setMeta('property', 'og:type', 'website')
+  setMeta('property', 'og:url', url)
+  setMeta('property', 'og:locale', seo.ogLocale)
+  if (seo.image) setMeta('property', 'og:image', seo.image)
+  setMeta('name', 'twitter:title', seo.title)
+  setMeta('name', 'twitter:description', seo.description)
+  if (seo.image) setMeta('name', 'twitter:image', seo.image)
 
-  return {
-    '@context': 'https://schema.org',
-    '@type': 'Restaurant',
-    name: restaurant.name,
-    ...(restaurant.tagline || restaurant.description
-      ? { description: trimTo(restaurant.tagline || restaurant.description, 300) }
-      : {}),
-    ...(restaurant.cover_url || restaurant.logo_url
-      ? { image: restaurant.cover_url || restaurant.logo_url }
-      : {}),
-    ...(restaurant.address ? { address: restaurant.address } : {}),
-    ...(restaurant.phone ? { telephone: restaurant.phone } : {}),
-    ...(restaurant.slug
-      ? { url: `${window.location.origin}/m/${restaurant.slug}` }
-      : {}),
-    // Semnalul de rezervare pentru Google: pagina publică /r/:slug (wedge-ul
-    // „Menuvia Rezervări"). Dacă modulul reservations e OFF, pagina răspunde
-    // curat (RPC-ul respinge cu mesaj prietenos) — semnalul rămâne inofensiv.
-    ...(restaurant.slug
-      ? { acceptsReservations: `${window.location.origin}/rezervare/${restaurant.slug}` }
-      : {}),
-    ...(sections.length > 0
-      ? { hasMenu: { '@type': 'Menu', hasMenuSection: sections } }
-      : {}),
+  const canonical = seo.canonical ? upsertLink('canonical', seo.canonical) : null
+
+  // Elementele multiple (o intrare per limbă): create de la zero, marcate.
+  document.head.querySelectorAll(`[${SEO_ATTR}]`).forEach((el) => el.remove())
+  for (const alt of seo.alternates) {
+    const link = document.createElement('link')
+    link.setAttribute('rel', 'alternate')
+    link.setAttribute('hreflang', alt.hreflang)
+    link.setAttribute('href', alt.href)
+    link.setAttribute(SEO_ATTR, '')
+    document.head.appendChild(link)
+  }
+  for (const loc of seo.ogLocaleAlternates) {
+    const meta = document.createElement('meta')
+    meta.setAttribute('property', 'og:locale:alternate')
+    meta.setAttribute('content', loc)
+    meta.setAttribute(SEO_ATTR, '')
+    document.head.appendChild(meta)
+  }
+
+  // JSON-LD (rich results). Un singur nod, id-uit ca să-l putem înlocui/curăța.
+  const script = document.createElement('script')
+  script.type = 'application/ld+json'
+  script.id = JSONLD_ID
+  script.textContent = JSON.stringify(seo.jsonLd)
+  document.head.querySelector(`#${JSONLD_ID}`)?.remove()
+  document.head.appendChild(script)
+
+  return () => {
+    document.title = prevTitle
+    for (const c of created) {
+      document.head.querySelector(`meta[${c.attr}="${c.key}"]`)?.remove()
+    }
+    for (const r of restore) r.el.setAttribute('content', r.content)
+    if (canonical?.created) canonical.el.remove()
+    document.head.querySelectorAll(`[${SEO_ATTR}]`).forEach((el) => el.remove())
+    document.getElementById(JSONLD_ID)?.remove()
   }
 }
 
-const JSONLD_ID = 'menuvia-menu-jsonld'
-
 export function useMenuSeo(
   restaurant: Restaurant | null | undefined,
+  /** Categoriile AFIȘATE (traduse în `lang`). */
   categories: Category[],
   currency: MenuCurrency,
+  /** Limba afișată a meniului. */
+  lang: string,
+  /** Limbile oferite în plus față de bază (`availableMenuLangs`, memoizat). */
+  availableLangs: readonly string[],
 ): void {
   useEffect(() => {
     if (!restaurant) return
-    const prevTitle = document.title
-
-    const title = `${restaurant.name} — Meniu`
-    const desc =
-      trimTo(restaurant.tagline || restaurant.description, 160) ||
-      `Meniul lui ${restaurant.name}${restaurant.address ? `, ${restaurant.address}` : ''}. Vezi preparatele și prețurile.`
-    const image = restaurant.cover_url || restaurant.logo_url || ''
-    const url = restaurant.slug ? `${window.location.origin}/m/${restaurant.slug}` : window.location.href
-
-    document.title = title
-
-    // Meta-urile pe care le CREĂM (nu existau) le ștergem la cleanup; pe cele
-    // existente (din index.html) doar le-am suprascris — le restaurăm din snapshot.
-    const created: Array<{ attr: 'name' | 'property'; key: string }> = []
-    const restore: Array<{ el: HTMLMetaElement; content: string }> = []
-    const setMeta = (attr: 'name' | 'property', key: string, content: string) => {
-      const existing = document.head.querySelector<HTMLMetaElement>(`meta[${attr}="${key}"]`)
-      if (existing) restore.push({ el: existing, content: existing.getAttribute('content') ?? '' })
-      const wasCreated = upsertMeta(attr, key, content)
-      if (wasCreated) created.push({ attr, key })
-    }
-
-    setMeta('name', 'description', desc)
-    setMeta('property', 'og:title', title)
-    setMeta('property', 'og:description', desc)
-    setMeta('property', 'og:type', 'website')
-    setMeta('property', 'og:url', url)
-    if (image) setMeta('property', 'og:image', image)
-    setMeta('name', 'twitter:title', title)
-    setMeta('name', 'twitter:description', desc)
-    if (image) setMeta('name', 'twitter:image', image)
-
-    const canonical = upsertLink('canonical', url)
-
-    // JSON-LD (rich results). Un singur nod, id-uit ca să-l putem înlocui/curăța.
-    const script = document.createElement('script')
-    script.type = 'application/ld+json'
-    script.id = JSONLD_ID
-    script.textContent = JSON.stringify(buildJsonLd(restaurant, categories, currency))
-    document.head.querySelector(`#${JSONLD_ID}`)?.remove()
-    document.head.appendChild(script)
-
-    return () => {
-      document.title = prevTitle
-      // Ștergem ce am creat, restaurăm ce am suprascris.
-      for (const c of created) {
-        document.head.querySelector(`meta[${c.attr}="${c.key}"]`)?.remove()
-      }
-      for (const r of restore) r.el.setAttribute('content', r.content)
-      if (canonical.created) canonical.el.remove()
-      document.getElementById(JSONLD_ID)?.remove()
-    }
-  }, [restaurant, categories, currency])
+    const seo = buildMenuSeo({
+      restaurant,
+      categories,
+      currency,
+      lang,
+      availableLangs,
+      baseUrl: publicBaseUrl(window.location.hostname, import.meta.env.VITE_APP_URL, window.location.origin),
+    })
+    return applyMenuSeo(seo)
+  }, [restaurant, categories, currency, lang, availableLangs])
 }
