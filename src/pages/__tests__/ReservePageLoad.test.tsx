@@ -45,8 +45,11 @@ const RESTAURANT = {
   logo_url: null,
 }
 
+// `languages` cu `language`: pagina parcurge TOATĂ lista de preferințe (lotul
+// C8e), iar jsdom o dă `['en-US', 'en']` indiferent de `language`.
 function setLanguage(value: string): void {
   Object.defineProperty(window.navigator, 'language', { value, configurable: true })
+  Object.defineProperty(window.navigator, 'languages', { value: [value], configurable: true })
 }
 
 beforeEach(() => {

@@ -198,14 +198,25 @@ export default function ReservationSheet({
         new Set(
           ((tz ?? []) as { zone: string | null }[]).map((r) => r.zone).filter(Boolean) as string[],
         ),
-      ).sort((a, b) => a.localeCompare(b, guestLocale(lang)))
+      )
       setZones(uniq)
     }
     void load()
     return () => {
       cancelled = true
     }
-  }, [restaurant.id, lang])
+    // DOAR pe restaurant, NU pe limbă (lotul C8e): pe /rezervare/:slug limba se
+    // schimbă cu foaia deschisă, iar un refetch dădea `settings` o identitate
+    // nouă → `slot` nou → efectul de disponibilitate deselecta masa aleasă pe
+    // hartă și rezervarea pleca pe alocare automată. Ordinea zonelor (singurul
+    // lucru dependent de limbă) se derivă mai jos, în `sortedZones`.
+  }, [restaurant.id])
+
+  // Zonele în ordinea alfabetică a limbii oaspetelui — derivate, fără refetch.
+  const sortedZones = useMemo(
+    () => [...zones].sort((a, b) => a.localeCompare(b, guestLocale(lang))),
+    [zones, lang],
+  )
 
   // „Azi", „Mâine" și ultima zi rezervabilă, pe ziua LOCALULUI (nu a
   // telefonului): un oaspete din alt fus vedea „azi" ziua lui. Se calculează la
@@ -800,7 +811,7 @@ export default function ReservationSheet({
         )}
 
         {/* Zone (only if any zones defined) */}
-        {zones.length > 0 && (
+        {sortedZones.length > 0 && (
           <>
             <div id={zoneLabelId} style={labelStyle}>
               {T(lang, 'reserve_zone_label')}
@@ -819,7 +830,7 @@ export default function ReservationSheet({
                 {chipMark(zone === null)}
                 {T(lang, 'reserve_zone_any')}
               </button>
-              {zones.map((z) => (
+              {sortedZones.map((z) => (
                 <button
                   key={z}
                   type="button"

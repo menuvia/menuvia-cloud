@@ -97,11 +97,22 @@ export function guestLocale(lang: string): string {
   return LOCALES[lang] ?? 'en-GB'
 }
 
-/** Limba browserului (`navigator.language`) dacă e una din cele 7 ale meniului;
+/** Prima limbă din preferințele browserului care e una din cele 7 ale meniului;
  *  altfel `null`, iar apelantul decide fallback-ul (pe /rezervare/:slug, limba
- *  de bază a localului — `initialReservePageLang`, lotul C8e). */
+ *  de bază a localului — `initialReservePageLang`, lotul C8e).
+ *  Se parcurge TOATĂ lista `navigator.languages` (cu `navigator.language` doar
+ *  când lista lipsește), ca la auto-detectul meniului (`detectBrowserLang`): un
+ *  polonez cu `['pl-PL', 'en-US']` primește pagina — deci și SMS-ul/emailul de
+ *  confirmare — în engleză, nu în limba de bază a localului pe care n-o citește
+ *  (doar `navigator.language` cădea pe bază). */
 export function browserGuestLang(): string | null {
   if (typeof navigator === 'undefined') return null
-  const code = (navigator.language ?? '').toLowerCase().split('-')[0] ?? ''
-  return Object.prototype.hasOwnProperty.call(LOCALES, code) ? code : null
+  const nav = navigator as Navigator & { languages?: readonly string[] }
+  const prefs = nav.languages && nav.languages.length > 0 ? nav.languages : [nav.language]
+  for (const raw of prefs) {
+    if (!raw) continue
+    const code = raw.toLowerCase().split('-')[0] ?? ''
+    if (Object.prototype.hasOwnProperty.call(LOCALES, code)) return code
+  }
+  return null
 }

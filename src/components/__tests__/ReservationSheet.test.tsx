@@ -12,7 +12,7 @@
 // drept rezervare primită. Iar cheia trebuie ROTITĂ înainte, altfel clientul
 // rămâne blocat pe rândul mort: orice retrimitere ar întoarce tot pe el.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 // TOT ce e folosit dintr-o fabrică `vi.mock` trebuie să fie HOISTED: `vi.mock`
@@ -71,9 +71,13 @@ vi.mock('../../lib/supabase', () => {
     b.then = (resolve: (v: unknown) => unknown) => resolve({ data: rows, error: null })
     return b
   }
+  // O COPIE nouă la fiecare citire, ca PostgREST (JSON proaspăt): cu același
+  // obiect, React ar ignora un `setSettings` repetat și RSW1 n-ar mai vedea un
+  // refetch al setărilor.
   return {
     supabase: {
-      from: (table: string) => builder(table === 'reservation_settings' ? h.settings : []),
+      from: (table: string) =>
+        builder(table === 'reservation_settings' ? { ...h.settings } : []),
     },
   }
 })
@@ -83,6 +87,9 @@ import { getTheme } from '../../lib/themes'
 import { makeRestaurant } from './fixtures'
 import { legibleOn, readableTextOn } from '../../lib/themes'
 import { T } from '../../lib/publicMenuStrings'
+import { Tf } from '../../lib/guestI18n'
+import { fetchPublicFloorPlan, fetchTablesAvailability } from '../../lib/qr'
+import type { FloorLayout } from '../../lib/floorPlan'
 
 const PUB = {
   bg: '#fff',
@@ -537,5 +544,127 @@ describe('ReservationSheet — limba în linkul de anulare și selectorul (C8e)'
 
     renderSheet()
     expect(screen.queryByTestId('lang-slot')).toBeNull()
+  })
+})
+
+// Recenzia lotului C8e: pe /rezervare/:slug limba se schimbă cu foaia DESCHISĂ
+// (`langSwitch`). Efectul de setări depindea și de `lang`, deci la schimbare
+// recitea setările și le dădea o identitate NOUĂ → `slot` nou → efectul de
+// disponibilitate deselecta masa aleasă pe hartă, iar rezervarea pleca pe
+// alocare automată (`p_table_id = null`) — oaspetele putea primi altă masă.
+//   RSW1  masa aleasă rămâne aleasă după schimbarea limbii, fără o nouă cerere
+//         de disponibilitate, iar rezervarea pleacă cu ea (`p_table_id`).
+//         [PICĂ: `lang` readus în dependențele efectului de setări]
+//   RSW2  control pozitiv: o oră NOUĂ chiar recere disponibilitatea și
+//         deselectează masa — fără el, RSW1 ar trece și pe un efect de
+//         disponibilitate care nu mai reacționează la nimic.
+describe('ReservationSheet — schimbarea limbii nu pierde masa aleasă (C8e)', () => {
+  const LAYOUT: FloorLayout = {
+    floors: [
+      {
+        id: 'f1',
+        name: 'Parter',
+        tables: [
+          {
+            id: 'ft7',
+            x: 100,
+            y: 100,
+            w: 80,
+            h: 80,
+            shape: 'square',
+            label: '7',
+            seats: 4,
+            rotation: 0,
+            status: 'free',
+            tableId: 't7',
+          },
+        ],
+        walls: [],
+        decos: [],
+        zones: [],
+      },
+    ],
+    version: 1,
+    savedAt: '2026-11-01T00:00:00Z',
+  }
+  const restaurant = makeRestaurant({ slug: 'demo' })
+  const sheet = (lang: string) => (
+    <ReservationSheet
+      restaurant={restaurant}
+      theme={getTheme('cafe')}
+      accent="#c8102e"
+      PUB={PUB}
+      lang={lang}
+      onClose={() => {}}
+    />
+  )
+  const mapTable = (lang: string) =>
+    screen.findByRole('button', { name: Tf(lang, 'floor_table_free', { name: '7' }) })
+
+  /** „Mâine” + primul slot + masa 7 de pe hartă. */
+  async function pickTable(): Promise<void> {
+    await userEvent.click(byText('button', /^Mâine$/))
+    const row = await screen.findByTestId('time-slot-row')
+    const slot = within(row).getAllByRole('button')[0]
+    if (!slot) throw new Error('niciun slot randat')
+    await userEvent.click(slot)
+    await userEvent.click(await mapTable('ro'))
+    expect(await mapTable('ro')).toHaveAttribute('aria-pressed', 'true')
+  }
+
+  beforeEach(() => {
+    h.createMock.mockReset()
+    h.createMock.mockResolvedValue(reservationRow('confirmed'))
+    sessionStorage.clear()
+    vi.mocked(fetchPublicFloorPlan).mockImplementation(async () => ({
+      floor_layout: LAYOUT,
+      tables: [{ id: 't7', name: '7', seats: 4, zone: null }],
+    }))
+    vi.mocked(fetchTablesAvailability).mockImplementation(async () => [
+      { table_id: 't7', table_name: '7', seats: 4, zone: null, is_available: true },
+    ])
+    vi.mocked(fetchTablesAvailability).mockClear()
+  })
+  afterEach(() => {
+    // Celelalte suite nu au hartă: implementarea implicită a mock-ului.
+    vi.mocked(fetchPublicFloorPlan).mockImplementation(async () => ({ floor_layout: null, tables: [] }))
+    vi.mocked(fetchTablesAvailability).mockImplementation(async () => [])
+  })
+
+  it('RSW1 limba schimbată cu foaia deschisă păstrează masa și o trimite', async () => {
+    const { rerender } = render(sheet('ro'))
+    await pickTable()
+    expect(fetchTablesAvailability).toHaveBeenCalledTimes(1)
+
+    rerender(sheet('de'))
+    // Lăsăm să se termine orice reîncărcare pornită de schimbare (pe codul
+    // vechi: setările recitite → slot nou → disponibilitate recerută).
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+
+    expect(fetchTablesAvailability).toHaveBeenCalledTimes(1)
+    expect(await mapTable('de')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: T('de', 'reserve_deselect_table') })).toBeInTheDocument()
+
+    await userEvent.type(screen.getByPlaceholderText(/^Name$/), 'Anna Berg')
+    await userEvent.type(screen.getByPlaceholderText(/^Telefon$/), '0722000111')
+    await userEvent.click(byText('button', /^Reservieren$/))
+    await waitFor(() => expect(h.createMock).toHaveBeenCalledTimes(1))
+    const args = h.createMock.mock.calls[0]?.[0] as { p_table_id?: string | null } | undefined
+    expect(args?.p_table_id).toBe('t7')
+    expect(h.createMock.mock.calls[0]?.[2]).toBe('de')
+  })
+
+  it('RSW2 control: o oră nouă recere disponibilitatea și deselectează masa', async () => {
+    render(sheet('ro'))
+    await pickTable()
+
+    const other = within(screen.getByTestId('time-slot-row')).getAllByRole('button')[1]
+    if (!other) throw new Error('lipsește al doilea slot')
+    await userEvent.click(other)
+
+    await waitFor(() => expect(fetchTablesAvailability).toHaveBeenCalledTimes(2))
+    expect(await mapTable('ro')).toHaveAttribute('aria-pressed', 'false')
   })
 })

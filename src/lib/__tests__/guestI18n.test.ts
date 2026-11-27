@@ -173,16 +173,35 @@ describe('tabela de texte a oaspetelui', () => {
 
   // Lotul C8e: limba nesuportată nu mai cade aici pe EN — apelantul (pagina de
   // rezervare) cade pe limba de BAZĂ a localului (`initialReservePageLang`).
-  it('GK6 limba browserului: una din cele 7, altfel null', () => {
-    const nav = Object.getOwnPropertyDescriptor(window.navigator, 'language')
+  // Se parcurg TOATE preferințele (`navigator.languages`, ca `detectBrowserLang`
+  // al meniului), nu doar prima: un polonez cu engleza a doua primește engleza,
+  // nu limba de bază a localului. [PICĂ: citirea doar a `navigator.language` —
+  // `['pl-PL', 'en-US']` dă null] Control pozitiv: `['hu-HU']` → 'hu'.
+  it('GK6 limba browserului: prima preferință din cele 7, altfel null', () => {
+    const lang = Object.getOwnPropertyDescriptor(window.navigator, 'language')
+    const langs = Object.getOwnPropertyDescriptor(window.navigator, 'languages')
+    const set = (language: string, languages: readonly string[]) => {
+      Object.defineProperty(window.navigator, 'language', { value: language, configurable: true })
+      Object.defineProperty(window.navigator, 'languages', { value: languages, configurable: true })
+    }
     try {
-      Object.defineProperty(window.navigator, 'language', { value: 'hu-HU', configurable: true })
+      set('hu-HU', ['hu-HU'])
       expect(browserGuestLang()).toBe('hu')
-      Object.defineProperty(window.navigator, 'language', { value: 'pl-PL', configurable: true })
+      set('pl-PL', ['pl-PL'])
       expect(browserGuestLang()).toBeNull()
+      // Miezul reparației: a doua preferință e una din cele 7.
+      set('pl-PL', ['pl-PL', 'en-US', 'en'])
+      expect(browserGuestLang()).toBe('en')
+      set('pl-PL', ['pl-PL', 'ro'])
+      expect(browserGuestLang()).toBe('ro')
+      // Lista goală (browsere vechi): `navigator.language` rămâne sursa.
+      set('de-DE', [])
+      expect(browserGuestLang()).toBe('de')
     } finally {
-      if (nav) Object.defineProperty(window.navigator, 'language', nav)
+      if (lang) Object.defineProperty(window.navigator, 'language', lang)
       else Reflect.deleteProperty(window.navigator, 'language')
+      if (langs) Object.defineProperty(window.navigator, 'languages', langs)
+      else Reflect.deleteProperty(window.navigator, 'languages')
     }
   })
 })

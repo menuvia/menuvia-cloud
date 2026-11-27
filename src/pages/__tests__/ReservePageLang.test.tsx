@@ -14,13 +14,21 @@
 //         confirmarea vine în limba aleasă. [PICĂ: `langSwitch` netransmis]
 //   RPL3  pe fluxul de anulare, schimbarea limbii păstrează `?cancel=` în adresă
 //         și codul în câmp. [PICĂ: o adresă construită de la zero]
-//   RPL4  browser nesuportat (pl) → limba de BAZĂ a localului (fr), nu engleza;
-//         prima pastilă e baza. [PICĂ: fallback-ul vechi pe 'en']
+//   RPL4  browser nesuportat (doar pl) → limba de BAZĂ a localului (fr), nu
+//         engleza; prima pastilă e baza. [PICĂ: fallback-ul vechi pe 'en']
 //   RPL5  Googlebot (navigator en-US) primește baza, nu engleza.
 //         [PICĂ: auto-detectul aplicat și roboților]
-//   RPL6  „Vezi meniul” duce la `/m/:slug?lang=<limba paginii>`.
+//   RPL6  „Vezi meniul” duce la `/m/:slug?lang=<limba aleasă>`.
 //         [PICĂ: `navigate('/m/' + slug)` de dinainte]
-// Controlul pozitiv al lui RPL4/RPL5: RPL1 (browser suportat → limba lui).
+//   RPL9  preferințele `['pl-PL', 'en-US', 'en']` → pagina (deci și SMS-ul/
+//         emailul) în ENGLEZĂ, ca auto-detectul meniului, nu în baza localului.
+//         [PICĂ: `browserGuestLang` care citește doar `navigator.language`]
+//   RPL10 o limbă GHICITĂ din browser nu pleacă la meniu: „Vezi meniul” duce la
+//         `/m/:slug` simplu (meniul își face auto-detectul pe limbile traduse —
+//         `?lang=fr` pe un meniu tradus doar în engleză fixa baza); una sosită
+//         în adresă (`?lang=de`) pleacă. [PICĂ: `?lang=${lang}` mereu]
+// Controlul pozitiv al lui RPL4/RPL5: RPL1 (browser suportat → limba lui); al
+// lui RPL10: RPL6 (alegerea explicită pleacă la meniu).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -54,6 +62,14 @@ function setNavigator(key: 'language' | 'userAgent', value: string): void {
   Object.defineProperty(window.navigator, key, { value, configurable: true })
 }
 
+/** Preferințele browserului: `languages` (lista citită de `browserGuestLang`,
+ *  ca de auto-detectul meniului) și `language` = prima. Fără `languages`,
+ *  jsdom răspunde `['en-US', 'en']` indiferent de `language`. */
+function setBrowserLangs(...langs: string[]): void {
+  setNavigator('language', langs[0] ?? '')
+  Object.defineProperty(window.navigator, 'languages', { value: langs, configurable: true })
+}
+
 function open(path: string, navigate = vi.fn()) {
   window.history.replaceState({}, '', path)
   render(<ReservePage slug={SLUG} navigate={navigate} />)
@@ -75,13 +91,14 @@ beforeEach(() => {
 })
 afterEach(() => {
   Reflect.deleteProperty(window.navigator, 'language')
+  Reflect.deleteProperty(window.navigator, 'languages')
   Reflect.deleteProperty(window.navigator, 'userAgent')
 })
 
 describe('ReservePage — limba paginii și a confirmării', () => {
   it('RPL1 browser en → engleză; „Română” schimbă pagina, foaia și adresa', async () => {
     const user = userEvent.setup()
-    setNavigator('language', 'en-US')
+    setBrowserLangs('en-US')
     open(`/rezervare/${SLUG}`)
 
     expect(await screen.findByText(T('en', 'rp_tagline'))).toBeInTheDocument()
@@ -101,7 +118,7 @@ describe('ReservePage — limba paginii și a confirmării', () => {
 
   it('RPL2 `?lang=de` bate browserul; pastilele din foaie schimbă limba', async () => {
     const user = userEvent.setup()
-    setNavigator('language', 'en-US')
+    setBrowserLangs('en-US')
     open(`/rezervare/${SLUG}?lang=de`)
 
     expect(await screen.findByText(T('de', 'rp_tagline'))).toBeInTheDocument()
@@ -119,7 +136,7 @@ describe('ReservePage — limba paginii și a confirmării', () => {
 
   it('RPL3 pe fluxul de anulare, `?cancel=` rămâne în adresă și codul în câmp', async () => {
     const user = userEvent.setup()
-    setNavigator('language', 'ro-RO')
+    setBrowserLangs('ro-RO')
     open(`/rezervare/${SLUG}?cancel=AB12CD34`)
 
     const input = await screen.findByPlaceholderText(T('ro', 'rp_code_ph'))
@@ -133,7 +150,7 @@ describe('ReservePage — limba paginii și a confirmării', () => {
   })
 
   it('RPL4 browser nesuportat → limba de BAZĂ a localului, nu engleza', async () => {
-    setNavigator('language', 'pl-PL')
+    setBrowserLangs('pl-PL')
     fetchRestaurantBySlugMock.mockResolvedValue({ ...RESTAURANT, language: 'fr' })
     open(`/rezervare/${SLUG}`)
 
@@ -145,7 +162,7 @@ describe('ReservePage — limba paginii și a confirmării', () => {
   })
 
   it('RPL5 Googlebot (în en-US) primește baza localului', async () => {
-    setNavigator('language', 'en-US')
+    setBrowserLangs('en-US')
     setNavigator(
       'userAgent',
       'Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
@@ -158,13 +175,47 @@ describe('ReservePage — limba paginii și a confirmării', () => {
 
   it('RPL6 „Vezi meniul” deschide meniul în limba paginii', async () => {
     const user = userEvent.setup()
-    setNavigator('language', 'ro-RO')
+    setBrowserLangs('ro-RO')
     const navigate = open(`/rezervare/${SLUG}?cancel=AB12CD34`)
 
     await screen.findByText(T('ro', 'rp_tagline'))
     await user.click(within(heroGroup('ro')).getByRole('button', { name: 'Deutsch' }))
     await user.click(screen.getByRole('button', { name: T('de', 'rp_view_menu') }))
 
+    expect(navigate).toHaveBeenCalledWith(`/m/${SLUG}?lang=de`)
+  })
+
+  it('RPL9 a doua preferință a browserului (engleza) bate limba de bază', async () => {
+    setBrowserLangs('pl-PL', 'en-US', 'en')
+    fetchRestaurantBySlugMock.mockResolvedValue({ ...RESTAURANT, language: 'fr' })
+    open(`/rezervare/${SLUG}`)
+
+    expect(await screen.findByText(T('en', 'rp_tagline'))).toBeInTheDocument()
+    expect(await screen.findByTestId('sheet')).toHaveAttribute('data-lang', 'en')
+    expect(within(heroGroup('en')).getByRole('button', { name: 'English' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+
+  it('RPL10 limba ghicită din browser nu pleacă la meniu', async () => {
+    const user = userEvent.setup()
+    setBrowserLangs('fr-FR', 'en')
+    const navigate = open(`/rezervare/${SLUG}`)
+
+    // Pagina e în franceză (din browser), dar nimeni n-a ALES franceza.
+    await screen.findByText(T('fr', 'rp_tagline'))
+    await user.click(screen.getByRole('button', { name: T('fr', 'rp_view_menu') }))
+    expect(navigate).toHaveBeenCalledWith(`/m/${SLUG}`)
+  })
+
+  it('RPL10b `?lang=` sosit în adresă e o alegere: pleacă la meniu', async () => {
+    const user = userEvent.setup()
+    setBrowserLangs('fr-FR', 'en')
+    const navigate = open(`/rezervare/${SLUG}?lang=de`)
+
+    await screen.findByText(T('de', 'rp_tagline'))
+    await user.click(screen.getByRole('button', { name: T('de', 'rp_view_menu') }))
     expect(navigate).toHaveBeenCalledWith(`/m/${SLUG}?lang=de`)
   })
 })

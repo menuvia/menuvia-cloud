@@ -25,6 +25,7 @@ import {
   MENU_LANGS,
   browserIsCrawler,
   initialReservePageLang,
+  langFromSearch,
   menuBaseLang,
   replaceUrlLang,
 } from '../lib/i18nMenu'
@@ -65,8 +66,9 @@ export default function ReservePage({
   )
   // Limba paginii (lotul C8e) — și a confirmării: ReservationSheet o trimite ca
   // `guest_language` (mig 328), deci SMS-ul și emailul pleacă în ea. Pornirea:
-  // `?lang=` (linkul de anulare, „Vezi meniul”), apoi browserul, apoi limba de
-  // BAZĂ a localului; pastilele o schimbă. Înainte era doar limba browserului,
+  // `?lang=` (linkul de anulare, un link distribuit), apoi preferințele
+  // browserului (toată lista `navigator.languages`, prima din cele 7), apoi
+  // limba de BAZĂ a localului; pastilele o schimbă. Înainte era doar limba browserului,
   // fără selector: un român cu telefonul în engleză primea SMS-uri în engleză.
   const [pickedLang, setPickedLang] = useState<string | null>(null)
   const baseLang = menuBaseLang(restaurant?.language)
@@ -81,6 +83,11 @@ export default function ReservePage({
     [initialSearch, baseLang],
   )
   const lang = pickedLang ?? startLang
+  // Limba ALEASĂ explicit: din pastile sau sosită în adresă (`?lang=`). Doar ea
+  // merge mai departe la meniu — una ghicită din browser ar opri auto-detectul
+  // meniului (`?lang=` e o cerere, iar o limbă neoferită fixează baza), deși el
+  // știe ce limbi oferă meniul tradus și ar găsi una potrivită.
+  const explicitLang = pickedLang ?? langFromSearch(initialSearch)
   useDocumentLang(lang)
   const pickLang = (code: string) => {
     setPickedLang(code)
@@ -424,10 +431,15 @@ export default function ReservePage({
         >
           {T(lang, 'reserve_cta')}
         </button>
-        {/* Meniul se deschide în limba paginii (`?lang=`, semantica O6c: o
-            limbă pe care meniul nu o oferă lasă baza). */}
+        {/* Meniul se deschide în limba ALEASĂ (`?lang=`, semantica O6c: o
+            limbă pe care meniul nu o oferă lasă baza). Fără alegere, nimic:
+            meniul își face singur auto-detectul pe limbile traduse — un francez
+            cu engleza a doua, pe un meniu tradus doar în engleză, primește
+            engleza, nu baza fixată de un `?lang=fr` pe care nu l-a cerut. */}
         <button
-          onClick={() => navigate(`/m/${slug}?lang=${lang}`)}
+          onClick={() =>
+            navigate(explicitLang != null ? `/m/${slug}?lang=${explicitLang}` : `/m/${slug}`)
+          }
           style={{
             background: 'transparent',
             color: PUB.text2,
