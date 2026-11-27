@@ -35,6 +35,15 @@ import { EmptyState } from './ui/EmptyState'
 import { usePollWhileVisible } from '../hooks/usePollWhileVisible'
 import { toUserMessage } from '../lib/userMessages'
 import { track } from '../lib/analytics'
+import { confirm as confirmDialog } from './ui/confirm'
+import { FISCAL_CONFIRM } from '../lib/fiscalScreens'
+import {
+  readCashInput,
+  leiToCents,
+  closeShiftNeedsConfirm,
+  closeShiftConfirmCopy,
+  CASH_INPUT_INVALID,
+} from '../lib/cashCount'
 
 interface Props {
   restaurantId: string
@@ -710,17 +719,18 @@ function OpenShiftModal({
   const [notes, setNotes] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const amountLabelId = useId()
+  // Lotul C2a: câmp golit = NICIO sumă, nu fond 0 (`Number('')` e 0). Gol sau
+  // ne-valid → butonul e dezactivat; „0” tastat explicit rămâne un fond valid.
+  const amountInput = readCashInput(amount)
+  const amountCents = amountInput.cents
 
   async function go() {
-    const n = Number(amount.replace(',', '.'))
-    if (isNaN(n) || n < 0) {
-      setErr('Valoare invalidă')
-      return
-    }
+    if (amountCents == null || busy) return
     setBusy(true)
     setErr(null)
     try {
-      await openShift(restaurantId, n, notes.trim() || null)
+      await openShift(restaurantId, amountCents / 100, notes.trim() || null)
       // Fără sume: fondul de casă al unei ture identificate e dată de angajat.
       track('shift_opened', { restaurant_id: restaurantId })
       onDone()
@@ -735,17 +745,27 @@ function OpenShiftModal({
     <Modal onClose={onClose} title="Deschidere tură">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div>
-          <div style={lbl}>Fond inițial în sertar (lei)</div>
+          <div id={amountLabelId} style={lbl}>
+            Fond inițial în sertar (lei)
+          </div>
+          {/* Text, nu `type=number`: pe unele browsere acela refuză virgula și
+              „12,5” ajungea ca '' (lotul C2a). */}
           <input
-            type="number"
+            type="text"
             inputMode="decimal"
-            min={0}
-            step={10}
+            autoComplete="off"
+            aria-labelledby={amountLabelId}
+            aria-invalid={amountInput.state === 'invalid' || undefined}
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             style={inp}
             autoFocus
           />
+          {amountInput.state === 'invalid' && (
+            <div role="alert" style={{ fontSize: '0.78rem', color: D.red, marginTop: 4 }}>
+              {CASH_INPUT_INVALID}
+            </div>
+          )}
           <div style={{ fontSize: '0.76rem', color: D.t2, marginTop: 4 }}>
             Numerarul cu care începi (mărunțiș pentru rest, fond de bază).
           </div>
@@ -782,8 +802,12 @@ function OpenShiftModal({
           </button>
           <button
             onClick={go}
-            disabled={busy}
-            style={btn({ background: D.gold, color: '#0a0a0a', opacity: busy ? 0.6 : 1 })}
+            disabled={busy || amountCents == null}
+            style={btn({
+              background: amountCents != null ? D.gold : D.s3,
+              color: amountCents != null ? '#0a0a0a' : D.t3,
+              opacity: busy ? 0.6 : 1,
+            })}
           >
             {busy ? 'Se deschide...' : 'Deschide tură'}
           </button>
@@ -1011,19 +1035,40 @@ function CloseShiftModal({
     z_sent: boolean
   } | null>(null)
 
-  const countedNum = Number(counted.replace(',', '.'))
-  const valid = !isNaN(countedNum) && countedNum >= 0
-  const diff = valid ? countedNum - shift.cash_expected : 0
+  const countedLabelId = useId()
+  // Lotul C2a: `Number('')` e 0, deci câmpul GOL trecea validarea și un tap
+  // închidea tura definitiv cu 0 lei numărați (și Raport Z). Acum gol sau
+  // ne-valid = buton dezactivat, iar suma se ține în cenți.
+  const countedInput = readCashInput(counted)
+  const countedCents = countedInput.cents
+  const valid = countedCents != null
+  const expectedCents = leiToCents(shift.cash_expected)
+  const diffCents = countedCents != null ? countedCents - expectedCents : 0
+  const diff = diffCents / 100
+  // Confirmarea e în zbor: un al doilea tap nu deschide încă un dialog.
+  const confirmingRef = useRef(false)
 
   async function go() {
-    if (!valid) {
-      setErr('Sumă invalidă')
-      return
+    if (countedCents == null || busy || confirmingRef.current) return
+    // Raportul Z (ireversibil) sau o diferență de peste 1 leu cer confirmare:
+    // omul vede suma pe care o trimite înainte ca tura să se închidă.
+    if (closeShiftNeedsConfirm(diffCents, sendZ)) {
+      confirmingRef.current = true
+      let ok: boolean
+      try {
+        ok = await confirmDialog({
+          ...closeShiftConfirmCopy(countedCents, expectedCents, sendZ),
+          ...FISCAL_CONFIRM,
+        })
+      } finally {
+        confirmingRef.current = false
+      }
+      if (!ok) return
     }
     setBusy(true)
     setErr(null)
     try {
-      const result = await closeShift(shift.id, countedNum, notes.trim() || null, sendZ)
+      const result = await closeShift(shift.id, countedCents / 100, notes.trim() || null, sendZ)
       // Fără diferența de casă: ar fi o măsură a angajatului care a închis tura.
       // `restaurant_id` ca la `shift_opened`: perechea se poate pune cap la cap.
       // E restaurantul TUREI (părintele îl trimite din datele ei), nu localul
@@ -1123,31 +1168,43 @@ function CloseShiftModal({
         </div>
 
         <div>
-          <div style={lbl}>Numerar numărat real în sertar (lei) *</div>
+          <div id={countedLabelId} style={lbl}>
+            Numerar numărat real în sertar (lei) *
+          </div>
+          {/* Text, nu `type=number`: pe unele browsere acela refuză virgula și
+              „12,5” ajungea ca '' → 0 lei numărați (lotul C2a). */}
           <input
-            type="number"
+            type="text"
             inputMode="decimal"
-            min={0}
-            step={0.5}
+            autoComplete="off"
+            aria-labelledby={countedLabelId}
+            aria-invalid={countedInput.state === 'invalid' || undefined}
             value={counted}
             onChange={(e) => setCounted(e.target.value)}
             style={inp}
             placeholder={`Așteptat: ${ron(shift.cash_expected)}`}
             autoFocus
           />
+          {countedInput.state === 'invalid' && (
+            <div role="alert" style={{ fontSize: '0.78rem', color: D.red, marginTop: 4 }}>
+              {CASH_INPUT_INVALID}
+            </div>
+          )}
+          {/* „Diferență” apare DOAR după ce s-a tastat o sumă: pe câmpul gol ar
+              fi arătat toată casa drept lipsă înainte de orice numărătoare. */}
           {valid && (
             <div
               style={{
                 fontSize: '0.78rem',
                 marginTop: 4,
-                color: Math.abs(diff) < 0.01 ? D.green : diff < 0 ? D.red : D.amber,
+                color: diffCents === 0 ? D.green : diffCents < 0 ? D.red : D.amber,
               }}
             >
-              Diferență: {diff > 0 ? '+' : ''}
+              Diferență: {diffCents > 0 ? '+' : ''}
               {ron(diff)}
-              {Math.abs(diff) < 0.01 && ' ✓ exact'}
-              {diff < -0.01 && ' — lipsă'}
-              {diff > 0.01 && ' — surplus'}
+              {diffCents === 0 && ' ✓ exact'}
+              {diffCents < 0 && ' — lipsă'}
+              {diffCents > 0 && ' — surplus'}
             </div>
           )}
         </div>
@@ -1401,14 +1458,6 @@ function Modal({
   const dialogRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onClose])
-
-  useEffect(() => {
     // Mută focusul în modal la deschidere, doar dacă niciun câmp din interior
     // nu l-a preluat deja (ex: input-urile cu autoFocus).
     if (document.activeElement === document.body) {
@@ -1448,7 +1497,11 @@ function Modal({
           overflow: 'auto',
         }}
       >
-        <FocusTrap />
+        {/* Escape prin capcana de focus, conștientă de stivă: o confirmare
+            deschisă peste modal (ex. „Închizi tura cu X lei numărați?”, lotul
+            C2a) se închide singură, fără să arunce și numărătoarea tastată
+            dedesubt — un ascultător propriu pe `document` le închidea pe ambele. */}
+        <FocusTrap onEscape={onClose} />
         <div
           style={{
             display: 'flex',
