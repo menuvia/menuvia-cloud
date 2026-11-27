@@ -40,7 +40,6 @@ import {
   fetchWaiterCalls,
   resolveWaiterCall,
   subscribeToWaiterCalls,
-  addPartialPayment,
   getOrderPayments,
   applyOrderDiscount,
   describeCancelRejection,
@@ -56,6 +55,8 @@ import type { WaiterCall } from '../lib/orders'
 import { redeemLoyaltyReward } from '../lib/loyalty'
 import WaiterEntry from '../components/WaiterEntry'
 import { PayModal, OrderCard, type PayResult } from '../components/WaiterOrderCard'
+import { SplitBillModal } from '../components/SplitBillModal'
+import { sumPaymentsCents } from '../lib/partialPayments'
 import { ReadyOrderCard } from '../components/ReadyOrderCard'
 const DiscountModal = lazy(() => import('../components/DiscountModal'))
 const TableStatusBoard = lazy(() => import('../components/TableStatusBoard'))
@@ -65,7 +66,6 @@ import { Icon } from '../components/ui/Icon'
 import { Button } from '../components/ui/Button'
 import { PageHeader } from '../components/ui/PageHeader'
 import { EmptyState } from '../components/ui/EmptyState'
-import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { sortByDue } from '../lib/pickupOrders'
 import { offlineDropReasonKey } from '../lib/offlineDrop'
 // Lotul L4b: textele ecranului vin din namespace-ul `waiter` (+ `orders` pentru
@@ -223,7 +223,17 @@ export default function WaiterPage() {
   // Suma deja încasată în plăți parțiale pe comanda din PayModal — ca „Plata
   // integrală" să ceară DOAR restul, nu totalul (altfel server-ul respinge cu
   // overpayment și oricum ar fi dublă-încasare). Vezi mig 172.
-  const [payOrderPaid, setPayOrderPaid] = useState(0)
+  // TRISTATE (lotul C2a): `paid: null` = necunoscută (se citește sau citirea a
+  // eșuat). Înainte un eșec dădea 0, deci modalul arăta totalul întreg ca rest.
+  // Starea ține comanda pentru care a fost citită: o sumă a altei comenzi nu
+  // ajunge pe ecran nici un cadru.
+  const [payPaid, setPayPaid] = useState<{
+    orderId: string
+    paid: number | null
+    failed: boolean
+  } | null>(null)
+  // Crește la „Reîncearcă” — re-rulează DOAR citirea plăților, nu și Happy Hour.
+  const [payPaidAttempt, setPayPaidAttempt] = useState(0)
   const [editOrder, setEditOrder] = useState<Order | null>(null)
   const [cancelOrder, setCancelOrder] = useState<Order | null>(null)
   // Plățile deja înregistrate pe comanda din dialogul de anulare (mig 270:
@@ -245,10 +255,7 @@ export default function WaiterPage() {
   // Returnează rule activă curentă care dă cea mai mare reducere pe această
   // comandă. Reset când modal-ul se închide.
   useEffect(() => {
-    if (payOrder == null) {
-      setPayOrderPaid(0)
-      return
-    }
+    if (payOrder == null) return
     let alive = true
     void suggestHappyHourForOrder(payOrder.id)
       .then((s) => {
@@ -257,18 +264,34 @@ export default function WaiterPage() {
       .catch(() => {
         if (alive) setHappyHourSugg(null)
       })
-    // Cât s-a încasat deja în plăți parțiale pe această comandă.
-    void getOrderPayments(payOrder.id)
-      .then((ps) => {
-        if (alive) setPayOrderPaid(ps.reduce((s, p) => s + p.amount, 0))
-      })
-      .catch(() => {
-        if (alive) setPayOrderPaid(0)
-      })
     return () => {
       alive = false
     }
   }, [payOrder])
+
+  // Cât s-a încasat deja în plăți parțiale pe comanda din PayModal. Până la
+  // răspuns suma e NECUNOSCUTĂ (`null`): eșecul NU mai înseamnă 0 (ar fi arătat
+  // totalul întreg ca rest), ci banner cu „Reîncearcă” și confirmare dezactivată.
+  const payOrderId = payOrder?.id ?? null
+  useEffect(() => {
+    if (payOrderId == null) return
+    let alive = true
+    setPayPaid({ orderId: payOrderId, paid: null, failed: false })
+    void getOrderPayments(payOrderId)
+      .then((ps) => {
+        // Suma în cenți întregi: aceeași aritmetică cu preflight-ul (mig 291).
+        if (alive) setPayPaid({ orderId: payOrderId, paid: sumPaymentsCents(ps) / 100, failed: false })
+      })
+      .catch(() => {
+        if (alive) setPayPaid({ orderId: payOrderId, paid: null, failed: true })
+      })
+    return () => {
+      alive = false
+    }
+  }, [payOrderId, payPaidAttempt])
+  const ownPayPaid = payPaid != null && payPaid.orderId === payOrderId ? payPaid : null
+  const payOrderPaid = ownPayPaid?.paid ?? null
+  const payPaidFailed = ownPayPaid?.failed ?? false
 
   useEffect(() => {
     if (cancelOrder == null) {
@@ -357,64 +380,18 @@ export default function WaiterPage() {
   }
 
   // ── Split bill ────────────────────────────────────────────────
+  // Comanda pentru care s-a deschis „Plată parțială” (instantaneul de la
+  // deschidere). Modalul primește la randare comanda VIE din listă (lotul C2a:
+  // o reducere sau o editare făcută între timp se vede), iar plățile, suma și
+  // metoda stau în SplitBillModal, montat cu `key` pe comandă — plățile altei
+  // comenzi nu mai pot rămâne pe ecran.
   const [splitOrder, setSplitOrder] = useState<Order | null>(null)
-  const [splitAmount, setSplitAmount] = useState('')
-  const [splitMethod, setSplitMethod] = useState<PaymentMethod>('cash')
-  const [splitPayments, setSplitPayments] = useState<
-    Array<{ id: string; amount: number; method: string; created_at: string }>
-  >([])
-  const [splitLoading, setSplitLoading] = useState(false)
-  // Scroll-lock pe fundal cât e deschis modalul Split Bill — consistent cu
-  // PayModal/DiscountModal (altfel pe iOS pagina derulează sub overlay).
-  useBodyScrollLock(splitOrder != null && paymentsEnabled === true)
 
   // OPT-8: handleri stabili (useCallback) — altfel memo-ul de pe OrderCard
   // e inert: fiecare render al paginii le dădea identitate nouă.
   const openSplitBill = useCallback((order: Order): void => {
     setSplitOrder(order)
-    setSplitAmount('')
-    setSplitMethod('cash')
-    setSplitLoading(true)
-    getOrderPayments(order.id)
-      .then((p) => {
-        setSplitPayments(p)
-        setSplitLoading(false)
-      })
-      .catch(() => setSplitLoading(false))
   }, [])
-
-  async function handlePartialPay(): Promise<void> {
-    if (!splitOrder) return
-    const amt = parseFloat(splitAmount)
-    if (!amt || amt <= 0) return
-    setSplitLoading(true)
-    try {
-      const result = await addPartialPayment(splitOrder.id, amt, splitMethod)
-      if (result.fully_paid) {
-        setSplitOrder(null)
-        return
-      }
-      const payments = await getOrderPayments(splitOrder.id)
-      setSplitPayments(payments)
-      setSplitAmount('')
-    } catch (err) {
-      // Nu mai inghitim tacut o eroare pe o cale de bani (poate masca un refuz de gate / rol).
-      console.error('[WaiterPage] plata partiala a esuat', err)
-      // În română: mesajul serverului ca atare (textul de dinainte). În altă
-      // limbă un text românesc al serverului nu se arată: clasa erorii, plafonul
-      // de supra-încasare (hint `overpayment`, mig 258) sau textul generic.
-      const msg = err instanceof Error ? err.message : tw.t('split_errUnknown')
-      toast.error(
-        tw.lang === 'ro'
-          ? tw.t('split_errWithMsg', { msg })
-          : describeStaffError(err, tc, {
-              fallback: tw.t('split_errGeneric'),
-              hints: { overpayment: tw.t('split_errOverpayment'), insufficient_role: tpay.t('payRej_role') },
-            }),
-      )
-    }
-    setSplitLoading(false)
-  }
 
   const {
     orders: allOrders,
@@ -1636,6 +1613,8 @@ export default function WaiterPage() {
             <PayModal
               order={live}
               alreadyPaid={payOrderPaid}
+              alreadyPaidFailed={payPaidFailed}
+              onRetryAlreadyPaid={() => setPayPaidAttempt((n) => n + 1)}
               onConfirm={handlePay}
               onClose={() => {
                 setPayOrder(null)
@@ -1688,196 +1667,13 @@ export default function WaiterPage() {
           )
         })()}
 
-      {/* Split Bill Modal */}
+      {/* Split Bill Modal — comanda VIE, ca la PayModal (lotul C2a). */}
       {splitOrder != null && paymentsEnabled === true && (
-        <div
-          className="animate-backdrop"
-          onClick={() => setSplitOrder(null)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: D.overlay,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 200,
-            padding: 16,
-          }}
-        >
-          <div
-            className="animate-sheet"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: D.s2,
-              border: '1px solid ' + D.s3,
-              borderRadius: 16,
-              padding: 28,
-              width: 400,
-              maxWidth: '100%',
-              boxShadow: D.shadowLg,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 16,
-            }}
-          >
-            <div
-              style={{
-                fontFamily: D.fontDisplay,
-                fontSize: 20,
-                fontWeight: 700,
-                color: D.t1,
-              }}
-            >
-              {tw.t('split_title')}
-            </div>
-            <div>
-              <div style={{ color: D.t2, fontSize: 13 }}>
-                {tw.t('split_table', { table: splitOrder.table?.name ?? '-' })}
-              </div>
-              <div
-                style={{
-                  fontFamily: D.fontDisplay,
-                  fontSize: 28,
-                  fontWeight: 900,
-                  color: D.gold,
-                }}
-              >
-                {tw.t('money', { amount: splitOrder.total.toFixed(2) })}
-              </div>
-            </div>
-
-            {/* „Rămas" e mereu vizibil (egal cu totalul când nu există plăți) —
-                e exact informația de care are nevoie ospătarul ca să împartă nota. */}
-            <div style={{ background: D.s3, borderRadius: 8, padding: 12 }}>
-              {splitPayments.length > 0 && (
-                <>
-                  <div style={{ fontSize: 12, color: D.t2, marginBottom: 8 }}>
-                    {tw.t('split_recorded')}
-                  </div>
-                  {splitPayments.map((p) => (
-                    <div
-                      key={p.id}
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        fontSize: 13,
-                        color: D.t2,
-                        padding: '2px 0',
-                      }}
-                    >
-                      <span>
-                        {p.method === 'cash'
-                          ? tw.t('split_listCash')
-                          : p.method === 'card_pos'
-                            ? tw.t('split_listCard')
-                            : p.method === 'meal_voucher'
-                              ? tw.t('split_listVoucher')
-                              : tw.t('split_listOther')}
-                      </span>
-                      <span style={{ color: D.green }}>
-                        {tw.t('money', { amount: p.amount.toFixed(2) })}
-                      </span>
-                    </div>
-                  ))}
-                </>
-              )}
-              <div
-                style={{
-                  borderTop: splitPayments.length > 0 ? '1px solid ' + D.border : 'none',
-                  marginTop: splitPayments.length > 0 ? 8 : 0,
-                  paddingTop: splitPayments.length > 0 ? 8 : 0,
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  fontSize: 14,
-                  fontWeight: 600,
-                }}
-              >
-                <span style={{ color: D.t2 }}>{tw.t('split_remaining')}</span>
-                <span style={{ color: D.t1 }}>
-                  {tw.t('money', {
-                    amount: Math.max(
-                      0,
-                      splitOrder.total - splitPayments.reduce((s, p) => s + p.amount, 0),
-                    ).toFixed(2),
-                  })}
-                </span>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: 8 }}>
-              {(['cash', 'card_pos', 'meal_voucher', 'other'] as PaymentMethod[]).map((m) => (
-                <button
-                  key={m}
-                  className="pressable"
-                  onClick={() => setSplitMethod(m)}
-                  style={{
-                    flex: 1,
-                    padding: '10px 0',
-                    background: splitMethod === m ? D.goldA : D.s3,
-                    border: '1px solid ' + (splitMethod === m ? D.gold : D.s3),
-                    borderRadius: 8,
-                    color: splitMethod === m ? D.gold : D.t2,
-                    fontFamily: D.fontBody,
-                    fontSize: 13,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {m === 'cash'
-                    ? tw.t('split_btnCash')
-                    : m === 'card_pos'
-                      ? tw.t('split_btnCard')
-                      : m === 'meal_voucher'
-                        ? tw.t('split_btnVoucher')
-                        : tw.t('split_btnOther')}
-                </button>
-              ))}
-            </div>
-
-            <div>
-              <div style={{ color: D.t2, fontSize: 12, marginBottom: 6 }}>{tw.t('split_amountLabel')}</div>
-              <input
-                type="number"
-                value={splitAmount}
-                onChange={(e) => setSplitAmount(e.target.value)}
-                placeholder="0.00"
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  background: D.s3,
-                  border: '1px solid ' + D.s3,
-                  borderRadius: 8,
-                  color: D.t1,
-                  fontFamily: D.fontBody,
-                  fontSize: 16,
-                  padding: '10px 12px',
-                }}
-              />
-            </div>
-
-            <Button
-              variant="primary"
-              size="lg"
-              fullWidth
-              className="pressable"
-              onClick={() => {
-                void handlePartialPay()
-              }}
-              disabled={!splitAmount}
-              loading={splitLoading}
-            >
-              {splitLoading ? tw.t('split_processing') : tw.t('split_add')}
-            </Button>
-            <Button
-              variant="secondary"
-              fullWidth
-              className="pressable"
-              onClick={() => setSplitOrder(null)}
-            >
-              {tc.t('close')}
-            </Button>
-          </div>
-        </div>
+        <SplitBillModal
+          key={splitOrder.id}
+          order={orders.find((o) => o.id === splitOrder.id) ?? splitOrder}
+          onClose={() => setSplitOrder(null)}
+        />
       )}
 
       <Suspense fallback={null}>
