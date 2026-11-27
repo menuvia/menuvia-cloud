@@ -101,7 +101,7 @@ vi.mock('../../hooks/useIsMobile', () => ({ useIsMobile: () => false }))
 vi.mock('../../lib/supabase', () => {
   function chain() {
     const b: Record<string, unknown> = {}
-    for (const m of ['select', 'eq', 'neq', 'gte', 'lte', 'order', 'limit', 'in']) {
+    for (const m of ['select', 'eq', 'neq', 'gte', 'lte', 'order', 'limit', 'in', 'not']) {
       b[m] = vi.fn(() => b)
     }
     b.then = (

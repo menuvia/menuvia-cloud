@@ -28,6 +28,7 @@ import { D, PLAN_LABELS } from '../lib/constants'
 import { usePlanLimits } from '../hooks/usePlanLimits'
 import { InlineSpinner } from '../components/PageLoader'
 import { supabase } from '../lib/supabase'
+import { countMenuProducts } from '../lib/homeSetup'
 import { MOTION, useInView, revealStyle } from '../lib/motion'
 import React from 'react'
 
@@ -1049,7 +1050,13 @@ export default function DashboardPage({
   // Numărul de produse, TRISTATE: `null` = necunoscut (încă se citește sau
   // citirea a eșuat). Înainte o eroare devenea tăcut 0 — „0/15" în bandă și
   // „Adaugă produse" nebifat pe Acasă la un meniu plin (code-health-error-ignored-guards).
+  // Lotul C1: se numără doar produsele pe care le vede OASPETELE (active, fără
+  // ciorne, într-o categorie — `countMenuProducts`, lib/homeSetup.ts). Numărul
+  // tuturor produselor bifa „Adaugă produse" și arăta „12" pe un meniu QR gol.
   const [productCount, setProductCount] = useState<number | null>(null)
+  // Citirea e ÎN ZBOR: Acasă ține cardul de configurare ascuns cât timp numărul
+  // e necunoscut DOAR fiindcă nu a sosit (după o eroare îl arată „necunoscut").
+  const [productCountLoading, setProductCountLoading] = useState(false)
   // Restaurantul pentru care e valid `productCount` — la comutare nu se scurge
   // numărul altui local.
   const productCountForRef = useRef<string | null>(null)
@@ -1057,6 +1064,7 @@ export default function DashboardPage({
     if (!restaurant) {
       productCountForRef.current = null
       setProductCount(null)
+      setProductCountLoading(false)
       return
     }
     if (productCountForRef.current !== restaurant.id) setProductCount(null)
@@ -1067,16 +1075,15 @@ export default function DashboardPage({
     if (tab !== 'home') return
     let cancelled = false
     const countedId = restaurant.id
-    void supabase
-      .from('products')
-      .select('id', { count: 'exact', head: true })
-      .eq('restaurant_id', countedId)
-      .then(({ count, error }) => {
-        // Eroare → rămâne ultima valoare CUNOSCUTĂ (sau null), nu 0.
-        if (cancelled || error) return
-        productCountForRef.current = countedId
-        setProductCount(count ?? 0)
-      })
+    setProductCountLoading(true)
+    void countMenuProducts(countedId).then((n) => {
+      if (cancelled) return
+      setProductCountLoading(false)
+      // Eroare (`null`) → rămâne ultima valoare CUNOSCUTĂ (sau null), nu 0.
+      if (n == null) return
+      productCountForRef.current = countedId
+      setProductCount(n)
+    })
     return () => {
       cancelled = true
     }
@@ -1782,9 +1789,13 @@ export default function DashboardPage({
                     isAdmin={isAdminRole}
                     isOwner={isOwnerRole}
                     productCount={productCount}
+                    productCountLoading={productCountLoading}
                     pickupOnly={pickupOnly}
                     onNavigate={setTab}
                     onViewMenu={() => onViewMenu(restaurant.slug)}
+                    // Direct la /waiter, ca butonul din bara laterală (lotul C1);
+                    // HomeTab îl arată pe același gate (planSurface.staff).
+                    onViewOrders={onViewWaiter}
                     onPricing={onPricing}
                     onOrderQrStands={() =>
                       window.open(
