@@ -164,6 +164,8 @@ describe('precondiția L4b/L4c (Mese)', () => {
   const PARTS = [
     { start: 'function QRImage(', must: ['tablesNs'] },
     { start: 'function TableModal(', must: ['tablesNs', 'commonNs'] },
+    // Modalul zonei pentru mesele selectate (lotul C5b).
+    { start: 'function ZoneBulkModal(', must: ['tablesNs', 'commonNs'] },
     { start: 'function GeneralMenuQrCard(', must: ['tablesNs'] },
     { start: 'export default function TablesManager(', must: ['tablesNs', 'commonNs'] },
   ] as const

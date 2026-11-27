@@ -3,6 +3,7 @@ import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 import { createIdempotencyKeyStore } from './idempotency'
 import { isNetworkError } from './networkError'
 import { track } from './analytics'
+import { sortTablesByName } from './tableSort'
 // Doar TIPURI (șterse la compilare): orders.ts e în graful paginilor oaspetelui,
 // iar dicționarul personalului nu are voie să intre acolo (SK4).
 import type { Translator } from '../i18n/core'
@@ -930,7 +931,9 @@ export async function fetchTables(restaurantId: string): Promise<RestaurantTable
     .eq('is_active', true)
     .order('name')
   if (error) throw error
-  return (data ?? []) as RestaurantTable[]
+  // `.order('name')` e ordinea de TEXT (Masa 1, Masa 10, Masa 2): grila
+  // ospătarului primește ordinea naturală (lib/tableSort.ts, lotul C5b).
+  return sortTablesByName((data ?? []) as RestaurantTable[])
 }
 
 export type RealtimeConnectionStatus = 'connecting' | 'connected' | 'disconnected'

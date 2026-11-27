@@ -27,6 +27,8 @@ import type {
   FloorLayout,
 } from '../lib/floorPlan'
 import { CANVAS_W, CANVAS_H, floorDefaults } from '../lib/floorPlan'
+import { OPEN_ORDER_STATUSES } from '../lib/homeMetrics'
+import { sortTablesByName } from '../lib/tableSort'
 // Re-export local (binding-ul importat mai sus) — nu introduce dublă declarație.
 export type { FloorLayout }
 
@@ -543,7 +545,9 @@ export default function FloorPlanEditor({
       .eq('is_active', true)
       .order('name')
       .then(({ data }) => {
-        if (!cancelled) setRealTables((data ?? []) as { id: string; name: string }[])
+        // Dropdown-ul de legare în ordinea NATURALĂ (Masa 2 < Masa 10), nu
+        // cea de text a lui `.order('name')` — lib/tableSort.ts (lotul C5b).
+        if (!cancelled) setRealTables(sortTablesByName((data ?? []) as { id: string; name: string }[]))
       })
     return () => {
       cancelled = true
@@ -569,11 +573,18 @@ export default function FloorPlanEditor({
       // vechiul `.lte(sfârșit)` îl includea.
       const day = zonedDayRange(toZonedYMD(new Date(), timeZone), timeZone)
       const [ordersRes, resvRes] = await Promise.all([
+        // Ocupată = are o comandă DESCHISĂ: lista POZITIVĂ din homeMetrics
+        // (aceeași ca fetchWaiterOrders, useOrders și Acasă). Vechiul
+        // `.not('status','in','(paid,cancelled)')` număra și `closed` — starea
+        // FINALĂ normală oriunde bonul fiscal e oprit (Planurile 1–2, Planul 3
+        // în afara României, comenzile închise de `expire_stale_orders`), deci
+        // orice masă care avusese vreodată o comandă rămânea „Ocupată” pe veci,
+        // iar interogarea trăgea tot istoricul la fiecare 15 s (lotul C5b).
         supabase
           .from('orders')
           .select('table_id, status')
           .eq('restaurant_id', restaurantId)
-          .not('status', 'in', '(paid,cancelled)')
+          .in('status', [...OPEN_ORDER_STATUSES])
           .not('table_id', 'is', null),
         supabase
           .from('reservations')

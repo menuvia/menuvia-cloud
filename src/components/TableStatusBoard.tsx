@@ -16,6 +16,7 @@ import { EmptyState } from './ui/EmptyState'
 import type { IconName } from './ui/Icon'
 import type { Order, WaiterCall } from '../lib/orders'
 import type { FloorLayout } from '../lib/floorPlan'
+import { compareTableNames } from '../lib/tableSort'
 import TableStatusMap, { type MapTableState } from './TableStatusMap'
 import { useT } from '../i18n/useT'
 import { waiterNs } from '../i18n/ns/waiter'
@@ -324,7 +325,8 @@ export default function TableStatusBoard({
     const pb = STATE_META[b.state].priority
     if (pa !== pb) return pa - pb
     if (a.oldestIso && b.oldestIso) return a.oldestIso < b.oldestIso ? -1 : 1
-    return a.name.localeCompare(b.name, 'ro', { numeric: true })
+    // Același comparator ca listele de mese (lib/tableSort.ts, lotul C5b).
+    return compareTableNames(a, b)
   })
 
   const occupiedCount = computed.filter((c) => c.rounds > 0).length

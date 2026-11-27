@@ -20,6 +20,17 @@
 //        nerandat).
 //   DA4  control pozitiv: Planul 3, `?tab=tva` → un eveniment pentru TVA, iar o
 //        schimbare de tab îl adaugă pe al doilea.
+// Tot pe harness-ul cu localul comutabil (recenzia lotului C5b; prefixul MK:
+// verificat cu grep în src/, tests/, supabase/, scripts/, docs/ și CLAUDE.md,
+// nefolosit înainte):
+//   MK1  fila Mese & QR e o instanță NOUĂ la schimbarea localului: selecția,
+//        filtrele și notița „N mese fără QR n-au intrat în PDF” (cu butonul ei
+//        „Generează QR-urile lipsă”, care ar fi lucrat pe localul NOU) sunt
+//        stare a instanței, deci nu trec de la un local la altul. Stub-ul
+//        reține localul pentru care a fost MONTAT. Control pozitiv: o
+//        re-randare pe ACELAȘI local păstrează instanța (cheia e id-ul, nu ceva
+//        instabil). Mutația care pică: `key={restaurant.id}` scos de pe
+//        `<TablesManager>` (stub-ul spune „montat=rest-1” lângă rest-2).
 import { cloneElement, type ComponentProps } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within, waitFor } from '@testing-library/react'
@@ -170,7 +181,20 @@ vi.mock('../../components/ModifiersTab', () => ({ default: () => null }))
 vi.mock('../../components/TranslationsTab', () => ({ default: () => null }))
 vi.mock('../../components/HappyHourTab', () => ({ default: () => null }))
 vi.mock('../../components/StocksTab', () => ({ default: () => null }))
-vi.mock('../../components/TablesManager', () => ({ default: () => null }))
+// MK1: starea instanței = localul pentru care a fost MONTATĂ + un număr de
+// montaj; textul arată și localul curent (prop-ul).
+const meseStub = vi.hoisted(() => ({ mounts: 0 }))
+vi.mock('../../components/TablesManager', async () => {
+  const { createElement, useState } = await import('react')
+  function TablesManagerStub({ restaurant }: { restaurant: { id: string } }) {
+    const [mounted] = useState(() => {
+      meseStub.mounts += 1
+      return `${restaurant.id} #${meseStub.mounts}`
+    })
+    return createElement('div', null, `stub-mese montat=${mounted} acum=${restaurant.id}`)
+  }
+  return { default: TablesManagerStub }
+})
 vi.mock('../../components/LocationsTab', () => ({ default: () => null }))
 vi.mock('../../components/FloorPlanEditor', () => ({ default: () => null }))
 
@@ -338,5 +362,25 @@ describe('DashboardPage — evenimentul de tab doar pentru tab-ul randat', () =>
     await waitFor(() =>
       expect(tabEvents()).toEqual([TVA_VIEWED, ['dashboard_tab_viewed', { tab: 'raport' }]]),
     )
+  })
+})
+
+describe('DashboardPage — fila Mese & QR nu duce starea unui local în altul', () => {
+  it('MK1: alt local = instanță nouă a filei; același local = aceeași instanță', async () => {
+    feat.byRid['rest-1'] = featuresFor('starter')
+    feat.byRid['rest-2'] = featuresFor('starter')
+    const view = renderDashboard('/dashboard?tab=mese')
+    // Control pozitiv: fila chiar e montată, pentru localul de pornire.
+    const first = await screen.findByText(/^stub-mese montat=rest-1 #\d+ acum=rest-1$/)
+    const firstText = first.textContent
+
+    // Aceeași instanță la o re-randare pe ACELAȘI local.
+    view.rerender(cloneElement(view.ui))
+    await waitFor(() => expect(screen.getByText(/^stub-mese /).textContent).toBe(firstText))
+
+    ctx.activeId = 'rest-2'
+    view.rerender(cloneElement(view.ui))
+    expect(await screen.findByText(/^stub-mese montat=rest-2 #\d+ acum=rest-2$/)).toBeInTheDocument()
+    expect(screen.queryByText(/montat=rest-1/)).not.toBeInTheDocument()
   })
 })
