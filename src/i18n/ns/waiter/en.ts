@@ -123,6 +123,15 @@ const en: Translation<typeof ro> = {
   split_errUnknown: 'Unknown error',
   split_errGeneric: 'The payment wasn’t recorded. Check and try again.',
   split_errOverpayment: 'The amount is more than what’s left to pay. Check the amount and try again.',
+  split_loadingPayments: 'Loading recorded payments…',
+  split_loadError:
+    'We couldn’t load the payments already recorded, so we don’t know how much is left to pay. You can add the payment once they’ve loaded.',
+  split_fillRest: 'Pay the rest: {amount} lei',
+  split_amountInvalid: 'That’s not a valid amount: enter an amount greater than 0 (e.g. 25.50).',
+  split_over: 'The amount is more than what’s left to pay ({rest} lei) — the server will reject the payment.',
+  split_coversRest: 'This amount covers the rest: the order becomes Paid and the fiscal receipt is issued.',
+  split_okPartial: 'Payment of {amount} lei recorded.',
+  split_okFull: 'The rest has been paid: the order is now Paid and the fiscal receipt is being issued at the till.',
 
   loyalty_button: 'Loyalty — guest code',
   loyalty_placeholder: 'E.g. A1B2C3',
