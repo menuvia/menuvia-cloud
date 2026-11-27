@@ -65,6 +65,15 @@
 //         RPC-ul picat sau numărătoarea eșuată → 200, invitația pleacă; iar un
 //         membru existent primește tot `already_member`, nu `team_member_limit`.
 //         Mutația care pică: fail-closed pe eroarea RPC-ului.
+//   INV19 echipa PESTE limită (9 membri + A + B în așteptare = 11 din 10 —
+//         invitații dinainte de C7b, downgrade, doi manageri simultan):
+//         retrimiterea către A (orice majuscule) trece (200, insert + email),
+//         fiindcă înlocuiește un loc, nu adaugă unul — paritate cu
+//         `isPendingInviteEmail` din TeamManager, care lasă butonul activ.
+//         Control POZITIV: în aceeași stare o adresă NOUĂ primește tot 409
+//         `team_member_limit`, fără insert. Mutația care pică: excluderea doar
+//         a adresei invitate din numărătoare (9 + |{B}| = 10 ≥ 10 → 409), adică
+//         codul dinaintea recenziei.
 //
 // Rulează în jobul „Bridge tests" (vitest nu vede tests/functions).
 
@@ -559,5 +568,22 @@ describe('send-invite: locurile din echipă (lotul C7b)', () => {
     res = await invite('ion@x.ro')
     assert.equal(res.statusCode, 409, res.body)
     assert.equal(parseBody(res).code, 'already_member', res.body)
+  })
+
+  it('INV19: peste limită, retrimiterea către o adresă în așteptare trece; o adresă nouă nu', async () => {
+    // 9 membri + A + B = 11 din 10: retrimiterea lui A nu adaugă niciun loc.
+    scriptSeats({ limit: 10, members: 9, pending: ['a@x.ro', 'b@x.ro'] })
+    const res = await invite(' A@X.ro ')
+    assert.equal(res.statusCode, 200, res.body)
+    assert.equal(inviteOps().filter(isInsert).length, 1, 'retrimiterea nu a creat invitația nouă')
+    assert.equal(resend.length, 1, 'emailul retrimis nu a plecat')
+    assert.equal(seatQueries().length, 2, 'retrimiterea a sărit numărătoarea — controlul nu mai e testat')
+
+    // Control pozitiv: aceeași stare, adresă NOUĂ → tot 409, fără nicio scriere.
+    baseState()
+    scriptSeats({ limit: 10, members: 9, pending: ['a@x.ro', 'b@x.ro'] })
+    expectError(await invite('nou@x.ro'), 409, 'team_member_limit')
+    assert.equal(inviteOps().filter(isInsert).length, 0, 'invitația nouă s-a creat peste limită')
+    assert.equal(resend.length, 0)
   })
 })

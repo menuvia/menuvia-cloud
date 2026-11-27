@@ -13,7 +13,7 @@ import type { Restaurant } from '../hooks/useData'
 import { changeMemberRole, removeMember, revokeInvite } from '../lib/restaurants'
 // Locurile din echipă (lotul C7b): limita planului RESTAURANTULUI (regula 3).
 import { useFeatures } from '../hooks/useFeatures'
-import { teamSeats, isPendingInviteEmail } from '../lib/teamSeats'
+import { teamSeats, inviteSeatBlocked } from '../lib/teamSeats'
 // Limba (lotul L6b): textele vin din `team` („Anulează”/„Reîncearcă” din
 // `common`); erorile sunt ținute ca DATE și traduse la randare — încărcarea
 // prin `describeStaffError` (în română exact `toUserMessage`), refuzul
@@ -161,11 +161,12 @@ export default function TeamManager({
   // Locurile: membri (owner inclus) + invitațiile în așteptare, față de limita
   // planului — oglinda verificării din send-invite.js. Echipa completă oprește
   // trimiterea, DOAR dacă adresa tastată nu are deja o invitație în așteptare
-  // (retrimiterea o înlocuiește, nu ocupă un loc nou). Necunoscut → deschis.
+  // (retrimiterea o înlocuiește, nu ocupă un loc nou — și peste limită).
+  // Necunoscut → deschis.
   const pendingEmails = invites.map((i) => i.email)
   const seats = teamSeats(features, loaded ? members.length : null, pendingEmails)
   const seatsFull = seats.kind === 'limited' && seats.full
-  const seatsBlocked = seatsFull && !isPendingInviteEmail(pendingEmails, email)
+  const seatsBlocked = inviteSeatBlocked(seats, pendingEmails, email)
 
   const load = useCallback(async () => {
     setLoading(true)

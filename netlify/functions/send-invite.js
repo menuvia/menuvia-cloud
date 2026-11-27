@@ -35,7 +35,9 @@
 // de insert, membrii + invitațiile în așteptare (adrese DISTINCTE, fără cea
 // invitată acum — invitația ei se înlocuiește) se compară cu limita din
 // `get_restaurant_features` → 409 `team_member_limit`. Owner-ul se numără, ca
-// în trigger. Autoritatea rămâne trigger-ul din DATE: limita necunoscută (RPC
+// în trigger. O RETRIMITERE către o adresă deja în așteptare nu se blochează
+// niciodată, nici peste limită: nu adaugă un loc (INV19). Autoritatea rămâne
+// trigger-ul din DATE: limita necunoscută (RPC
 // picat, cheie lipsă, numărătoare eșuată) lasă invitația să plece, ca înainte.
 
 const { createClient } = require('@supabase/supabase-js')
@@ -66,8 +68,9 @@ function escapeHtml(s) {
 }
 
 /**
- * Echipa e completă? `true` DOAR când limita e CUNOSCUTĂ și membrii + celelalte
- * invitații în așteptare o ating; orice necunoscut → `false` (trigger-ul de la
+ * Echipa e completă? `true` DOAR când limita e CUNOSCUTĂ, adresa NU are deja o
+ * invitație în așteptare (retrimitere) și membrii + celelalte invitații în
+ * așteptare o ating; orice necunoscut → `false` (trigger-ul de la
  * `accept_invite` rămâne autoritatea). Limita e `limit` brut, ca în trigger
  * (care ignoră `enabled`); `null` = nelimitat.
  */
@@ -105,10 +108,20 @@ async function teamSeatsFull(supabase, restaurantId, cleanEmail) {
   // Adrese DISTINCTE: un retry `email_send_uncertain` poate lăsa două rânduri
   // pentru aceeași adresă; omul ocupă tot un singur loc.
   const others = new Set()
+  let isResend = false
   for (const row of pending.data || []) {
     const e = String((row && row.email) || '').trim().toLowerCase()
-    if (e && e !== cleanEmail) others.add(e)
+    if (!e) continue
+    if (e === cleanEmail) isResend = true
+    else others.add(e)
   }
+  // Retrimiterea către o adresă cu invitație NEexpirată în așteptare ÎNLOCUIEȘTE
+  // un loc, nu adaugă unul — deci nu se blochează NICIODATĂ, nici când echipa e
+  // deja PESTE limită (invitații dinainte de C7b, downgrade, doi manageri în
+  // aceeași clipă). Altfel „membri + celelalte” > limită respingea retrimiterea
+  // pe care TeamManager o lasă activă (`isPendingInviteEmail`), fără să apere
+  // nimic: tokenul vechi rămâne valabil oricum, iar la accept decide trigger-ul.
+  if (isResend) return false
   return members.count + others.size >= limit
 }
 

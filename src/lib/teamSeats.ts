@@ -52,10 +52,26 @@ export function teamSeats(
 
 /**
  * Adresa tastată are deja o invitație în așteptare? Atunci trimiterea o
- * ÎNLOCUIEȘTE (nu ocupă un loc nou) — serverul o exclude din numărătoare, deci
- * retrimiterea rămâne posibilă și cu echipa completă.
+ * ÎNLOCUIEȘTE (nu ocupă un loc nou) — serverul n-o blochează, deci
+ * retrimiterea rămâne posibilă și cu echipa completă sau peste limită.
  */
 export function isPendingInviteEmail(pendingEmails: readonly string[], email: string): boolean {
   const e = normalizeEmail(email)
   return e !== '' && pendingEmails.some((p) => normalizeEmail(p) === e)
+}
+
+/**
+ * Trimiterea către `email` e oprită de locuri? DOAR cu echipa plină ȘI o
+ * adresă fără invitație în așteptare. Retrimiterea nu se oprește NICIODATĂ,
+ * nici când echipa e PESTE limită (`used > limit`: invitații dinainte de C7b,
+ * downgrade, doi manageri simultan) — înlocuiește un loc, nu adaugă unul.
+ * Oglinda EXACTĂ a lui `teamSeatsFull` din send-invite.js (INV19).
+ */
+export function inviteSeatBlocked(
+  seats: TeamSeats,
+  pendingEmails: readonly string[],
+  email: string,
+): boolean {
+  if (seats.kind !== 'limited' || !seats.full) return false
+  return !isPendingInviteEmail(pendingEmails, email)
 }

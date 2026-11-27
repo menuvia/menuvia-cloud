@@ -1,5 +1,5 @@
 // Locurile din echipă (lotul C7b) — partea pură a contorului din fila Echipă,
-// oglinda verificării din send-invite.js (INV15–INV18 în tests/functions).
+// oglinda verificării din send-invite.js (INV15–INV19 în tests/functions).
 // (Prefixul SEAT: verificat cu grep în src/, tests/, e2e/, supabase/, docs/,
 // nefolosit înainte.)
 //   SEAT1 necunoscut → fără contor: plan necitit, cheie lipsă, listă încă
@@ -17,8 +17,14 @@
 //         (care ar da 0 pe un feature oprit).
 //   SEAT5 retrimiterea: adresa cu invitație în așteptare e recunoscută fără
 //         diferență de majuscule/spații; adresa goală nu.
+//   SEAT6 `inviteSeatBlocked`, oglinda lui `teamSeatsFull` (INV19): echipa
+//         PESTE limită (9 membri + A + B = 11 din 10) NU oprește retrimiterea
+//         către A, dar oprește o adresă nouă; pe necunoscut/nelimitat/loc liber
+//         nu oprește nimic. Control POZITIV: la egalitate (10 din 10) o adresă
+//         nouă e oprită. Mutația care pică: excepția de retrimitere scoasă sau
+//         condiționată de `used === limit` (doar „plin la egalitate”).
 import { describe, expect, it } from 'vitest'
-import { isPendingInviteEmail, teamSeats } from '../teamSeats'
+import { inviteSeatBlocked, isPendingInviteEmail, teamSeats } from '../teamSeats'
 import type { RestaurantFeatures } from '../features'
 
 const plan = (limit: number | null, enabled = true): RestaurantFeatures => ({
@@ -60,5 +66,21 @@ describe('teamSeats', () => {
     expect(isPendingInviteEmail(pending, '  nou@bistro.RO ')).toBe(true)
     expect(isPendingInviteEmail(pending, 'alt@bistro.ro')).toBe(false)
     expect(isPendingInviteEmail(['', ' '], '')).toBe(false)
+  })
+
+  it('SEAT6: peste limită retrimiterea rămâne deschisă, o adresă nouă nu', () => {
+    const pending = ['a@x.ro', 'b@x.ro']
+    const over = teamSeats(plan(10), 9, pending)
+    expect(over).toEqual({ kind: 'limited', used: 11, limit: 10, full: true })
+    expect(inviteSeatBlocked(over, pending, ' A@X.ro ')).toBe(false)
+    expect(inviteSeatBlocked(over, pending, 'nou@x.ro')).toBe(true)
+    // Control pozitiv: la egalitate, o adresă nouă e oprită; retrimiterea nu.
+    const atCap = teamSeats(plan(10), 8, pending)
+    expect(inviteSeatBlocked(atCap, pending, 'nou@x.ro')).toBe(true)
+    expect(inviteSeatBlocked(atCap, pending, 'b@x.ro')).toBe(false)
+    // Loc liber / nelimitat / necunoscut → nimic oprit.
+    expect(inviteSeatBlocked(teamSeats(plan(10), 7, pending), pending, 'nou@x.ro')).toBe(false)
+    expect(inviteSeatBlocked({ kind: 'unlimited' }, pending, 'nou@x.ro')).toBe(false)
+    expect(inviteSeatBlocked({ kind: 'unknown' }, pending, 'nou@x.ro')).toBe(false)
   })
 })
