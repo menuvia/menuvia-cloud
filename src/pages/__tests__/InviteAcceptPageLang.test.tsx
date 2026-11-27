@@ -6,6 +6,12 @@
 //        nu textul brut. Mutația care pică: pagina fără `FunnelLangProvider`.
 //   IA3  un rol neprevăzut din RPC rămâne afișat ca atare (fallback-ul de
 //        dinainte), nu cheia de traducere.
+//   IA4  (lotul C7b) echipa plină: `accept_invite` respinge cu hint
+//        `team_member_limit` (trigger-ul limitei de membri) → mesajul clar
+//        „Echipa restaurantului e completă — cere proprietarului…”, în română și
+//        în engleză, nu „Nu am putut procesa cererea”. Control POZITIV: alt hint
+//        rămâne pe rezerva generică. Mutația care pică: `acceptErrorKey` scos
+//        (înapoi la `authErrorKey`, care nu vede hint-ul).
 import { Suspense } from 'react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
@@ -89,5 +95,58 @@ describe('InviteAcceptPage — limba', () => {
     rpcMock.mockResolvedValue(VALID('sommelier'))
     renderAt('/invite/tok')
     expect(await screen.findByText(paragraph('Ai fost invitat(ă) ca sommelier la Bistro Ana.'))).toBeInTheDocument()
+  })
+
+  it('IA4 echipa plină: mesajul clar, nu eroarea generică', async () => {
+    // Eroarea PostgREST a trigger-ului (obiect cu `hint`, nu `Error`).
+    const refuse = (hint: string) =>
+      rpcMock.mockImplementation((name: string) =>
+        Promise.resolve(
+          name === 'preview_invite'
+            ? VALID('waiter')
+            : {
+                data: null,
+                error: { message: 'Limita de membri atinsă', code: 'P0001', hint, details: null },
+              },
+        ),
+      )
+    signInMock.mockResolvedValue({ error: null })
+
+    refuse('team_member_limit')
+    const ro = renderAt('/invite/tok')
+    await screen.findByRole('heading', { name: 'Invitație la Bistro Ana' })
+    fireEvent.click(screen.getByRole('button', { name: 'Am deja cont' }))
+    fireEvent.change(screen.getByLabelText('Parolă'), { target: { value: 'parola-buna-1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Autentifică-te și acceptă' }))
+    expect(
+      await screen.findByText(
+        'Echipa restaurantului e completă — cere proprietarului să elibereze un loc, apoi deschide din nou acest link.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Nu am putut procesa cererea. Încearcă din nou.')).not.toBeInTheDocument()
+    expect(rpcMock).toHaveBeenCalledWith('accept_invite', { p_token: 'tok' })
+    ro.unmount()
+
+    const en = renderAt('/invite/tok?lang=en')
+    await screen.findByRole('heading', { name: 'Invitation to Bistro Ana' })
+    fireEvent.click(screen.getByRole('button', { name: 'I already have an account' }))
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'parola-buna-1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in and accept' }))
+    expect(
+      await screen.findByText('The restaurant’s team is full — ask the owner to free up a seat, then open this link again.'),
+    ).toBeInTheDocument()
+    en.unmount()
+
+    // Control pozitiv: alt hint → rezerva generică de dinainte.
+    window.history.replaceState({}, '', '/')
+    localStorage.clear()
+    refuse('invite:role_conflict')
+    renderAt('/invite/tok')
+    await screen.findByRole('heading', { name: 'Invitație la Bistro Ana' })
+    fireEvent.click(screen.getByRole('button', { name: 'Am deja cont' }))
+    fireEvent.change(screen.getByLabelText('Parolă'), { target: { value: 'parola-buna-1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Autentifică-te și acceptă' }))
+    expect(await screen.findByText('Nu am putut procesa cererea. Încearcă din nou.')).toBeInTheDocument()
+    expect(screen.queryByText(/Echipa restaurantului e completă/)).not.toBeInTheDocument()
   })
 })

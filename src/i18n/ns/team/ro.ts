@@ -26,6 +26,13 @@ const ro = {
     few: '{n} membri · Invitații expiră în 7 zile',
     other: '{n} membri · Invitații expiră în 7 zile',
   },
+  // Lotul C7b: locurile din echipă (membri + invitații în așteptare) față de
+  // limita planului; doar când limita e sub 1000. Fără nume de plan.
+  seats_count: 'Locuri ocupate: {used} din {limit} (membri și invitații în așteptare)',
+  seats_full:
+    'Toate locurile din echipă sunt ocupate. Ca să inviți pe cineva nou, elimină un membru sau ' +
+    'anulează o invitație în așteptare; o invitație deja în așteptare o poți retrimite. Pentru ' +
+    'mai multe locuri e nevoie de un plan superior.',
   founder_note:
     'În modul fondator vezi echipa, dar invitațiile le trimite doar proprietarul sau managerul ' +
     'restaurantului, din contul lui.',
@@ -68,6 +75,9 @@ const ro = {
     'Nu am putut confirma trimiterea emailului. Invitația apare în listă; dacă nu ajunge în câteva ' +
     'minute, trimite-o din nou.',
   inv_err_email_send_failed: 'Emailul cu invitația nu a putut fi trimis. Reîncearcă.',
+  inv_err_team_member_limit:
+    'Toate locurile din echipă sunt ocupate (membri și invitații în așteptare). Elimină un membru ' +
+    'sau anulează o invitație ca să eliberezi un loc.',
 
   pending_title: 'Invitații în așteptare ({n})',
   // „Ospătar · expiră 15.11.2026”
