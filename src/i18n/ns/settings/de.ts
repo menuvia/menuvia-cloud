@@ -199,10 +199,15 @@ const de: Translation<typeof ro> = {
     'Die Sprache, in der Sie Produktnamen und -beschreibungen geschrieben haben. Übersetzungen werden für die anderen Sprachen ergänzt.',
   cur_title: 'Währung der Speisekarte',
   cur_descPay:
-    'Die Währung, in der die Preise auf der öffentlichen und der QR-Speisekarte angezeigt werden. Ihr Menuvia-Abonnement und die Fiskalisierung sind nicht betroffen.',
+    'Die Währung, in der die Preise auf der öffentlichen und der QR-Speisekarte angezeigt werden. Ihr Menuvia-Abonnement ist nicht betroffen. Für ein Lokal in Rumänien mit Fiskalbeleg bleibt die Währung RON.',
   cur_desc:
     'Die Währung, in der die Preise auf der öffentlichen und der QR-Speisekarte angezeigt werden. Ihr Menuvia-Abonnement ist nicht betroffen.',
   cur_ron: 'RON (Lei)',
+  cur_descFiscal:
+    'Fiskalbeleg, Rechnung und Online-Zahlung laufen in Lei, daher zeigt die Speisekarte die Preise in Lei (RON). Eine andere Währung können Sie nur für ein Lokal außerhalb Rumäniens wählen.',
+  cur_driftNote:
+    'Gespeichert ist {code}. Ihre Gäste sehen die Preise bereits in Lei, die Online-Zahlung am Tisch bleibt aber deaktiviert, bis Sie RON wählen und speichern.',
+  cur_lockedRefusal: 'Bei einem Lokal mit Fiskalbeleg bleibt die Währung der Speisekarte RON (Lei).',
 
   mod_title: 'Optionale Module',
   mod_desc:

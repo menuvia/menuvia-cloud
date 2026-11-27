@@ -23,6 +23,7 @@ import {
   type RegionalPatch,
   type RegionalSource,
 } from './countries'
+import { isFiscalCurrencyRefusal, regionalPatchWithoutCurrency } from './fiscalCurrency'
 
 export const PENDING_COUNTRY_PREFIX = 'menuvia_pending_country:'
 
@@ -90,6 +91,7 @@ export type PendingCountryResult =
   | 'not_owner' // doar owner-ul poate schimba țara (trg_restaurants_country_owner_only, mig 296)
   | 'already_set' // restaurantul are deja țara păstrată → intenția se șterge
   | 'saved' // UPDATE reușit → intenția se șterge
+  | 'saved_without_currency' // moneda refuzată de server (mig 334), restul salvat → intenția se șterge
   | 'failed' // UPDATE picat → intenția RĂMÂNE pentru următoarea încărcare
 
 /**
@@ -189,7 +191,16 @@ export function clearPendingRegional(
  * Reîncearcă patch-ul regional păstrat, DOAR cu câmpurile care încă diferă de
  * restaurant (o parte poate fi deja salvată, sau schimbată între timp din
  * Setări — nu o suprascriem). Țara o poate schimba doar owner-ul (mig 296).
- * Intenția se șterge DOAR pe 'already_set' / 'saved' / valoare invalidă.
+ * Intenția se șterge DOAR pe 'already_set' / 'saved' /
+ * 'saved_without_currency' / valoare invalidă.
+ *
+ * Refuzul MONEDEI (hint `fiscal_currency_ron_only`, mig 334: locația ar rămâne
+ * în România pe un plan cu bon fiscal, iar sursa avea altă monedă salvată
+ * dinaintea upgrade-ului) e TERMINAL pentru monedă, nu pentru rest: o intenție
+ * păstrată de un client vechi (cu moneda în ea) s-ar fi retrimis, și refuzat,
+ * la FIECARE încărcare, cu fusul și limba pierdute odată cu ea. Intenția se
+ * rescrie fără monedă ÎNAINTE de a doua cerere (dacă pică și aceea, următoarea
+ * încărcare nu mai trimite moneda), apoi restul pleacă imediat.
  */
 export async function retryPendingRegional(opts: {
   restaurantId: string
@@ -223,12 +234,28 @@ export async function retryPendingRegional(opts: {
     return 'already_set'
   }
   if (remaining.country && !opts.isOwner) return 'not_owner'
+  let error: unknown
   try {
-    const { error } = await opts.update(remaining)
-    if (error) return 'failed'
+    error = (await opts.update(remaining)).error
+  } catch {
+    return 'failed'
+  }
+  if (!error) {
+    clearPendingRegional(opts.restaurantId, storage)
+    return 'saved'
+  }
+  if (!remaining.currency || !isFiscalCurrencyRefusal(error)) return 'failed'
+  const rest = regionalPatchWithoutCurrency(remaining)
+  if (!rest) {
+    clearPendingRegional(opts.restaurantId, storage)
+    return 'saved_without_currency'
+  }
+  storePendingRegional(opts.restaurantId, rest, storage)
+  try {
+    if ((await opts.update(rest)).error) return 'failed'
   } catch {
     return 'failed'
   }
   clearPendingRegional(opts.restaurantId, storage)
-  return 'saved'
+  return 'saved_without_currency'
 }

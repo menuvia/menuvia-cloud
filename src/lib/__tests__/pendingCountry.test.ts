@@ -310,3 +310,109 @@ describe('pendingCountry — setările regionale ale locației noi (lotul G1)', 
     expect(calls).toBe(1)
   })
 })
+
+// Refuzul MONEDEI la reîncercare (recenzia lotului M1, mig 334). Prefixul LCR
+// verificat cu grep în src/, tests/, e2e/, supabase/, docs/ și CLAUDE.md.
+//   LCR1 intenția are moneda + limba, serverul refuză moneda (hint
+//        `fiscal_currency_ron_only`) → a doua cerere pleacă FĂRĂ monedă, cu
+//        limba; rezultatul e 'saved_without_currency' și intenția se șterge.
+//        Mutația care pică: reîncercarea fără fallback (rezultat 'failed',
+//        intenția rămâne și se retrimite, refuzată, la fiecare încărcare).
+//   LCR2 doar moneda de copiat → fără a doua cerere, intenția se șterge (bucla
+//        se oprește). Mutația care pică: refuzul tratat ca eșec obișnuit.
+//   LCR3 a doua cerere pică și ea → intenția rămâne, dar FĂRĂ monedă: următoarea
+//        încărcare nu mai trimite moneda. Mutația care pică: intenția lăsată
+//        neatinsă (cu moneda) până la succes.
+//   LCR4 control POZITIV: un eșec cu ALT hint (sau fără hint) rămâne 'failed',
+//        fără a doua cerere, cu intenția neatinsă — altfel orice blip ar
+//        arunca tăcut moneda.
+describe('pendingCountry — moneda refuzată de server (mig 334)', () => {
+  const REFUSED = { message: 'refuz', code: '23514', hint: 'fiscal_currency_ron_only' }
+
+  it('LCR1 moneda refuzată → restul pleacă fără ea, intenția se șterge', async () => {
+    const s = memStorage()
+    storePendingRegional('r1', { currency: 'EUR', language: 'en' }, s)
+    const sent: RegionalPatch[] = []
+    const res = await retryPendingRegional({
+      restaurantId: 'r1',
+      current: { country: 'RO', currency: 'RON', timezone: 'Europe/Bucharest', language: 'ro' },
+      isOwner: true,
+      update: async (p) => {
+        sent.push(p)
+        return { error: p.currency ? REFUSED : null }
+      },
+      storage: s,
+    })
+    expect(res).toBe('saved_without_currency')
+    expect(sent).toEqual([{ currency: 'EUR', language: 'en' }, { language: 'en' }])
+    expect(readPendingRegional('r1', s)).toBeNull()
+  })
+
+  it('LCR2 doar moneda → fără a doua cerere, bucla se oprește', async () => {
+    const s = memStorage()
+    storePendingRegional('r1', { currency: 'EUR' }, s)
+    const sent: RegionalPatch[] = []
+    const res = await retryPendingRegional({
+      restaurantId: 'r1',
+      current: { country: 'RO', currency: 'RON' },
+      isOwner: true,
+      update: async (p) => {
+        sent.push(p)
+        return { error: REFUSED }
+      },
+      storage: s,
+    })
+    expect(res).toBe('saved_without_currency')
+    expect(sent).toEqual([{ currency: 'EUR' }])
+    expect(readPendingRegional('r1', s)).toBeNull()
+  })
+
+  it('LCR3 a doua cerere pică → intenția rămâne, fără monedă', async () => {
+    const s = memStorage()
+    storePendingRegional('r1', { currency: 'EUR', timezone: 'Europe/London', language: 'en' }, s)
+    const res = await retryPendingRegional({
+      restaurantId: 'r1',
+      current: { country: 'RO', currency: 'RON', timezone: 'Europe/Bucharest', language: 'ro' },
+      isOwner: true,
+      update: async (p) => ({ error: p.currency ? REFUSED : { message: 'blip' } }),
+      storage: s,
+    })
+    expect(res).toBe('failed')
+    expect(readPendingRegional('r1', s)).toEqual({ timezone: 'Europe/London', language: 'en' })
+    // Și o excepție la a doua cerere lasă tot intenția fără monedă.
+    storePendingRegional('r2', { currency: 'EUR', language: 'en' }, s)
+    const thrown = await retryPendingRegional({
+      restaurantId: 'r2',
+      current: { country: 'RO', currency: 'RON', language: 'ro' },
+      isOwner: true,
+      update: async (p) => {
+        if (p.currency) return { error: REFUSED }
+        throw new Error('net')
+      },
+      storage: s,
+    })
+    expect(thrown).toBe('failed')
+    expect(readPendingRegional('r2', s)).toEqual({ language: 'en' })
+  })
+
+  it('LCR4 control: alt eșec rămâne eșec, intenția neatinsă', async () => {
+    const s = memStorage()
+    storePendingRegional('r1', { currency: 'EUR', language: 'en' }, s)
+    for (const error of [{ message: 'blip' }, { message: 'refuz', hint: 'country_owner_only' }]) {
+      const sent: RegionalPatch[] = []
+      const res = await retryPendingRegional({
+        restaurantId: 'r1',
+        current: { country: 'RO', currency: 'RON', language: 'ro' },
+        isOwner: true,
+        update: async (p) => {
+          sent.push(p)
+          return { error }
+        },
+        storage: s,
+      })
+      expect(res).toBe('failed')
+      expect(sent).toEqual([{ currency: 'EUR', language: 'en' }])
+      expect(readPendingRegional('r1', s)).toEqual({ currency: 'EUR', language: 'en' })
+    }
+  })
+})

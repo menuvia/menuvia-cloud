@@ -16,7 +16,11 @@ import {
   retryPendingRegional,
   storePendingRegional,
 } from '../lib/pendingCountry'
-import { regionalPatchFrom } from '../lib/countries'
+import {
+  isFiscalCurrencyRefusal,
+  newLocationRegionalPatch,
+  regionalPatchWithoutCurrency,
+} from '../lib/fiscalCurrency'
 import { reportTimeZone, restaurantTimeZone } from '../lib/dates'
 import { getPlan as getCommercialPlan } from '../lib/plans'
 import { useRestaurantModules } from '../hooks/useRestaurantModules'
@@ -698,11 +702,28 @@ export default function DashboardPage({
     // (lib/pendingCountry, recenzia CodeRabbit pe #358): dacă UPDATE-ul pică,
     // efectul de mai jos îl reîncearcă la încărcarea locației, cu moneda, fusul
     // și limba sursei — nu doar cu țara și default-urile ei.
-    const regional = regionalPatchFrom(restaurant)
+    // Moneda (mig 334): o sursă românească pe Planul 3 cu altă monedă salvată
+    // dinaintea upgrade-ului NU și-o copiază — serverul ar refuza UPDATE-ul
+    // ÎNTREG (`fiscal_currency_ron_only`) și s-ar pierde și fusul, și limba.
+    // `surface` (declarat mai jos, citit doar la apel) e al sursei: doar
+    // owner-ul adaugă locații, deci planul e același.
+    const regional = newLocationRegionalPatch(restaurant, surface)
     if (regional) {
       storePendingRegional(restaurantId, regional)
       try {
-        const { error } = await update(restaurantId, regional)
+        let { error } = await update(restaurantId, regional)
+        // Planul văzut aici poate fi vechi (upgrade din alt tab): la refuzul
+        // monedei restul pleacă fără ea, iar intenția păstrată la fel — altfel
+        // reîncercarea ar retrimite moneda, refuzată, la fiecare încărcare.
+        if (error && regional.currency && isFiscalCurrencyRefusal(error)) {
+          const rest = regionalPatchWithoutCurrency(regional)
+          if (rest) {
+            storePendingRegional(restaurantId, rest)
+            error = (await update(restaurantId, rest)).error
+          } else {
+            error = null
+          }
+        }
         if (error) console.warn('[locații] setările regionale ale locației noi n-au fost copiate', error)
         else clearPendingRegional(restaurantId)
       } catch (e) {

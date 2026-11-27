@@ -191,9 +191,14 @@ const en: Translation<typeof ro> = {
     'The language you wrote the product names and descriptions in. Translations are added for the other languages.',
   cur_title: 'Menu currency',
   cur_descPay:
-    'The currency in which prices are shown on the public menu and the QR menu. Your Menuvia subscription and fiscal receipts aren’t affected.',
+    'The currency in which prices are shown on the public menu and the QR menu. Your Menuvia subscription isn’t affected. For a venue in Romania with fiscal receipts, the currency stays RON.',
   cur_desc: 'The currency in which prices are shown on the public menu and the QR menu. Your Menuvia subscription isn’t affected.',
   cur_ron: 'RON (lei)',
+  cur_descFiscal:
+    'Fiscal receipts, invoices and online payments are in lei, so the menu shows prices in lei (RON). Another currency can only be chosen for a venue outside Romania.',
+  cur_driftNote:
+    'The saved currency is {code}. Guests already see prices in lei, but online payment at the table stays off until you choose RON and save.',
+  cur_lockedRefusal: 'For a venue with fiscal receipts, the menu currency stays RON (lei).',
 
   mod_title: 'Optional modules',
   mod_desc:

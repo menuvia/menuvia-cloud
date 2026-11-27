@@ -249,11 +249,22 @@ const ro = {
   langs_baseHelp:
     'Limba în care ai scris numele și descrierile produselor. Traducerile se adaugă pentru celelalte limbi.',
   cur_title: 'Moneda meniului',
+  // Planul 3 cu localul în afara României (moneda e liberă). Nu mai promite că
+  // „fiscalizarea nu e afectată”: pe un local din România cu bon fiscal moneda
+  // e RON, impusă în date (mig 334).
   cur_descPay:
-    'Moneda în care se afișează prețurile în meniul public și QR. Abonamentul Menuvia și fiscalizarea nu sunt afectate.',
+    'Moneda în care se afișează prețurile în meniul public și QR. Abonamentul Menuvia nu e afectat. Pentru un local din România cu bon fiscal, moneda rămâne RON.',
   cur_desc: 'Moneda în care se afișează prețurile în meniul public și QR. Abonamentul Menuvia nu e afectat.',
   // Opțiunea RON a selectorului (celelalte monede = codul ISO, ca înainte).
   cur_ron: 'RON (lei)',
+  // Mig 334: pe un local din România cu bon fiscal moneda e blocată pe RON.
+  cur_descFiscal:
+    'Bonul fiscal, factura și plata online sunt în lei, deci meniul afișează prețurile în lei (RON). Altă monedă se poate alege doar pentru un local din afara României.',
+  // Moneda salvată înainte de urcarea pe Planul 3 (oaspeții văd deja lei).
+  cur_driftNote:
+    'Moneda salvată e {code}. Oaspeții văd deja prețurile în lei, dar plata online la masă rămâne oprită până alegi RON și salvezi.',
+  // Refuzul serverului (hint fiscal_currency_ron_only) în celelalte limbi.
+  cur_lockedRefusal: 'Pe un restaurant cu bon fiscal, moneda meniului rămâne RON (lei).',
 
   // ── Comenzi & plăți ──
   mod_title: 'Module opționale',
