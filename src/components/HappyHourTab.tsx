@@ -62,14 +62,18 @@ type SavePhase = 'saving' | 'verifying'
 // Ce scrie editorul deschis, ținut de filă pe toată durata lui (deschidere →
 // închidere), nu pe o singură încercare. La creare: id-ul regulii, generat în
 // CLIENT la deschiderea editorului (`openEditor`) și retrimis la FIECARE
-// încercare, plus dacă un INSERT cu el a plecat deja (`sent`). Id-ul e per
-// SESIUNE (recenzia adversarială a lotului C4a), nu per încercare și nici per
-// filă: per încercare, un INSERT comis după ce clientul a renunțat la el ar
-// rămâne alături de reîncercare — regula dublată, ambele reduc comenzile QR
-// (mig 077); per filă, al doilea editor deschis ar primi 23505 pe id-ul primei
-// reguli și ar SUPRASCRIE-o. O creare găsită astfel în bază (23505 la o
-// reîncercare) devine modificarea acelui id.
-type SaveSession = { kind: 'create'; id: string; sent: boolean } | { kind: 'update'; id: string }
+// încercare, plus valorile trimise de fiecare încercare, în ordine (`attempts`) —
+// verificarea le folosește ca să afle CARE încercare a ajuns (`handleSave`).
+// Id-ul e per SESIUNE (recenzia adversarială a lotului C4a), nu per încercare
+// și nici per filă: per încercare, un INSERT comis după ce clientul a renunțat
+// la el ar rămâne alături de reîncercare — regula dublată, ambele reduc
+// comenzile QR (mig 077); per filă, al doilea editor deschis ar primi 23505 pe
+// id-ul primei reguli și ar SUPRASCRIE-o. O creare găsită astfel în bază (23505
+// pe cheia primară, sau verificarea care găsește valorile unei încercări de
+// dinainte) devine modificarea acelui id.
+type SaveSession =
+  | { kind: 'create'; id: string; attempts: RuleFields[] }
+  | { kind: 'update'; id: string }
 type LoadResult = { ok: true; rules: HappyHourRule[] } | { ok: false }
 
 // Textul unui rezultat de verificare (fiecare spune ce s-a aflat despre bază).
@@ -129,10 +133,10 @@ function isServerAnswer(e: unknown): boolean {
 }
 
 // Rândul din bază are EXACT valorile trimise? (verificarea unei modificări
-// fără răspuns). Ora vine din `time` cu secunde, sumele din `numeric(10,2)`
-// (comparate în bani), zilele ca mulțime. O nepotrivire falsă (ex. o sumă cu
-// trei zecimale, rotunjită de bază) spune doar „nu s-a salvat”, iar
-// reîncercarea unei modificări e inofensivă.
+// fără răspuns, și a unei creări: CARE încercare a ajuns). Ora vine din `time`
+// cu secunde, sumele din `numeric(10,2)` (comparate în bani), zilele ca
+// mulțime. O nepotrivire falsă (ex. o sumă cu trei zecimale, rotunjită de bază)
+// duce cel mult la o modificare în plus, cu aceleași valori — inofensivă.
 function sameRuleFields(row: HappyHourRule, f: RuleFields): boolean {
   const hm = (v: string) => v.slice(0, 5)
   const cents = (v: number | null) => (v == null ? null : Math.round(Number(v) * 100))
@@ -152,11 +156,31 @@ function sameRuleFields(row: HappyHourRule, f: RuleFields): boolean {
   )
 }
 
-// 23505 la INSERT = cheia primară există deja — singura cheie unică a tabelei
-// (mig 036). Cu id-ul generat de sesiune, înseamnă că o încercare de dinainte a
-// acestei sesiuni a ajuns în bază, iar răspunsul ei s-a pierdut.
-function isUniqueViolation(e: unknown): boolean {
-  return e != null && typeof e === 'object' && (e as { code?: unknown }).code === '23505'
+// 23505 pe CHEIA PRIMARĂ la INSERT = rândul cu id-ul sesiunii există deja. Id-ul
+// e un UUID generat în client la deschiderea editorului (`openEditor`), deci
+// rândul nu poate fi decât al ACESTEI sesiuni, și la PRIMA trimitere (recenzia
+// adversarială a lotului C4a): o încercare de dinainte, comisă după ce clientul
+// a renunțat la ea, sau chiar aceeași cerere livrată de DOUĂ ori de transport —
+// Chromium retrimite o cerere rămasă fără antete de răspuns după un
+// ERR_CONNECTION_RESET pe un socket keep-alive refolosit (sau o eroare HTTP/2 /
+// QUIC), indiferent de metodă, deci prima livrare se comite și a doua primește
+// 23505. Doar pe cheia primară (mig 036: `id uuid primary key`, adică
+// `happy_hour_rules_pkey` — numele constrângerii stă în mesaj în orice limbă,
+// iar `details` numește coloana): o constrângere unică ADĂUGATĂ mai târziu (ex.
+// pe nume) e un refuz real; tratată ca rândul sesiunii, modificarea ar ținti un
+// id care nu există, iar editorul s-ar închide pe „salvat” fără nicio regulă.
+function isOwnRowConflict(e: unknown): boolean {
+  if (e == null || typeof e !== 'object') return false
+  const { code, message, details } = e as {
+    code?: unknown
+    message?: unknown
+    details?: unknown
+  }
+  if (code !== '23505') return false
+  return (
+    (typeof message === 'string' && message.includes('happy_hour_rules_pkey')) ||
+    (typeof details === 'string' && details.includes('(id)='))
+  )
 }
 // Erorile care țin DOAR de reducerea în procent (plafonul există doar acolo, iar
 // „max 100” nu se aplică unei sume în lei): la trecerea pe sumă fixă se șterg,
@@ -356,7 +380,7 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
     // respins.
     sessionRef.current =
       target === 'new'
-        ? { kind: 'create', id: crypto.randomUUID(), sent: false }
+        ? { kind: 'create', id: crypto.randomUUID(), attempts: [] }
         : { kind: 'update', id: target.id }
     setEditing(target)
   }
@@ -458,10 +482,10 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
     // Crearea trimite MEREU id-ul sesiunii, și la reîncercare: înainte nu e
     // nimic de lămurit. O încercare de dinainte ajunsă totuși în bază (comisă
     // după ce clientul a renunțat la ea) face ca aceasta să fie respinsă de
-    // cheia primară (23505) — niciodată un al doilea rând.
+    // cheia primară (23505) — niciodată un al doilea rând. Valorile încercării
+    // rămân în sesiune, pentru verificarea de mai jos.
     onPhase('saving')
-    const resent = s.sent
-    s.sent = true
+    s.attempts.push(rule)
     let sent: 'saved' | 'unanswered'
     try {
       sent = await sendWithDeadline((signal) =>
@@ -469,12 +493,11 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
       )
     } catch (e) {
       // Doar un refuz al SERVERULUI ajunge aici (o cădere de rețea e „fără
-      // răspuns”, `sendWithDeadline`). 23505 la o REtrimitere = încercarea de
-      // dinainte a ajuns: de acum editorul scrie regula aceea, cu ce e acum în
-      // formular — o modificare pe id, cu confirmarea ei obișnuită. La PRIMA
-      // trimitere id-ul n-a plecat încă nicăieri, deci 23505 n-ar fi regula
-      // acestei sesiuni: rămâne un refuz.
-      if (resent && isUniqueViolation(e)) {
+      // răspuns”, `sendWithDeadline`). 23505 pe cheia primară = rândul
+      // sesiunii există deja, la orice trimitere (`isOwnRowConflict`): de acum
+      // editorul scrie regula aceea, cu ce e acum în formular — o modificare pe
+      // id, cu confirmarea ei obișnuită.
+      if (isOwnRowConflict(e)) {
         sessionRef.current = { kind: 'update', id: s.id }
         return saveUpdate(s.id, rule, onPhase)
       }
@@ -484,22 +507,36 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
       finishSaved(false)
       return { kind: 'saved' }
     }
-    // Fără răspuns: s-a salvat DOAR dacă lista reîncărcată are rândul cu id-ul
-    // sesiunii. Nu după nume — numele nu sunt unice, iar o regulă cu același
-    // nume creată de pe alt dispozitiv trecea drept a acestui editor (omul își
-    // pierdea ciorna, iar reîncercarea ajungea să modifice regula CELUILALT);
-    // nici după valori — un rând cu acest id nu poate fi decât al sesiunii, iar
-    // o nepotrivire ar spune „nu s-a salvat” despre o regulă salvată.
+    // Fără răspuns: se caută rândul cu id-ul sesiunii în lista reîncărcată.
+    // Nu după nume — numele nu sunt unice, iar o regulă cu același nume creată
+    // de pe alt dispozitiv trecea drept a acestui editor (omul își pierdea
+    // ciorna, iar reîncercarea ajungea să modifice regula CELUILALT).
     onPhase('verifying')
     const fresh = await reloadForVerify()
     if (fresh == null) return { kind: 'unverified' }
-    if (fresh.some((r) => r.id === s.id)) {
-      finishSaved(true)
-      return { kind: 'saved' }
-    }
-    // Negăsită: reîncercarea retrimite ACELAȘI id, deci o creare comisă abia
+    const row = fresh.find((r) => r.id === s.id)
+    // Negăsit: reîncercarea retrimite ACELAȘI id, deci o creare comisă abia
     // după această verificare nu se dublează (23505 → modificare).
-    return { kind: 'not_saved', create: true }
+    if (row == null) return { kind: 'not_saved', create: true }
+    // Rândul are valorile unei încercări DE DINAINTE, nu ale acesteia (recenzia
+    // adversarială a lotului C4a): aceea a ajuns, iar aceasta a fost respinsă
+    // de cheia primară — un INSERT nu poate suprascrie un rând —, cu răspunsul
+    // pierdut și el. Confirmată doar pe id, o reîncercare cu valori corectate
+    // (categoria „Cocktailuri” în loc de toate produsele, alt procent, alt
+    // interval) se închidea pe „Regula s-a salvat”, ciorna se pierdea, iar
+    // reducerea veche se aplica pe comenzile QR și de ridicare (mig 077). Ca la
+    // 23505-ul primit: modificarea id-ului, cu ce e acum în formular.
+    const earlier = s.attempts.slice(0, -1)
+    if (!sameRuleFields(row, rule) && earlier.some((f) => sameRuleFields(row, f))) {
+      sessionRef.current = { kind: 'update', id: s.id }
+      return saveUpdate(s.id, rule, onPhase)
+    }
+    // Valorile acestei încercări, sau ale NICIUNEIA: un rând cu acest id nu
+    // poate fi decât al sesiunii, deci regula s-a creat, iar valori pe care
+    // nu le-a trimis nicio încercare vin de la alt dispozitiv, care a modificat-o
+    // după ce a ajuns. Editorul nu „repară” peste modificarea celuilalt.
+    finishSaved(true)
+    return { kind: 'saved' }
   }
 
   // Lotul C4a: confirmarea comună (ui/confirm: dialog real, focus, Escape) în

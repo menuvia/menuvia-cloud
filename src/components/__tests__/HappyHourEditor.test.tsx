@@ -152,12 +152,19 @@
 //        (reducerea telefonului suprascrisă — se aplică pe comenzile QR, mig 077).
 //   HHM23 INSERT-ul anulat în client e comis DUPĂ verificare: reîncercarea, cu
 //        același id, e respinsă de cheia primară (23505) și devine modificarea
-//        acelui id, cu ce e ACUM în formular — un singur rând, valorile noi.
-//        Control pozitiv: 23505 la PRIMA trimitere a unei sesiuni (id-ul n-a
-//        plecat încă) e un refuz — mesajul lui, nicio modificare. Mutațiile care
-//        pică: 23505 tratat ca refuz (editorul blocat: orice reîncercare primea
-//        23505, iar modificarea se pierdea) sau garda „doar la retrimitere”
-//        scoasă (o primă trimitere ar fi modificat un rând care nu e al sesiunii).
+//        acelui id, cu ce e ACUM în formular — un singur rând, valorile noi. La
+//        fel 23505 pe cheia primară la PRIMA trimitere a unei sesiuni (recenzia
+//        adversarială a lui e750907): id-ul e un UUID proaspăt, deci rândul nu
+//        poate fi decât al ei — aceeași cerere livrată de două ori de transport
+//        (Chromium retrimite o cerere fără răspuns după un reset pe un socket
+//        refolosit), prima livrare comisă: editorul se închide, un singur rând.
+//        Control: 23505 pe ALTĂ constrângere unică (una adăugată mai târziu, ex.
+//        pe nume) e un refuz — mesajul lui, editorul deschis, nicio modificare.
+//        Mutațiile care pică: 23505 tratat ca refuz (editorul blocat: orice
+//        reîncercare primea 23505, iar modificarea se pierdea), garda „doar la
+//        retrimitere” readusă (refuzul „Există deja” peste o regulă salvată și
+//        activă) sau 23505 recunoscut doar după cod (o cheie unică nouă ar fi
+//        modificat un id care nu există, iar editorul se închidea pe „salvat”).
 //   HHM24 eroarea PRIMEI încărcări rămâne pe banner cât o reîncărcare e în aer
 //        și după ce verificarea unei creări e abandonată la termenul ei — și
 //        după închiderea editorului, cu reîncărcarea de la închidere încă în aer
@@ -165,6 +172,19 @@
 //        încărcat niciodată). Control pozitiv: o reîncărcare REUȘITĂ șterge
 //        bannerul și aduce lista. Mutația care pică: `setErr(null)` la PORNIREA
 //        lui `load` readus.
+// Recenzia adversarială a lui e750907:
+//   HHM25 o reîncercare cu valori SCHIMBATE, a cărei respingere pe cheia primară
+//        se pierde pe drum: prima încercare (20%) s-a comis fără răspuns, iar
+//        verificarea ei a picat; omul corectează la 30% și reîncearcă — INSERT-ul
+//        e respins (23505), răspunsul se pierde și el, iar lista reîncărcată
+//        arată rândul sesiunii cu valorile PRIMEI încercări. Nu e salvarea
+//        acestei încercări: fila trimite imediat modificarea acelui id cu ce e
+//        acum în formular (30%), iar editorul se închide pe confirmarea ei
+//        obișnuită, fără toast-ul „s-a salvat după ce conexiunea și-a revenit”.
+//        Control: HHM10 (o singură încercare, rândul modificat de alt dispozitiv
+//        = salvat). Mutația care pică: confirmarea pe simpla prezență a id-ului
+//        (codul lui e750907: editorul se închidea pe „Regula s-a salvat”, ciorna
+//        se pierdea, iar în bază rămânea reducerea de 20%).
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
@@ -185,9 +205,15 @@ const h = vi.hoisted(() => ({
   // Id-ul trimis de fiecare creare: id-ul SESIUNII editorului, retrimis la
   // fiecare reîncercare (HHM12–HHM14, HHM19, HHM22, HHM23).
   createdIds: [] as string[],
-  // Următoarea creare e respinsă cu 23505 orice id ar avea (HHM23: o PRIMĂ
-  // trimitere).
-  dupNext: false,
+  // Următoarea creare (HHM23): „twice” = cererea livrată de DOUĂ ori de
+  // transport — prima livrare se comite, a doua primește 23505 pe cheia
+  // primară, iar răspunsul ei e cel care ajunge; „otherKey” = 23505 pe ALTĂ
+  // constrângere unică (una adăugată mai târziu, ex. pe nume), fără rând.
+  dupNext: null as null | 'twice' | 'otherKey',
+  // La următoarea creare serverul face ce face mereu (o comite, sau o respinge
+  // pe cheia primară dacă id-ul există), dar răspunsul se pierde pe drum
+  // (HHM25): fetch respinge ca Safari, `TypeError: Load failed`, cod gol.
+  loseNext: false,
   // Semnalul primit de fiecare creare (HHM10: anulată la termen).
   signals: [] as (AbortSignal | null)[],
   updated: [] as [string, Partial<HappyHourRule>][],
@@ -227,6 +253,14 @@ const h = vi.hoisted(() => ({
     message: 'duplicate key value violates unique constraint "happy_hour_rules_pkey"',
     code: '23505',
   },
+  // 23505 pe o constrângere unică ipotetică pe nume (HHM23, control).
+  dupOther: {
+    message:
+      'duplicate key value violates unique constraint "happy_hour_rules_restaurant_id_name_key"',
+    details: 'Key (restaurant_id, name)=(rest-1, Cină) already exists.',
+    code: '23505',
+  },
+  lost: { message: 'TypeError: Load failed', code: '' },
 }))
 
 vi.mock('../ui/confirm', () => ({
@@ -272,13 +306,6 @@ vi.mock('../../lib/happyHour', () => ({
     h.createdIds.push(id)
     h.signals.push(signal ?? null)
     h.log.push('create')
-    // Ca baza: un id care există deja e respins de cheia primară, nu devine al
-    // doilea rând. (Un test simulează o creare comisă al cărei răspuns s-a
-    // pierdut adăugând el rândul în `h.rules`.)
-    if (h.dupNext || h.rules.some((r: HappyHourRule) => r.id === id)) {
-      h.dupNext = false
-      return Promise.reject(h.dup)
-    }
     // O creare reușită e comisă: apare în lista următoare.
     const commit = (): HappyHourRule => {
       const row: HappyHourRule = {
@@ -291,6 +318,23 @@ vi.mock('../../lib/happyHour', () => ({
       h.rules = [...h.rules, row]
       return row
     }
+    // Ca baza: un id care există deja e respins de cheia primară, nu devine al
+    // doilea rând. (Un test simulează o creare comisă al cărei răspuns s-a
+    // pierdut adăugând el rândul în `h.rules`.)
+    const exists = () => h.rules.some((r: HappyHourRule) => r.id === id)
+    const dup = h.dupNext
+    h.dupNext = null
+    if (dup === 'twice') {
+      if (!exists()) commit()
+      return Promise.reject(h.dup)
+    }
+    if (dup === 'otherKey') return Promise.reject(h.dupOther)
+    if (h.loseNext) {
+      h.loseNext = false
+      if (!exists()) commit()
+      return Promise.reject(h.lost)
+    }
+    if (exists()) return Promise.reject(h.dup)
     if (!h.holdCreate) return Promise.resolve(commit())
     return new Promise<HappyHourRule>((resolve, reject) => {
       h.pending = { resolve: () => resolve(commit()), reject }
@@ -372,7 +416,8 @@ beforeEach(() => {
   h.rulesBy = {}
   h.created = []
   h.createdIds = []
-  h.dupNext = false
+  h.dupNext = null
+  h.loseNext = false
   h.signals = []
   h.updated = []
   h.deleted = []
@@ -1138,7 +1183,7 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     expect(screen.getAllByText('Brunch')).toHaveLength(2)
   })
 
-  it('HHM23 reîncercarea respinsă cu 23505 devine modificarea aceluiași id, cu valorile din formular', async () => {
+  it('HHM23 23505 pe cheia primară devine modificarea aceluiași id (și la prima trimitere); pe altă cheie, refuz', async () => {
     h.holdCreate = true
     const { user, dlg } = await openNew()
     await user.type(within(dlg).getByLabelText('Nume *'), 'Brunch')
@@ -1170,17 +1215,34 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     expect(h.rules.filter((r: HappyHourRule) => r.name === 'Brunch')).toHaveLength(1)
     expect(h.toasts).toEqual([])
 
-    // Control pozitiv: 23505 la PRIMA trimitere a unei sesiuni noi (id-ul ei
-    // n-a plecat încă) nu poate fi o încercare a ei — e un refuz: mesajul lui,
-    // editorul deschis, nicio modificare.
+    // 23505 pe cheia primară la PRIMA trimitere a unei sesiuni noi: id-ul e un
+    // UUID proaspăt, deci rândul nu poate fi decât al ei — aceeași cerere
+    // livrată de două ori de transport, prima livrare comisă. Nu e un refuz:
+    // devine modificarea aceluiași id, iar editorul se închide.
     await user.click(screen.getByRole('button', { name: 'Regulă nouă' }))
     const dlg2 = screen.getByRole('dialog', { name: 'Regulă nouă' })
     await user.type(within(dlg2).getByLabelText('Nume *'), 'Prânz')
-    h.dupNext = true
+    h.dupNext = 'twice'
+    h.log = []
     await user.click(within(dlg2).getByRole('button', { name: 'Creează regulă' }))
-    await waitFor(() => expect(within(dlg2).getByRole('alert').textContent).toBe(MSG_DUPLICATE))
-    expect(screen.getByRole('dialog', { name: 'Regulă nouă' })).toBe(dlg2)
-    expect(h.updated).toHaveLength(1)
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    const id2 = h.createdIds[2]
+    expect(id2).not.toBe(id)
+    expect(h.log.slice(0, 2)).toEqual(['create', 'update'])
+    expect(h.updated[1]).toEqual([id2, expect.objectContaining({ name: 'Prânz' })])
+    expect(h.rules.filter((r: HappyHourRule) => r.name === 'Prânz')).toHaveLength(1)
+    expect(h.toasts).toEqual([])
+
+    // Control: 23505 pe ALTĂ constrângere unică (una adăugată mai târziu, ex. pe
+    // nume) e un refuz real — mesajul lui, editorul deschis, nicio modificare.
+    await user.click(screen.getByRole('button', { name: 'Regulă nouă' }))
+    const dlg3 = screen.getByRole('dialog', { name: 'Regulă nouă' })
+    await user.type(within(dlg3).getByLabelText('Nume *'), 'Cină')
+    h.dupNext = 'otherKey'
+    await user.click(within(dlg3).getByRole('button', { name: 'Creează regulă' }))
+    await waitFor(() => expect(within(dlg3).getByRole('alert').textContent).toBe(MSG_DUPLICATE))
+    expect(screen.getByRole('dialog', { name: 'Regulă nouă' })).toBe(dlg3)
+    expect(h.updated).toHaveLength(2)
   })
 
   it('HHM24 eroarea primei încărcări rămâne pe banner peste o verificare abandonată', async () => {
@@ -1228,5 +1290,43 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     expect(await screen.findByText('Seara')).toBeInTheDocument()
     expect(screen.queryByText(MSG_NETWORK)).toBeNull()
     expect(screen.queryByText('Nicio regulă încă')).toBeNull()
+  })
+
+  it('HHM25 reîncercarea cu alte valori, respinsă fără răspuns: rândul primei încercări → modificarea id-ului', async () => {
+    const { user, dlg } = await openNew()
+    await user.type(within(dlg).getByLabelText('Nume *'), 'Brunch')
+    const value = within(dlg).getByLabelText('Valoarea reducerii')
+    const create = () => within(dlg).getByRole('button', { name: 'Creează regulă' })
+
+    // Prima încercare (20%) se comite, răspunsul se pierde, iar lista de
+    // verificare pică: „nu se știe”.
+    h.loseNext = true
+    h.fetchPlan = ['fail']
+    await user.click(create())
+    await waitFor(() =>
+      expect(within(dlg).getByRole('alert').textContent).toBe(promotionsRo.err_saveUnverified),
+    )
+    const id = h.createdIds[0]
+    expect(h.rules.find((r: HappyHourRule) => r.id === id)).toMatchObject({ discount_value: 20 })
+
+    // Omul corectează la 30% și reîncearcă: cheia primară respinge INSERT-ul,
+    // răspunsul se pierde din nou, iar lista (acum reușită) arată rândul
+    // sesiunii cu 20%. Fila trimite modificarea id-ului cu 30%.
+    await user.clear(value)
+    await user.type(value, '30')
+    h.loseNext = true
+    h.log = []
+    await user.click(create())
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(h.log).toEqual(['create', 'fetch', 'update', 'fetch'])
+    expect(h.createdIds).toEqual([id, id])
+    expect(h.created[1]).toMatchObject({ name: 'Brunch', discount_value: 30 })
+    expect(h.updated).toEqual([
+      [id, expect.objectContaining({ name: 'Brunch', discount_value: 30 })],
+    ])
+    expect(h.rules.filter((r: HappyHourRule) => r.name === 'Brunch')).toHaveLength(1)
+    // Confirmarea e cea obișnuită a modificării, nu „s-a salvat după ce
+    // conexiunea și-a revenit” peste valorile primei încercări.
+    expect(h.toasts).toEqual([])
   })
 })
