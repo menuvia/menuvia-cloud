@@ -20,6 +20,17 @@
 //   CM8  cablajul: QR, coșul QR și ridicarea pe /m folosesc piesele de mai sus.
 //        [PICĂ: `onStaleMenu` scos din PickupCheckoutSheet sau
 //        `useMenuVersionRefetch` scos de pe /m — ridicarea rămânea pe meniul vechi]
+//   CM10 meniul ÎNCĂRCAT și gol (recenzia pe #396): cu `menuLoaded`, orice linie
+//        e `unavailable` și intră în numărătoare; fără steag (meniu încă
+//        necunoscut) nu se inventează nimic, iar pe un meniu cu produse steagul
+//        nu schimbă nimic (control pozitiv). [PICĂ: garda `menu.size === 0`
+//        fără steag — coșul rehidratat pe un meniu gol trecea spre checkout și
+//        pica abia la trimitere; steagul nedus din `cartIssueCounts`]
+//   CM11 cablajul steagului: /m îl derivă din încărcarea REUȘITĂ (nu din numărul
+//        de categorii) și îl dă numărătorii și marcajului pe linie; /q îl
+//        derivă la fel și îl dă foii de coș. [PICĂ: garda veche
+//        `categories.length === 0` pe /m, `categories.length > 0` pe /q, sau
+//        steagul nedat foii — exact golul din recenzie]
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
@@ -33,6 +44,9 @@ import {
   makeOption,
   makeProduct,
 } from '../../components/__tests__/fixtures'
+
+// Din process.cwd(), NU din import.meta.url (capcana din qr-scan.test.ts, #269).
+const read = (f: string): string => readFileSync(resolve(process.cwd(), f), 'utf8')
 
 const blat = makeGroup({
   id: 'g-blat',
@@ -194,13 +208,11 @@ describe('isStaleMenuGuestError — când pagina reface meniul', () => {
 })
 
 describe('cablajul pe paginile oaspetelui', () => {
-  const read = (f: string): string => readFileSync(resolve(process.cwd(), f), 'utf8')
-
   it('CM8 QR, coșul QR și ridicarea pe /m folosesc reconcilierea', () => {
     const qr = read('src/pages/QrMenuPage.tsx')
     expect(qr).toMatch(/repriceCart\(cartRef\.current, menu\)/)
     const cart = read('src/components/QrCartSheet.tsx')
-    expect(cart).toMatch(/cartIssueCounts\(cart, productById\)/)
+    expect(cart).toMatch(/cartIssueCounts\(cart, productById, menuLoaded\)/)
     expect(cart).toMatch(/changedInCart === 0/)
     const pub = read('src/pages/PublicMenuPage.tsx')
     expect(pub).toMatch(/useMenuVersionRefetch\(menuRestaurantId, refreshMenu\)/)
@@ -219,5 +231,41 @@ describe('cartIssueNoticeKey — ce îi spunem oaspetelui', () => {
     expect(cartIssueNoticeKey({ sold_out: 1, unavailable: 1, options_changed: 0 })).toBe('cart_unavailable_notice')
     expect(cartIssueNoticeKey({ sold_out: 1, unavailable: 0, options_changed: 0 })).toBe('cart_sold_out_notice')
     expect(cartIssueNoticeKey({ sold_out: 0, unavailable: 0, options_changed: 0 })).toBeNull()
+  })
+})
+
+describe('meniul încărcat gol — recenzia pe #396', () => {
+  const NONE = { sold_out: 0, unavailable: 0, options_changed: 0 }
+
+  it('CM10 meniu încărcat și gol → `unavailable`; necunoscut → nimic inventat', () => {
+    const empty = productIndex([])
+    // Categorii fără niciun produs activ = tot meniu gol.
+    const noProducts = productIndex([makeCategory({ id: 'c1', products: [] })])
+    // Meniul încă necunoscut (implicit): comportamentul din CM2 rămâne.
+    expect(cartLineIssue(line(), empty)).toBeNull()
+    expect(cartIssueCounts([line()], empty)).toEqual(NONE)
+    // Încărcat cu succes și gol: localul a scos tot.
+    expect(cartLineIssue(line(), empty, true)).toBe('unavailable')
+    expect(cartLineIssue(line(), noProducts, true)).toBe('unavailable')
+    expect(cartIssueCounts([line(), line()], empty, true)).toEqual({ ...NONE, unavailable: 2 })
+    expect(cartIssueNoticeKey(cartIssueCounts([line()], noProducts, true))).toBe('cart_unavailable_notice')
+    // Control pozitiv: pe un meniu cu produse steagul nu schimbă nimic.
+    expect(cartLineIssue(line(), menuWith(), true)).toBeNull()
+    expect(cartIssueCounts([line()], menuWith(), true)).toEqual(NONE)
+  })
+
+  it('CM11 /m și /q dau reconcilierii steagul „meniu încărcat”, derivat din încărcarea reușită', () => {
+    const pub = read('src/pages/PublicMenuPage.tsx')
+    expect(pub).toMatch(/const menuLoaded = !loading && error === null/)
+    expect(pub).toMatch(/if \(before == null \|\| !menuLoaded\) return/)
+    expect(pub).toMatch(/cartIssueCounts\(cart, menuIndex, menuLoaded\)/)
+    expect(pub).toMatch(/cartLineIssue\(item, menuIndex, menuLoaded\)/)
+    expect(pub).not.toMatch(/categories\.length === 0\) return/)
+    const qr = read('src/pages/QrMenuPage.tsx')
+    expect(qr).toMatch(/const menuLoaded = !resolving && !invalid && !networkError/)
+    expect(qr).not.toMatch(/const menuLoaded = [^\n]*categories\.length/)
+    expect(qr).toMatch(/menuLoaded=\{menuLoaded\}/)
+    const sheet = read('src/components/QrCartSheet.tsx')
+    expect(sheet).toMatch(/cartLineIssue\(item, productById, menuLoaded\)/)
   })
 })

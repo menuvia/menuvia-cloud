@@ -34,6 +34,13 @@ import { trName, trMeta, availableMenuLangs, detectBrowserLang, menuBaseLang, no
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import {
+  clearSavedCart,
+  loadSavedCart,
+  restoredMenuLang,
+  saveCart,
+  type CartScope,
+} from '../lib/cartPersist'
+import {
   loadQrSessionSnapshot,
   saveQrSessionSnapshot,
   clearQrSessionSnapshot,
@@ -118,6 +125,14 @@ export default function QrMenuPage({ token }: Props) {
   const [ctx, setCtx] = useState<ResolvedQrToken | null>(null)
   const toast = useToast()
   const [categories, setCategories] = useState<Category[]>([])
+  // Coșul și limba aleasă supraviețuiesc reîncărcării (lotul C8a,
+  // lib/cartPersist): citite O SINGURĂ dată, în inițializator — pagina se
+  // remontează per token (`key` în App.tsx). Fail-open pe storage ostil.
+  const cartScope = useMemo<CartScope>(() => ({ kind: 'qr', token }), [token])
+  const [savedCart] = useState(() => loadSavedCart(cartScope))
+  // Limba salvată se aplică abia după încărcarea meniului (efectul de limbă):
+  // până atunci nu se știe ce limbi oferă localul.
+  const restoredLangRef = useRef<string | null>(savedCart?.lang ?? null)
   // Limba activă a meniului: cea aleasă de oaspete sau, implicit, limba de
   // BAZĂ a localului (`restaurants.language`, lotul O6a — originalul din
   // name/description nu mai e presupus românesc).
@@ -141,7 +156,11 @@ export default function QrMenuPage({ token }: Props) {
   const [invalid, setInvalid] = useState(false)
   const [networkError, setNetworkError] = useState(false)
   const [activeProduct, setActiveProduct] = useState<Product | null>(null)
-  const [cart, setCart] = useState<CartItem[]>([])
+  const [cart, setCart] = useState<CartItem[]>(() => savedCart?.cart ?? [])
+  // Coșul rehidratat, până trece o dată pe prețurile meniului încărcat.
+  const hydratedCartRef = useRef<CartItem[] | null>(
+    savedCart != null && savedCart.cart.length > 0 ? savedCart.cart : null,
+  )
   // Coșul curent pentru reîmprospătarea meniului (refreshMenu e un callback
   // stabil, nu trebuie re-creat la fiecare linie adăugată).
   const cartRef = useRef<CartItem[]>(cart)
@@ -466,6 +485,11 @@ export default function QrMenuPage({ token }: Props) {
         // tăcut de server → confirmare veche, comandă pierdută. Retry-urile
         // acestei comenzi au folosit deja cheia veche în interiorul buclei.
         setIdempotencyKey(rotateQrIdempotencyKey(token))
+        // Coșul trimis nu mai are voie să reînvie la o reîncărcare a
+        // confirmării (lotul C8a): cu cheia deja rotită, retrimiterea lui ar
+        // fi o comandă NOUĂ, adică dublă.
+        clearSavedCart(cartScope)
+        setCart([])
         setConfirmation(result)
         // Loyalty (mig 226): legăm comanda de cardul de puncte — best-effort,
         // eșecul nu are voie să atingă confirmarea. Punctele se acordă
@@ -588,6 +612,7 @@ export default function QrMenuPage({ token }: Props) {
       setPaidOrderIds(new Set<string>())
     }
     setShowPaySheet(false)
+    clearSavedCart(cartScope)
     setCart([])
     setNotes('')
     setConfirmation(null)
@@ -662,7 +687,24 @@ export default function QrMenuPage({ token }: Props) {
     },
     [baseLang],
   )
+  // Meniul încărcat CU SUCCES, chiar dacă e gol (recenzia pe #396): un meniu
+  // gol după încărcare e meniul de acum, nu unul încă necunoscut — coșul
+  // restaurat se marchează `unavailable` în foaie și nu se trimite.
+  const menuLoaded = !resolving && !invalid && !networkError
   useEffect(() => {
+    // Limba salvată odată cu coșul (lotul C8a): se aplică o singură dată, după
+    // încărcarea meniului, și doar dacă meniul încă o oferă; altfel cade pe
+    // regulile de mai jos. Cât timp meniul se încarcă, așteaptă.
+    if (restoredLangRef.current !== null) {
+      if (!menuLoaded) return
+      const pick = restoredMenuLang(restoredLangRef.current, availableLangs, baseLang)
+      restoredLangRef.current = null
+      if (pick !== undefined) {
+        userPickedLangRef.current = true
+        setPickedLang(pick)
+        return
+      }
+    }
     // Reset defensiv: limbă devenită indisponibilă (deselectată din setări) →
     // revenim la limba de bază + redeschidem auto-detectul.
     if (lang !== baseLang && !availableLangs.includes(lang)) {
@@ -673,7 +715,39 @@ export default function QrMenuPage({ token }: Props) {
     if (userPickedLangRef.current || lang !== baseLang) return
     const detected = detectBrowserLang(availableLangs, baseLang)
     if (detected) setPickedLang(detected)
-  }, [availableLangs, lang, baseLang])
+  }, [availableLangs, lang, baseLang, menuLoaded])
+
+  // Coșul și limba aleasă EXPLICIT se salvează la fiecare schimbare (lotul
+  // C8a). O limbă restaurată încă neaplicată (meniul se încarcă) se păstrează,
+  // ca o a doua reîncărcare în timpul încărcării să n-o piardă.
+  useEffect(() => {
+    saveCart(cartScope, {
+      cart,
+      lang: restoredLangRef.current ?? (userPickedLangRef.current ? lang : null),
+    })
+  }, [cartScope, cart, lang])
+
+  // Coșul rehidratat trece O DATĂ pe prețurile meniului încărcat, ca la
+  // reîmprospătare (lotul O4a): serverul taxează oricum prețul de acum, deci un
+  // total de ieri în coș ar minți. Liniile care nu mai corespund meniului rămân
+  // și sunt marcate în coș (`cartLineIssue`), nu trimise tăcut.
+  const [hydratedRepriced, setHydratedRepriced] = useState(false)
+  useEffect(() => {
+    const before = hydratedCartRef.current
+    if (before == null || !menuLoaded) return
+    hydratedCartRef.current = null
+    const menu = productIndex(categories)
+    if (repriceCart(before, menu).changed) {
+      setCart((prev) => repriceCart(prev, menu).cart)
+      setHydratedRepriced(true)
+    }
+  }, [menuLoaded, categories])
+  // Anunțul vine la randarea următoare, în limba restaurată între timp.
+  useEffect(() => {
+    if (!hydratedRepriced) return
+    setHydratedRepriced(false)
+    if (orderingAllowed) toast.info(T(lang, 'cart_prices_updated'))
+  }, [hydratedRepriced, orderingAllowed, lang, toast])
   // Index de căutare precalculat pe limba activă: haystack normalizat (fără
   // diacritice) per produs, recalculat doar la schimbarea meniului/limbii — nu
   // la fiecare tastă. Diacritic-insensitive ca pe meniul public (un client
@@ -1882,6 +1956,7 @@ export default function QrMenuPage({ token }: Props) {
             // Fusul localului, BRUT (mig 326): foaia îl validează în chunk-ul ei
             // leneș — pagina nu importă lib/dates (ZT8).
             timeZone={ctx?.restaurant.timezone ?? undefined}
+            menuLoaded={menuLoaded}
             onSubmit={(v) => {
               // Sursa de adevăr rămâne părintele (nota supraviețuiește
               // re-deschiderii sheet-ului); submit-ul primește valoarea ca

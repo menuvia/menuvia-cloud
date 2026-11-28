@@ -73,6 +73,10 @@ export interface QrCartSheetProps {
   /** Fusul localului, BRUT din proiecția QR (mig 326) — ora comenzilor trimise.
    *  Lipsă (bază fără 326) sau invalid → București (`formatTimeInZone`). */
   timeZone?: string
+  /** Meniul s-a încărcat CU SUCCES (recenzia pe #396): atunci un meniu gol e
+   *  meniul de acum și liniile din coș se marchează `unavailable`, nu se
+   *  trimit. Lipsă = comportamentul vechi (gol = meniu încă necunoscut). */
+  menuLoaded?: boolean
 }
 
 // Eyebrow mic, all-caps, cu tracking — etichetă de secțiune.
@@ -116,6 +120,7 @@ export default function QrCartSheet({
   lang = 'ro',
   baseLang = 'ro',
   timeZone,
+  menuLoaded = false,
 }: QrCartSheetProps) {
   const hasSent = (sentOrders?.length ?? 0) > 0
   // Index produs → pentru thumbnail-uri în rândurile de coș.
@@ -241,7 +246,7 @@ export default function QrCartSheet({
   // (produs epuizat sau scos, opțiuni/extra-uri care nu mai sunt valabile,
   // grup devenit obligatoriu) blochează trimiterea până e scoasă — serverul ar
   // respinge-o oricum, dar oaspetele trebuie să vadă CARE linie.
-  const issueCounts = cartIssueCounts(cart, productById)
+  const issueCounts = cartIssueCounts(cart, productById, menuLoaded)
   const soldOutInCart = issueCounts.sold_out
   const changedInCart = issueCounts.unavailable + issueCounts.options_changed
   const canSubmit = cart.length > 0 && !submitting && soldOutInCart === 0 && changedInCart === 0
@@ -442,7 +447,7 @@ export default function QrCartSheet({
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {cart.map((item) => {
             const prod = productById.get(item.product_id)
-            const lineIssue = cartLineIssue(item, productById)
+            const lineIssue = cartLineIssue(item, productById, menuLoaded)
             // „+” n-are sens pe o linie care trebuie scoasă, nici peste
             // plafonul serverului pe linie (OPT-13).
             const plusBlocked = lineIssue !== null || item.quantity >= MAX_LINE_QTY
