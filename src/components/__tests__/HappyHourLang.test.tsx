@@ -18,9 +18,14 @@
 //        dinainte (duminica prima), validarea ținută ca DATE (numele, apoi
 //        valoarea). Mutația care pică: `setErr('Numele e obligatoriu')` sau
 //        `DAY_LABELS.map` readus în editor.
-//   HP4  confirmarea ștergerii în franceză: întrebarea cu numele în <strong>
-//        (fillNodes — ordinea cuvintelor e a limbii), „Annuler”/„Supprimer”.
-//        Mutația care pică: „Vrei să ștergi” lăsat în cod.
+//   HP4  confirmarea ștergerii în franceză: din lotul C4a trece prin confirm()
+//        din ui/confirm (dialog real), deci se verifică opțiunile date: titlul,
+//        întrebarea cu numele interpolat (ordinea cuvintelor e a limbii) și
+//        „Annuler”/„Supprimer” EXPLICITE (implicitul urmează <html lang>, adică
+//        `ro`). Mutația care pică: „Vrei să ștergi” lăsat în cod sau
+//        `cancelLabel` scos. Editorul (lotul C4a) e portalat în <body> de
+//        `Modal`, deci HP3 caută resturile românești în tot documentul, nu doar
+//        în containerul filei (altfel editorul ar fi ieșit tăcut din verificare).
 //   HP5  refuzul serverului la salvare: în română EXACT `toUserMessage(err,
 //        'Eroare la salvare')` de dinainte; în engleză clasa erorii, fără
 //        mesajul românesc al serverului; schimbarea limbii cu eroarea pe ecran
@@ -30,15 +35,25 @@
 //        „Fermer l’erreur”, fără mesajul românesc.
 import { Suspense, type ReactNode } from 'react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { HappyHourRule, ActiveRule } from '../../lib/happyHour'
+import type { ConfirmOptions } from '../ui/confirm'
 
 const h = vi.hoisted(() => ({
   rules: [] as HappyHourRule[],
   active: [] as ActiveRule[],
   fetchError: null as unknown,
   saveError: null as unknown,
+  confirm: [] as ConfirmOptions[],
+}))
+
+// Răspunsul e „nu”: HP4 verifică doar ce vede omul în dialog.
+vi.mock('../ui/confirm', () => ({
+  confirm: async (o: ConfirmOptions) => {
+    h.confirm.push(o)
+    return false
+  },
 }))
 
 vi.mock('../../lib/happyHour', () => ({
@@ -71,6 +86,13 @@ vi.mock('../../lib/supabase', () => {
 })
 vi.mock('../../hooks/usePollWhileVisible', () => ({ usePollWhileVisible: () => {} }))
 vi.mock('../../hooks/useIsMobile', () => ({ useIsMobile: () => false }))
+// Fila anunță o salvare confirmată abia de verificare printr-un toast
+// (HappyHourEditor.test, HHM10); aici nu se ajunge acolo, dar hook-ul cere
+// providerul.
+vi.mock('../ui/useToast', () => {
+  const toast = { success: () => {}, error: () => {}, warning: () => {}, info: () => {}, dismiss: () => {} }
+  return { useToast: () => toast }
+})
 
 import HappyHourTab from '../HappyHourTab'
 import { preloadNamespace, type Dict } from '../../i18n/core'
@@ -143,6 +165,7 @@ beforeEach(() => {
   ]
   h.fetchError = null
   h.saveError = null
+  h.confirm = []
 })
 
 function tree(lang: StaffLang | null, node: ReactNode) {
@@ -308,6 +331,8 @@ describe('editorul și ștergerea în limba personalului', () => {
     await user.click(screen.getByRole('button', { name: 'Kategorie' }))
     expect(screen.getByRole('option', { name: '— Kategorie auswählen —' })).toBeInTheDocument()
     expect(romanianLeftovers(visibleText(container), 'de')).toEqual([])
+    // Editorul e portalat în <body> (Modal, lotul C4a): verificat și acolo.
+    expect(romanianLeftovers(visibleText(document.body), 'de')).toEqual([])
     expect(document.body.textContent).not.toMatch(/Zilele|Aplicare|Reducere|Lu Ma/)
   })
 
@@ -328,13 +353,16 @@ describe('editorul și ștergerea în limba personalului', () => {
     inLang('fr', tab())
     await screen.findByText('Weekend')
     await user.click(screen.getByRole('button', { name: 'Supprimer la règle Happy' }))
-    const title = screen.getByRole('heading', { name: 'Supprimer la règle ?' })
-    const box = title.parentElement as HTMLElement
-    expect(box.textContent).toContain('Voulez-vous supprimer Happy ? Cette action est irréversible.')
-    expect(box.querySelector('strong')?.textContent).toBe('Happy')
-    expect(screen.getByRole('button', { name: 'Annuler' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Supprimer' })).toBeInTheDocument()
-    expect(romanianLeftovers(nodeText(box), 'fr')).toEqual([])
+    await waitFor(() => expect(h.confirm).toHaveLength(1))
+    expect(h.confirm[0]).toMatchObject({
+      title: 'Supprimer la règle ?',
+      description: 'Voulez-vous supprimer Happy ? Cette action est irréversible.',
+      confirmLabel: commonFr.delete,
+      cancelLabel: commonFr.cancel,
+      destructive: true,
+    })
+    const o = h.confirm[0]!
+    expect(romanianLeftovers([o.title, o.description, o.confirmLabel, o.cancelLabel].join('\n'), 'fr')).toEqual([])
   })
 
   it('HP5: refuzul la salvare — româna de dinainte, engleza fără mesajul serverului, retradus la schimbarea limbii', async () => {

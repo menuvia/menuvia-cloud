@@ -25,7 +25,9 @@
 //        în en/fr/de hint-urile mig 066 au textul limbii, mesajul ROMÂNESC al
 //        serverului NU trece, rețeaua are textul din `common`. Erorile de fișă
 //        (DATE) dau în română EXACT literalii de dinainte. Mutația care pică:
-//        hint-urile aplicate și în română, sau `toUserMessage` readus.
+//        hint-urile aplicate și în română, sau `toUserMessage` readus. Lotul
+//        C4a adaugă două erori de fișă (număr fără formă de număr, preț unitar
+//        lipsă pe NIR), traduse la fel în toate limbile.
 //   KS13 pluralele false românești, pe 0…200, EXACT textele de dinainte („1
 //        furnizori”, „1 NIR-uri totale”, „Termen plată: 1 zile”, ternarul „1
 //        ingredient sub prag” / „2 ingrediente sub prag”); în en/fr/de formele
@@ -197,6 +199,10 @@ describe('refuzurile serverului și erorile fișelor', () => {
     expect(stockFormErrorText({ kind: 'noValidItems' }, ro, roC)).toBe(
       'Adaugă cel puțin un ingredient cu cantitate validă',
     )
+    expect(stockFormErrorText({ kind: 'decimalInvalid' }, ro, roC)).toBe('Nu e un număr valid (ex. 4,50)')
+    expect(stockFormErrorText({ kind: 'priceRequired' }, ro, roC)).toBe(
+      'Completează prețul unitar (0 doar dacă marfa e gratuită)',
+    )
 
     for (const { lang, s, c } of LANGS) {
       const hints = stockErrorHints(s)
@@ -207,7 +213,7 @@ describe('refuzurile serverului și erorile fișelor', () => {
       expect(plain).not.toContain('Ingredientul')
       expect(describeStockError(NET, s, c), lang).toBe(c.t('err_network'))
       expect(describeStockError(DENIED, s, c), lang).toBe(c.t('err_permission'))
-      for (const k of ['nameRequired', 'qtyInvalid', 'noValidItems'] as const) {
+      for (const k of ['nameRequired', 'qtyInvalid', 'noValidItems', 'decimalInvalid', 'priceRequired'] as const) {
         const txt = stockFormErrorText({ kind: k }, s, c)
         expect(txt, `${lang} ${k}`).not.toBe(stockFormErrorText({ kind: k }, ro, roC))
         expect(txt).not.toMatch(/[ăâîșț]/)

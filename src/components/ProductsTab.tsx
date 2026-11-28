@@ -22,6 +22,7 @@ import { ProductsToolbar } from './_dashboard/ProductsToolbar'
 import { ProductOrderModal } from './_dashboard/ProductOrderModal'
 import { ProductTranslations } from './_dashboard/ProductTranslations'
 import { ExtraTranslations } from './_dashboard/ExtraTranslations'
+import { ExtraForm } from './_dashboard/ExtraForm'
 import { generateNutrition, generateProductImage } from '../lib/ai'
 import { encodeForUpload, encodeSameFormat, mayHaveAlpha } from '../lib/imageEncode'
 import { track } from '../lib/analytics'
@@ -35,6 +36,7 @@ import { soldOutSourceKind, soldOutFormTarget } from '../lib/soldOut'
 import { confirm as confirmDialog } from './ui/confirm'
 import { fetchProductGroupIds, setProductModifierGroups } from '../lib/modifierLinks'
 import { parseDecimalInput, priceInputText } from '../lib/decimal'
+import { buildSearchIndex, filterSearchIndex } from '../lib/staffSearch'
 import { describeProductError, ingredientUnitLabel } from '../lib/productMessages'
 import { describeAiError } from '../lib/translationMessages'
 import { useT } from '../i18n/useT'
@@ -2358,51 +2360,6 @@ function RecipeAddForm({
   )
 }
 
-// ── ExtraForm: small inline form for adding a product extra ───────
-function ExtraForm({
-  onAdd,
-}: {
-  onAdd: (name: string, price: number, emoji: string) => void | Promise<void>
-}) {
-  const { t } = useT(productsNs)
-  const [name, setName] = useState('')
-  const [price, setPrice] = useState('')
-  const [emoji, setEmoji] = useState('')
-
-  function submit() {
-    if (name.trim().length === 0 || price.length === 0) return
-    const p = parseFloat(price)
-    if (isNaN(p) || p < 0) return
-    void onAdd(name, p, emoji)
-    setName('')
-    setPrice('')
-    setEmoji('')
-  }
-
-  return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '40px 1fr 80px 70px',
-        gap: 6,
-        alignItems: 'center',
-      }}
-    >
-      <Inp label={t('extra_emoji')} value={emoji} onChange={setEmoji} placeholder="🧀" />
-      <Inp label={t('extra_name')} value={name} onChange={setName} placeholder={t('extra_namePh')} />
-      <Inp label={t('extra_price')} value={price} onChange={setPrice} type="number" placeholder="5.00" />
-      <Button
-        variant="primary"
-        size="sm"
-        onClick={submit}
-        disabled={name.trim().length === 0 || price.length === 0}
-      >
-        {t('add')}
-      </Button>
-    </div>
-  )
-}
-
 // ── Products Tab ──────────────────────────────────────────────
 export default function ProductsTab({
   restaurantId,
@@ -2539,18 +2496,25 @@ export default function ProductsTab({
   useEffect(() => {
     if (activeCatRaw === UNCATEGORIZED && uncategorizedCount === 0) setActiveCat('all')
   }, [activeCatRaw, uncategorizedCount])
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase()
-    return products
-      .filter((p) =>
-        activeCat === 'all'
-          ? true
-          : activeCat === UNCATEGORIZED
-            ? !p.category_id
-            : p.category_id === activeCat,
-      )
-      .filter((p) => p.name.toLowerCase().includes(q))
-  }, [products, activeCat, search])
+  // Căutarea (lotul C4a): pe nume ȘI descriere, fără diacritice („ciorba” găsește
+  // „Ciorbă”) și fără spațiile de la capete — aceeași regulă ca meniul
+  // oaspetelui. Textul produselor se normalizează o dată pe listă, nu la fiecare tastă.
+  const searchIndex = useMemo(() => buildSearchIndex(products, (p) => [p.name, p.description]), [products])
+  const searching = search.trim().length > 0
+  const filtered = useMemo(
+    () =>
+      filterSearchIndex(
+        searchIndex.filter(({ item: p }) =>
+          activeCat === 'all'
+            ? true
+            : activeCat === UNCATEGORIZED
+              ? !p.category_id
+              : p.category_id === activeCat,
+        ),
+        search,
+      ),
+    [searchIndex, activeCat, search],
+  )
   // Un produs nou pornește în categoria filtrată acum, altfel în prima.
   const defaultCategoryId =
     activeCat !== 'all' && activeCat !== UNCATEGORIZED
@@ -2736,6 +2700,7 @@ export default function ProductsTab({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t('list_search')}
+          aria-label={t('list_searchAria')}
           style={{
             ...inp,
             flex: '1 1 160px',
@@ -2795,7 +2760,7 @@ export default function ProductsTab({
       </div>
       {/* Ordinea produselor din categoria aleasă (MENU-10): niciun ecran nu o
           putea schimba. Doar pe o categorie reală, fără căutare. */}
-      {orderCategory && !search.trim() && orderCategoryProducts.length >= 2 && (
+      {orderCategory && !searching && orderCategoryProducts.length >= 2 && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
           <Button variant="secondary" size="sm" onClick={() => setOrderOpen(true)}>
             {t('list_reorder')}
@@ -2900,11 +2865,11 @@ export default function ProductsTab({
           // Pe un catalog gol starea goală e SINGURUL loc cu acțiuni (antetul
           // nu le mai are) — deci le arată și când în căutare s-a tastat ceva.
           <EmptyState
-            icon={search && products.length > 0 ? 'search' : 'menu'}
-            title={search && products.length !== 0 ? t('empty_noMatch') : t('empty_none')}
-            description={search && products.length !== 0 ? t('empty_noMatchDesc') : t('empty_noneDesc')}
+            icon={searching && products.length > 0 ? 'search' : 'menu'}
+            title={searching && products.length !== 0 ? t('empty_noMatch') : t('empty_none')}
+            description={searching && products.length !== 0 ? t('empty_noMatchDesc') : t('empty_noneDesc')}
             action={
-              !search || products.length === 0 ? (
+              !searching || products.length === 0 ? (
                 // Importul din poză = acțiunea PRIMARĂ pe meniu gol (audit aug
                 // 2026): cine are meniul în mână îl fotografiază, nu tastează
                 // 30 de produse; adăugarea manuală rămâne alături, secundară.

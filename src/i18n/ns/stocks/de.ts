@@ -83,6 +83,11 @@ const de: Translation<typeof ro> = {
   ingm_costHint: 'Dient der Gewinnberechnung. Wird bei jedem Wareneingang automatisch neu berechnet.',
   ingm_deleteTitle: '{name} löschen?',
   err_nameRequired: 'Der Name ist erforderlich',
+  ingm_stockReadonly: 'Der Bestand wird über „Bestand anpassen“ geändert – die Bewegung bleibt im Verlauf.',
+  ingm_discardTitle: 'Änderungen im Formular verwerfen?',
+  ingm_discardDesc: 'Der Bestand wird in einem anderen Fenster angepasst; nicht gespeicherte Änderungen hier gehen verloren.',
+  ingm_discardConfirm: 'Verwerfen und anpassen',
+  err_decimalInvalid: 'Keine gültige Zahl (z. B. 4,50)',
 
   adj_current: 'Aktueller Bestand: {amount}',
   adj_hint: 'Geben Sie die tatsächliche Menge ein, die Sie jetzt auf Lager haben',
@@ -151,6 +156,7 @@ const de: Translation<typeof ro> = {
   nirm_saveReceive: 'Speichern & einbuchen',
   nirm_saveDraft: 'Als Entwurf speichern',
   err_noValidItems: 'Fügen Sie mindestens eine Zutat mit gültiger Menge hinzu',
+  err_priceRequired: 'Geben Sie den Preis pro Einheit ein (0 nur, wenn die Ware kostenlos ist)',
 
   hint_noItems: 'Fügen Sie mindestens eine Zutat mit gültiger Menge hinzu',
   hint_invalidQuantity: 'Die Menge jeder Zeile muss größer als 0 sein.',

@@ -29,6 +29,7 @@ import { ordersNs } from '../i18n/ns/orders'
 import { commonNs } from '../i18n/ns/common'
 import { describeStaffError } from '../i18n/staffErrors'
 import type { OrdersTranslator } from '../lib/orders'
+import { buildSearchIndex, filterSearchIndex } from '../lib/staffSearch'
 
 interface Props {
   restaurantId: string
@@ -74,11 +75,10 @@ export default function StaffSoldOutSheet({ restaurantId, onClose }: Props) {
     }
   }, [restaurantId, reloadKey])
 
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!products) return []
-    return q ? products.filter((p) => p.name.toLowerCase().includes(q)) : products
-  }, [products, search])
+  // Fără diacritice (lotul C4a): în mijlocul serviciului, cine tastează „ciorba”
+  // trebuie să găsească „Ciorbă”. Indexul se reface doar când lista se schimbă.
+  const searchIndex = useMemo(() => buildSearchIndex(products ?? [], (p) => [p.name]), [products])
+  const visible = useMemo(() => filterSearchIndex(searchIndex, search), [searchIndex, search])
 
   const soldOutCount = products?.filter((p) => p.is_sold_out).length ?? 0
 

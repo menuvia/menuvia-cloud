@@ -112,6 +112,15 @@ const ro = {
   ingm_costHint: 'Folosit pentru calcul profit. Va fi recalculat automat la fiecare NIR.',
   ingm_deleteTitle: 'Șterge {name}?',
   err_nameRequired: 'Numele e obligatoriu',
+  // Lotul C4a: în fișa unui ingredient EXISTENT stocul nu se mai editează
+  // aici (`updateIngredient` nu-l scria, deci modificarea se pierdea tăcut),
+  // ci prin „Ajustează stoc” (adjust_stock_manual, rămâne în istoric).
+  ingm_stockReadonly: 'Stocul se schimbă din „Ajustează stoc”: mișcarea rămâne în istoric.',
+  ingm_discardTitle: 'Renunți la modificările din fișă?',
+  ingm_discardDesc: 'Stocul se ajustează în altă fereastră, iar modificările nesalvate de aici se pierd.',
+  ingm_discardConfirm: 'Renunță și ajustează',
+  // Un număr tastat fără formă de număr (cost, alertă, cantitate, preț NIR).
+  err_decimalInvalid: 'Nu e un număr valid (ex. 4,50)',
 
   // ── Ajustarea manuală ──
   adj_current: 'Stoc curent: {amount}',
@@ -185,6 +194,7 @@ const ro = {
   nirm_saveReceive: 'Salvează & recepționează',
   nirm_saveDraft: 'Salvează ca draft',
   err_noValidItems: 'Adaugă cel puțin un ingredient cu cantitate validă',
+  err_priceRequired: 'Completează prețul unitar (0 doar dacă marfa e gratuită)',
 
   // ── Refuzurile serverului (hint-urile din mig 066, create_purchase_order_atomic),
   //    citite de `describeStockError` DOAR în altă limbă decât româna (în

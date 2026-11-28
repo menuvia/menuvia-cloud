@@ -60,15 +60,37 @@ const fr: Translation<typeof ro> = {
   field_cap: 'Plafond maximal (lei, facultatif)',
   field_capPh: 'Max lei (facultatif)',
   field_capAria: 'Plafond maximal en lei, facultatif',
+  field_capHint: 'Vide ou 0 = sans plafond',
   field_active: 'Règle active immédiatement',
   saveChanges: 'Enregistrer les modifications',
   create: 'Créer la règle',
   err_name: 'Le nom est obligatoire',
   err_value: 'La valeur de la remise doit être positive',
+  err_valueInvalid: 'La valeur n’est pas un nombre valide (ex. 12,50)',
+  err_capInvalid: 'Le plafond n’est pas un nombre valide (ex. 30 ou 12,50)',
   err_pctMax: 'Le pourcentage ne peut pas dépasser 100',
   err_category: 'Choisissez une catégorie',
   err_product: 'Choisissez un produit',
   err_save: 'Erreur lors de l’enregistrement',
+  err_notSavedCreate:
+    'L’enregistrement n’a reçu aucune réponse du serveur et la règle n’apparaît pas dans la liste rechargée : elle n’a pas été enregistrée. Vous pouvez réessayer — une nouvelle tentative ne duplique pas la règle.',
+  err_notSavedUpdate:
+    'L’enregistrement n’a reçu aucune réponse du serveur et la règle de la liste rechargée n’a pas vos valeurs : la modification n’a pas été enregistrée. Vous pouvez réessayer.',
+  err_saveUnverified:
+    'L’enregistrement n’a reçu aucune réponse du serveur et la liste des règles n’a pas pu être rechargée : on ne sait pas si l’enregistrement a abouti. Vérifiez la connexion et réessayez — une nouvelle tentative ne duplique pas la règle.',
+  err_ruleGone:
+    'La règle n’existe plus (elle a été supprimée, probablement depuis un autre appareil) : la modification n’a donc pas été enregistrée. Fermez l’éditeur : la liste a été rechargée. Si vous avez encore besoin de la règle, créez-en une nouvelle.',
+  err_ruleChanged:
+    'La règle a été modifiée depuis un autre appareil après l’ouverture de l’éditeur : votre enregistrement ne l’a donc pas écrasée. La liste a été rechargée. Vérifiez les valeurs du formulaire (y compris « Règle active immédiatement ») et enregistrez à nouveau pour les écrire par-dessus les nouvelles — ou fermez l’éditeur pour voir la règle modifiée.',
+  err_ruleStaleUnverified:
+    'La règle a été supprimée ou modifiée depuis un autre appareil après l’ouverture de l’éditeur : votre enregistrement ne l’a donc pas écrasée, et la liste des règles n’a pas pu être rechargée. Vérifiez la connexion et réessayez.',
+  saving: 'Enregistrement…',
+  verifying: 'Vérification…',
+  saved_late: 'La règle a été enregistrée — la confirmation est arrivée après le rétablissement de la connexion.',
+  discard_title: 'Abandonner les modifications ?',
+  discard_desc: 'La règle n’est pas enregistrée et vos modifications seront perdues.',
+  discard_confirm: 'Abandonner',
+  discard_stay: 'Continuer la modification',
 
   del_title: 'Supprimer la règle ?',
   del_question: 'Voulez-vous supprimer {name} ? Cette action est irréversible.',

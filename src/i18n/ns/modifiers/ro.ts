@@ -94,6 +94,8 @@ const ro = {
 
   // ── Validarea și refuzurile (în română `toUserMessage(err, rezerva)`) ──
   err_nameRequired: 'Numele e obligatoriu',
+  // Prețul opțiunii noi (lotul C4a): gol = „Inclus”, minusul = reducere.
+  err_priceInvalid: 'Prețul nu e un număr valid (ex. 4,50 sau -1,50). Lasă gol pentru „Inclus”.',
   err_optionTr: 'Traducerea opțiunii „{name}” nu a fost salvată.',
   err_pickSave: 'Nu am putut salva produsele grupului.',
   // Hint-urile `set_modifier_group_products` (mig 319) — DOAR în altă limbă

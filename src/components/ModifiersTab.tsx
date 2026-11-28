@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { D } from '../lib/constants'
 import { Icon } from './ui/Icon'
@@ -12,6 +12,8 @@ import { modifierGroupMin } from '../lib/qr'
 import { MENU_LANGS, activeTranslationLangs, mergeTranslations, type Translations } from '../lib/i18nMenu'
 import { fetchLinkableProducts, fetchModifierGroupLinks, setModifierGroupProducts } from '../lib/modifierLinks'
 import { describeModifierError } from '../lib/modifierMessages'
+import { parseSignedDecimalInput } from '../lib/decimal'
+import { buildSearchIndex, filterSearchIndex } from '../lib/staffSearch'
 import { menuLangName } from '../lib/translationMessages'
 import { useT } from '../i18n/useT'
 import { useUiLang } from '../i18n/UiLangContext'
@@ -45,6 +47,9 @@ interface ModifierGroup {
 // în limba curentă — o schimbare de limbă cu eroarea pe ecran o retraduce.
 type ModifiersError =
   | { kind: 'nameRequired' }
+  // Prețul tastat la „opțiune nouă” n-are formă de număr (lotul C4a): eroarea
+  // stă lângă câmpul grupului respectiv, nu în bannerul de sus.
+  | { kind: 'priceInvalid'; groupId: string }
   | { kind: 'server'; err: unknown; fallback?: 'err_pickSave' | 'err_optionTr'; name?: string }
 
 const btn = (e: React.CSSProperties = {}): React.CSSProperties => ({
@@ -114,7 +119,9 @@ export default function ModifiersTab({
   // Draft-ul de „adaugă opțiune" e PER GRUP (map pe groupId): un singur state
   // partajat făcea ca textul tastat într-un grup să apară în toate cardurile.
   const [optDraft, setOptDraft] = useState<Record<string, { name: string; price: string }>>({})
-  const draftFor = (groupId: string) => optDraft[groupId] ?? { name: '', price: '0' }
+  // Prețul pornește GOL (= „Inclus”), nu „0”: câmpul e text (lotul C4a), iar un
+  // „0” rămas în față se lipea de ce tasta omul.
+  const draftFor = (groupId: string) => optDraft[groupId] ?? { name: '', price: '' }
   const setDraftFor = (groupId: string, patch: Partial<{ name: string; price: string }>) =>
     setOptDraft((d) => ({ ...d, [groupId]: { ...draftFor(groupId), ...patch } }))
   const [error, setError] = useState<ModifiersError | null>(null)
@@ -330,6 +337,15 @@ export default function ModifiersTab({
   async function addOption(groupId: string) {
     const draft = draftFor(groupId)
     if (!draft.name.trim() || addingFor.has(groupId)) return
+    // Lotul C4a: `parseFloat(draft.price) || 0` făcea din „4,50” (respins de un
+    // `type=number`) o opțiune GRATUITĂ pe fiecare comandă. Gol = „Inclus” (0,
+    // ales explicit); un text fără formă de număr e o eroare lângă câmp. Minusul
+    // e permis: o reducere mică e legitimă (CHECK-ul din mig 120).
+    const price = parseSignedDecimalInput(draft.price)
+    if (price != null && Number.isNaN(price)) {
+      setError({ kind: 'priceInvalid', groupId })
+      return
+    }
     setError(null)
     setAddingFor((s) => new Set(s).add(groupId))
     // Următoarea poziție = max + 1 (cu numărul de opțiuni, după o ștergere două
@@ -339,7 +355,7 @@ export default function ModifiersTab({
     const { error: e } = await supabase.from('modifier_options').insert({
       modifier_group_id: groupId,
       name: draft.name.trim(),
-      price_delta: parseFloat(draft.price) || 0,
+      price_delta: price ?? 0,
       display_order: nextOrder,
     })
     setAddingFor((s) => {
@@ -351,7 +367,7 @@ export default function ModifiersTab({
       setError({ kind: 'server', err: e })
       return
     }
-    setOptDraft((d) => ({ ...d, [groupId]: { name: '', price: '0' } }))
+    setOptDraft((d) => ({ ...d, [groupId]: { name: '', price: '' } }))
     await load(true)
   }
 
@@ -422,8 +438,10 @@ export default function ModifiersTab({
     }
   }
 
+  // Eroarea de preț a unui grup se arată lângă câmpul lui (mai jos), nu aici.
+  const priceErrorGroup = error?.kind === 'priceInvalid' ? error.groupId : null
   const errorText =
-    error == null
+    error == null || error.kind === 'priceInvalid'
       ? null
       : error.kind === 'nameRequired'
         ? t('err_nameRequired')
@@ -434,9 +452,10 @@ export default function ModifiersTab({
             error.fallback ? t(error.fallback, { name: error.name ?? '' }) : undefined,
           )
 
-  const pickVisible = products.filter((p) =>
-    p.name.toLowerCase().includes(pickQuery.trim().toLowerCase()),
-  )
+  // „Alege produsele”: fără diacritice și fără spațiile de la capete (lotul
+  // C4a) — „ciorba” găsește „Ciorbă”. Indexul se reface doar când lista se schimbă.
+  const pickIndex = useMemo(() => buildSearchIndex(products, (p) => [p.name]), [products])
+  const pickVisible = filterSearchIndex(pickIndex, pickQuery)
 
   return (
     <div>
@@ -675,12 +694,24 @@ export default function ModifiersTab({
                 style={{ ...inp, flex: '1 1 120px', height: 36, fontSize: '0.82rem' }}
               />
               <input
-                type="number"
+                type="text"
+                inputMode="decimal"
                 value={draftFor(g.id).price}
-                onChange={(e) => setDraftFor(g.id, { price: e.target.value })}
+                onChange={(e) => {
+                  setDraftFor(g.id, { price: e.target.value })
+                  if (priceErrorGroup === g.id) setError(null)
+                }}
                 placeholder={t('opt_pricePh')}
                 aria-label={t('opt_priceAria', { group: g.name })}
-                style={{ ...inp, width: 70, height: 36, fontSize: '0.82rem' }}
+                aria-invalid={priceErrorGroup === g.id ? true : undefined}
+                aria-describedby={priceErrorGroup === g.id ? `opt-price-err-${g.id}` : undefined}
+                style={{
+                  ...inp,
+                  width: 70,
+                  height: 36,
+                  fontSize: '0.82rem',
+                  border: `1px solid ${priceErrorGroup === g.id ? D.red : D.border}`,
+                }}
               />
               <button
                 onClick={() => void addOption(g.id)}
@@ -698,6 +729,15 @@ export default function ModifiersTab({
                 {t('opt_add')}
               </button>
             </div>
+            {priceErrorGroup === g.id && (
+              <div
+                id={`opt-price-err-${g.id}`}
+                role="alert"
+                style={{ color: D.red, fontSize: '0.76rem', marginTop: 6 }}
+              >
+                {t('err_priceInvalid')}
+              </div>
+            )}
           </div>
         ))
       )}

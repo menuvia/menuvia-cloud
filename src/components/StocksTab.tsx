@@ -49,6 +49,7 @@ import type {
   ProductProfitability,
 } from '../lib/stocks'
 import Autocomplete from './Autocomplete'
+import { decimalOrZero, parseDecimalInput, unitCostInputText } from '../lib/decimal'
 import { nirDateLabel, stockFormErrorText, vatGroupLabel, type StockFormError } from '../lib/stockMessages'
 import { useT } from '../i18n/useT'
 import { useUiLang } from '../i18n/UiLangContext'
@@ -104,18 +105,12 @@ const inp = (style: React.CSSProperties = {}): React.CSSProperties => ({
   ...style,
 })
 
-// Escape închide modalul (același contract ca ui/ConfirmDialog). `active`
-// permite apelul necondiționat al hook-ului din secțiuni cu modal inline.
-function useEscapeClose(active: boolean, onClose: () => void) {
-  useEffect(() => {
-    if (!active) return
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [active, onClose])
-}
+// Escape închide modalele de aici prin `<FocusTrap onEscape>` (lotul C4a,
+// recenzie): DOAR dialogul din vârful stivei răspunde. Un ascultător simplu pe
+// `document` (fostul `useEscapeClose`) rula ÎNAINTEA celui al confirmării
+// deschise peste fișă („Renunți la modificările din fișă?”, „Șterge X?”) și
+// închidea fișa — Escape-ul care trebuia să ANULEZE confirmarea arunca tăcut
+// ce se tastase.
 
 export default function StocksTab({ restaurantId, showVat, timeZone = DEFAULT_RESTAURANT_TZ }: Props) {
   const { t, tp } = useT(stocksNs)
@@ -692,6 +687,12 @@ function IngredientsSection({
             setEditing(null)
             void load()
           }}
+          // Stocul unui ingredient existent se schimbă DOAR prin ajustare
+          // (auditată în stock_movements) — lotul C4a.
+          onAdjustStock={() => {
+            setEditing(null)
+            setAdjustingId(editing.id)
+          }}
         />
       )}
       {adjustingId && (
@@ -716,6 +717,7 @@ function IngredientModal({
   ingredient,
   onClose,
   onSave,
+  onAdjustStock,
 }: {
   restaurantId: string
   vatRates: VatRate[]
@@ -725,6 +727,8 @@ function IngredientModal({
   ingredient: Ingredient | null
   onClose: () => void
   onSave: () => void
+  // Doar în modul de editare: închide fișa și deschide „Ajustează stoc”.
+  onAdjustStock?: () => void
 }) {
   const st = useT(stocksNs)
   const { t } = st
@@ -739,30 +743,68 @@ function IngredientModal({
   const [category, setCategory] = useState(ingredient?.category ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<StockFormError | null>(null)
+  // Câmpul numeric fără formă de număr (lotul C4a): eroarea stă lângă el.
+  const [badField, setBadField] = useState<'stock' | 'minAlert' | 'cost' | null>(null)
   const isMobile = useIsMobile()
+  // Instantaneul de la deschidere: „Ajustează stoc” închide fișa, deci cu
+  // modificări nesalvate întreabă întâi.
+  const [initialSnapshot] = useState(() =>
+    JSON.stringify([name, unit, minAlert, cost, vatGroup, emoji, category]),
+  )
+  const dirty = JSON.stringify([name, unit, minAlert, cost, vatGroup, emoji, category]) !== initialSnapshot
+
+  async function requestAdjustStock() {
+    if (!onAdjustStock) return
+    if (dirty) {
+      const ok = await confirmDialog({
+        title: t('ingm_discardTitle'),
+        description: t('ingm_discardDesc'),
+        confirmLabel: t('ingm_discardConfirm'),
+        // EXPLICIT: implicitul urmează <html lang> (pe panou `ro`).
+        cancelLabel: tc.t('cancel'),
+        destructive: true,
+      })
+      if (!ok) return
+    }
+    onAdjustStock()
+  }
 
   async function save() {
     if (name.trim().length === 0) {
       setError({ kind: 'nameRequired' })
       return
     }
+    // Lotul C4a: câmpurile sunt text cu tastatură zecimală; „4,50” e 4.5, iar un
+    // text fără formă de număr e o eroare lângă câmp — înainte `parseFloat(x) ||
+    // 0` făcea din el un 0 tăcut (un cost 0 strică profitabilitatea).
+    // Gol: stocul inițial și costul = 0 (ca înainte), alerta = fără alertă.
+    const stockN = ingredient ? null : parseDecimalInput(stock)
+    const minN = parseDecimalInput(minAlert)
+    const costN = parseDecimalInput(cost)
+    const bad = Number.isNaN(stockN) ? 'stock' : Number.isNaN(minN) ? 'minAlert' : Number.isNaN(costN) ? 'cost' : null
+    if (bad) {
+      setBadField(bad)
+      setError(null)
+      return
+    }
+    setBadField(null)
     setSaving(true)
     setError(null)
     try {
       const fields: Partial<Ingredient> = {
         name: name.trim(),
         unit,
-        current_stock: parseFloat(stock) || 0,
-        min_stock_alert: minAlert.length > 0 ? parseFloat(minAlert) : null,
-        cost_per_unit: parseFloat(cost) || 0,
+        min_stock_alert: minN,
+        cost_per_unit: costN ?? 0,
         vat_group: vatGroup,
         emoji: emoji.length > 0 ? emoji : null,
         category: category.length > 0 ? category : null,
       }
       if (ingredient) {
+        // Fără `current_stock`: stocul existent se schimbă doar prin ajustare.
         await updateIngredient(ingredient.id, fields)
       } else {
-        await createIngredient(restaurantId, fields)
+        await createIngredient(restaurantId, { ...fields, current_stock: stockN ?? 0 })
       }
       onSave()
     } catch (err) {
@@ -771,7 +813,15 @@ function IngredientModal({
     }
   }
 
-  useEscapeClose(true, onClose)
+  // Mesajul lângă câmpul greșit + legătura accesibilă (aria-describedby).
+  const fieldError = (f: 'stock' | 'minAlert' | 'cost') =>
+    badField !== f ? null : (
+      <div id={`ing-${f}-err`} role="alert" style={{ fontSize: '0.72rem', color: '#c0392b', marginTop: 4 }}>
+        {stockFormErrorText({ kind: 'decimalInvalid' }, st, tc)}
+      </div>
+    )
+  const fieldAria = (f: 'stock' | 'minAlert' | 'cost') =>
+    badField === f ? { 'aria-invalid': true, 'aria-describedby': `ing-${f}-err` } : {}
 
   return (
     <div onClick={onClose} style={modalBg}>
@@ -782,7 +832,7 @@ function IngredientModal({
         aria-labelledby="ing-modal-title"
         style={modalCard}
       >
-        <FocusTrap />
+        <FocusTrap onEscape={onClose} />
         <div
           id="ing-modal-title"
           style={{
@@ -889,19 +939,51 @@ function IngredientModal({
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
-            <div>
-              <label style={lbl} htmlFor="ing-stock">
-                {t('ingm_stock', { unit: unitSymbolT(unit, st) })}
-              </label>
-              <input
-                id="ing-stock"
-                style={inp()}
-                type="number"
-                step="0.01"
-                value={stock}
-                onChange={(e) => setStock(e.target.value)}
-              />
-            </div>
+            {ingredient ? (
+              // Ingredient EXISTENT: stocul se vede, dar se schimbă doar prin
+              // „Ajustează stoc” (mișcare în istoric). Înainte câmpul era
+              // editabil, iar valoarea nu ajungea în bază (lotul C4a).
+              <div>
+                <div style={lbl}>{t('ingm_stock', { unit: unitSymbolT(ingredient.unit, st) })}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.95rem', fontWeight: 600, color: D.t1 }}>
+                    {formatStockT(ingredient.current_stock, ingredient.unit, st)}
+                  </span>
+                  {onAdjustStock && (
+                    <button
+                      type="button"
+                      onClick={() => void requestAdjustStock()}
+                      style={btn({
+                        background: D.s3,
+                        color: D.t2,
+                        border: `1px solid ${D.border}`,
+                        fontSize: '0.74rem',
+                        padding: '6px 10px',
+                      })}
+                    >
+                      {t('ing_adjust')}
+                    </button>
+                  )}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: D.t3, marginTop: 4 }}>{t('ingm_stockReadonly')}</div>
+              </div>
+            ) : (
+              <div>
+                <label style={lbl} htmlFor="ing-stock">
+                  {t('ingm_stock', { unit: unitSymbolT(unit, st) })}
+                </label>
+                <input
+                  id="ing-stock"
+                  style={inp()}
+                  type="text"
+                  inputMode="decimal"
+                  value={stock}
+                  onChange={(e) => setStock(e.target.value)}
+                  {...fieldAria('stock')}
+                />
+                {fieldError('stock')}
+              </div>
+            )}
             <div>
               <label style={lbl} htmlFor="ing-min-alert">
                 {t('ingm_minAlert', { unit: unitSymbolT(unit, st) })}
@@ -909,12 +991,14 @@ function IngredientModal({
               <input
                 id="ing-min-alert"
                 style={inp()}
-                type="number"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={minAlert}
                 onChange={(e) => setMinAlert(e.target.value)}
                 placeholder={t('ingm_optional')}
+                {...fieldAria('minAlert')}
               />
+              {fieldError('minAlert')}
             </div>
           </div>
 
@@ -925,11 +1009,13 @@ function IngredientModal({
             <input
               id="ing-cost"
               style={inp()}
-              type="number"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               value={cost}
               onChange={(e) => setCost(e.target.value)}
+              {...fieldAria('cost')}
             />
+            {fieldError('cost')}
             <div style={{ fontSize: '0.7rem', color: D.t3, marginTop: 4 }}>
               {t('ingm_costHint')}
             </div>
@@ -1013,8 +1099,10 @@ function AdjustStockModal({
   const [error, setError] = useState<StockFormError | null>(null)
 
   async function save() {
-    const n = parseFloat(newAmount)
-    if (isNaN(n) || n < 0) {
+    // Lotul C4a: „4,5” e 4.5 (cu `parseFloat` devenea 4, tăcut); gol, negativ
+    // sau fără formă de număr = cantitate invalidă.
+    const n = parseDecimalInput(newAmount)
+    if (n == null || Number.isNaN(n)) {
       setError({ kind: 'qtyInvalid' })
       return
     }
@@ -1029,8 +1117,6 @@ function AdjustStockModal({
     }
   }
 
-  useEscapeClose(true, onClose)
-
   return (
     <div onClick={onClose} style={modalBg}>
       <div
@@ -1040,7 +1126,7 @@ function AdjustStockModal({
         aria-labelledby="adjust-modal-title"
         style={modalCard}
       >
-        <FocusTrap />
+        <FocusTrap onEscape={onClose} />
         <div
           id="adjust-modal-title"
           style={{
@@ -1065,8 +1151,8 @@ function AdjustStockModal({
             <input
               id="adjust-amount"
               style={inp()}
-              type="number"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               value={newAmount}
               onChange={(e) => setNewAmount(e.target.value)}
             />
@@ -1136,9 +1222,6 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [vatId, setVatId] = useState('')
-
-  // Escape închide modalul inline „Furnizor nou" (a11y dialog).
-  useEscapeClose(showAdd, () => setShowAdd(false))
 
   const [loadError, setLoadError] = useState(false)
   async function load() {
@@ -1260,7 +1343,8 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
             aria-labelledby="supplier-modal-title"
             style={modalCard}
           >
-            <FocusTrap />
+            {/* Escape închide modalul inline „Furnizor nou” (a11y dialog). */}
+            <FocusTrap onEscape={() => setShowAdd(false)} />
             <div
               id="supplier-modal-title"
               style={{
@@ -1586,6 +1670,12 @@ interface NirItem {
   vat_rate: number
 }
 
+// Eroarea unui rând de NIR, pe câmp (lotul C4a), ținută ca DATE.
+interface NirRowError {
+  qty?: StockFormError
+  price?: StockFormError
+}
+
 function NirCreateModal({
   restaurantId,
   vatRates,
@@ -1631,20 +1721,33 @@ function NirCreateModal({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<StockFormError | null>(null)
   const [receiveImmediately, setReceiveImmediately] = useState(true)
+  // Erorile pe RÂND (lotul C4a), lângă câmpul greșit. Indexate pe poziție, deci
+  // orice schimbare a rândurilor le șterge (o poziție nu mai e același rând).
+  const [rowErrors, setRowErrors] = useState<Record<number, NirRowError>>({})
 
   function addRow() {
     setItems((prev) => [...prev, { ingredient_id: '', quantity: '', unit_price: '', vat_rate: defaultVat }])
+    setRowErrors({})
   }
 
   function removeRow(idx: number) {
     setItems((prev) => prev.filter((_, i) => i !== idx))
+    setRowErrors({})
   }
 
   function updateRow(idx: number, field: keyof NirItem, value: string | number) {
     setItems((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)))
+    setRowErrors({})
   }
 
-  // Auto-fill unit price from ingredient cost when ingredient selected
+  // Prețul unitar se precompletează din costul ingredientului, la precizia
+  // coloanei (4 zecimale): cu `toFixed(2)` un cost de 0,0035 lei/g pornea „0.00”,
+  // un 0 explicit care trecea de verificarea prețului (lotul C4a, recenzie).
+  // Un ingredient ALES ia mereu prețul lui, chiar și golul (cost 0 sau
+  // necunoscut → prețul se cere explicit): înainte un gol păstra prețul
+  // rândului, deci trecerea de la Făină (4 lei) la un ingredient fără cost lăsa
+  // „4” — prețul ALTUI ingredient, care intra în costul mediu ponderat (mig 251)
+  // și în profitabilitate. Doar întoarcerea la „Alege ingredientul” îl păstrează.
   function selectIngredient(idx: number, ingId: string) {
     const ing = ingredients.find((i) => i.id === ingId)
     setItems((prev) =>
@@ -1653,20 +1756,19 @@ function NirCreateModal({
           ? {
               ...r,
               ingredient_id: ingId,
-              unit_price:
-                ing && ing.cost_per_unit > 0 ? ing.cost_per_unit.toFixed(2) : r.unit_price,
+              unit_price: ing ? unitCostInputText(ing.cost_per_unit) : r.unit_price,
             }
           : r,
       ),
     )
   }
 
-  // Calculate totals
+  // Totalurile afișate (PREVIZUALIZARE): „2,5” e 2.5 — cu `parseFloat` devenea 2.
   let subtotal = 0
   let vatTotal = 0
   for (const it of items) {
-    const q = parseFloat(it.quantity) || 0
-    const p = parseFloat(it.unit_price) || 0
+    const q = decimalOrZero(it.quantity)
+    const p = decimalOrZero(it.unit_price)
     const lineNet = q * p
     subtotal += lineNet
     vatTotal += lineNet * (it.vat_rate / 100)
@@ -1674,10 +1776,30 @@ function NirCreateModal({
   const total = subtotal + vatTotal
 
   async function save() {
-    // Validate
-    const validItems = items.filter(
-      (it) => it.ingredient_id.length > 0 && parseFloat(it.quantity) > 0,
-    )
+    // Lotul C4a: un rând CU ingredient trebuie să aibă cantitate > 0 și preț
+    // unitar. Înainte un rând cu cantitatea „2,5” (respinsă de `type=number`)
+    // dispărea tăcut din NIR, iar un preț gol sau „4,50” pleca 0 și intra în
+    // costul mediu ponderat (mig 251) și în profitabilitate. Acum e o eroare
+    // lângă câmp. Rândurile fără ingredient se ignoră, ca înainte.
+    const errors: Record<number, NirRowError> = {}
+    const validItems: { ingredient_id: string; quantity: number; unit_price: number; vat_rate: number }[] = []
+    items.forEach((it, idx) => {
+      if (it.ingredient_id.length === 0) return
+      const q = parseDecimalInput(it.quantity)
+      const p = parseDecimalInput(it.unit_price)
+      const rowErr: NirRowError = {}
+      if (q == null || Number.isNaN(q) || q <= 0) rowErr.qty = { kind: 'qtyInvalid' }
+      if (p == null) rowErr.price = { kind: 'priceRequired' }
+      else if (Number.isNaN(p)) rowErr.price = { kind: 'decimalInvalid' }
+      if (rowErr.qty || rowErr.price) errors[idx] = rowErr
+      else if (q != null && p != null)
+        validItems.push({ ingredient_id: it.ingredient_id, quantity: q, unit_price: p, vat_rate: it.vat_rate })
+    })
+    if (Object.keys(errors).length > 0) {
+      setRowErrors(errors)
+      setError(null)
+      return
+    }
     if (validItems.length === 0) {
       setError({ kind: 'noValidItems' })
       return
@@ -1705,12 +1827,7 @@ function NirCreateModal({
         invoice_number: invoiceNumber.length > 0 ? invoiceNumber : null,
         invoice_date: invoiceDate.length > 0 ? invoiceDate : null,
         notes: notes.length > 0 ? notes : null,
-        items: validItems.map((it) => ({
-          ingredient_id: it.ingredient_id,
-          quantity: parseFloat(it.quantity),
-          unit_price: parseFloat(it.unit_price) || 0,
-          vat_rate: it.vat_rate,
-        })),
+        items: validItems,
       })
 
       if (receiveImmediately) {
@@ -1815,8 +1932,9 @@ function NirCreateModal({
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {items.map((it, idx) => {
-                const lineNet = (parseFloat(it.quantity) || 0) * (parseFloat(it.unit_price) || 0)
+                const lineNet = decimalOrZero(it.quantity) * decimalOrZero(it.unit_price)
                 const lineTotal = lineNet * (1 + it.vat_rate / 100)
+                const rowErr = rowErrors[idx]
                 return (
                   <div
                     key={idx}
@@ -1877,30 +1995,52 @@ function NirCreateModal({
                       }}
                     >
                       <div>
-                        <div style={{ fontSize: '0.66rem', color: D.t3, marginBottom: 2 }}>
+                        <label
+                          htmlFor={`nir-qty-${idx}`}
+                          style={{ display: 'block', fontSize: '0.66rem', color: D.t3, marginBottom: 2 }}
+                        >
                           {t('nirm_qty')}
-                        </div>
+                        </label>
                         <input
+                          id={`nir-qty-${idx}`}
                           style={{ ...inp({ height: 34, fontSize: '0.82rem' }) }}
-                          type="number"
-                          step="0.01"
+                          type="text"
+                          inputMode="decimal"
                           placeholder="0"
                           value={it.quantity}
                           onChange={(e) => updateRow(idx, 'quantity', e.target.value)}
+                          aria-invalid={rowErr?.qty ? true : undefined}
+                          aria-describedby={rowErr?.qty ? `nir-qty-${idx}-err` : undefined}
                         />
+                        {rowErr?.qty && (
+                          <div id={`nir-qty-${idx}-err`} role="alert" style={{ fontSize: '0.7rem', color: '#c0392b', marginTop: 3 }}>
+                            {stockFormErrorText(rowErr.qty, st, tc)}
+                          </div>
+                        )}
                       </div>
                       <div>
-                        <div style={{ fontSize: '0.66rem', color: D.t3, marginBottom: 2 }}>
+                        <label
+                          htmlFor={`nir-price-${idx}`}
+                          style={{ display: 'block', fontSize: '0.66rem', color: D.t3, marginBottom: 2 }}
+                        >
                           {t('nirm_unitPrice')}
-                        </div>
+                        </label>
                         <input
+                          id={`nir-price-${idx}`}
                           style={{ ...inp({ height: 34, fontSize: '0.82rem' }) }}
-                          type="number"
-                          step="0.01"
+                          type="text"
+                          inputMode="decimal"
                           placeholder="0.00"
                           value={it.unit_price}
                           onChange={(e) => updateRow(idx, 'unit_price', e.target.value)}
+                          aria-invalid={rowErr?.price ? true : undefined}
+                          aria-describedby={rowErr?.price ? `nir-price-${idx}-err` : undefined}
                         />
+                        {rowErr?.price && (
+                          <div id={`nir-price-${idx}-err`} role="alert" style={{ fontSize: '0.7rem', color: '#c0392b', marginTop: 3 }}>
+                            {stockFormErrorText(rowErr.price, st, tc)}
+                          </div>
+                        )}
                       </div>
                       {showVat && (
                       <div>
