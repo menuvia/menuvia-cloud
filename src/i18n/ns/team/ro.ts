@@ -90,12 +90,16 @@ const ro = {
   // selectul invitației; `role_fromManager` se pune ÎNAINTEA lor la retrogradare.
   role_confirmTitle: 'Schimbi rolul pentru {name} în {role}?',
   role_confirmOk: 'Schimbă rolul',
+  // Fără „încasări”: Echipa există și pe Planul 2, care n-are ecrane de bani
+  // (Încasări, Ture de casă, TVA, Facturi sunt pe Planul 3) — un plan
+  // inferior nu citește texte despre ce are cel superior (lotul P, recenzia
+  // lotului C7c). Ce rămâne e adevărat pe ORICE plan cu echipă.
   role_toManager:
     'Ca Manager va putea modifica setările restaurantului, invita și elimina membri din echipă și ' +
-    'vedea rapoartele și încasările.',
+    'vedea rapoartele.',
   role_toWaiter: 'Va lucra în ecranul Ospătar: mesele și comenzile lor.',
   role_toKitchen: 'Va lucra în ecranul Bucătărie: comenzile de preparat.',
-  role_fromManager: 'Își pierde accesul la setări, echipă, rapoarte și încasări.',
+  role_fromManager: 'Își pierde accesul la setări, echipă și rapoarte.',
 }
 
 export default ro

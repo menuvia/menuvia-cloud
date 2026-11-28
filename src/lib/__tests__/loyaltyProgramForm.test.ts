@@ -8,7 +8,8 @@
 //        implicite trec.
 //   KQ2  pagina scrie programul DOAR pe `ready` (fail-closed: o citire eșuată
 //        ar suprascrie pragul real cu cele implicite), când omul l-a schimbat,
-//        sau când modulul e pornit dar programul n-a fost salvat niciodată
+//        sau când crearea e permisă (modulul pornit ȘI cardul pe ecran —
+//        SettingsTab decide, SJ17) dar programul n-a fost salvat niciodată
 //        (fără rând, fidelizarea nu pornește — `fn_loyalty_active`, mig 226).
 //        Mutațiile care pică: verificarea `ready` scoasă (ramura „error" +
 //        modul pornit ar scrie valorile implicite) și ramura „fără rând" scoasă
@@ -67,7 +68,8 @@ describe('loyaltyProgramForm', () => {
     expect(loyaltyNeedsSave(at('ready', false, true), true)).toBe(false)
     // Modulul pornit, programul niciodată salvat: „Salvează" îl creează.
     expect(loyaltyNeedsSave(at('ready', false, false), true)).toBe(true)
-    // Control: modulul oprit și neatins — nu se creează nimic de capul lui.
+    // Control: crearea nepermisă (modulul oprit, sau cardul nu e pe ecran) și
+    // neatins — nu se creează nimic de capul lui.
     expect(loyaltyNeedsSave(at('ready', false, false), false)).toBe(false)
   })
 

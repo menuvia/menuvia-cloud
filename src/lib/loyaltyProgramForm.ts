@@ -56,15 +56,19 @@ export type LoyaltyLoadState = 'idle' | 'loading' | 'ready' | 'error'
  *  - FAIL-CLOSED pe citire: doar pe `ready` (altfel un upsert ar suprascrie
  *    pragul și recompensa reale ale localului cu valorile implicite);
  *  - când omul a schimbat câmpurile (`dirty`);
- *  - SAU când modulul e pornit, dar programul n-a fost salvat niciodată:
- *    fidelizarea cere un rând activ în `loyalty_programs` (`fn_loyalty_active`,
- *    mig 226). Înainte, rândul se crea apăsând „Salvează programul" pe valorile
- *    implicite; fără ramura asta, „Salvează" de sus nu l-ar crea niciodată.
+ *  - SAU când programul n-a fost salvat niciodată și crearea e permisă
+ *    (`createAllowed`: modulul e pornit ȘI cardul cu nota „Programul nu e
+ *    salvat încă” e pe ecran): fidelizarea cere un rând activ în
+ *    `loyalty_programs` (`fn_loyalty_active`, mig 226). Înainte, rândul se
+ *    crea apăsând „Salvează programul" pe valorile implicite; fără ramura asta,
+ *    „Salvează" de sus nu l-ar crea niciodată. Din altă secțiune NU (recenzia
+ *    lotului C7c): un „Salvează” pentru telefon ar fi pornit, nevăzut, o
+ *    recompensă pentru oaspeți pe care n-a aprobat-o nimeni pe acel ecran.
  */
 export function loyaltyNeedsSave(
   state: { loadState: LoyaltyLoadState; dirty: boolean; exists: boolean },
-  moduleOn: boolean,
+  createAllowed: boolean,
 ): boolean {
   if (state.loadState !== 'ready') return false
-  return state.dirty || (!state.exists && moduleOn)
+  return state.dirty || (!state.exists && createAllowed)
 }

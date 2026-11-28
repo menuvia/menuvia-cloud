@@ -17,6 +17,12 @@
 //   RJ5  formularul de invitație: rândul de sub select spune ce poate face rolul
 //        ales și urmează selectul (Ospătar implicit → Manager).
 //   RJ6  în engleză: titlul, descrierea și butoanele explicite ale dialogului.
+//   RJ7  (recenzia lotului C7c) textele rolului nu promit ÎNCASĂRI în nicio
+//        limbă: Echipa e și pe Planul 2, care n-are ecrane de bani (Încasări,
+//        Ture de casă, TVA, Facturi sunt pe Planul 3). Mutația care pică:
+//        „… rapoartele și încasările" readus în `role_toManager` /
+//        `role_fromManager` (în oricare dintre cele 4 limbi). Control pozitiv:
+//        textele spun în continuare ce contează — setările.
 import { Suspense, type ReactNode } from 'react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
@@ -88,6 +94,8 @@ import { teamNs } from '../../i18n/ns/team'
 import { commonNs } from '../../i18n/ns/common'
 import teamRo from '../../i18n/ns/team/ro'
 import teamEn from '../../i18n/ns/team/en'
+import teamFr from '../../i18n/ns/team/fr'
+import teamDe from '../../i18n/ns/team/de'
 import { UiLangScope } from '../../i18n/UiLangContext'
 import type { StaffLang } from '../../i18n/langs'
 
@@ -189,5 +197,23 @@ describe('Echipa — confirmarea schimbării de rol', () => {
       cancelLabel: 'Cancel',
       destructive: true,
     })
+  })
+})
+
+describe('Echipa — textele rolului pe orice plan cu echipă', () => {
+  it('RJ7: fără încasări în nicio limbă; setările rămân', () => {
+    const MONEY = /încas|takings|encaissement|Einnahmen/i
+    const SETTINGS: Record<string, RegExp> = {
+      ro: /setări/,
+      en: /settings/,
+      fr: /paramètres/,
+      de: /Einstellungen/,
+    }
+    for (const [lang, dict] of Object.entries({ ro: teamRo, en: teamEn, fr: teamFr, de: teamDe })) {
+      for (const key of ['role_toManager', 'role_fromManager'] as const) {
+        expect(dict[key], `${lang}.${key}`).not.toMatch(MONEY)
+        expect(dict[key], `${lang}.${key}`).toMatch(SETTINGS[lang]!)
+      }
+    }
   })
 })

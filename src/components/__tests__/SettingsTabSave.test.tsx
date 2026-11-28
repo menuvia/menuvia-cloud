@@ -46,6 +46,33 @@
 //        exista niciun câmp) și pleacă la `onUpdate`; „Program" e acum o notă,
 //        cu ajutorul care trimite la „Program detaliat". Mutația care pică:
 //        rândul `address` scos din cardul de informații.
+// Recenzia lotului C7c (a doua rundă):
+//   SJ12 (extins) editorul de cote rămâne MONTAT (ascuns) pe celelalte
+//        secțiuni: un rând nesalvat supraviețuiește trecerii pe „Restaurant”,
+//        deci paza de ieșire a panoului îl vede de oriunde. Stub-ul raportează
+//        `false` la demontare, ca editorul real. Mutația care pică: editorul
+//        randat înăuntrul `section === 'orders'` (demontat → `false`).
+//   SJ14 o oră salvată din câmpul vechi pe care oaspeții o pot folosi („9:00",
+//        „24:00") NU e o eroare: câmpul `type="time"` o arată normalizată
+//        („09:00", „00:00"), fără `aria-invalid`, iar „Salvează" pleacă fără
+//        s-o rescrie. Mutațiile care pică: validarea strictă HH:MM de dinainte
+//        (eroare + salvare blocată) sau valoarea brută dată câmpului.
+//   SJ15 o oră VECHE ilizibilă („9"), neatinsă, nu blochează „Salvează" pe
+//        „Restaurant” (eroarea nu e pe ecran, iar salvarea retrimite ce e deja
+//        în bază); pe „Comenzi” — unde eroarea se vede — blochează. Mutația
+//        care pică: blocarea necondiționată (orice secțiune).
+//   SJ16 o oră stricată ÎN sesiunea asta blochează „Salvează" și de pe altă
+//        secțiune (cu toast-ul care trimite la card). Mutația care pică:
+//        blocarea doar pe `section === 'orders'` (fără „atinsă").
+//   SJ17 un program niciodată salvat NU se creează dintr-un „Salvează" de pe
+//        „Restaurant” (cardul și nota nu sunt pe ecran); de pe „Comenzi”, da.
+//        Mutația care pică: `loyaltyNeedsSave` fără condiția de secțiune
+//        (programul pornea nevăzut, cu desertul implicit).
+//   SJ18 crearea e INSERT-dacă-lipsește (`ignoreDuplicates` pe cheia primară),
+//        apoi recitire: un program salvat între timp pe alt dispozitiv rămâne
+//        neatins și apare în câmpuri. O modificare tastată (`dirty`) rămâne
+//        upsert simplu (SJ7). Mutațiile care pică: upsert-ul simplu pe
+//        creare, sau recitirea scoasă (câmpurile ar rămâne pe implicite).
 import { Suspense, type ReactNode } from 'react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -65,7 +92,9 @@ const h = vi.hoisted(() => ({
     async () => ({ ok: true, slug: 'bistro-nou' }),
   ),
   loyalty: { data: null, error: null } as LoadRes,
-  upsert: vi.fn<(row: Record<string, unknown>) => Promise<{ error: unknown }>>(async () => ({
+  upsert: vi.fn<
+    (row: Record<string, unknown>, opts?: Record<string, unknown>) => Promise<{ error: unknown }>
+  >(async () => ({
     error: null,
   })),
 }))
@@ -76,18 +105,25 @@ vi.mock('../../lib/supabase', () => {
   builder.select = () => builder
   builder.eq = () => builder
   builder.maybeSingle = () => Promise.resolve(h.loyalty)
-  builder.upsert = (row: Record<string, unknown>) => h.upsert(row)
+  builder.upsert = (row: Record<string, unknown>, opts?: Record<string, unknown>) =>
+    opts === undefined ? h.upsert(row) : h.upsert(row, opts)
   return { supabase: { from: () => builder } }
 })
 vi.mock('../../lib/restaurants', () => ({ changeRestaurantSlug: h.changeSlug }))
 vi.mock('../ui/confirm', () => ({ confirm: h.confirm }))
-// Stub-ul editorului de cote: un buton care raportează un rând nesalvat.
+// Stub-ul editorului de cote: un buton care raportează un rând nesalvat și,
+// ca editorul real, `false` la demontare (SJ12).
 vi.mock('../VatRatesEditor', async () => {
-  const { createElement } = await import('react')
-  return {
-    default: ({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) => void }) =>
-      createElement('button', { type: 'button', onClick: () => onDirtyChange?.(true) }, 'stub-vat-edit'),
+  const { createElement, useEffect } = await import('react')
+  function StubVatEditor({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) => void }) {
+    useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
+    return createElement(
+      'button',
+      { type: 'button', onClick: () => onDirtyChange?.(true) },
+      'stub-vat-edit',
+    )
   }
+  return { default: StubVatEditor }
 })
 vi.mock('../OnlinePaymentsCard', () => ({ default: () => null }))
 vi.mock('../SmsNotificationsCard', () => ({ default: () => null }))
@@ -367,6 +403,67 @@ describe('SettingsTab — orele și minutele ridicării (lotul C7c)', () => {
   })
 })
 
+describe('SettingsTab — orele vechi de ridicare (recenzia lotului C7c)', () => {
+  const ERR_TIME = 'Alege o oră completă (ex. 09:00).'
+  const ERR_SAVE = 'Verifică orele și minutele de la „Comenzi pentru ridicare” înainte să salvezi.'
+
+  it('SJ14: o oră veche care merge pentru oaspeți nu e eroare și nu se rescrie', async () => {
+    const user = userEvent.setup()
+    const onUpdate = onUpdateOk()
+    const restaurant = makeRestaurant({
+      pickup_settings: { ...PICKUP_ON, open_hours: { start: '9:00', end: '24:00' } },
+    })
+    render(tab('orders', { restaurant, onUpdate }))
+    const open = screen.getByLabelText('Deschidere ridicare')
+    const close = screen.getByLabelText('Închidere ridicare')
+    // Câmpul `type="time"` acceptă doar „HH:MM": valoarea e normalizată.
+    expect(open).toHaveValue('09:00')
+    expect(close).toHaveValue('00:00')
+    expect(open).not.toHaveAttribute('aria-invalid')
+    expect(close).not.toHaveAttribute('aria-invalid')
+    expect(screen.queryByText(ERR_TIME)).not.toBeInTheDocument()
+    await user.click(topSave())
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1))
+    // Neatinse, pleacă exact cum erau: normalizarea e doar afișare.
+    expect(onUpdate.mock.calls[0]![1].pickup_settings?.open_hours).toEqual({
+      start: '9:00',
+      end: '24:00',
+    })
+  })
+
+  it('SJ15: o oră veche ilizibilă, neatinsă, nu blochează altă secțiune', async () => {
+    const user = userEvent.setup()
+    const onUpdate = onUpdateOk()
+    const restaurant = makeRestaurant({
+      pickup_settings: { ...PICKUP_ON, open_hours: { start: '9', end: '21:00' } },
+    })
+    const { rerender } = render(tab('restaurant', { restaurant, onUpdate }))
+    await user.click(topSave())
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1))
+    expect(screen.queryByText(ERR_SAVE)).not.toBeInTheDocument()
+
+    // Control pozitiv: pe „Comenzi” eroarea e pe ecran și „Salvează" se oprește.
+    rerender(tab('orders', { restaurant, onUpdate }))
+    expect(screen.getByLabelText('Deschidere ridicare')).toHaveAttribute('aria-invalid', 'true')
+    await user.click(topSave())
+    expect(await screen.findByText(ERR_SAVE)).toBeInTheDocument()
+    expect(onUpdate).toHaveBeenCalledTimes(1)
+  })
+
+  it('SJ16: o oră stricată acum blochează „Salvează" și de pe altă secțiune', async () => {
+    const user = userEvent.setup()
+    const onUpdate = onUpdateOk()
+    const restaurant = makeRestaurant({ pickup_settings: PICKUP_ON })
+    const { rerender } = render(tab('orders', { restaurant, onUpdate }))
+    fireEvent.change(screen.getByLabelText('Deschidere ridicare'), { target: { value: '' } })
+    expect(screen.getByText(ERR_TIME)).toBeInTheDocument()
+    rerender(tab('restaurant', { restaurant, onUpdate }))
+    await user.click(topSave())
+    expect(await screen.findByText(ERR_SAVE)).toBeInTheDocument()
+    expect(onUpdate).not.toHaveBeenCalled()
+  })
+})
+
 describe('SettingsTab — un singur „Salvează" (lotul C7c)', () => {
   it('SJ6: butonul de sus doar pe secțiunile cu formular', () => {
     const { unmount } = render(tab('orders', { plan: 'starter', surface: surfaceFor('starter') }))
@@ -416,6 +513,8 @@ describe('SettingsTab — un singur „Salvează" (lotul C7c)', () => {
       reward_description: 'O cafea',
       is_active: true,
     })
+    // Valori tastate de om: upsert simplu (SJ18 — crearea e altfel).
+    expect(h.upsert.mock.calls[0]![1]).toBeUndefined()
     expect(onUpdate).toHaveBeenCalledTimes(1)
     expect(await screen.findByText('Salvat')).toBeInTheDocument()
     await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(false))
@@ -446,6 +545,7 @@ describe('SettingsTab — un singur „Salvează" (lotul C7c)', () => {
       reward_description: 'Un desert din partea casei',
       is_active: true,
     })
+    expect(h.upsert.mock.calls[0]![1]).toEqual({ onConflict: 'restaurant_id', ignoreDuplicates: true })
     unmount()
 
     // Control: modulul oprit și programul neatins — nimic de creat.
@@ -456,6 +556,45 @@ describe('SettingsTab — un singur „Salvează" (lotul C7c)', () => {
     await user.click(topSave())
     await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1))
     expect(h.upsert).toHaveBeenCalledTimes(1)
+  })
+
+  it('SJ17: programul nesalvat nu se creează dintr-o secțiune fără card', async () => {
+    const user = userEvent.setup()
+    const onUpdate = onUpdateOk()
+    const mods = modules(true)
+    const { rerender } = render(tab('orders', { onUpdate, modulesState: mods }))
+    // Ancora: citirea s-a terminat (`ready`, fără rând, modulul pornit).
+    expect(await screen.findByText(/Programul nu e salvat încă/)).toBeInTheDocument()
+
+    // Pe „Restaurant” (fără cardul și nota lui), „Salvează" nu-l pornește.
+    rerender(tab('restaurant', { onUpdate, modulesState: mods }))
+    await user.click(topSave())
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1))
+    expect(h.upsert).not.toHaveBeenCalled()
+
+    // Control pozitiv: de pe „Comenzi”, unde nota e pe ecran, îl creează.
+    rerender(tab('orders', { onUpdate, modulesState: mods }))
+    await user.click(topSave())
+    await waitFor(() => expect(h.upsert).toHaveBeenCalledTimes(1))
+    expect(onUpdate).toHaveBeenCalledTimes(2)
+  })
+
+  it('SJ18: crearea nu suprascrie un program salvat între timp', async () => {
+    const user = userEvent.setup()
+    render(tab('orders', { modulesState: modules(true) }))
+    expect(await screen.findByText(/Programul nu e salvat încă/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Prag pentru recompensă (puncte)')).toHaveValue('100')
+    // Alt dispozitiv salvează programul; citirea de aici (la montare) e veche.
+    h.loyalty = SAVED_PROGRAM
+    await user.click(topSave())
+    await waitFor(() => expect(h.upsert).toHaveBeenCalledTimes(1))
+    expect(h.upsert.mock.calls[0]![1]).toEqual({ onConflict: 'restaurant_id', ignoreDuplicates: true })
+    // Recitit: câmpurile arată programul real, nu valorile implicite.
+    await waitFor(() =>
+      expect(screen.getByLabelText('Prag pentru recompensă (puncte)')).toHaveValue('250'),
+    )
+    expect(screen.getByLabelText('Recompensa (ce primește clientul la prag)')).toHaveValue('O cafea')
+    expect(screen.queryByText(/Programul nu e salvat încă/)).not.toBeInTheDocument()
   })
 
   it('SJ10: un program invalid oprește tot „Salvează"', async () => {
@@ -502,11 +641,22 @@ describe('SettingsTab — un singur „Salvează" (lotul C7c)', () => {
   it('SJ12: cotele TVA nesalvate intră în paza de ieșire, nu în bara de jos', async () => {
     const user = userEvent.setup()
     const onDirtyChange = vi.fn()
-    render(tab('orders', { plan: 'pro', surface: surfaceFor('pro'), onDirtyChange }))
+    const pro = { plan: 'pro', surface: surfaceFor('pro'), onDirtyChange }
+    const { rerender } = render(tab('orders', pro))
     expect(onDirtyChange).toHaveBeenLastCalledWith(false)
     await user.click(screen.getByRole('button', { name: 'stub-vat-edit' }))
     expect(onDirtyChange).toHaveBeenLastCalledWith(true)
     expect(screen.queryByText('Ai modificări nesalvate')).not.toBeInTheDocument()
+
+    // Trecerea pe altă secțiune (aceeași instanță, ca în panou): editorul e
+    // ascuns, nu demontat — rândul nesalvat rămâne în pază.
+    rerender(tab('restaurant', pro))
+    expect(screen.getByText('Informații principale')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'stub-vat-edit' })).not.toBeInTheDocument()
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true)
+    rerender(tab('orders', pro))
+    expect(screen.getByRole('button', { name: 'stub-vat-edit' })).toBeInTheDocument()
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true)
   })
 })
 

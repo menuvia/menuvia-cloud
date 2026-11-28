@@ -74,11 +74,10 @@ const fr: Translation<typeof ro> = {
   role_confirmOk: 'Changer le rôle',
   role_toManager:
     'En tant que Manager, cette personne pourra modifier les paramètres du restaurant, inviter et ' +
-    'retirer des membres de l’équipe, et voir les rapports et les encaissements.',
+    'retirer des membres de l’équipe, et voir les rapports.',
   role_toWaiter: 'Cette personne travaillera sur l’écran Serveur : les tables et leurs commandes.',
   role_toKitchen: 'Cette personne travaillera sur l’écran Cuisine : les commandes à préparer.',
-  role_fromManager:
-    'Cette personne perd l’accès aux paramètres, à l’équipe, aux rapports et aux encaissements.',
+  role_fromManager: 'Cette personne perd l’accès aux paramètres, à l’équipe et aux rapports.',
 }
 
 export default fr

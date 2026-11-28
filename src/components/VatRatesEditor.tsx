@@ -93,7 +93,9 @@ export default function VatRatesEditor({ restaurantId, onDirtyChange }: Props) {
   useEffect(() => {
     onDirtyChange?.(anyDirty)
   }, [anyDirty, onDirtyChange])
-  // La demontare (altă secțiune, alt plan) editorul nu mai are ce pierde.
+  // La demontare (ieșirea din Setări, alt plan) editorul nu mai are ce pierde.
+  // Între secțiunile Setărilor NU se demontează: SettingsTab doar îl ascunde,
+  // ca rândurile nesalvate să rămână în paza de ieșire (recenzia lotului C7c).
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
 
   async function save(group: number) {

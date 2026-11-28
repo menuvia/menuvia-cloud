@@ -34,7 +34,13 @@ export interface LoyaltyProgramForm {
   reload: () => void
   /** `null` = valid; altfel cheia erorii (namespace `settingsCards`). */
   validate: () => LoyaltyFieldError | null
-  /** Scrie programul (upsert, `is_active`); la succes valorile devin baza. */
+  /**
+   * Scrie programul (`is_active`). Modificat (`dirty`): upsert — omul a tastat
+   * valorile. Niciodată salvat și neatins: INSERT-dacă-lipsește, apoi recitire
+   * — `exists=false` e citit o singură dată, la montare, deci poate fi vechi
+   * (alt dispozitiv a salvat între timp programul), iar un upsert simplu ar fi
+   * suprascris programul acela cu valorile implicite (recenzia lotului C7c).
+   */
   save: () => Promise<{ error: unknown }>
 }
 
@@ -115,13 +121,26 @@ export function useLoyaltyProgramForm(
       const parsed = parseLoyaltyValues(values)
       if (!parsed.ok) return { error: new Error(parsed.error) }
       const written = values
-      const { error } = await supabase.from('loyalty_programs').upsert({
+      const row = {
         restaurant_id: restaurantId,
         ...parsed.fields,
         is_active: true,
         updated_at: new Date().toISOString(),
-      })
+      }
+      // Crearea pe valorile implicite: ON CONFLICT DO NOTHING pe cheia
+      // primară (`restaurant_id`, mig 226) — un program salvat între timp
+      // rămâne neatins, iar recitirea îl aduce în câmpuri.
+      const createOnly = !exists && !dirty
+      const { error } = createOnly
+        ? await supabase
+            .from('loyalty_programs')
+            .upsert(row, { onConflict: 'restaurant_id', ignoreDuplicates: true })
+        : await supabase.from('loyalty_programs').upsert(row)
       if (error) return { error }
+      if (createOnly) {
+        setReloadKey((k) => k + 1)
+        return { error: null }
+      }
       setSaved(written)
       setExists(true)
       return { error: null }

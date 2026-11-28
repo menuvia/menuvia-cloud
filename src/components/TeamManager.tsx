@@ -59,8 +59,9 @@ const INVITE_ERROR_KEYS = {
 
 // Ce înseamnă rolul NOU pentru membru (lotul C7c) — confirmarea schimbării și
 // rândul de sub selectul invitației. Managerul e admin (`is_admin`): setări,
-// echipă, rapoarte, încasări — un clic greșit pe select nu mai are voie să
-// dea toate astea fără întrebare.
+// echipă, rapoarte — un clic greșit pe select nu mai are voie să dea toate
+// astea fără întrebare. Textele nu pomenesc încasările: Echipa e și pe
+// Planul 2, care n-are ecrane de bani (recenzia lotului C7c).
 const ROLE_GAIN_KEYS = {
   manager: 'role_toManager',
   waiter: 'role_toWaiter',

@@ -15,6 +15,7 @@ import {
   clampMinutes,
   isPickupTime,
   parseMinutes,
+  pickupTimeInputValue,
   sectionHasFormFields,
   slugChangeNeedsConfirm,
 } from '../lib/settingsForm'
@@ -283,7 +284,15 @@ export default function SettingsTab({
     modulesState != null && surface?.ordering === true,
     menuBaseLang(form.language),
   )
-  const loyaltyPending = loyaltyNeedsSave(loyalty, modulesState?.isEnabled('loyalty') ?? false)
+  // Crearea unui program NICIODATĂ salvat (valorile implicite, `is_active`) —
+  // doar din secțiunea în care stau cardul și nota „Programul nu e salvat
+  // încă” (recenzia lotului C7c): un „Salvează” apăsat pe „Restaurant” pentru
+  // telefon pornea altfel, nevăzut, un desert gratuit pentru oaspeți. O
+  // modificare a câmpurilor (`dirty`) se salvează de oriunde — bara o arată.
+  const loyaltyPending = loyaltyNeedsSave(
+    loyalty,
+    section === 'orders' && (modulesState?.isEnabled('loyalty') ?? false),
+  )
   const upd = (k: keyof Restaurant, v: unknown) => setForm((f) => ({ ...f, [k]: v }))
   // Merge order: DEFAULTS → valoarea curentă din form → patch. Identic cu
   // spread-urile inline anterioare; patch-ul are mereu ultimul cuvânt.
@@ -462,7 +471,8 @@ export default function SettingsTab({
   const pickupInvalid = {
     lead: parseMinutes(leadDraft, PICKUP_LEAD_RANGE) == null,
     slot: parseMinutes(slotDraft, PICKUP_SLOT_RANGE) == null,
-    // `buildPickupSlots` întoarce ZERO sloturi pe o oră fără minute („9").
+    // `buildPickupSlots` întoarce ZERO sloturi pe o oră fără minute („9");
+    // „9:00" sau „24:00" (salvate din câmpul vechi, text liber) merg.
     open: !isPickupTime(pickupOpen),
     close: !isPickupTime(pickupClose),
   }
@@ -472,9 +482,6 @@ export default function SettingsTab({
     open: pickupFieldsShown && pickupInvalid.open,
     close: pickupFieldsShown && pickupInvalid.close,
   }
-  const pickupBlocksSave =
-    pickupFieldsShown &&
-    (pickupInvalid.lead || pickupInvalid.slot || pickupInvalid.open || pickupInvalid.close)
   // Un minut tastat dar încă invalid (gol, sub plajă) nu e în formular — tot
   // muncă nesalvată, deci bara și paza de ieșire îl văd.
   const pickupDraftsDirty =
@@ -483,6 +490,19 @@ export default function SettingsTab({
       minutesDraft(form.pickup_settings?.min_lead_time_minutes, PICKUP_DEFAULTS.min_lead_time_minutes) ||
       slotDraft !==
         minutesDraft(form.pickup_settings?.slot_interval_minutes, PICKUP_DEFAULTS.slot_interval_minutes))
+  // Ridicarea a fost atinsă în sesiunea asta (orele, minutele, comutatorul).
+  const pickupEdited =
+    pickupDraftsDirty ||
+    JSON.stringify(form.pickup_settings ?? null) !== JSON.stringify(restaurant.pickup_settings ?? null)
+  // „Salvează" se oprește pe o valoare ilizibilă DOAR când omul a atins
+  // ridicarea sau când eroarea e pe ecran (secțiunea „Comenzi"). O valoare
+  // VECHE, neatinsă, nu blochează salvarea telefonului de pe „Restaurant"
+  // (recenzia lotului C7c): salvarea ar retrimite oricum exact ce e deja în
+  // bază, iar toast-ul ar trimite omul pe altă filă pentru ceva ce n-a făcut.
+  const pickupBlocksSave =
+    pickupFieldsShown &&
+    (pickupEdited || section === 'orders') &&
+    (pickupInvalid.lead || pickupInvalid.slot || pickupInvalid.open || pickupInvalid.close)
 
   function onMinutesChange(field: PickupField, raw: string) {
     const range = field === 'lead' ? PICKUP_LEAD_RANGE : PICKUP_SLOT_RANGE
@@ -2063,11 +2083,14 @@ export default function SettingsTab({
                         {st.t('pickup_open')}
                       </label>
                       {/* `type="time"` ca programul pe zile (lotul C7c): un „9"
-                          tastat liber dădea ZERO sloturi de ridicare. */}
+                          tastat liber dădea ZERO sloturi de ridicare. Câmpul
+                          acceptă doar „HH:MM" și golește restul, deci o oră
+                          salvată „9:00" / „24:00" se arată normalizată
+                          (`pickupTimeInputValue`), nu ca un câmp gol. */}
                       <Inp
                         type="time"
                         label={st.t('pickup_openAria')}
-                        value={pickupOpen}
+                        value={pickupTimeInputValue(pickupOpen)}
                         onChange={(v) => updPickup({ open_hours: { start: v, end: pickupClose } })}
                         invalid={pickupError.open}
                         describedBy={pickupError.open ? `${pickupErrId}-open` : undefined}
@@ -2092,7 +2115,7 @@ export default function SettingsTab({
                       <Inp
                         type="time"
                         label={st.t('pickup_closeAria')}
-                        value={pickupClose}
+                        value={pickupTimeInputValue(pickupClose)}
                         onChange={(v) => updPickup({ open_hours: { start: pickupOpen, end: v } })}
                         invalid={pickupError.close}
                         describedBy={pickupError.close ? `${pickupErrId}-close` : undefined}
@@ -2197,22 +2220,31 @@ export default function SettingsTab({
             </SettingsCard>
             )}
 
-            {/* VAT rates configuration — doar pe planul cu bon și raport TVA
-                (planSurface.vat, lotul P): pe Planurile 1–2 bonul se emite pe
-                casa existentă, deci cotele de aici nu le folosește nimic. */}
-            {surface?.vat === true && (
-              <SettingsCard
-                icon="receipt"
-                title={st.t('vat_title')}
-                desc={st.t('vat_desc')}
-              >
-                {/* Ecran fiscal: în română prin lege (lib/fiscalScreens.ts). */}
-                <div lang="ro">
-                  <VatRatesEditor restaurantId={restaurant.id} onDirtyChange={setVatDirty} />
-                </div>
-              </SettingsCard>
-            )}
           </>
+        )}
+
+        {/* VAT rates configuration — doar pe planul cu bon și raport TVA
+            (planSurface.vat, lotul P): pe Planurile 1–2 bonul se emite pe casa
+            existentă, deci cotele de aici nu le folosește nimic. Ultimul card
+            din „Comenzi & plăți", dar MONTAT pe toate secțiunile și doar ascuns
+            în afara ei (recenzia lotului C7c): editorul ține rândurile
+            nesalvate în starea lui (salvare pe rând, componentă fiscală), iar
+            o trecere pe „Restaurant” îl demonta — modificarea dispărea fără
+            nicio întrebare, iar paza panoului (care întreabă doar la ieșirea
+            din Setări) nu mai avea ce vedea. Ascuns, `vatDirty` rămâne viu. */}
+        {surface?.vat === true && (
+          <div hidden={section !== 'orders'}>
+            <SettingsCard
+              icon="receipt"
+              title={st.t('vat_title')}
+              desc={st.t('vat_desc')}
+            >
+              {/* Ecran fiscal: în română prin lege (lib/fiscalScreens.ts). */}
+              <div lang="ro">
+                <VatRatesEditor restaurantId={restaurant.id} onDirtyChange={setVatDirty} />
+              </div>
+            </SettingsCard>
+          </div>
         )}
 
         {section === 'account' && (
