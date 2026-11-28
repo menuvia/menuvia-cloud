@@ -7,8 +7,9 @@
 // trei puncte (textele de dinainte, fiecare cum era).
 // NU sunt aici (vin din `orders`, aceleași cuvinte ca la ospătar): „Fără
 // masă” (`noTable`), „Pickup” (`card_srcPickup`), „Se salvează…” (`saving`),
-// „Marchează în pregătire” / „Gata” (`step_preparing` / `step_ready`), nota de
-// refuz și panoul „Epuizate”; vârsta comenzii vine din `common` (`elapsedT`).
+// „Gata” (`step_ready`), „Anulează” (`card_cancel`, dialogul de anulare e
+// același cu al ospătarului), nota de refuz și panoul „Epuizate”; vârsta
+// comenzii vine din `common` (`elapsedT`).
 // Numele meselor, produselor și restaurantului sunt date: intră ca `{x}`.
 const ro = {
   // ── Antetul ──
@@ -57,7 +58,21 @@ const ro = {
   // ── Cardul de comandă ──
   src_qr: 'QR',
   src_waiter: 'Ospătar',
-  next_confirm: 'Confirmă',
+  // Lotul C3a: DOUĂ atingeri pe comandă — „Începe” (new/confirmed →
+  // preparing; serverul acceptă start_preparing direct din `new`, ca la
+  // ospătar în O7b) și „Gata”. Scurt deliberat: e un buton de tabletă.
+  next_start: 'Începe',
+  // Cardul din „Gata de servit”: vârsta se măsoară din `ready_at` (cât
+  // așteaptă ospătarul), nu de la plasare. {age} = vârsta din `common`
+  // („3m”, „1h 5m”).
+  ready_since: 'Gata de {age}',
+  // Rândul care strânge comenzile gata de mai mult de 10 minute (le ridică
+  // ospătarul; bucătăria nu le poate scoate). Se deschide la atingere.
+  ready_waiting: {
+    one: '+{n} așteaptă ospătarul',
+    few: '+{n} așteaptă ospătarul',
+    other: '+{n} așteaptă ospătarul',
+  },
 }
 
 export default ro

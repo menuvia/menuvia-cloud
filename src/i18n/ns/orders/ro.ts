@@ -226,8 +226,9 @@ const ro = {
     other: 'Comenzile servite se închid; {n} runde neservite (noi sau în preparare) vor fi ANULATE.',
   },
 
-  // ── Pasul următor pe Planul 3 (lib/waiterSteps `labelKey`) — aceleași
-  //    cuvinte ca Bucătăria și „Gata de servit” ──
+  // ── Pasul următor pe Planul 3 (lib/waiterSteps `labelKey`) — „Gata” e
+  //    același cuvânt ca la Bucătărie; acolo pornirea e „Începe”
+  //    (`kitchen.next_start`, buton scurt de tabletă, lotul C3a) ──
   step_preparing: 'Marchează în pregătire',
   step_ready: 'Gata',
   step_served: 'Servit',

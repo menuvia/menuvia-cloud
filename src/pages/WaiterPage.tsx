@@ -9,6 +9,7 @@ import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { SignOutButton } from '../components/SignOutButton'
 import { UiLanguageSelect } from '../components/UiLanguageSelect'
 import { useOrders } from '../hooks/useOrders'
+import { useCancelPayments } from '../hooks/useCancelPayments'
 import { useFeatures } from '../hooks/useFeatures'
 import { hasFeature } from '../lib/features'
 import { useBridgeConnected } from '../hooks/useBridgeConnected'
@@ -50,7 +51,6 @@ import {
   STAFF_ORDERS_FETCH_LIMIT,
   reprintKitchenTicket,
 } from '../lib/orders'
-import type { OrderPaymentRow } from '../lib/orders'
 import type { WaiterCall } from '../lib/orders'
 import { redeemLoyaltyReward } from '../lib/loyalty'
 import WaiterEntry from '../components/WaiterEntry'
@@ -239,7 +239,9 @@ export default function WaiterPage() {
   // Plățile deja înregistrate pe comanda din dialogul de anulare (mig 270:
   // anularea peste bani e respinsă server-side; ieșirea e storno-ul). null =
   // necunoscut → dialogul NU blochează, serverul rămâne gate-ul (tristate).
-  const [cancelPayments, setCancelPayments] = useState<OrderPaymentRow[] | null>(null)
+  // Legate de sesiunea dialogului: un răspuns întârziat pentru o comandă
+  // închisă sau înlocuită nu ajunge în dialogul curent (useCancelPayments).
+  const { payments: cancelPayments, reload: reloadCancelPayments } = useCancelPayments(cancelOrder)
   const [auditOrder, setAuditOrder] = useState<Order | null>(null)
   const [discountOrderId, setDiscountOrderId] = useState<string | null>(null)
   const [happyHourSugg, setHappyHourSugg] = useState<HappyHourSuggestion | null>(null)
@@ -292,25 +294,6 @@ export default function WaiterPage() {
   const ownPayPaid = payPaid != null && payPaid.orderId === payOrderId ? payPaid : null
   const payOrderPaid = ownPayPaid?.paid ?? null
   const payPaidFailed = ownPayPaid?.failed ?? false
-
-  useEffect(() => {
-    if (cancelOrder == null) {
-      setCancelPayments(null)
-      return
-    }
-    let alive = true
-    setCancelPayments(null)
-    void getOrderPayments(cancelOrder.id)
-      .then((ps) => {
-        if (alive) setCancelPayments(ps)
-      })
-      .catch(() => {
-        if (alive) setCancelPayments(null)
-      })
-    return () => {
-      alive = false
-    }
-  }, [cancelOrder])
 
   // ── Coada comenzilor salvate pe telefon (offline) ─────────────
   // Se golește SINGURĂ: la montare, la revenirea în prim-plan, la `online` și
@@ -1701,9 +1684,7 @@ export default function WaiterPage() {
               setCancelOrder(null)
               return { ok: true }
             } catch (e) {
-              void getOrderPayments(cancelOrder.id)
-                .then(setCancelPayments)
-                .catch(() => setCancelPayments(null))
+              reloadCancelPayments()
               return { ok: false, message: describeCancelRejection(e, to) }
             }
           }}

@@ -103,9 +103,11 @@
 ## 9. Kitchen (tabletă sau desktop)
 
 - [ ] Comanda QR nouă apare în „Comenzi noi" cu sunet + border auriu
-- [ ] „Confirmă" → cardul rămâne în „Comenzi noi" dar butonul devine „Marchează în pregătire"
-- [ ] „Marchează în pregătire" → coloana „În pregătire"
-- [ ] „Gata" → coloana „Gata de servit"
+- [ ] „Începe" → coloana „În pregătire" (două atingeri pe comandă: nu mai există pasul „Confirmă")
+- [ ] „Gata" → coloana „Gata de servit", card calm (fără roșu), cu „Gata de X" din momentul în care a fost gata
+- [ ] O comandă gata de peste 10 minute intră în rândul „+N așteaptă ospătarul" (se deschide la atingere)
+- [ ] Cantitatea stă ÎNAINTEA numelui („2× Paste carbonara"), evidențiată când e peste 1
+- [ ] Owner/manager: „Anulează" pe comenzile noi / în pregătire deschide dialogul ospătarului; bucătarul NU are butonul
 - [ ] NICIUN preț / metodă de plată / dată fiscală pe carduri
 - [ ] Nota clientului vizibilă pe fundal evidențiat
 - [ ] Fără comenzi → „Nu sunt comenzi în bucătărie..."
