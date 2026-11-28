@@ -21,8 +21,14 @@
 //        plățile și anulează” (motiv obligatoriu) cheamă UN singur RPC,
 //        `voidPaymentsAndCancel`; `advance` NU se cheamă. Mutația care pică:
 //        `onVoidAndCancel` nelegat (butonul rămâne dezactivat).
+//   KC6  storno respins → plățile se RECITESC pentru comanda din dialog, dar
+//        un răspuns întârziat nu ajunge în dialogul deschis apoi pe ALTĂ
+//        comandă (recenzia pe #395): banii vechii comenzi nu blochează
+//        anularea directă a celei noi. Mutația care pică: recitirea de după
+//        refuz fără garda de sesiune (`getOrderPayments(...).then(set…)` în
+//        pagină, sau în useCancelPayments).
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, within, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, within, waitFor, act } from '@testing-library/react'
 
 const h = vi.hoisted(() => ({
   useOrders: vi.fn(),
@@ -50,10 +56,22 @@ vi.mock('../../lib/orders', async (importOriginal) => {
 })
 
 import KitchenPage from '../../pages/KitchenPage'
-import type { Order, OrderStatus } from '../../lib/orders'
+import type { Order, OrderPaymentRow, OrderStatus } from '../../lib/orders'
 import { makeOrder, makeTable } from './fixtures'
 
 const LAZY = { timeout: 5000 }
+
+interface Deferred<T> {
+  promise: Promise<T>
+  resolve: (v: T) => void
+}
+function deferred<T>(): Deferred<T> {
+  let resolve: (v: T) => void = () => undefined
+  const promise = new Promise<T>((res) => {
+    resolve = res
+  })
+  return { promise, resolve }
+}
 
 function board(): Order[] {
   return [
@@ -190,6 +208,58 @@ describe('Bucătăria — „Anulează” doar pentru owner/manager', () => {
     fireEvent.click(voidBtn)
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(h.voidPaymentsAndCancel).toHaveBeenCalledWith('C', 'bucătăria nu o poate face')
+    expect(advance).not.toHaveBeenCalled()
+  })
+
+  it('KC6 storno respins: recitirea întârziată nu ajunge în dialogul altei comenzi', async () => {
+    const recovery = deferred<OrderPaymentRow[]>()
+    const openA = deferred<OrderPaymentRow[]>()
+    h.getOrderPayments
+      .mockResolvedValueOnce([
+        { id: 'p1', amount: 40, method: 'card_online', created_at: '2026-07-20T09:00:00Z' },
+      ])
+      .mockReturnValueOnce(recovery.promise)
+      .mockReturnValueOnce(openA.promise)
+    const refusal = 'Storno respins de server.'
+    h.voidPaymentsAndCancel.mockRejectedValue(new Error(refusal))
+    const { advance } = setup('owner')
+
+    // Comanda C, cu bani încasați: storno-ul e respins, dialogul rămâne deschis.
+    fireEvent.click(within(card('TC')).getByRole('button', { name: 'Anulează' }))
+    const dialogC = await screen.findByRole('dialog', { name: 'Anulează comanda' }, LAZY)
+    const voidBtn = await within(dialogC).findByRole('button', {
+      name: 'Stornează plățile și anulează',
+    })
+    fireEvent.change(within(dialogC).getByRole('textbox'), { target: { value: 'returnați' } })
+    fireEvent.click(voidBtn)
+    expect(await within(dialogC).findByText(refusal)).toBeInTheDocument()
+    // Recitirea de după refuz e pentru comanda din dialog — și rămâne în zbor.
+    expect(h.getOrderPayments).toHaveBeenNthCalledWith(2, 'C')
+
+    // Dialogul se închide și se deschide pe A, fără bani încasați.
+    fireEvent.click(within(dialogC).getByRole('button', { name: 'Renunță' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    fireEvent.click(within(card('TA')).getByRole('button', { name: 'Anulează' }))
+    const dialogA = await screen.findByRole('dialog', { name: 'Anulează comanda' }, LAZY)
+    await waitFor(() => expect(h.getOrderPayments).toHaveBeenNthCalledWith(3, 'A'))
+    await act(async () => {
+      openA.resolve([])
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    // Abia acum sosește recitirea lui C (40 lei → 60 lei între timp).
+    await act(async () => {
+      recovery.resolve([
+        { id: 'p1', amount: 40, method: 'card_online', created_at: '2026-07-20T09:00:00Z' },
+        { id: 'p2', amount: 20, method: 'cash', created_at: '2026-07-20T09:05:00Z' },
+      ])
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    expect(
+      within(dialogA).queryByRole('button', { name: 'Stornează plățile și anulează' }),
+    ).toBeNull()
+    expect(within(dialogA).queryByRole('alert')).toBeNull()
+    expect(within(dialogA).getByRole('button', { name: 'Anulează comanda' })).toBeEnabled()
     expect(advance).not.toHaveBeenCalled()
   })
 })

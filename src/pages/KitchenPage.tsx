@@ -28,14 +28,13 @@ import {
 } from 'react'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { useOrders } from '../hooks/useOrders'
+import { useCancelPayments } from '../hooks/useCancelPayments'
 import type { Order, OrderStatus, StaffActionFailure } from '../lib/orders'
 import {
   STAFF_ORDERS_FETCH_LIMIT,
   describeCancelRejection,
-  getOrderPayments,
   voidPaymentsAndCancel,
 } from '../lib/orders'
-import type { OrderPaymentRow } from '../lib/orders'
 import { D } from '../lib/constants'
 import { urgencyColor, playSound } from '../lib/utils'
 import { KITCHEN_PENDING_STATUSES, takeNewlyLate } from '../lib/orderAge'
@@ -533,10 +532,11 @@ export default function KitchenPage() {
   // Anularea (lotul C3a, doar owner/manager) — exact fluxul ospătarului
   // (WaiterPage): plățile comenzii se citesc la deschiderea dialogului,
   // TRISTATE (null = necunoscut → dialogul nu blochează, serverul decide;
-  // anularea peste bani încasați e respinsă în DATE, mig 270), iar refuzul
-  // serverului ajunge ÎN dialog, cu textul lui (describeCancelRejection).
+  // anularea peste bani încasați e respinsă în DATE, mig 270), legate de
+  // sesiunea dialogului (useCancelPayments), iar refuzul serverului ajunge
+  // ÎN dialog, cu textul lui (describeCancelRejection).
   const [cancelOrder, setCancelOrder] = useState<Order | null>(null)
-  const [cancelPayments, setCancelPayments] = useState<OrderPaymentRow[] | null>(null)
+  const { payments: cancelPayments, reload: reloadCancelPayments } = useCancelPayments(cancelOrder)
   // Comenzile gata de mai mult timp (rândul „+N așteaptă ospătarul”): închise
   // implicit, se deschid la atingere (lib/kitchenReady).
   const [showOlderReady, setShowOlderReady] = useState(false)
@@ -608,25 +608,6 @@ export default function KitchenPage() {
     setShowOlderReady(false)
     setCancelOrder(null)
   }, [restaurantId])
-
-  useEffect(() => {
-    if (cancelOrder == null) {
-      setCancelPayments(null)
-      return
-    }
-    let alive = true
-    setCancelPayments(null)
-    void getOrderPayments(cancelOrder.id)
-      .then((ps) => {
-        if (alive) setCancelPayments(ps)
-      })
-      .catch(() => {
-        if (alive) setCancelPayments(null)
-      })
-    return () => {
-      alive = false
-    }
-  }, [cancelOrder])
 
   // Verificarea rulează la fiecare schimbare a comenzilor ȘI la 10 s (o comandă
   // devine întârziată odată cu trecerea timpului, fără niciun eveniment); efectul
@@ -947,9 +928,9 @@ export default function KitchenPage() {
                 setCancelOrder(null)
                 return { ok: true }
               } catch (e) {
-                void getOrderPayments(cancelOrder.id)
-                  .then(setCancelPayments)
-                  .catch(() => setCancelPayments(null))
+                // Recitirea plăților după refuz: rezultatul ei se aplică doar
+                // cât dialogul e încă deschis pe ACEEAȘI comandă.
+                reloadCancelPayments()
                 return { ok: false, message: describeCancelRejection(e, to) }
               }
             }}
