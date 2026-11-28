@@ -4,6 +4,11 @@
 //     buton, iar al doilea tap al dublu-tap-ului îl apăsa;
 //   - „Gata" mută cardul în altă coloană, iar cardul de dedesubt urcă sub
 //     deget: un tap pe ALT card, venit în fereastra de dublu-tap, e ignorat;
+//   - lotul C3a: DOUĂ atingeri pe comandă — „Începe” trece comanda din `new`
+//     direct în `preparing` (serverul acceptă start_preparing din `new`, mig
+//     291; „Confirmă” nu mai e un pas), deci și „Începe” mută cardul în altă
+//     coloană: KP8 (fost „Confirmă” pe loc, domeniul 'card') și KP9 testează
+//     acum garda de listă pe ambii pași;
 //   - refuzul serverului stă SUB butonul apăsat, în română (nu sus, în pagină);
 //   - sunetul blocat de browser e anunțat, cu un buton care îl pornește;
 //   - KR1 bucătarul are „Ieși din cont" în antet (înainte NU avea nicio ieșire
@@ -51,11 +56,21 @@ describe('KitchenOrderCard — acțiunea în curs și eroarea ei', () => {
     expect(onAdvance).not.toHaveBeenCalled()
   })
 
-  it('KP2 control: fără pending, butonul arată pasul și avansează', () => {
+  it('KP2 control: fără pending, butonul arată pasul și avansează (new → preparing, fără „Confirmă”)', () => {
+    // Mutația care pică (lotul C3a): `KITCHEN_NEXT.new` readus la `confirmed`
+    // — trei atingeri pe comandă în loc de două.
     const onAdvance = vi.fn()
     render(<KitchenOrderCard order={makeOrder({ id: 'A', status: 'new' })} onAdvance={onAdvance} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Confirmă' }))
-    expect(onAdvance).toHaveBeenCalledWith('A', 'new', 'confirmed')
+    expect(screen.queryByRole('button', { name: 'Confirmă' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Începe' }))
+    expect(onAdvance).toHaveBeenCalledWith('A', 'new', 'preparing')
+  })
+
+  it('KP2b rândurile vechi `confirmed` pornesc cu același „Începe”', () => {
+    const onAdvance = vi.fn()
+    render(<KitchenOrderCard order={makeOrder({ id: 'A', status: 'confirmed' })} onAdvance={onAdvance} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Începe' }))
+    expect(onAdvance).toHaveBeenCalledWith('A', 'confirmed', 'preparing')
   })
 
   it('KP3 refuzul stă PE CARD, sub buton, și se poate închide', () => {
@@ -190,34 +205,39 @@ describe('KitchenPage — dublu-tap peste carduri vecine și sunetul', () => {
     makeOrder({ id: 'B', status: 'new', created_at: '2026-07-20T09:05:00Z' }),
   ]
 
-  it('KP8 „Confirmă" pe A, apoi repede „Confirmă" pe B (A NU s-a mutat) → ambele avansează', () => {
-    // new și confirmed stau în aceeași coloană: nimic nu urcă sub deget, deci
-    // al doilea tap e DELIBERAT (trei comenzi confirmate la rând). Mutație:
-    // garda globală (orice card, orice acțiune) → B e înghițită tăcut.
+  it('KP8 „Începe" pe A, apoi repede „Începe" pe B (a urcat sub deget) → doar A avansează', () => {
+    // Lotul C3a: „Începe” scoate A din „Comenzi noi”, deci B urcă exact sub
+    // deget — al doilea tap din fereastră e cel al dublu-tap-ului, nu unul
+    // deliberat. Mutație: domeniul 'card' pentru pasul din `new` (calculul de
+    // dinainte, când „Confirmă” lăsa cardul pe loc) → B pornește pe nedrept.
     const advance = vi.fn().mockResolvedValue(true)
     useOrdersMock.mockReturnValue(ordersHook(twoNew(), advance))
     render(<KitchenPage />)
-    const [confA, confB] = screen.getAllByRole('button', { name: 'Confirmă' })
-    fireEvent.click(confA)
+    const [startA, startB] = screen.getAllByRole('button', { name: 'Începe' })
+    fireEvent.click(startA)
     vi.advanceTimersByTime(150)
-    fireEvent.click(confB)
+    fireEvent.click(startB)
+    expect(advance).toHaveBeenCalledTimes(1)
+    expect(advance).toHaveBeenCalledWith('A', 'new', { status: 'preparing' })
+    // Control pozitiv: după fereastra de dublu-tap, tap-ul pe B e deliberat.
+    vi.advanceTimersByTime(STAFF_TAP_GUARD_MS + 50)
+    fireEvent.click(startB)
     expect(advance).toHaveBeenCalledTimes(2)
-    expect(advance).toHaveBeenNthCalledWith(1, 'A', 'new', { status: 'confirmed' })
-    expect(advance).toHaveBeenNthCalledWith(2, 'B', 'new', { status: 'confirmed' })
+    expect(advance).toHaveBeenLastCalledWith('B', 'new', { status: 'preparing' })
   })
 
   it('KP9 dublu-tap pe ACELAȘI card cu RPC rapid: al doilea tap nu-l mai avansează un pas', () => {
-    // RPC-ul a răspuns înainte de al doilea tap: butonul lui A e din nou activ
-    // și arată deja „Marchează în pregătire". Mutație: fără fereastra pe card
-    // → A sare două stări (new → preparing) dintr-un dublu-tap.
+    // RPC-ul a răspuns înainte de al doilea tap: A e deja în pregătire și
+    // arată „Gata". Mutație: fără garda de dublu-tap → A sare două stări
+    // (new → ready) dintr-un dublu-tap.
     const advance = vi.fn().mockResolvedValue(true)
     useOrdersMock.mockReturnValue(ordersHook(twoNew(), advance))
     const { rerender } = render(<KitchenPage />)
-    fireEvent.click(screen.getAllByRole('button', { name: 'Confirmă' })[0])
+    fireEvent.click(screen.getAllByRole('button', { name: 'Începe' })[0])
     useOrdersMock.mockReturnValue(
       ordersHook(
         [
-          makeOrder({ id: 'A', status: 'confirmed', created_at: '2026-07-20T09:00:00Z' }),
+          makeOrder({ id: 'A', status: 'preparing', created_at: '2026-07-20T09:00:00Z' }),
           makeOrder({ id: 'B', status: 'new', created_at: '2026-07-20T09:05:00Z' }),
         ],
         advance,
@@ -225,9 +245,9 @@ describe('KitchenPage — dublu-tap peste carduri vecine și sunetul', () => {
     )
     rerender(<KitchenPage />)
     vi.advanceTimersByTime(150)
-    fireEvent.click(screen.getByRole('button', { name: 'Marchează în pregătire' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Gata' }))
     expect(advance).toHaveBeenCalledTimes(1)
-    expect(advance).toHaveBeenCalledWith('A', 'new', { status: 'confirmed' })
+    expect(advance).toHaveBeenCalledWith('A', 'new', { status: 'preparing' })
   })
 
   it('KP6 sunet blocat → bannerul cere o atingere; „Pornește sunetul" îl deblochează', () => {

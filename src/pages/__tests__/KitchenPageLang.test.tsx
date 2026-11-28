@@ -9,7 +9,10 @@
 //        de dinainte: titlul cu restaurantul, „Înapoi la panou”, „Epuizate”,
 //        notificările, „Se conectează...” (trei puncte), cele trei bannere,
 //        lista trunchiată cu 500, eroarea cu detaliul în paranteză, coloanele,
-//        pașii („Confirmă” / „Marchează în pregătire” / „Gata”), sursele
+//        pașii („Începe” pe new ȘI pe confirmed / „Gata” — lotul C3a: două
+//        atingeri, „Confirmă” nu mai e un pas), „Anulează” pe cele trei
+//        comenzi încă nepregătite (owner), cardul gata cu „Gata de 3m” (din
+//        `ready_at`), sursele
 //        („QR” / „Pickup” / „Ospătar”), „Fără masă”, vârsta „5m”, „Ieși din cont”; comutatorul de
 //        limbă APARE în antet (din activarea limbilor, `ENABLED_STAFF_LANGS`
 //        are toate patru), pe română. Mutația care pică: o cheie din
@@ -20,8 +23,8 @@
 //        Mutația care pică: un literal românesc lăsat în pagină (ex. „Ospătar”
 //        scris în cod, sau coloana „Comenzi noi” folosită ca cheie de stare).
 //   LB3  în germană: titlul „Küche — Bistro”, pașii la infinitiv, vârsta în
-//        formatul limbii („5 Min.”). Mutația care pică: `elapsed()` (româna
-//        scrisă în cod) readus în ElapsedTimer.
+//        formatul limbii („5 Min.”, „Fertig seit 3 Min.”). Mutația care pică:
+//        `elapsed()` (româna scrisă în cod) readus în ElapsedTimer.
 //   LB4  în franceză, fără comenzi și cu notificările active: starea goală a
 //        fiecărei coloane, indiciul de pe „Nouvelles commandes”, „Connecté”,
 //        „Activées”. Mutația care pică: iconița/indiciul stării goale deduse
@@ -117,7 +120,7 @@ function busyKitchen(): Order[] {
     makeOrder({ id: 'A', status: 'new', source: 'qr', table: makeTable({ name: '7' }), created_at: '2026-07-20T09:15:00Z' }),
     makeOrder({ id: 'B', status: 'confirmed', source: 'waiter', created_at: '2026-07-20T09:18:00Z' }),
     makeOrder({ id: 'C', status: 'preparing', source: 'pickup', customer_name: 'Ana Pop', created_at: '2026-07-20T09:12:00Z' }),
-    makeOrder({ id: 'D', status: 'ready', source: 'waiter', table: makeTable({ name: '3' }), created_at: '2026-07-20T09:11:00Z' }),
+    makeOrder({ id: 'D', status: 'ready', source: 'waiter', table: makeTable({ name: '3' }), created_at: '2026-07-20T09:11:00Z', ready_at: '2026-07-20T09:17:00Z' }),
   ]
 }
 
@@ -217,9 +220,13 @@ describe('Bucătăria în limba personalului', () => {
     for (const col of ['Comenzi noi', 'În pregătire', 'Gata de servit']) {
       expect(screen.getByText(col)).toBeInTheDocument()
     }
-    expect(screen.getByRole('button', { name: 'Confirmă' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Marchează în pregătire' })).toBeInTheDocument()
+    // Lotul C3a: două atingeri — „Începe” pe A (new) și B (confirmed), „Gata” pe C.
+    expect(screen.getAllByRole('button', { name: 'Începe' })).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: 'Confirmă' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Marchează în pregătire' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Gata' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Anulează' })).toHaveLength(3)
+    expect(screen.getByText('Gata de 3m')).toBeInTheDocument()
     expect(screen.getByText('QR')).toBeInTheDocument()
     expect(screen.getByText('Pickup')).toBeInTheDocument()
     expect(screen.getAllByText('Ospătar')).toHaveLength(2)
@@ -261,9 +268,10 @@ describe('Bucătăria în limba personalului', () => {
     for (const col of ['New orders', 'Preparing', 'Ready to serve']) {
       expect(screen.getByText(col)).toBeInTheDocument()
     }
-    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Mark as preparing' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Start' })).toHaveLength(2)
     expect(screen.getByRole('button', { name: 'Ready' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Cancel' })).toHaveLength(3)
+    expect(screen.getByText('Ready for 3m')).toBeInTheDocument()
     expect(screen.getAllByText('Waiter')).toHaveLength(2)
     expect(screen.getAllByText('No table')).toHaveLength(2)
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
@@ -280,7 +288,7 @@ describe('Bucătăria în limba personalului', () => {
     const text = container.textContent ?? ''
     expect(romanianLeftovers(text, kitchenEn as Dict)).toEqual([])
     // Cuvintele luate din `orders` / `common` (nu sunt în `kitchen/ro.ts`).
-    for (const ro of ['Fără masă', 'Se salvează', 'Marchează în pregătire', 'Confirmă', 'Ospătar', 'Ieși din cont']) {
+    for (const ro of ['Fără masă', 'Se salvează', 'Marchează în pregătire', 'Confirmă', 'Ospătar', 'Ieși din cont', 'Anulează']) {
       expect(text, ro).not.toContain(ro)
     }
   })
@@ -289,9 +297,10 @@ describe('Bucătăria în limba personalului', () => {
     setup(busyKitchen(), BUSY)
     const { container } = inLang('de', <KitchenPage />)
     expect(screen.getByRole('heading', { name: 'Küche — Bistro' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Bestätigen' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'In Zubereitung setzen' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Starten' })).toHaveLength(2)
     expect(screen.getByRole('button', { name: 'Fertig' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Stornieren' })).toHaveLength(3)
+    expect(screen.getByText('Fertig seit 3 Min.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Ton einschalten' })).toBeInTheDocument()
     expect(screen.getByText('Neue Bestellungen')).toBeInTheDocument()
     expect(screen.getByText('Abholung')).toBeInTheDocument()
@@ -371,6 +380,8 @@ describe('precondiția L4b: namespace-urile componentelor montate condiționat',
     expect(waiterTop.has('waiterNs')).toBe(true)
     const conditional = [
       'src/components/ActionErrorNote.tsx',
+      // Lotul C3a: dialogul de anulare e montat condiționat și pe Bucătărie.
+      'src/components/CancelOrderDialog.tsx',
       'src/components/PickupDetails.tsx',
       'src/components/StaffSoldOutSheet.tsx',
       'src/components/UiLanguageSelect.tsx',

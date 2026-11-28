@@ -42,7 +42,12 @@ const de: Translation<typeof ro> = {
 
   src_qr: 'QR',
   src_waiter: 'Servicekraft',
-  next_confirm: 'Bestätigen',
+  next_start: 'Starten',
+  ready_since: 'Fertig seit {age}',
+  ready_waiting: {
+    one: '+{n} wartet auf die Servicekraft',
+    other: '+{n} warten auf die Servicekraft',
+  },
 }
 
 export default de
