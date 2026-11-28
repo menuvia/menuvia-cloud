@@ -258,16 +258,20 @@ describe('WaiterPage — Planul 3: pasul următor pe card (lotul O7b)', () => {
     expect(advance).toHaveBeenNthCalledWith(2, 'B', 'confirmed', { status: 'preparing' })
   })
 
-  it('WP6 listă: comanda `ready` are UN singur „Servit” (Gata de servit); `preparing` are pe al ei', async () => {
-    // Mutația care pică: handleForwardStep dat necondiționat în listă → două
-    // butoane „Servit” pentru aceeași comandă `ready` (3 în total).
+  it('WP6 listă: comanda `ready` are UN singur card și UN singur „Servit”; `preparing` are pe al ei', async () => {
+    // Mutațiile care pică: handleForwardStep dat necondiționat cardului din
+    // „Gata de servit” → două „Servit” pe aceeași comandă `ready`; `ready`
+    // lăsat în lista grupată (lotul C2b) → două carduri pentru aceeași comandă.
     const advance = setOrders([
       makeOrder({ id: 'R', status: 'ready', created_at: '2026-07-20T09:00:00Z' }),
       makeOrder({ id: 'P', status: 'preparing', created_at: '2026-07-20T09:05:00Z' }),
     ])
-    render(<WaiterPage />)
+    const { container } = render(<WaiterPage />)
     const served = await screen.findAllByRole('button', { name: 'Servit' })
     expect(served).toHaveLength(2)
+    // câte UN card per comandă (înainte `ready` apărea sus ȘI în grupul mesei)
+    expect(container.querySelectorAll('[data-order-id="R"]')).toHaveLength(1)
+    expect(container.querySelectorAll('[data-order-id="P"]')).toHaveLength(1)
     const now = vi.spyOn(Date, 'now')
     now.mockReturnValue(9_000_000)
     fireEvent.click(served[0]!)
@@ -290,7 +294,7 @@ describe('WaiterPage — Planul 3: pasul următor pe card (lotul O7b)', () => {
     // TableStatusBoard e lazy; cardul „Fără masă” se deschide cu „Vezi (1)”.
     fireEvent.click(await screen.findByRole('button', { name: /^vezi \(1\)/i }, { timeout: 5000 }))
     const servit = await screen.findAllByRole('button', { name: 'Servit' })
-    // control: în vederea pe mese nu există ReadyOrderCard, deci butonul e al cardului
+    // control: în vederea pe mese nu există „Gata de servit”, deci butonul e al cardului din panou
     expect(servit).toHaveLength(1)
     fireEvent.click(servit[0]!)
     expect(advance).toHaveBeenCalledTimes(1)

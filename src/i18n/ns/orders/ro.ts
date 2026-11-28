@@ -1,8 +1,8 @@
 // Namespace `orders` — dialogurile de comandă COMUNE ecranelor de personal
 // (lotul L4a): anularea (CancelOrderDialog), editarea (EditOrderSheet +
 // `describeEditOrderError`), foaia de opțiuni (ModifierSheet), istoricul
-// (OrderAuditSheet + `describeAuditEntry`), cardul „Gata de servit”
-// (ReadyOrderCard), detaliile de ridicare (PickupDetails), cardul de comandă al
+// (OrderAuditSheet + `describeAuditEntry`), „Servit” din „Gata de servit”
+// (OrderCard cu `onServe`, lotul C2b), detaliile de ridicare (PickupDetails), cardul de comandă al
 // ospătarului (OrderCard din WaiterOrderCard + pasul din `lib/waiterSteps`) și
 // comanda manuală (WaiterEntry); din lotul L4c și refuzul acțiunilor rapide
 // (`describeStaffActionError`, `actionErr_*`) și panoul „Epuizate”
@@ -178,7 +178,7 @@ const ro = {
   audit_productFallback: 'produs',
   audit_ev_itemModified: 'A modificat un produs',
 
-  // ── „Gata de servit” (ReadyOrderCard) ──
+  // ── „Gata de servit” (OrderCard cu `onServe`, lotul C2b) ──
   ready_serve: 'Servit',
 
   // ── Ridicarea (PickupDetails) — {time} e un element (ora, cifre tabulare) ──

@@ -743,6 +743,15 @@ interface OrderCardProps {
   // „Nou” (plata apare abia pe `served`). Omis = fără buton (lista nu-l dă pe
   // `ready`: acolo „Servit” e deja în „Gata de servit”).
   onAdvance?: (order: Order) => void
+  // „Gata de servit” (lotul C2b): în lista ospătarului comanda `ready` se
+  // randează O SINGURĂ dată — acest card complet, sus pe ecran (înainte apărea
+  // și ca ReadyOrderCard, și în grupul mesei). „Servit” de aici NU depinde de
+  // plan: servirea nu e bani, iar pe Planurile 1/2 și pe planul necunoscut
+  // cardul n-are pasul O7b. Cu el, pasul `onAdvance` nu se mai arată pe
+  // `ready` (un singur „Servit” per comandă). Omis = fără buton.
+  onServe?: (order: Order) => void
+  // Evidențierea verde a secțiunii „Gata de servit”.
+  highlight?: boolean
   // „Închide masa": închide TOATE comenzile deschise ale sesiunii de masă
   // (close_session_orders). Apare doar când comanda are `session_id` (QR);
   // comenzile de ospătar n-au sesiune.
@@ -774,6 +783,8 @@ function OrderCardInner({
   paymentsEnabled = null,
   onCloseOrder,
   onAdvance,
+  onServe,
+  highlight = false,
   onCloseTable,
   sessionUnservedCount = null,
   pending = false,
@@ -805,7 +816,11 @@ function OrderCardInner({
   // Planul 3: pasul următor (new/confirmed → preparing → served, pickup prin
   // ready). `=== true` STRICT păstrează tristate-ul fail-closed: Planul 1/2 are
   // „Închide comanda”, iar un plan necunoscut nu arată nimic.
-  const forward = paymentsEnabled === true && onAdvance != null ? waiterForwardStep(order) : null
+  // „Servit” din „Gata de servit” (lotul C2b) are prioritate: pe `ready` pasul
+  // O7b ar fi un al doilea „Servit” pentru aceeași comandă.
+  const serveReady = onServe != null && order.status === 'ready'
+  const forward =
+    !serveReady && paymentsEnabled === true && onAdvance != null ? waiterForwardStep(order) : null
   const isServed = order.status === 'served'
 
   async function handleCloseClick(): Promise<void> {
@@ -846,9 +861,11 @@ function OrderCardInner({
 
   return (
     <div
+      // Cheia comenzii pe card: testele numără câte carduri are o comandă (C2b).
+      data-order-id={order.id}
       style={{
-        background: D.s2,
-        border: `1px solid ${D.s3}`,
+        background: highlight ? D.greenA : D.s2,
+        border: `1px solid ${highlight ? D.greenBorder : D.s3}`,
         borderRadius: 12,
         padding: 16,
         display: 'flex',
@@ -1066,6 +1083,11 @@ function OrderCardInner({
       {forward != null && onAdvance && (
         <Button variant="primary" fullWidth loading={pending} onClick={() => onAdvance(order)}>
           {pending ? t('saving') : t(forward.labelKey)}
+        </Button>
+      )}
+      {serveReady && onServe && (
+        <Button variant="primary" fullWidth loading={pending} onClick={() => onServe(order)}>
+          {pending ? t('saving') : t('ready_serve')}
         </Button>
       )}
 

@@ -3,7 +3,7 @@
 // Waiter Dashboard (/waiter). Dark theme. No `any`.
 // =============================================================
 
-import { lazy, Suspense, useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { lazy, Suspense, useState, useEffect, useRef, useMemo, useCallback, useId } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { SignOutButton } from '../components/SignOutButton'
@@ -16,7 +16,10 @@ import { useZonedTodayRange } from '../hooks/useZonedTodayRange'
 import { formatTimeInZone, restaurantTimeZone } from '../lib/dates'
 import { BridgeOfflineBanner } from '../components/BridgeOfflineBanner'
 import { planSurface } from '../lib/planSurface'
-import { useReservations } from '../hooks/useReservations'
+import { useReservations, type Reservation } from '../hooks/useReservations'
+import { useRestaurantModules } from '../hooks/useRestaurantModules'
+import { isUnarrived, waiterReservationsView } from '../lib/waiterReservations'
+import { confirm as confirmDialog } from '../components/ui/confirm'
 import { useOfflineOrderQueue } from '../hooks/useOfflineOrderQueue'
 import { useAudioUnlock } from '../hooks/useAudioUnlock'
 import { createTapGuard } from '../lib/tapGuard'
@@ -57,7 +60,6 @@ import WaiterEntry from '../components/WaiterEntry'
 import { PayModal, OrderCard, type PayResult } from '../components/WaiterOrderCard'
 import { SplitBillModal } from '../components/SplitBillModal'
 import { sumPaymentsCents } from '../lib/partialPayments'
-import { ReadyOrderCard } from '../components/ReadyOrderCard'
 const DiscountModal = lazy(() => import('../components/DiscountModal'))
 const TableStatusBoard = lazy(() => import('../components/TableStatusBoard'))
 import type { FloorLayout } from '../lib/floorPlan'
@@ -182,6 +184,15 @@ export default function WaiterPage() {
   // Lotul O3b: retipărirea tichetului de bucătărie (după o editare imprimanta
   // nu primea nimic). Doar pe planul cu tichete de bucătărie.
   const kitchenTickets = hasFeature(restaurantFeatures.features, 'kitchen_tickets')
+  // Răscumpărarea de fidelizare (lotul C2b): înainte era MEREU montată, chiar
+  // fără program, și împingea apelurile în jos. Apare doar cu feature-ul de plan
+  // (`useFeatures` — planul RESTAURANTULUI, regula 3) ȘI modulul `loyalty`
+  // pornit. Modulele necitite (eroare de rețea) nu ascund unealta: RPC-ul
+  // `redeem_loyalty_reward` rămâne gate-ul real și răspunde „program inactiv”.
+  const restaurantModules = useRestaurantModules(restaurantId)
+  const loyaltyEnabled =
+    hasFeature(restaurantFeatures.features, 'loyalty') &&
+    (restaurantModules.isEnabled('loyalty') || restaurantModules.loadError)
   // Retipărirea în curs, per comandă: RPC-ul ocolește deduplicarea tichetelor
   // și inserează un rând NOU la fiecare apel, deci un dublu-tap scotea două
   // tichete (recenzia CodeRabbit pe #349). Ref-ul blochează sincron, starea
@@ -373,12 +384,6 @@ export default function WaiterPage() {
     prevCallIds.current = new Set(waiterCalls.map((c) => c.id))
   }, [waiterCalls])
 
-  function handleResolveCall(callId: string): void {
-    void resolveWaiterCall(callId).then(() => {
-      setWaiterCalls((prev) => prev.filter((c) => c.id !== callId))
-    })
-  }
-
   // ── Split bill ────────────────────────────────────────────────
   // Comanda pentru care s-a deschis „Plată parțială” (instantaneul de la
   // deschidere). Modalul primește la randare comanda VIE din listă (lotul C2a:
@@ -408,6 +413,34 @@ export default function WaiterPage() {
   // listă pe loc, iar cardul de dedesubt urcă sub deget (lib/tapGuard.ts).
   const tapGuard = useMemo(() => createTapGuard(), [])
 
+  // „Preiau” pe un apel (lotul C2b). Înainte: `void resolveWaiterCall(...)
+  // .then(...)` fără catch și fără stare de așteptare — pe un blip de rețea, o
+  // eroare de drepturi sau o sesiune expirată apelul rămânea pe ecran, butonul
+  // nu reacționa și promisiunea respinsă era „unhandled”. Acum butonul stă
+  // dezactivat cât cererea e în aer, iar refuzul apare ca toast, în limba
+  // personalului. Ref-ul blochează sincron (un dublu-tap ajunge înainte de
+  // re-randare); garda de dublu-tap e pe cheia apelului, domeniul 'list':
+  // cardul iese din listă și cel de dedesubt urcă sub deget.
+  const resolvingCallsRef = useRef<Set<string>>(new Set())
+  const [resolvingCallIds, setResolvingCallIds] = useState<ReadonlySet<string>>(() => new Set())
+  const handleResolveCall = useCallback(
+    async (callId: string): Promise<void> => {
+      if (resolvingCallsRef.current.has(callId) || !tapGuard(callId, 'list')) return
+      resolvingCallsRef.current.add(callId)
+      setResolvingCallIds(new Set(resolvingCallsRef.current))
+      try {
+        await resolveWaiterCall(callId)
+        setWaiterCalls((prev) => prev.filter((c) => c.id !== callId))
+      } catch (e: unknown) {
+        toast.error(describeStaffError(e, tc, { fallback: tw.t('call_takeErr') }))
+      } finally {
+        resolvingCallsRef.current.delete(callId)
+        setResolvingCallIds(new Set(resolvingCallsRef.current))
+      }
+    },
+    [tapGuard, toast, tc, tw],
+  )
+
   // Rezervări azi — ziua LOCALULUI, recalculată la trecerea miezului nopții
   // (tableta lăsată deschisă peste noapte rămânea pe ziua de ieri).
   const todayRange = useZonedTodayRange(localTz)
@@ -416,6 +449,50 @@ export default function WaiterPage() {
     updateStatus: updateReservationStatus,
     seat: seatReservation,
   } = useReservations(restaurantId, todayRange)
+
+  // Acțiunile pe rezervări (lotul C2b). „Așezat” și „Finalizează” scot cardul
+  // din vederea curentă (update optimist în useReservations), deci vecinul urcă
+  // sub deget: aceeași gardă de dublu-tap, pe cheia rezervării, domeniul
+  // 'list'. În „Toate”, „Finalizează” apare FIX în locul lui „Așezat” — fără
+  // gardă, un dublu-tap ar așeza ȘI ar încheia rezervarea dintr-o mișcare.
+  const handleSeatReservation = useCallback(
+    (r: Reservation, tableId: string): void => {
+      if (tableId.length === 0 || !tapGuard(r.id, 'list')) return
+      void seatReservation(r.id, tableId).catch((e: unknown) => toast.error(describeStaffError(e, tc)))
+    },
+    [seatReservation, tapGuard, toast, tc],
+  )
+  const handleFinishReservation = useCallback(
+    (r: Reservation): void => {
+      if (!tapGuard(r.id, 'list')) return
+      void updateReservationStatus(r.id, 'completed').catch((e: unknown) =>
+        toast.error(describeStaffError(e, tc)),
+      )
+    },
+    [updateReservationStatus, tapGuard, toast, tc],
+  )
+  // „Neprezentat”: dialogul comun al aplicației (ca în ReservationsTab), nu
+  // `window.confirm` — în unele webview-uri acela întorcea `false` fără să
+  // afișeze nimic, deci acțiunea nu se executa niciodată. Acțiunea e terminală
+  // (politica ospătarului, mig 143, nu iese din `no_show`) → dialog distructiv.
+  const handleNoShowReservation = useCallback(
+    async (r: Reservation): Promise<void> => {
+      const ok = await confirmDialog({
+        title: tw.t('resv_noShowConfirm'),
+        description: tw.t('resv_noShowDesc'),
+        confirmLabel: tw.t('resv_noShow'),
+        cancelLabel: tc.t('cancel'),
+        destructive: true,
+      })
+      if (!ok) return
+      try {
+        await updateReservationStatus(r.id, 'no_show')
+      } catch (e: unknown) {
+        toast.error(describeStaffError(e, tc))
+      }
+    },
+    [updateReservationStatus, toast, tw, tc],
+  )
   const activeReservations = useMemo(
     () =>
       reservations.filter(
@@ -490,6 +567,9 @@ export default function WaiterPage() {
   useEffect(() => {
     setSeatTablePick({})
   }, [restaurantId])
+  const handlePickSeatTable = useCallback((reservationId: string, tableId: string): void => {
+    setSeatTablePick((p) => ({ ...p, [reservationId]: tableId }))
+  }, [])
 
 
   // ── Table assignments — filter orders to waiter's assigned tables ──
@@ -720,8 +800,17 @@ export default function WaiterPage() {
   // OPT-8: memoizate — byStatus e stabil (useCallback pe [orders]) și listele
   // își schimbă identitatea doar când chiar se schimbă comenzile.
   const readyOrders = useMemo(() => byStatus(['ready']), [byStatus])
+  // Toate comenzile deschise — le primește „Stadiu mese” (acolo nu există
+  // secțiunea „Gata de servit”, deci `ready` stă pe masa ei).
   const openOrders = useMemo(
     () => byStatus(['new', 'confirmed', 'preparing', 'ready', 'served']),
+    [byStatus],
+  )
+  // Lista grupată pe mese FĂRĂ `ready` (lotul C2b): o comandă gata se randează
+  // O SINGURĂ dată, cardul complet din „Gata de servit”. Înainte apărea și acolo
+  // (ReadyOrderCard), și în grupul mesei, iar contorul o număra de două ori.
+  const listOpenOrders = useMemo(
+    () => byStatus(['new', 'confirmed', 'preparing', 'served']),
     [byStatus],
   )
 
@@ -1170,235 +1259,16 @@ export default function WaiterPage() {
           </div>
         )}
 
-        {/* Loyalty v1 (mig 226): răscumpărare recompensă pe codul cardului.
-            RPC-ul e gate-uit server-side (modul + plan + program activ) —
-            butonul e mereu vizibil, răspunsul spune clar dacă nu e cazul. */}
-        {restaurantId != null && <LoyaltyRedeem restaurantId={restaurantId} />}
-
-        {/* Section 0 — Rezervări azi */}
-        {activeReservations.length > 0 && (
-          <div style={{ marginBottom: 18 }}>
-            <div
-              style={{
-                fontFamily: D.fontBody,
-                fontSize: 12,
-                fontWeight: 600,
-                color: D.gold,
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em',
-                marginBottom: 12,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-              }}
-            >
-              <Icon name="calendar" size={14} />
-              {tw.t('resv_title', { n: activeReservations.length })}
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {activeReservations.map((r) => {
-                const t = formatTimeInZone(r.starts_at, localTz)
-                return (
-                  <div
-                    key={r.id}
-                    style={{
-                      background: D.s2,
-                      border: `1px solid ${D.s3}`,
-                      borderRadius: 12,
-                      padding: 14,
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'baseline',
-                        marginBottom: 6,
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-                        <span
-                          style={{
-                            fontFamily: D.fontDisplay,
-                            fontSize: 20,
-                            fontWeight: 700,
-                            color: D.t1,
-                          }}
-                        >
-                          {t}
-                        </span>
-                        <span style={{ fontSize: 14, color: D.t1 }}>{r.customer_name}</span>
-                      </div>
-                      <span
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 700,
-                          letterSpacing: '0.06em',
-                          textTransform: 'uppercase',
-                          color: r.status === 'seated' ? D.green : D.gold,
-                        }}
-                      >
-                        {r.status === 'seated'
-                          ? tw.t('resv_seated')
-                          : r.status === 'confirmed'
-                            ? tw.t('resv_confirmed')
-                            : tw.t('resv_pending')}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 13, color: D.t2, marginBottom: 10 }}>
-                      {tw.tp('resv_party', r.party_size)}
-                      {' · '}
-                      {r.table?.name ? tw.t('resv_atTable', { table: r.table.name }) : tw.t('resv_noTable')}
-                      {' · '}
-                      <a href={'tel:' + r.customer_phone} style={{ color: D.gold }}>
-                        {r.customer_phone}
-                      </a>
-                    </div>
-                    {r.requested_zone && !r.table?.name && (
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: D.amber,
-                          marginBottom: 8,
-                          padding: '4px 8px',
-                          background: D.amberA,
-                          borderRadius: 6,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 5,
-                        }}
-                      >
-                        <Icon name="leaf" size={13} />
-                        {tw.t('resv_zone', { zone: r.requested_zone })}
-                      </div>
-                    )}
-                    {r.special_requests && (
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: D.t2,
-                          fontStyle: 'italic',
-                          marginBottom: 10,
-                          padding: '6px 10px',
-                          background: D.s1,
-                          borderRadius: 6,
-                        }}
-                      >
-                        {tw.t('resv_special', { text: r.special_requests })}
-                      </div>
-                    )}
-                    {r.status !== 'seated' &&
-                      (() => {
-                        // O singură sursă de adevăr pentru pickul de masă:
-                        // pickul manual al ospătarului, fallback la masa pre-alocată.
-                        const pick = seatTablePick[r.id] ?? r.table_id ?? ''
-                        const canSeat = pick.length > 0
-                        return (
-                          <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
-                            <select
-                              value={pick}
-                              onChange={(e) =>
-                                setSeatTablePick((p) => ({ ...p, [r.id]: e.target.value }))
-                              }
-                              style={{
-                                flex: '0 0 auto',
-                                maxWidth: 120,
-                                background: D.s1,
-                                color: D.t1,
-                                border: `1px solid ${D.s3}`,
-                                borderRadius: 8,
-                                padding: '0 8px',
-                                fontSize: 13,
-                              }}
-                            >
-                              <option value="">{tw.t('resv_pickTable')}</option>
-                              {tables.map((t) => (
-                                <option key={t.id} value={t.id}>
-                                  {t.name}
-                                  {t.seats ? ` (${t.seats})` : ''}
-                                </option>
-                              ))}
-                            </select>
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              onClick={() => {
-                                if (!canSeat) return
-                                void seatReservation(r.id, pick).catch((e) =>
-                                  toast.error(describeStaffError(e, tc)),
-                                )
-                              }}
-                              disabled={!canSeat}
-                              title={canSeat ? tw.t('resv_seatTitle') : tw.t('resv_pickFirst')}
-                              style={{ flex: 1 }}
-                            >
-                              {tw.t('resv_seat')}
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => {
-                                if (!confirm(tw.t('resv_noShowConfirm'))) return
-                                void updateReservationStatus(r.id, 'no_show').catch((e) =>
-                                  toast.error(describeStaffError(e, tc)),
-                                )
-                              }}
-                            >
-                              {tw.t('resv_noShow')}
-                            </Button>
-                          </div>
-                        )
-                      })()}
-                  </div>
-                )
-              })}
-            </div>
-            {tablesLoadError && (
-              <div
-                style={{
-                  fontSize: 12,
-                  color: D.red,
-                  marginTop: 8,
-                  padding: '6px 10px',
-                  background: D.redA,
-                  borderRadius: 6,
-                }}
-              >
-                {tw.t('resv_tablesError', {
-                  error: describeStaffError(tablesLoadError.err, tc, {
-                    fallback: tw.t('resv_tablesErrorFallback'),
-                  }),
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Section 1 — Ready */}
-        {/* Non-Pro (fără toggle) → mereu lista, ca ospătarul să nu rămână blocat
+        {/* Ordinea serviciului (lotul C2b): apelurile („Cere nota” întâi) →
+            „Gata de servit” → comenzile deschise → rezervările zilei (jos,
+            pliate pe următoarele 2 ore) → fidelizarea. Înainte rezervările
+            întregii zile și răscumpărarea stăteau DEASUPRA, deci un client care
+            cerea nota ajungea sub ecran.
+            Non-Pro (fără toggle) → mereu lista, ca ospătarul să nu rămână blocat
             pe „Stadiu mese" dacă restaurantul activ trece pe un plan sub Pro. */}
         {view === 'lista' || paymentsEnabled !== true ? (
           <>
-        {readyOrders.length > 0 && (
-          <div>
-            <SectionHeading label={tw.t('section_ready')} count={readyOrders.length} color={D.green} />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {readyOrders.map((order, i) => (
-                <RevealItem key={order.id} delay={Math.min(i, 5) * 40}>
-                  <ReadyOrderCard
-                    order={order}
-                    onServe={handleServit}
-                    pending={pendingIds.has(order.id)}
-                    actionError={actionErrors[order.id] ?? null}
-                    onDismissError={dismissActionError}
-                  />
-                </RevealItem>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Section 0 - Waiter Calls */}
+        {/* Apelurile de la masă */}
         {waiterCalls.length > 0 && (
           <div>
             <SectionHeading label={tw.t('section_calls')} count={waiterCalls.length} color={D.amber} />
@@ -1476,7 +1346,8 @@ export default function WaiterPage() {
                   <Button
                     variant="primary"
                     className="pressable"
-                    onClick={() => handleResolveCall(call.id)}
+                    loading={resolvingCallIds.has(call.id)}
+                    onClick={() => void handleResolveCall(call.id)}
                   >
                     {tw.t('call_take')}
                   </Button>
@@ -1486,18 +1357,57 @@ export default function WaiterPage() {
           </div>
         )}
 
-        {/* Section 2 — All open orders */}
+        {/* „Gata de servit” — cardul COMPLET (Editează / Anulează / Istoric +
+            „Servit”), evidențiat; comanda nu se mai repetă în grupul mesei. */}
+        {readyOrders.length > 0 && (
+          <div>
+            <SectionHeading label={tw.t('section_ready')} count={readyOrders.length} color={D.green} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {readyOrders.map((order, i) => (
+                <RevealItem key={order.id} delay={Math.min(i, 5) * 40}>
+                  <OrderCard
+                    order={order}
+                    highlight
+                    timeZone={localTz}
+                    onPayOpen={handlePayOpen}
+                    onSplitOpen={handleSplitOpen}
+                    onEdit={setEditOrder}
+                    onCancel={setCancelOrder}
+                    onReprint={onReprint}
+                    reprinting={reprintingIds.has(order.id)}
+                    onAudit={isAdminRole ? setAuditOrder : undefined}
+                    paymentsEnabled={paymentsEnabled}
+                    onCloseOrder={handleCloseOrder}
+                    // „Servit” pe ORICE plan (servirea nu e bani); pasul O7b nu
+                    // se mai arată pe `ready` când cardul are `onServe`.
+                    onServe={handleServit}
+                    onCloseTable={handleCloseTable}
+                    sessionUnservedCount={sessionUnservedCount(order)}
+                    pending={pendingIds.has(order.id)}
+                    actionError={actionErrors[order.id] ?? null}
+                    onDismissError={dismissActionError}
+                  />
+                </RevealItem>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Comenzile deschise, grupate pe masă — FĂRĂ `ready` (sunt sus). Cu
+            doar comenzi gata pe ecran, secțiunea goală nu mai spune „Nicio
+            comandă deschisă” sub ele. */}
+        {(listOpenOrders.length > 0 || readyOrders.length === 0) && (
         <div>
           <SectionHeading
             label={tw.t('section_open')}
-            count={openOrders.length}
+            count={listOpenOrders.length}
             color={D.t2}
           />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {/* Grupare pe masă: ospătarul gândește în mese, nu în comenzi.
                 Fără refactor — doar render-ul e grupat; cardurile rămân identice. */}
             {Array.from(
-              openOrders.reduce((m, o) => {
+              listOpenOrders.reduce((m, o) => {
                 const key = o.table?.name ?? tw.t('noTable')
                 const arr = m.get(key) ?? []
                 arr.push(o)
@@ -1547,9 +1457,7 @@ export default function WaiterPage() {
                       onAudit={isAdminRole ? setAuditOrder : undefined}
                       paymentsEnabled={paymentsEnabled}
                       onCloseOrder={handleCloseOrder}
-                      // `ready` are deja „Servit” în „Gata de servit” (ReadyOrderCard):
-                      // un al doilea buton pentru aceeași comandă ar fi dublură.
-                      onAdvance={order.status === 'ready' ? undefined : handleForwardStep}
+                      onAdvance={handleForwardStep}
                       onCloseTable={handleCloseTable}
                       sessionUnservedCount={sessionUnservedCount(order)}
                       pending={pendingIds.has(order.id)}
@@ -1560,11 +1468,12 @@ export default function WaiterPage() {
                 </div>
               </div>
             ))}
-            {openOrders.length === 0 && (
+            {listOpenOrders.length === 0 && (
               <EmptyState icon="utensils" title={tw.t('empty_open')} />
             )}
           </div>
         </div>
+        )}
           </>
         ) : (
           <Suspense fallback={null}>
@@ -1587,8 +1496,8 @@ export default function WaiterPage() {
                 onAudit={isAdminRole ? setAuditOrder : undefined}
                 paymentsEnabled={paymentsEnabled}
                 onCloseOrder={handleCloseOrder}
-                // În „Stadiu mese” ReadyOrderCard NU se randează: fără pasul de
-                // pe card, o comandă `ready` n-avea „Servit”, deci nici plată.
+                // În „Stadiu mese” secțiunea „Gata de servit” nu există: fără
+                // pasul de pe card, o comandă `ready` n-avea „Servit”, deci nici plată.
                 onAdvance={handleForwardStep}
                 onCloseTable={handleCloseTable}
                 sessionUnservedCount={sessionUnservedCount(order)}
@@ -1600,6 +1509,26 @@ export default function WaiterPage() {
           />
           </Suspense>
         )}
+
+        {/* Rezervările zilei — JOS, după comenzi (ambele vederi). */}
+        {activeReservations.length > 0 && (
+          <WaiterReservationsSection
+            reservations={activeReservations}
+            tables={tables}
+            timeZone={localTz}
+            seatTablePick={seatTablePick}
+            onPickTable={handlePickSeatTable}
+            onSeat={handleSeatReservation}
+            onNoShow={handleNoShowReservation}
+            onFinish={handleFinishReservation}
+            tablesLoadError={tablesLoadError}
+          />
+        )}
+
+        {/* Loyalty v1 (mig 226): răscumpărare recompensă pe codul cardului.
+            Doar cu feature-ul de plan + modulul `loyalty` (lotul C2b); RPC-ul
+            rămâne gate-ul real (modul + plan + program activ). */}
+        {loyaltyEnabled && restaurantId != null && <LoyaltyRedeem restaurantId={restaurantId} />}
       </div>
 
       {payOrder != null &&
@@ -1757,6 +1686,290 @@ export default function WaiterPage() {
             handleOrderSent(confirmation)
           }}
         />
+      )}
+    </div>
+  )
+}
+
+// ── Rezervările zilei (lotul C2b) ───────────────────────────────────────────
+// Secțiunea stă JOS pe ecran (după comenzi) și arată implicit doar rezervările
+// NESOSITE din următoarele 2 ore, inclusiv cele întârziate
+// (lib/waiterReservations.ts); „Toate” arată restul zilei și rezervările
+// așezate, care primesc „Finalizează”. Acțiunile (gărzile de dublu-tap,
+// dialogul de neprezentare, toast-urile) stau în pagină.
+
+/** Cât de des se reevaluează fereastra de 2 ore (ms). */
+const RESERVATION_CLOCK_MS = 60_000
+
+/** O masă din selectorul de așezare. Tip numit, nu `ReadonlyArray<{ … }>` în
+ *  props: `}>` urmat de câmpul următor era fals-pozitiv al scanerului SK5. */
+interface SeatTable {
+  id: string
+  name: string
+  seats: number | null
+}
+
+interface WaiterReservationsSectionProps {
+  /** Rezervările ACTIVE ale zilei (nesosite + așezate). */
+  reservations: readonly Reservation[]
+  tables: readonly SeatTable[]
+  timeZone: string
+  seatTablePick: Record<string, string>
+  onPickTable: (reservationId: string, tableId: string) => void
+  onSeat: (r: Reservation, tableId: string) => void
+  onNoShow: (r: Reservation) => void
+  onFinish: (r: Reservation) => void
+  tablesLoadError: { err: unknown } | null
+}
+
+function WaiterReservationsSection({
+  reservations,
+  tables,
+  timeZone,
+  seatTablePick,
+  onPickTable,
+  onSeat,
+  onNoShow,
+  onFinish,
+  tablesLoadError,
+}: WaiterReservationsSectionProps) {
+  const tw = useT(waiterNs)
+  const tc = useT(commonNs)
+  const listId = useId()
+  const [showAll, setShowAll] = useState(false)
+  // Ceasul ferestrei: o rezervare de la 21:00 intră singură în listă la 19:00.
+  // Tabletele adorm (intervalul nu rulează cu ecranul stins), deci și la
+  // revenirea în prim-plan.
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  useEffect(() => {
+    const tick = (): void => setNowMs(Date.now())
+    const onVisible = (): void => {
+      if (document.visibilityState === 'visible') tick()
+    }
+    const id = setInterval(tick, RESERVATION_CLOCK_MS)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [])
+  const view = useMemo(() => waiterReservationsView(reservations, nowMs), [reservations, nowMs])
+  const shown = showAll ? view.all : view.due
+  const hiddenCount = view.all.length - view.due.length
+
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 10,
+          flexWrap: 'wrap',
+          marginBottom: 12,
+        }}
+      >
+        <div
+          style={{
+            fontFamily: D.fontBody,
+            fontSize: 12,
+            fontWeight: 600,
+            color: D.gold,
+            textTransform: 'uppercase',
+            letterSpacing: '0.08em',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <Icon name="calendar" size={14} />
+          {view.next != null
+            ? tw.t('resv_titleNext', {
+                n: view.all.length,
+                time: formatTimeInZone(view.next.starts_at, timeZone),
+              })
+            : tw.t('resv_title', { n: view.all.length })}
+        </div>
+        {(hiddenCount > 0 || showAll) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-expanded={showAll}
+            aria-controls={listId}
+            onClick={() => setShowAll((v) => !v)}
+          >
+            {showAll ? tw.t('resv_showDue') : tw.t('resv_showAll', { n: view.all.length })}
+          </Button>
+        )}
+      </div>
+      <div id={listId} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {shown.length === 0 && (
+          <div style={{ fontSize: 13, color: D.t2 }}>{tw.t('resv_noneDue')}</div>
+        )}
+        {shown.map((r) => {
+          const time = formatTimeInZone(r.starts_at, timeZone)
+          return (
+            <div
+              key={r.id}
+              data-reservation-id={r.id}
+              style={{
+                background: D.s2,
+                border: `1px solid ${D.s3}`,
+                borderRadius: 12,
+                padding: 14,
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'baseline',
+                  marginBottom: 6,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                  <span
+                    style={{
+                      fontFamily: D.fontDisplay,
+                      fontSize: 20,
+                      fontWeight: 700,
+                      color: D.t1,
+                    }}
+                  >
+                    {time}
+                  </span>
+                  <span style={{ fontSize: 14, color: D.t1 }}>{r.customer_name}</span>
+                </div>
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    color: r.status === 'seated' ? D.green : D.gold,
+                  }}
+                >
+                  {r.status === 'seated'
+                    ? tw.t('resv_seated')
+                    : r.status === 'confirmed'
+                      ? tw.t('resv_confirmed')
+                      : tw.t('resv_pending')}
+                </span>
+              </div>
+              <div style={{ fontSize: 13, color: D.t2, marginBottom: 10 }}>
+                {tw.tp('resv_party', r.party_size)}
+                {' · '}
+                {r.table?.name ? tw.t('resv_atTable', { table: r.table.name }) : tw.t('resv_noTable')}
+                {' · '}
+                <a href={'tel:' + r.customer_phone} style={{ color: D.gold }}>
+                  {r.customer_phone}
+                </a>
+              </div>
+              {r.requested_zone && !r.table?.name && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: D.amber,
+                    marginBottom: 8,
+                    padding: '4px 8px',
+                    background: D.amberA,
+                    borderRadius: 6,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                  }}
+                >
+                  <Icon name="leaf" size={13} />
+                  {tw.t('resv_zone', { zone: r.requested_zone })}
+                </div>
+              )}
+              {r.special_requests && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: D.t2,
+                    fontStyle: 'italic',
+                    marginBottom: 10,
+                    padding: '6px 10px',
+                    background: D.s1,
+                    borderRadius: 6,
+                  }}
+                >
+                  {tw.t('resv_special', { text: r.special_requests })}
+                </div>
+              )}
+              {isUnarrived(r.status) &&
+                (() => {
+                  // O singură sursă de adevăr pentru pickul de masă:
+                  // pickul manual al ospătarului, fallback la masa pre-alocată.
+                  const pick = seatTablePick[r.id] ?? r.table_id ?? ''
+                  const canSeat = pick.length > 0
+                  return (
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+                      <select
+                        value={pick}
+                        onChange={(e) => onPickTable(r.id, e.target.value)}
+                        style={{
+                          flex: '0 0 auto',
+                          maxWidth: 120,
+                          background: D.s1,
+                          color: D.t1,
+                          border: `1px solid ${D.s3}`,
+                          borderRadius: 8,
+                          padding: '0 8px',
+                          fontSize: 13,
+                        }}
+                      >
+                        <option value="">{tw.t('resv_pickTable')}</option>
+                        {tables.map((tb) => (
+                          <option key={tb.id} value={tb.id}>
+                            {tb.name}
+                            {tb.seats ? ` (${tb.seats})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => onSeat(r, pick)}
+                        disabled={!canSeat}
+                        title={canSeat ? tw.t('resv_seatTitle') : tw.t('resv_pickFirst')}
+                        style={{ flex: 1 }}
+                      >
+                        {tw.t('resv_seat')}
+                      </Button>
+                      <Button variant="secondary" size="sm" onClick={() => onNoShow(r)}>
+                        {tw.t('resv_noShow')}
+                      </Button>
+                    </div>
+                  )
+                })()}
+              {r.status === 'seated' && (
+                <Button variant="secondary" size="sm" fullWidth onClick={() => onFinish(r)}>
+                  {tw.t('resv_finish')}
+                </Button>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      {tablesLoadError && (
+        <div
+          style={{
+            fontSize: 12,
+            color: D.red,
+            marginTop: 8,
+            padding: '6px 10px',
+            background: D.redA,
+            borderRadius: 6,
+          }}
+        >
+          {tw.t('resv_tablesError', {
+            error: describeStaffError(tablesLoadError.err, tc, {
+              fallback: tw.t('resv_tablesErrorFallback'),
+            }),
+          })}
+        </div>
       )}
     </div>
   )

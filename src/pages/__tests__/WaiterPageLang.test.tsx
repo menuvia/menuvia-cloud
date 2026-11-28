@@ -47,6 +47,7 @@ const h = vi.hoisted(() => ({
   useFeatures: vi.fn(),
   useBridgeConnected: vi.fn(),
   useReservations: vi.fn(),
+  useRestaurantModules: vi.fn(),
   useOfflineOrderQueue: vi.fn(),
   useAudioUnlock: vi.fn(),
   redeem: vi.fn(),
@@ -62,6 +63,8 @@ vi.mock('../../hooks/useOrders', () => ({ useOrders: h.useOrders }))
 vi.mock('../../hooks/useFeatures', () => ({ useFeatures: h.useFeatures }))
 vi.mock('../../hooks/useBridgeConnected', () => ({ useBridgeConnected: h.useBridgeConnected }))
 vi.mock('../../hooks/useReservations', () => ({ useReservations: h.useReservations }))
+// Fidelizarea apare doar cu feature-ul de plan + modulul `loyalty` (lotul C2b).
+vi.mock('../../hooks/useRestaurantModules', () => ({ useRestaurantModules: h.useRestaurantModules }))
 vi.mock('../../hooks/useOfflineOrderQueue', () => ({ useOfflineOrderQueue: h.useOfflineOrderQueue }))
 vi.mock('../../hooks/useAudioUnlock', () => ({ useAudioUnlock: h.useAudioUnlock }))
 vi.mock('../../components/ui/useToast', () => ({ useToast: () => h.toast }))
@@ -198,6 +201,7 @@ beforeEach(() => {
   h.useFeatures.mockReturnValue({ features: featuresFor('pro'), loading: false, reload: vi.fn() })
   h.useBridgeConnected.mockReturnValue({ status: null, loading: false })
   h.useReservations.mockReturnValue({ reservations: [RESERVATION], updateStatus: vi.fn(), seat: vi.fn() })
+  h.useRestaurantModules.mockReturnValue({ isEnabled: (k: string) => k === 'loyalty', loadError: false, loading: false })
   h.useOfflineOrderQueue.mockReturnValue({
     isOffline: true,
     pendingCount: 2,
@@ -253,7 +257,9 @@ describe('pagina ospătarului în limba personalului', () => {
     expect(screen.getByRole('button', { name: 'Preiau' })).toBeInTheDocument()
     expect(screen.getByText('Apeluri ospătar')).toBeInTheDocument()
     expect(screen.getByText('Toate comenzile deschise')).toBeInTheDocument()
-    expect(screen.getByText('2 comenzi')).toBeInTheDocument()
+    // Lotul C2b: comanda `ready` stă doar în „Gata de servit”, deci grupul mesei
+    // 7 o numără doar pe cea servită.
+    expect(screen.getByText('1 comandă')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Fidelizare — cod client' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Stadiu mese' })).toBeInTheDocument()
   })
@@ -277,7 +283,7 @@ describe('pagina ospătarului în limba personalului', () => {
     expect(screen.getByRole('button', { name: 'On it' })).toBeInTheDocument()
     expect(screen.getByText('Waiter calls')).toBeInTheDocument()
     expect(screen.getByText('All open orders')).toBeInTheDocument()
-    expect(screen.getByText('2 orders')).toBeInTheDocument()
+    expect(screen.getByText('1 order')).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Table status' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Choose a table…' })).toBeInTheDocument()
     expect(romanianLeftovers(container.textContent ?? '', waiterEn)).toEqual([])

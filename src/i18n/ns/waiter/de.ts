@@ -74,6 +74,12 @@ const de: Translation<typeof ro> = {
   resv_noShowConfirm: 'Als No-Show markieren?',
   resv_tablesError: 'Die Tischliste konnte nicht geladen werden: {error}',
   resv_tablesErrorFallback: 'Die Tische konnten nicht geladen werden.',
+  resv_titleNext: 'Reservierungen heute ({n}) · nächste um {time}',
+  resv_showAll: 'Alle ({n})',
+  resv_showDue: 'Nur die nächsten 2 Stunden',
+  resv_noneDue: 'Keine Reservierungen in den nächsten 2 Stunden.',
+  resv_finish: 'Abschließen',
+  resv_noShowDesc: 'Diese Aktion kann in der App nicht rückgängig gemacht werden.',
 
   section_ready: 'Bereit zum Servieren',
   section_calls: 'Service-Rufe',
@@ -87,6 +93,7 @@ const de: Translation<typeof ro> = {
   call_billBadge: 'RECHNUNG GEWÜNSCHT',
   call_tip: '· Trinkgeld vom Gast {amount} lei',
   call_take: 'Übernehmen',
+  call_takeErr: 'Der Ruf konnte nicht übernommen werden. Bitte versuchen Sie es erneut.',
 
   reprint_ok: 'Der Küchenbon wurde in die Warteschlange der Küche gestellt.',
   reprint_noPrinter: 'Es ist kein Küchendrucker verbunden (Einstellungen → Bridge).',

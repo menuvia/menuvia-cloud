@@ -70,6 +70,12 @@ const en: Translation<typeof ro> = {
   resv_noShowConfirm: 'Mark as a no-show?',
   resv_tablesError: 'We couldn’t load the table list: {error}',
   resv_tablesErrorFallback: 'We couldn’t load the tables.',
+  resv_titleNext: 'Today’s reservations ({n}) · next at {time}',
+  resv_showAll: 'All ({n})',
+  resv_showDue: 'Only the next 2 hours',
+  resv_noneDue: 'No reservations in the next 2 hours.',
+  resv_finish: 'Complete',
+  resv_noShowDesc: 'This can’t be undone from the app.',
 
   section_ready: 'Ready to serve',
   section_calls: 'Waiter calls',
@@ -83,6 +89,7 @@ const en: Translation<typeof ro> = {
   call_billBadge: 'BILL REQUESTED',
   call_tip: '· tip from guest {amount} lei',
   call_take: 'On it',
+  call_takeErr: 'The call couldn’t be taken. Try again.',
 
   reprint_ok: 'The ticket has been queued for the kitchen.',
   reprint_noPrinter: 'No kitchen printer is connected (Settings → Bridge).',

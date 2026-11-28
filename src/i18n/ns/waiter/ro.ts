@@ -108,6 +108,15 @@ const ro = {
   resv_noShowConfirm: 'Marchezi ca no-show?',
   resv_tablesError: 'Nu am putut încărca lista meselor: {error}',
   resv_tablesErrorFallback: 'Nu am putut încărca mesele.',
+  // Lotul C2b: secțiunea stă JOS (după comenzi) și arată implicit doar
+  // rezervările nesosite din următoarele 2 ore (lib/waiterReservations.ts).
+  resv_titleNext: 'Rezervări azi ({n}) · următoarea {time}',
+  resv_showAll: 'Toate ({n})',
+  resv_showDue: 'Doar următoarele 2 ore',
+  resv_noneDue: 'Nicio rezervare în următoarele 2 ore.',
+  // Rezervarea așezată se încheie (seated → completed, permis de mig 143).
+  resv_finish: 'Finalizează',
+  resv_noShowDesc: 'Acțiunea nu poate fi anulată din aplicație.',
 
   // ── Secțiunile listei ──
   section_ready: 'Gata de servit',
@@ -124,6 +133,7 @@ const ro = {
   call_billBadge: 'CERE NOTA',
   call_tip: '· bacșiș propus {amount} lei',
   call_take: 'Preiau',
+  call_takeErr: 'Apelul nu a putut fi preluat. Reîncearcă.',
 
   // ── Toast-urile paginii ──
   reprint_ok: 'Tichetul a fost pus în coada bucătăriei.',
