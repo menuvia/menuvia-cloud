@@ -60,6 +60,7 @@ const de: Translation<typeof ro> = {
   field_cap: 'Höchstbetrag (lei, optional)',
   field_capPh: 'Max. lei (optional)',
   field_capAria: 'Höchstbetrag in lei, optional',
+  field_capHint: 'Leer oder 0 = kein Höchstbetrag',
   field_active: 'Regel sofort aktiv',
   saveChanges: 'Änderungen speichern',
   create: 'Regel anlegen',
@@ -77,6 +78,12 @@ const de: Translation<typeof ro> = {
     'Auf das Speichern kam keine Antwort vom Server, und die Regel in der neu geladenen Liste hat nicht Ihre Werte: Die Änderung wurde nicht gespeichert. Sie können es erneut versuchen.',
   err_saveUnverified:
     'Auf das Speichern kam keine Antwort vom Server, und die Regelliste konnte nicht neu geladen werden: Es ist nicht bekannt, ob das Speichern angekommen ist. Prüfen Sie die Verbindung und versuchen Sie es erneut – ein neuer Versuch legt die Regel nicht doppelt an.',
+  err_ruleGone:
+    'Die Regel existiert nicht mehr – sie wurde gelöscht, vermutlich auf einem anderen Gerät –, daher wurde die Änderung nicht gespeichert. Schließen Sie den Editor: Die Liste wurde neu geladen. Wenn Sie die Regel noch brauchen, legen Sie eine neue an.',
+  err_ruleChanged:
+    'Die Regel wurde auf einem anderen Gerät geändert, nachdem Sie den Editor geöffnet haben, daher hat Ihr Speichern sie nicht überschrieben. Die Liste wurde neu geladen. Prüfen Sie die Werte im Formular (auch „Regel sofort aktiv“) und speichern Sie erneut, um die neuen Werte zu überschreiben – oder schließen Sie den Editor, um die geänderte Regel zu sehen.',
+  err_ruleStaleUnverified:
+    'Die Regel wurde auf einem anderen Gerät gelöscht oder geändert, nachdem Sie den Editor geöffnet haben, daher hat Ihr Speichern sie nicht überschrieben, und die Regelliste konnte nicht neu geladen werden. Prüfen Sie die Verbindung und versuchen Sie es erneut.',
   saving: 'Wird gespeichert…',
   verifying: 'Wird geprüft…',
   saved_late: 'Die Regel wurde gespeichert – die Bestätigung kam, nachdem die Verbindung wiederhergestellt war.',

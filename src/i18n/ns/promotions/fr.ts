@@ -60,6 +60,7 @@ const fr: Translation<typeof ro> = {
   field_cap: 'Plafond maximal (lei, facultatif)',
   field_capPh: 'Max lei (facultatif)',
   field_capAria: 'Plafond maximal en lei, facultatif',
+  field_capHint: 'Vide ou 0 = sans plafond',
   field_active: 'Règle active immédiatement',
   saveChanges: 'Enregistrer les modifications',
   create: 'Créer la règle',
@@ -77,6 +78,12 @@ const fr: Translation<typeof ro> = {
     'L’enregistrement n’a reçu aucune réponse du serveur et la règle de la liste rechargée n’a pas vos valeurs : la modification n’a pas été enregistrée. Vous pouvez réessayer.',
   err_saveUnverified:
     'L’enregistrement n’a reçu aucune réponse du serveur et la liste des règles n’a pas pu être rechargée : on ne sait pas si l’enregistrement a abouti. Vérifiez la connexion et réessayez — une nouvelle tentative ne duplique pas la règle.',
+  err_ruleGone:
+    'La règle n’existe plus (elle a été supprimée, probablement depuis un autre appareil) : la modification n’a donc pas été enregistrée. Fermez l’éditeur : la liste a été rechargée. Si vous avez encore besoin de la règle, créez-en une nouvelle.',
+  err_ruleChanged:
+    'La règle a été modifiée depuis un autre appareil après l’ouverture de l’éditeur : votre enregistrement ne l’a donc pas écrasée. La liste a été rechargée. Vérifiez les valeurs du formulaire (y compris « Règle active immédiatement ») et enregistrez à nouveau pour les écrire par-dessus les nouvelles — ou fermez l’éditeur pour voir la règle modifiée.',
+  err_ruleStaleUnverified:
+    'La règle a été supprimée ou modifiée depuis un autre appareil après l’ouverture de l’éditeur : votre enregistrement ne l’a donc pas écrasée, et la liste des règles n’a pas pu être rechargée. Vérifiez la connexion et réessayez.',
   saving: 'Enregistrement…',
   verifying: 'Vérification…',
   saved_late: 'La règle a été enregistrée — la confirmation est arrivée après le rétablissement de la connexion.',

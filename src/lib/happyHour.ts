@@ -58,8 +58,8 @@ export async function fetchHappyHourRules(
   return (data ?? []) as HappyHourRule[]
 }
 
-// `signal` (opțional) ANULEAZĂ cererea, nu doar o ignoră (recenzia lotului
-// C4a): supabase-js nu are timeout, iar editorul Happy Hour își mărginește
+// `signal` (opțional; la modificare, în `opts`) ANULEAZĂ cererea, nu doar o
+// ignoră (recenzia lotului C4a): supabase-js nu are timeout, iar editorul Happy Hour își mărginește
 // salvarea în timp (HappyHourTab) — fără anulare, o cerere abandonată ar fi
 // putut ajunge la server și DUPĂ ce omul a primit „nu s-a putut confirma”.
 // Pe o cerere anulată, supabase-js întoarce eroarea (`AbortError`), deci
@@ -89,14 +89,31 @@ export async function createHappyHourRule(
   return data as HappyHourRule
 }
 
+// Ce a scris o modificare: id-ul și noul `updated_at` (îl pune trigger-ul
+// BEFORE UPDATE din mig 036 la ORICE modificare a rândului).
+export type HappyHourRuleStamp = Pick<HappyHourRule, 'id' | 'updated_at'>
+
+// Întoarce rândul modificat, sau `null` când modificarea n-a atins NICIUN rând
+// (recenzia adversarială a lui cdcb6dd): un UPDATE care nu se potrivește cu
+// nimic — regula ștearsă pe alt dispozitiv, ascunsă de RLS după o schimbare de
+// rol sau, cu `ifUpdatedAt`, modificată între timp — primește tot un răspuns de
+// succes, fără eroare. Fără `.select(...)` cererea trecea drept salvată.
+// `ifUpdatedAt` = concurența optimistă a editorului (HappyHourTab): modificarea
+// se aplică doar dacă rândul are încă `updated_at`-ul versiunii peste care s-a
+// deschis editorul; altfel `null`, iar apelantul reîncarcă lista și decide.
+// `signal` (opțional) anulează cererea, ca la creare.
 export async function updateHappyHourRule(
   id: string,
   fields: Partial<HappyHourRule>,
-  signal?: AbortSignal,
-): Promise<void> {
-  const query = supabase.from('happy_hour_rules').update(fields).eq('id', id)
-  const { error } = await (signal ? query.abortSignal(signal) : query)
+  opts: { ifUpdatedAt?: string; signal?: AbortSignal } = {},
+): Promise<HappyHourRuleStamp | null> {
+  const byId = supabase.from('happy_hour_rules').update(fields).eq('id', id)
+  const guarded = opts.ifUpdatedAt == null ? byId : byId.eq('updated_at', opts.ifUpdatedAt)
+  const query = guarded.select('id, updated_at')
+  const { data, error } = await (opts.signal ? query.abortSignal(opts.signal) : query)
   if (error) throw error
+  const rows = (data ?? []) as HappyHourRuleStamp[]
+  return rows[0] ?? null
 }
 
 export async function deleteHappyHourRule(id: string): Promise<void> {

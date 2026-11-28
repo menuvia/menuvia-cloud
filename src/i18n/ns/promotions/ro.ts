@@ -72,6 +72,9 @@ const ro = {
   field_cap: 'Plafon maxim (lei, opțional)',
   field_capPh: 'Max lei (opțional)',
   field_capAria: 'Plafon maxim în lei, opțional',
+  // Sub câmpul plafonului (recenzia adversarială a lui cdcb6dd): un plafon de 0
+  // lei pleacă la server ca „fără plafon”, nu ca o reducere plafonată la 0.
+  field_capHint: 'Gol sau 0 = fără plafon',
   field_active: 'Regulă activă imediat',
   saveChanges: 'Salvează modificări',
   create: 'Creează regulă',
@@ -99,6 +102,18 @@ const ro = {
     'Salvarea n-a primit răspuns de la server, iar regula din lista reîncărcată nu are valorile tale: modificarea nu s-a salvat. Poți încerca din nou.',
   err_saveUnverified:
     'Salvarea n-a primit răspuns de la server, iar lista regulilor nu s-a putut reîncărca: nu se știe dacă salvarea a ajuns. Verifică conexiunea și încearcă din nou — o nouă încercare nu dublează regula.',
+  // Modificarea unei reguli existente n-a atins niciun rând (recenzia
+  // adversarială a lui cdcb6dd): salvarea se aplică doar peste versiunea
+  // deschisă în editor (`updated_at`), iar fila a reîncărcat lista ca să afle
+  // de ce. Regula ștearsă: aceeași modificare n-are ce schimba, deci textul
+  // nu sfătuiește o reîncercare. Regula modificată în altă parte: ciorna
+  // rămâne, iar a doua salvare o scrie peste versiunea nouă, știind.
+  err_ruleGone:
+    'Regula nu mai există — a fost ștearsă, probabil de pe alt dispozitiv —, deci modificarea nu s-a salvat. Închide editorul: lista s-a reîncărcat. Dacă mai ai nevoie de regulă, creează una nouă.',
+  err_ruleChanged:
+    'Regula a fost modificată pe alt dispozitiv după ce ai deschis editorul, deci salvarea ta n-a suprascris-o. Lista s-a reîncărcat. Verifică valorile din formular (inclusiv „Regulă activă imediat”) și salvează din nou ca să le scrii peste cele noi — sau închide editorul ca să vezi regula schimbată.',
+  err_ruleStaleUnverified:
+    'Regula a fost ștearsă sau modificată pe alt dispozitiv după ce ai deschis editorul, deci salvarea ta n-a suprascris-o, iar lista regulilor nu s-a putut reîncărca. Verifică conexiunea și încearcă din nou.',
   saving: 'Se salvează…',
   // Butonul cât fila verifică lista (după o salvare rămasă fără răspuns).
   verifying: 'Se verifică…',

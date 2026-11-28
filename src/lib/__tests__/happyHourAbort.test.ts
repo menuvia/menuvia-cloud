@@ -8,8 +8,10 @@
 //   HHA1 createHappyHourRule cu semnal → `abortSignal(semnal)` pe builder,
 //        înaintea lui `single()`, cu ACELAȘI semnal. Mutația care pică:
 //        parametrul `signal` netransmis builderului.
-//   HHA2 updateHappyHourRule cu semnal → `abortSignal(semnal)` după filtrul pe
-//        id. Mutația care pică: la fel.
+//   HHA2 updateHappyHourRule cu semnal → `abortSignal(semnal)` după filtrele pe
+//        id și pe `updated_at` (garda `ifUpdatedAt`) și după `select('id,
+//        updated_at')`; întoarce rândul atins. Mutația care pică: la fel, sau
+//        garda netransmisă (recenzia adversarială a lui cdcb6dd).
 //   HHA3 control: fără semnal, aceeași cerere (rândul cu restaurantul, filtrul
 //        pe id), fără `abortSignal`; un refuz al serverului aruncă, ca înainte.
 //        Rândul INSERT-ului poartă id-ul dat de apelant (recenzia adversarială
@@ -25,6 +27,12 @@
 //        (încărcarea obișnuită), aceeași cerere fără `abortSignal` (control).
 //        Mutația care pică: semnalul netransmis builderului (verificarea ar
 //        rămâne în aer după termenul ei).
+//   HHA5 o modificare care NU atinge niciun rând (regula ștearsă, ascunsă de
+//        RLS sau, cu garda, modificată între timp) întoarce `null`, nu „succes”
+//        — PostgREST răspunde fără eroare (recenzia adversarială a lui cdcb6dd);
+//        fără gardă nu se adaugă filtrul pe `updated_at` (comutatorul de pe
+//        card). Control pozitiv: HHA2 (rândul atins e întors). Mutațiile care
+//        pică: `.select(...)` scos sau un rezultat gol tratat ca rând.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HappyHourRule } from '../happyHour'
 
@@ -35,6 +43,8 @@ const h = vi.hoisted(() => ({
   calls: [] as string[],
   // Argumentele lui insert/update/eq.
   args: [] as unknown[][],
+  // Argumentele lui select (coloanele cerute înapoi).
+  selects: [] as unknown[][],
   signals: [] as AbortSignal[],
   result: { data: null, error: null } as { data: unknown; error: unknown },
 }))
@@ -46,6 +56,7 @@ vi.mock('../supabase', () => {
       b[m] = (...args: unknown[]) => {
         h.calls.push(m)
         if (m === 'insert' || m === 'update' || m === 'eq') h.args.push(args)
+        if (m === 'select') h.selects.push(args)
         return b
       }
     }
@@ -88,6 +99,7 @@ const FIELDS: NewRule = {
 beforeEach(() => {
   h.calls = []
   h.args = []
+  h.selects = []
   h.signals = []
   h.result = { data: null, error: null }
 })
@@ -104,18 +116,29 @@ describe('salvarea unei reguli Happy Hour se poate anula', () => {
     expect(h.signals[0]).toBe(ctrl.signal)
   })
 
-  it('HHA2 modificarea leagă semnalul de cerere', async () => {
+  it('HHA2 modificarea leagă semnalul și garda de cerere', async () => {
+    h.result = { data: [{ id: 'r1', updated_at: 'T2' }], error: null }
     const ctrl = new AbortController()
-    await updateHappyHourRule('r1', { discount_value: 15 }, ctrl.signal)
-    expect(h.calls).toEqual(['from:happy_hour_rules', 'update', 'eq', 'abortSignal'])
-    expect(h.args).toEqual([[{ discount_value: 15 }], ['id', 'r1']])
+    await expect(
+      updateHappyHourRule('r1', { discount_value: 15 }, { ifUpdatedAt: 'T1', signal: ctrl.signal }),
+    ).resolves.toEqual({ id: 'r1', updated_at: 'T2' })
+    expect(h.calls).toEqual([
+      'from:happy_hour_rules',
+      'update',
+      'eq',
+      'eq',
+      'select',
+      'abortSignal',
+    ])
+    expect(h.args).toEqual([[{ discount_value: 15 }], ['id', 'r1'], ['updated_at', 'T1']])
+    expect(h.selects).toEqual([['id, updated_at']])
     expect(h.signals).toHaveLength(1)
     expect(h.signals[0]).toBe(ctrl.signal)
   })
 
   it('HHA3 control: fără semnal, aceeași cerere, fără anulare; refuzul aruncă', async () => {
-    await updateHappyHourRule('r1', { is_active: false })
-    expect(h.calls).toEqual(['from:happy_hour_rules', 'update', 'eq'])
+    await expect(updateHappyHourRule('r1', { is_active: false })).resolves.toBeNull()
+    expect(h.calls).toEqual(['from:happy_hour_rules', 'update', 'eq', 'select'])
 
     h.calls = []
     h.args = []
@@ -149,5 +172,26 @@ describe('salvarea unei reguli Happy Hour se poate anula', () => {
     await fetchHappyHourRules('rest-1')
     expect(h.calls).toEqual(['from:happy_hour_rules', 'select', 'eq', 'order'])
     expect(h.signals).toHaveLength(1)
+  })
+
+  it('HHA5 o modificare care nu atinge niciun rând întoarce null; refuzul aruncă', async () => {
+    h.result = { data: [], error: null }
+    await expect(
+      updateHappyHourRule('r1', { discount_value: 15 }, { ifUpdatedAt: 'T1' }),
+    ).resolves.toBeNull()
+    expect(h.calls).toEqual(['from:happy_hour_rules', 'update', 'eq', 'eq', 'select'])
+    expect(h.args).toEqual([[{ discount_value: 15 }], ['id', 'r1'], ['updated_at', 'T1']])
+
+    // Fără gardă (comutatorul de pe card): doar filtrul pe id.
+    h.calls = []
+    h.args = []
+    await expect(updateHappyHourRule('r1', { is_active: true })).resolves.toBeNull()
+    expect(h.args).toEqual([[{ is_active: true }], ['id', 'r1']])
+
+    h.result = { data: null, error: { message: 'Nu ai voie.', code: '42501' } }
+    await expect(updateHappyHourRule('r1', { is_active: true })).rejects.toEqual({
+      message: 'Nu ai voie.',
+      code: '42501',
+    })
   })
 })

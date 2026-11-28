@@ -31,6 +31,7 @@ import {
 } from '../lib/happyHour'
 import { supabase } from '../lib/supabase'
 import { isNetworkError } from '../lib/networkError'
+import { MSG_NOT_FOUND, MSG_NO_PERMISSION } from '../lib/userMessages'
 import { usePollWhileVisible } from '../hooks/usePollWhileVisible'
 import { dayLabel, dayLabels } from '../lib/happyHourDays'
 import { useT } from '../i18n/useT'
@@ -44,7 +45,19 @@ import type promotionsRo from '../i18n/ns/promotions/ro'
 // `not_saved` = lista reîncărcată arată că salvarea n-a ajuns (`create` alege
 // textul: regula lipsește / regula n-are valorile tale); `unverified` = lista
 // nu s-a putut reîncărca, deci nu se știe.
-type VerifyResult = { kind: 'not_saved'; create: boolean } | { kind: 'unverified' }
+// Și după o MODIFICARE care n-a atins niciun rând (recenzia adversarială a lui
+// cdcb6dd, `saveUpdate`): `gone` = regula nu mai e în listă (ștearsă pe alt
+// dispozitiv sau ascunsă de RLS) — aceeași modificare n-are ce schimba;
+// `conflict` = regula a fost modificată pe alt dispozitiv după ce s-a deschis
+// editorul — salvarea n-a suprascris-o, iar sesiunea e re-armată pe rândul
+// proaspăt; `stale_unverified` = rândul nu mai era cel deschis, dar lista nu s-a
+// putut reîncărca.
+type VerifyResult =
+  | { kind: 'not_saved'; create: boolean }
+  | { kind: 'unverified' }
+  | { kind: 'gone' }
+  | { kind: 'conflict' }
+  | { kind: 'stale_unverified' }
 // Erorile ținute ca DATE (lotul L5b): validarea editorului e o cheie, refuzul
 // serverului e eroarea brută; textul se compune la RANDARE, în limba curentă.
 type EditorError =
@@ -71,9 +84,21 @@ type SavePhase = 'saving' | 'verifying'
 // id-ul primei reguli și ar SUPRASCRIE-o. O creare găsită astfel în bază (23505
 // pe cheia primară, sau verificarea care găsește valorile unei încercări de
 // dinainte) devine modificarea acelui id.
+// La modificare, `stamp` = `updated_at`-ul rândului peste care scrie editorul
+// (concurența optimistă, recenzia adversarială a lui cdcb6dd): salvarea unei
+// reguli existente trimite TOATE câmpurile, inclusiv `is_active`, din lista
+// încărcată la deschidere — fără gardă, readucea tăcut ce schimbase alt
+// dispozitiv (un Happy Hour oprit de pe telefon pornea din nou, iar mig 077
+// reducea apoi fiecare comandă QR/de ridicare). Modificarea se aplică doar
+// peste ACEST `updated_at`. `null` = rândul există (23505 pe cheia primară), dar
+// versiunea lui nu s-a citit încă: `saveUpdate` reîncarcă lista înainte să
+// scrie, niciodată o modificare fără gardă.
 type SaveSession =
   | { kind: 'create'; id: string; attempts: RuleFields[] }
-  | { kind: 'update'; id: string }
+  | { kind: 'update'; id: string; stamp: string | null }
+type UpdateSession = Extract<SaveSession, { kind: 'update' }>
+// Cum s-a încheiat o cerere de salvare (`sendWithDeadline`).
+type SendResult<T> = { kind: 'answered'; value: T } | { kind: 'unanswered' }
 type LoadResult = { ok: true; rules: HappyHourRule[] } | { ok: false }
 
 // Textul unui rezultat de verificare (fiecare spune ce s-a aflat despre bază).
@@ -83,6 +108,12 @@ function verifyErrorKey(e: VerifyResult): StringKey<typeof promotionsRo> {
       return e.create ? 'err_notSavedCreate' : 'err_notSavedUpdate'
     case 'unverified':
       return 'err_saveUnverified'
+    case 'gone':
+      return 'err_ruleGone'
+    case 'conflict':
+      return 'err_ruleChanged'
+    case 'stale_unverified':
+      return 'err_ruleStaleUnverified'
   }
 }
 
@@ -352,9 +383,22 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
           // dinainte.
           if (!catsRes.error) setCategories((catsRes.data ?? []) as Category[])
           if (!prodsRes.error) setProducts((prodsRes.data ?? []) as Product[])
-          // Lista a venit: eroarea de dinainte (o încărcare picată, o acțiune
-          // refuzată) nu mai descrie fila.
-          if (errSeqRef.current === errSeq) setErr(null)
+          // O sub-cerere picată la o încărcare OBIȘNUITĂ (fără `signal`: prima,
+          // cea de după o salvare, cea de la închidere) se spune pe banner
+          // (recenzia adversarială a lui cdcb6dd): sărită tăcut, cu bannerul
+          // șters, la PRIMA încărcare listele rămâneau goale — o regulă pe
+          // categorie/produs nu se putea crea, iar editorul cerea „Selectează o
+          // categorie” cu selectul gol, fără niciun motiv vizibil. Verificarea
+          // (cu `signal`) păstrează listele de dinainte și nu atinge bannerul:
+          // eroarea ei o spune editorul, iar bannerul stă oricum sub modal.
+          const subErr = catsRes.error ?? prodsRes.error
+          if (subErr != null) {
+            if (signal == null) showErr(subErr)
+          } else if (errSeqRef.current === errSeq) {
+            // Totul a venit: eroarea de dinainte (o încărcare picată, o acțiune
+            // refuzată) nu mai descrie fila.
+            setErr(null)
+          }
         }
         return { ok: true, rules: rs }
       } catch (e) {
@@ -386,10 +430,12 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
     // toate browserele țintă. Un înlocuitor care nu e UUID (ca vizitatorul din
     // `lib/affiliate.ts`) nu se poate folosi: coloana e `uuid`, INSERT-ul ar fi
     // respins.
+    // La o regulă existentă, sesiunea ține `updated_at`-ul rândului din listă:
+    // versiunea peste care scrie editorul (`SaveSession`).
     sessionRef.current =
       target === 'new'
         ? { kind: 'create', id: crypto.randomUUID(), attempts: [] }
-        : { kind: 'update', id: target.id }
+        : { kind: 'update', id: target.id, stamp: target.updated_at }
     setEditing(target)
   }
 
@@ -431,50 +477,120 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
   }
 
   // Cererea concurează cu HAPPY_HOUR_SAVE_TIMEOUT_MS; la termen e anulată
-  // (`AbortSignal`, nu doar ignorată). `'unanswered'` = serverul n-a răspuns:
-  // termenul a trecut SAU cererea a căzut pe drum (`isServerAnswer` fals) — în
-  // ambele cazuri salvarea poate fi totuși în bază, deci apelantul verifică.
-  // Doar un refuz al serverului ARUNCĂ.
-  async function sendWithDeadline(
-    op: (signal: AbortSignal) => Promise<unknown>,
-  ): Promise<'saved' | 'unanswered'> {
+  // (`AbortSignal`, nu doar ignorată). `answered` = serverul a răspuns, cu
+  // rezultatul cererii (la modificare: rândul atins sau `null`, vezi
+  // `saveUpdate`); `unanswered` = serverul n-a răspuns: termenul a trecut SAU
+  // cererea a căzut pe drum (`isServerAnswer` fals) — în ambele cazuri salvarea
+  // poate fi totuși în bază, deci apelantul verifică. Doar un refuz al
+  // serverului ARUNCĂ.
+  async function sendWithDeadline<T>(
+    op: (signal: AbortSignal) => Promise<T>,
+  ): Promise<SendResult<T>> {
     const ctrl = new AbortController()
     try {
       const r = await raceDeadline(
-        op(ctrl.signal).then(() => 'saved' as const),
+        op(ctrl.signal).then((value) => ({ kind: 'answered' as const, value })),
         HAPPY_HOUR_SAVE_TIMEOUT_MS,
       )
-      if (r === 'saved') return 'saved'
+      if (r !== 'timeout') return r
     } catch (e) {
       if (isServerAnswer(e)) throw e
     }
     ctrl.abort()
     reloadOnCloseRef.current = true
-    return 'unanswered'
+    return { kind: 'unanswered' }
   }
 
+  // Regula sesiunii nu mai e în listă: aceeași modificare n-are ce schimba, deci
+  // editorul nu sfătuiește o reîncercare. Lista tocmai s-a reîncărcat, iar
+  // închiderea editorului o mai reîncarcă o dată.
+  function ruleGone(): SaveOutcome {
+    reloadOnCloseRef.current = true
+    return { kind: 'gone' }
+  }
+
+  // Modificarea unei reguli existente, cu gardă pe `updated_at` (`SaveSession`).
   async function saveUpdate(
-    id: string,
+    s: UpdateSession,
     rule: RuleFields,
     onPhase: (p: SavePhase) => void,
   ): Promise<SaveOutcome> {
+    let stamp = s.stamp
+    if (stamp == null) {
+      // 23505 pe cheia primară, fără o listă proaspătă: rândul sesiunii există,
+      // dar nu se știe peste ce versiune scrie editorul — se citește întâi, nu
+      // se trimite o modificare fără gardă. Rândul e în bază (activ, poate),
+      // deci lista se reîncarcă la închidere chiar dacă citirea de aici pică.
+      reloadOnCloseRef.current = true
+      onPhase('verifying')
+      const fresh = await reloadForVerify()
+      if (fresh == null) return { kind: 'unverified' }
+      const row = fresh.find((r) => r.id === s.id)
+      if (row == null) return ruleGone()
+      stamp = row.updated_at
+      s.stamp = stamp
+    }
     onPhase('saving')
-    if ((await sendWithDeadline((signal) => updateHappyHourRule(id, rule, signal))) === 'saved') {
-      finishSaved(false)
-      return { kind: 'saved' }
+    const guard = stamp
+    const sent = await sendWithDeadline((signal) =>
+      updateHappyHourRule(s.id, rule, { ifUpdatedAt: guard, signal }),
+    )
+    if (sent.kind === 'answered') {
+      if (sent.value != null) {
+        // Versiunea scrisă acum e cea peste care scrie orice salvare următoare.
+        s.stamp = sent.value.updated_at
+        finishSaved(false)
+        return { kind: 'saved' }
+      }
+      return resolveUntouched(s, rule, guard, onPhase)
     }
     // Fără răspuns: modificarea a ajuns dacă rândul din bază are EXACT valorile
-    // trimise. O nepotrivire = nu s-a salvat; reîncercarea e inofensivă (aceeași
-    // modificare, pe același rând).
+    // trimise. O nepotrivire = nu s-a salvat; o reîncercare pleacă cu aceeași
+    // gardă (dacă între timp rândul s-a schimbat, o prinde `resolveUntouched`).
     onPhase('verifying')
     const fresh = await reloadForVerify()
     if (fresh == null) return { kind: 'unverified' }
-    const row = fresh.find((r) => r.id === id)
-    if (row && sameRuleFields(row, rule)) {
+    const row = fresh.find((r) => r.id === s.id)
+    if (row == null) return ruleGone()
+    if (sameRuleFields(row, rule)) {
       finishSaved(true)
       return { kind: 'saved' }
     }
     return { kind: 'not_saved', create: false }
+  }
+
+  // Serverul a RĂSPUNS, dar modificarea n-a atins niciun rând: rândul nu mai e
+  // cel cu `guard` (sau nu mai e deloc). Lista reîncărcată spune de ce:
+  // lipsește → `gone`; are deja valorile trimise → salvat (o încercare de
+  // dinainte a ajuns tăcut, ex. după termenul ei); are încă `guard` → nimeni nu
+  // l-a schimbat, deci modificarea a fost refuzată tăcut (RLS după o schimbare
+  // de rol): mesajul de drepturi, nu „modificată pe alt dispozitiv” la nesfârșit;
+  // altfel → `conflict`, iar sesiunea trece pe versiunea proaspătă: ciorna
+  // rămâne, iar o a doua salvare, deliberată, o suprascrie știind.
+  async function resolveUntouched(
+    s: UpdateSession,
+    rule: RuleFields,
+    guard: string,
+    onPhase: (p: SavePhase) => void,
+  ): Promise<SaveOutcome> {
+    onPhase('verifying')
+    const fresh = await reloadForVerify()
+    if (fresh == null) {
+      reloadOnCloseRef.current = true
+      return { kind: 'stale_unverified' }
+    }
+    const row = fresh.find((r) => r.id === s.id)
+    if (row == null) return ruleGone()
+    if (sameRuleFields(row, rule)) {
+      s.stamp = row.updated_at
+      finishSaved(true)
+      return { kind: 'saved' }
+    }
+    if (row.updated_at === guard) {
+      throw Object.assign(new Error(MSG_NO_PERMISSION), { code: '42501' })
+    }
+    s.stamp = row.updated_at
+    return { kind: 'conflict' }
   }
 
   // Refuzul serverului se propagă în RuleEditor (setErr LOCAL, vizibil în
@@ -485,7 +601,7 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
     // Editorul există doar cu o sesiune (`openEditor` o pune înaintea lui
     // `setEditing`); fără ea nu se trimite nimic.
     if (s == null) return { kind: 'unverified' }
-    if (s.kind === 'update') return saveUpdate(s.id, rule, onPhase)
+    if (s.kind === 'update') return saveUpdate(s, rule, onPhase)
 
     // Crearea trimite MEREU id-ul sesiunii, și la reîncercare: înainte nu e
     // nimic de lămurit. O încercare de dinainte ajunsă totuși în bază (comisă
@@ -494,7 +610,7 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
     // rămân în sesiune, pentru verificarea de mai jos.
     onPhase('saving')
     s.attempts.push(rule)
-    let sent: 'saved' | 'unanswered'
+    let sent: SendResult<HappyHourRule>
     try {
       sent = await sendWithDeadline((signal) =>
         createHappyHourRule(restaurantId, s.id, rule, signal),
@@ -504,14 +620,16 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
       // răspuns”, `sendWithDeadline`). 23505 pe cheia primară = rândul
       // sesiunii există deja, la orice trimitere (`isOwnRowConflict`): de acum
       // editorul scrie regula aceea, cu ce e acum în formular — o modificare pe
-      // id, cu confirmarea ei obișnuită.
+      // id, cu confirmarea ei obișnuită. Versiunea rândului nu se știe încă
+      // (`stamp: null`): `saveUpdate` o citește înainte să scrie.
       if (isOwnRowConflict(e)) {
-        sessionRef.current = { kind: 'update', id: s.id }
-        return saveUpdate(s.id, rule, onPhase)
+        const next: UpdateSession = { kind: 'update', id: s.id, stamp: null }
+        sessionRef.current = next
+        return saveUpdate(next, rule, onPhase)
       }
       throw e
     }
-    if (sent === 'saved') {
+    if (sent.kind === 'answered') {
       finishSaved(false)
       return { kind: 'saved' }
     }
@@ -533,11 +651,13 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
     // (categoria „Cocktailuri” în loc de toate produsele, alt procent, alt
     // interval) se închidea pe „Regula s-a salvat”, ciorna se pierdea, iar
     // reducerea veche se aplica pe comenzile QR și de ridicare (mig 077). Ca la
-    // 23505-ul primit: modificarea id-ului, cu ce e acum în formular.
+    // 23505-ul primit: modificarea id-ului, cu ce e acum în formular — peste
+    // versiunea pe care tocmai a citit-o verificarea.
     const earlier = s.attempts.slice(0, -1)
     if (!sameRuleFields(row, rule) && earlier.some((f) => sameRuleFields(row, f))) {
-      sessionRef.current = { kind: 'update', id: s.id }
-      return saveUpdate(s.id, rule, onPhase)
+      const next: UpdateSession = { kind: 'update', id: s.id, stamp: row.updated_at }
+      sessionRef.current = next
+      return saveUpdate(next, rule, onPhase)
     }
     // Valorile acestei încercări, sau ale NICIUNEIA: un rând cu acest id nu
     // poate fi decât al sesiunii, deci regula s-a creat, iar valori pe care
@@ -570,10 +690,16 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
     }
   }
 
+  // Comutatorul trimite DOAR `is_active`, spre starea scrisă pe buton, deci nu
+  // poate readuce altceva decât a cerut omul: n-are nevoie de gardă. Dacă n-a
+  // atins niciun rând (regula ștearsă pe alt dispozitiv, sau fără drepturi),
+  // o spune — înainte, apăsarea pe „Oprește” nu făcea nimic, fără niciun mesaj.
   async function toggleActive(rule: HappyHourRule) {
     try {
-      await updateHappyHourRule(rule.id, { is_active: !rule.is_active })
+      const done = await updateHappyHourRule(rule.id, { is_active: !rule.is_active })
       void load()
+      // DUPĂ `load()`: reușita ei șterge doar erorile de dinaintea ei (`errSeqRef`).
+      if (done == null) showErr(Object.assign(new Error(MSG_NOT_FOUND), { code: 'PGRST116' }))
     } catch (e) {
       showErr(e)
     }
@@ -852,7 +978,13 @@ function RuleCard({
               {rule.discount_type === 'percent'
                 ? t('card_offPct', { value: rule.discount_value })
                 : t('card_offAmount', { value: rule.discount_value })}
-              {rule.max_discount == null || !(rule.max_discount > 0)
+              {/* Un plafon STOCAT de 0 lei se arată (recenzia adversarială a
+                  lui cdcb6dd): serverul plafonează fiecare reducere la el
+                  (mig 077), deci regula nu reduce nimic — ascuns, cardul
+                  arăta „−20%” peste o regulă care nu dă nicio reducere.
+                  Editorul nu mai trimite 0 (`go()`), iar o salvare din editor
+                  îl face „fără plafon”. */}
+              {rule.max_discount == null
                 ? null
                 : ` ${t('card_cap', { amount: rule.max_discount })}`}
             </span>
@@ -972,6 +1104,7 @@ function RuleEditor({
     discount: `${uid}-discount`,
     value: `${uid}-value`,
     cap: `${uid}-cap`,
+    capHint: `${uid}-capHint`,
     err: `${uid}-err`,
   }
 
@@ -1051,7 +1184,12 @@ function RuleEditor({
       setErr({ kind: 'invalid', key: 'err_capInvalid' })
       return
     }
-    const cap = capCents == null ? null : capCents / 100
+    // 0 lei — sau un text care se rotunjește la 0 bani, „0,004” — = FĂRĂ plafon,
+    // ca golul (recenzia adversarială a lui cdcb6dd): trimis ca 0, serverul
+    // plafona FIECARE reducere la 0 (mig 077), iar oaspetele plătea prețul
+    // întreg cât cardul și insigna din meniul QR arătau „−20%”. Câmpul e
+    // „opțional”, iar indiciul de sub el o spune.
+    const cap = capCents == null || capCents === 0 ? null : capCents / 100
     if (scope === 'category' && !categoryId) {
       setErr({ kind: 'invalid', key: 'err_category' })
       return
@@ -1346,8 +1484,12 @@ function RuleEditor({
                   style={inp}
                   placeholder={t('field_capPh')}
                   aria-label={t('field_capAria')}
+                  aria-describedby={ids.capHint}
                   {...invalidOn(['err_capInvalid'])}
                 />
+                <div id={ids.capHint} style={{ fontSize: '0.74rem', color: D.t3, marginTop: 4 }}>
+                  {t('field_capHint')}
+                </div>
               </div>
             )}
           </div>

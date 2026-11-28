@@ -59,6 +59,7 @@ const en: Translation<typeof ro> = {
   field_cap: 'Maximum cap (lei, optional)',
   field_capPh: 'Max lei (optional)',
   field_capAria: 'Maximum cap in lei, optional',
+  field_capHint: 'Empty or 0 = no cap',
   field_active: 'Rule active immediately',
   saveChanges: 'Save changes',
   create: 'Create rule',
@@ -76,6 +77,12 @@ const en: Translation<typeof ro> = {
     'The save got no response from the server, and the rule in the reloaded list does not have your values: the change was not saved. You can try again.',
   err_saveUnverified:
     'The save got no response from the server, and the rule list could not be reloaded: it is not known whether the save went through. Check your connection and try again — a new attempt will not duplicate the rule.',
+  err_ruleGone:
+    'The rule no longer exists — it was deleted, probably on another device — so the change was not saved. Close the editor: the list has been reloaded. If you still need the rule, create a new one.',
+  err_ruleChanged:
+    'The rule was changed on another device after you opened the editor, so your save did not overwrite it. The list has been reloaded. Check the values in the form (including “Rule active immediately”) and save again to write them over the new ones — or close the editor to see the changed rule.',
+  err_ruleStaleUnverified:
+    'The rule was deleted or changed on another device after you opened the editor, so your save did not overwrite it, and the rule list could not be reloaded. Check your connection and try again.',
   saving: 'Saving…',
   verifying: 'Checking…',
   saved_late: 'The rule was saved — the confirmation came after the connection recovered.',
