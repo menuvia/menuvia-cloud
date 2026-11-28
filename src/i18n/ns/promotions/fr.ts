@@ -72,11 +72,11 @@ const fr: Translation<typeof ro> = {
   err_product: 'Choisissez un produit',
   err_save: 'Erreur lors de l’enregistrement',
   err_notSavedCreate:
-    'Le serveur n’a pas répondu à temps et la règle n’apparaît pas dans la liste rechargée : elle n’a pas été enregistrée. Vous pouvez réessayer — une nouvelle tentative ne duplique pas la règle.',
+    'L’enregistrement n’a reçu aucune réponse du serveur et la règle n’apparaît pas dans la liste rechargée : elle n’a pas été enregistrée. Vous pouvez réessayer — une nouvelle tentative ne duplique pas la règle.',
   err_notSavedUpdate:
-    'Le serveur n’a pas répondu à temps et la règle de la liste rechargée n’a pas vos valeurs : la modification n’a pas été enregistrée. Vous pouvez réessayer.',
+    'L’enregistrement n’a reçu aucune réponse du serveur et la règle de la liste rechargée n’a pas vos valeurs : la modification n’a pas été enregistrée. Vous pouvez réessayer.',
   err_saveUnverified:
-    'Le serveur n’a pas répondu à temps et la liste des règles n’a pas pu être rechargée : on ne sait pas si l’enregistrement a abouti. Vérifiez la connexion et réessayez — une nouvelle tentative ne duplique pas la règle.',
+    'L’enregistrement n’a reçu aucune réponse du serveur et la liste des règles n’a pas pu être rechargée : on ne sait pas si l’enregistrement a abouti. Vérifiez la connexion et réessayez — une nouvelle tentative ne duplique pas la règle.',
   err_listUnavailable:
     'La liste des règles n’a pas pu être chargée, la règle n’a donc pas encore été envoyée. Vérifiez la connexion et réessayez.',
   saving: 'Enregistrement…',

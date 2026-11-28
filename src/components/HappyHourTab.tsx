@@ -30,6 +30,7 @@ import {
   type ActiveRule,
 } from '../lib/happyHour'
 import { supabase } from '../lib/supabase'
+import { isNetworkError } from '../lib/networkError'
 import { usePollWhileVisible } from '../hooks/usePollWhileVisible'
 import { dayLabel, dayLabels } from '../lib/happyHourDays'
 import { useT } from '../i18n/useT'
@@ -92,7 +93,8 @@ function verifyErrorKey(e: VerifyResult): StringKey<typeof promotionsRo> {
 // supabase-js nu are timeout: fără termen, o cerere care nu se mai întoarce
 // (conexiune pe jumătate închisă pe mobil, PWA reluat în mijlocul cererii)
 // lăsa tot panoul blocat sub overlay până la reîncărcarea paginii. La termen
-// cererea se ANULEAZĂ, iar fila VERIFICĂ singură ce a ajuns în bază: lista
+// cererea se ANULEAZĂ — iar când cade pe drum fără răspunsul serverului, la fel
+// (`isServerAnswer`) — și fila VERIFICĂ singură ce a ajuns în bază: lista
 // reîncărcată stă sub overlay-ul modalului, deci omul n-o putea citi fără să
 // închidă editorul și să-și piardă ciorna, iar o reîncercare oarbă dubla regula
 // (`happy_hour_rules` n-are nicio cheie unică în afara lui `id`, mig 036; două
@@ -115,6 +117,22 @@ async function raceDeadline<T>(p: Promise<T>, ms: number): Promise<T | 'timeout'
   } finally {
     clearTimeout(timer)
   }
+}
+
+// Eroarea e RĂSPUNSUL serverului? Un refuz poartă un cod (SQLSTATE sau
+// PGRST…), iar cererea nu s-a aplicat: editorul îl afișează și o reîncercare
+// pleacă direct. Altfel nu se știe ce e în bază (recenzia lotului C4a): o
+// cădere de rețea (`TypeError: Load failed` pe Safari, `Failed to fetch` —
+// lib/networkError; supabase-js o întoarce cu `code: ''`) poate veni DUPĂ ce
+// INSERT-ul s-a comis și doar răspunsul s-a pierdut (Wi-Fi → 4G, reset
+// HTTP/2), iar o eroare fără cod (ex. pagina HTML a unui gateway 502/504) nu
+// spune nici ea nimic despre tranzacție. Tratată ca refuz, următorul click
+// trimitea încă un INSERT fără să verifice — exact dublura pe care o previne
+// termenul. Deci se tratează ca termenul: fila verifică lista.
+function isServerAnswer(e: unknown): boolean {
+  if (isNetworkError(e)) return false
+  const code = e != null && typeof e === 'object' ? (e as { code?: unknown }).code : undefined
+  return typeof code === 'string' && code !== ''
 }
 
 // Rândul din bază are EXACT valorile trimise? (verificarea unei modificări
@@ -282,15 +300,26 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
           .order('name')
         const [rs, act, catsRes, prodsRes] = await Promise.all([
           fetchHappyHourRules(restaurantId, signal),
-          evaluateHappyHourForNow(restaurantId).catch(() => []),
+          // Un eșec lasă bannerul „activ acum” cum era (ca sondajul de la 60 s).
+          evaluateHappyHourForNow(restaurantId).catch(() => null),
           signal ? cats.abortSignal(signal) : cats,
           signal ? prods.abortSignal(signal) : prods,
         ])
+        // Verificarea a renunțat (termenul ei a trecut, editorul a spus deja
+        // „nu se știe”): ce mai sosește nu scrie starea.
+        if (signal?.aborted) return { ok: false }
         if (seq === loadSeqRef.current) {
           setRules(rs)
-          setActive(act)
-          setCategories((catsRes.data ?? []) as Category[])
-          setProducts((prodsRes.data ?? []) as Product[])
+          if (act != null) setActive(act)
+          // Doar dintr-o cerere REUȘITĂ (recenzia lotului C4a): builder-ele
+          // supabase-js nu aruncă — o cerere picată sau anulată se încheie cu
+          // `{ data: null, error }`, iar `data ?? []` golea listele editorului
+          // rămas DESCHIS peste reîncărcarea de verificare: categoria/produsul
+          // ales arăta doar „— Selectează… —” și nu se mai putea alege altul,
+          // iar cardurile din spate arătau „?”. Pe eroare rămân cele de
+          // dinainte.
+          if (!catsRes.error) setCategories((catsRes.data ?? []) as Category[])
+          if (!prodsRes.error) setProducts((prodsRes.data ?? []) as Product[])
           rulesTrustedRef.current = true
         }
         return { ok: true, rules: rs }
@@ -336,8 +365,9 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
   }
 
   // Salvarea s-a confirmat (direct sau abia prin verificare): editorul se
-  // închide. `late` = confirmată de lista reîncărcată după termen — omul o
-  // află dintr-un mesaj, fiindcă editorul dispare fără răspunsul obișnuit.
+  // închide. `late` = confirmată de lista reîncărcată după o salvare fără
+  // răspuns — omul o află dintr-un mesaj, fiindcă editorul dispare fără
+  // răspunsul obișnuit.
   function finishSaved(late: boolean) {
     sessionRef.current = null
     reloadOnCloseRef.current = false
@@ -364,18 +394,26 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
   }
 
   // Cererea concurează cu HAPPY_HOUR_SAVE_TIMEOUT_MS; la termen e anulată
-  // (`AbortSignal`, nu doar ignorată).
-  async function sendWithDeadline(op: (signal: AbortSignal) => Promise<unknown>): Promise<'saved' | 'timeout'> {
+  // (`AbortSignal`, nu doar ignorată). `'unanswered'` = serverul n-a răspuns:
+  // termenul a trecut SAU cererea a căzut pe drum (`isServerAnswer` fals) — în
+  // ambele cazuri salvarea poate fi totuși în bază, deci apelantul verifică.
+  // Doar un refuz al serverului ARUNCĂ.
+  async function sendWithDeadline(
+    op: (signal: AbortSignal) => Promise<unknown>,
+  ): Promise<'saved' | 'unanswered'> {
     const ctrl = new AbortController()
-    const r = await raceDeadline(
-      op(ctrl.signal).then(() => 'saved' as const),
-      HAPPY_HOUR_SAVE_TIMEOUT_MS,
-    )
-    if (r === 'timeout') {
-      ctrl.abort()
-      reloadOnCloseRef.current = true
+    try {
+      const r = await raceDeadline(
+        op(ctrl.signal).then(() => 'saved' as const),
+        HAPPY_HOUR_SAVE_TIMEOUT_MS,
+      )
+      if (r === 'saved') return 'saved'
+    } catch (e) {
+      if (isServerAnswer(e)) throw e
     }
-    return r
+    ctrl.abort()
+    reloadOnCloseRef.current = true
+    return 'unanswered'
   }
 
   async function saveUpdate(
@@ -413,8 +451,9 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
     if (s.kind === 'update') return saveUpdate(s.id, rule, onPhase)
 
     // Crearea: înaintea INSERT-ului, lista de comparat trebuie să fie de
-    // încredere, iar o încercare rămasă fără răspuns trebuie lămurită — altfel
-    // un INSERT comis după verificarea de la termen ar fi dublat de reîncercare.
+    // încredere, iar o încercare rămasă fără răspuns (termen sau cădere de
+    // rețea) trebuie lămurită — altfel un INSERT comis după verificarea de
+    // atunci ar fi dublat de reîncercare.
     if (s.beforeIds == null && rulesTrustedRef.current) {
       s.beforeIds = new Set(rules.map((r) => r.id))
     }
@@ -436,11 +475,13 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
     onPhase('saving')
     s.names.add(rule.name)
     s.unresolved = true
-    let sent: 'saved' | 'timeout'
+    let sent: 'saved' | 'unanswered'
     try {
       sent = await sendWithDeadline((signal) => createHappyHourRule(restaurantId, rule, signal))
     } catch (e) {
-      // Un refuz e un răspuns: nu s-a creat nimic.
+      // Doar un refuz al SERVERULUI ajunge aici — un răspuns: nu s-a creat
+      // nimic. O cădere de rețea e „fără răspuns” (`sendWithDeadline`), deci
+      // `unresolved` rămâne și reîncercarea verifică întâi.
       s.unresolved = false
       throw e
     }

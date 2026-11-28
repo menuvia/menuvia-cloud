@@ -72,11 +72,11 @@ const de: Translation<typeof ro> = {
   err_product: 'Wählen Sie ein Produkt',
   err_save: 'Fehler beim Speichern',
   err_notSavedCreate:
-    'Der Server hat nicht rechtzeitig geantwortet, und die Regel fehlt in der neu geladenen Liste: Sie wurde nicht gespeichert. Sie können es erneut versuchen – ein neuer Versuch legt die Regel nicht doppelt an.',
+    'Auf das Speichern kam keine Antwort vom Server, und die Regel fehlt in der neu geladenen Liste: Sie wurde nicht gespeichert. Sie können es erneut versuchen – ein neuer Versuch legt die Regel nicht doppelt an.',
   err_notSavedUpdate:
-    'Der Server hat nicht rechtzeitig geantwortet, und die Regel in der neu geladenen Liste hat nicht Ihre Werte: Die Änderung wurde nicht gespeichert. Sie können es erneut versuchen.',
+    'Auf das Speichern kam keine Antwort vom Server, und die Regel in der neu geladenen Liste hat nicht Ihre Werte: Die Änderung wurde nicht gespeichert. Sie können es erneut versuchen.',
   err_saveUnverified:
-    'Der Server hat nicht rechtzeitig geantwortet, und die Regelliste konnte nicht neu geladen werden: Es ist nicht bekannt, ob das Speichern angekommen ist. Prüfen Sie die Verbindung und versuchen Sie es erneut – ein neuer Versuch legt die Regel nicht doppelt an.',
+    'Auf das Speichern kam keine Antwort vom Server, und die Regelliste konnte nicht neu geladen werden: Es ist nicht bekannt, ob das Speichern angekommen ist. Prüfen Sie die Verbindung und versuchen Sie es erneut – ein neuer Versuch legt die Regel nicht doppelt an.',
   err_listUnavailable:
     'Die Regelliste konnte nicht geladen werden, daher wurde die Regel noch nicht gesendet. Prüfen Sie die Verbindung und versuchen Sie es erneut.',
   saving: 'Wird gespeichert…',

@@ -71,11 +71,11 @@ const en: Translation<typeof ro> = {
   err_product: 'Select a product',
   err_save: 'Error while saving',
   err_notSavedCreate:
-    'The server did not respond in time, and the rule is not in the reloaded list: it was not saved. You can try again — a new attempt will not duplicate the rule.',
+    'The save got no response from the server, and the rule is not in the reloaded list: it was not saved. You can try again — a new attempt will not duplicate the rule.',
   err_notSavedUpdate:
-    'The server did not respond in time, and the rule in the reloaded list does not have your values: the change was not saved. You can try again.',
+    'The save got no response from the server, and the rule in the reloaded list does not have your values: the change was not saved. You can try again.',
   err_saveUnverified:
-    'The server did not respond in time, and the rule list could not be reloaded: it is not known whether the save went through. Check your connection and try again — a new attempt will not duplicate the rule.',
+    'The save got no response from the server, and the rule list could not be reloaded: it is not known whether the save went through. Check your connection and try again — a new attempt will not duplicate the rule.',
   err_listUnavailable:
     'The rule list could not be loaded, so the rule has not been sent yet. Check your connection and try again.',
   saving: 'Saving…',

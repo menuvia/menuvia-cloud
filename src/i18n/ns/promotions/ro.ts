@@ -85,18 +85,19 @@ const ro = {
   err_category: 'Selectează o categorie',
   err_product: 'Selectează un produs',
   err_save: 'Eroare la salvare',
-  // Salvarea n-a primit răspuns la timp (HAPPY_HOUR_SAVE_TIMEOUT_MS, recenzia
-  // lotului C4a): cererea s-a anulat, iar fila a VERIFICAT singură lista
-  // reîncărcată (lista stă sub editor, deci omul n-o poate citi). Fiecare text
+  // Salvarea n-a primit răspuns (termenul HAPPY_HOUR_SAVE_TIMEOUT_MS sau o
+  // cădere de rețea pe drum — de aceea textul nu mai spune „la timp”; recenzia
+  // lotului C4a): cererea s-a anulat sau a căzut, iar fila a VERIFICAT singură
+  // lista reîncărcată (lista stă sub editor, deci omul n-o poate citi). Fiecare text
   // spune ce s-a aflat; „nu se dublează” e adevărat fiindcă o reîncercare de
   // creare verifică întâi lista încă o dată, iar o modificare repetată scrie
   // același rând.
   err_notSavedCreate:
-    'Serverul n-a răspuns la timp, iar regula nu apare în lista reîncărcată: nu s-a salvat. Poți încerca din nou — o nouă încercare nu dublează regula.',
+    'Salvarea n-a primit răspuns de la server, iar regula nu apare în lista reîncărcată: nu s-a salvat. Poți încerca din nou — o nouă încercare nu dublează regula.',
   err_notSavedUpdate:
-    'Serverul n-a răspuns la timp, iar regula din lista reîncărcată nu are valorile tale: modificarea nu s-a salvat. Poți încerca din nou.',
+    'Salvarea n-a primit răspuns de la server, iar regula din lista reîncărcată nu are valorile tale: modificarea nu s-a salvat. Poți încerca din nou.',
   err_saveUnverified:
-    'Serverul n-a răspuns la timp, iar lista regulilor nu s-a putut reîncărca: nu se știe dacă salvarea a ajuns. Verifică conexiunea și încearcă din nou — o nouă încercare nu dublează regula.',
+    'Salvarea n-a primit răspuns de la server, iar lista regulilor nu s-a putut reîncărca: nu se știe dacă salvarea a ajuns. Verifică conexiunea și încearcă din nou — o nouă încercare nu dublează regula.',
   // O regulă nouă se trimite doar cu o listă de încredere (altfel o creare
   // fără răspuns n-ar mai putea fi verificată): aici nu a plecat nimic.
   err_listUnavailable:
