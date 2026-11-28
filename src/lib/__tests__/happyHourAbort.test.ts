@@ -12,6 +12,13 @@
 //        id. Mutația care pică: la fel.
 //   HHA3 control: fără semnal, aceeași cerere (rândul cu restaurantul, filtrul
 //        pe id), fără `abortSignal`; un refuz al serverului aruncă, ca înainte.
+//        Rândul INSERT-ului poartă id-ul dat de apelant (recenzia adversarială
+//        a lotului C4a: editorul îl generează o dată pe sesiune și îl
+//        retrimite la reîncercare), iar un `id`/`restaurant_id` strecurat în
+//        câmpuri printr-un cast nu le înlocuiește. Mutațiile care pică: `id`
+//        netrimis în INSERT (baza ar genera altul la fiecare încercare, deci o
+//        creare comisă după ce clientul a renunțat ar sta lângă reîncercare —
+//        regula dublată) sau câmpurile întinse DUPĂ `id`/`restaurant_id`.
 //   HHA4 fetchHappyHourRules cu semnal (reîncărcarea de VERIFICARE de după o
 //        salvare fără răspuns, mărginită de HAPPY_HOUR_VERIFY_TIMEOUT_MS) →
 //        `abortSignal(semnal)` după `order`, cu ACELAȘI semnal; fără semnal
@@ -89,7 +96,9 @@ describe('salvarea unei reguli Happy Hour se poate anula', () => {
   it('HHA1 crearea leagă semnalul de cerere', async () => {
     h.result = { data: { id: 'r9' }, error: null }
     const ctrl = new AbortController()
-    await expect(createHappyHourRule('rest-1', FIELDS, ctrl.signal)).resolves.toEqual({ id: 'r9' })
+    await expect(createHappyHourRule('rest-1', 'id-9', FIELDS, ctrl.signal)).resolves.toEqual({
+      id: 'r9',
+    })
     expect(h.calls).toEqual(['from:happy_hour_rules', 'insert', 'select', 'abortSignal', 'single'])
     expect(h.signals).toHaveLength(1)
     expect(h.signals[0]).toBe(ctrl.signal)
@@ -111,13 +120,20 @@ describe('salvarea unei reguli Happy Hour se poate anula', () => {
     h.calls = []
     h.args = []
     h.result = { data: null, error: { message: 'Nu ai voie.', code: '42501' } }
-    await expect(createHappyHourRule('rest-1', FIELDS)).rejects.toEqual({
+    await expect(createHappyHourRule('rest-1', 'id-1', FIELDS)).rejects.toEqual({
       message: 'Nu ai voie.',
       code: '42501',
     })
     expect(h.calls).toEqual(['from:happy_hour_rules', 'insert', 'select', 'single'])
-    expect(h.args).toEqual([[{ restaurant_id: 'rest-1', ...FIELDS }]])
+    expect(h.args).toEqual([[{ id: 'id-1', restaurant_id: 'rest-1', ...FIELDS }]])
     expect(h.signals).toHaveLength(0)
+
+    // Un `id`/`restaurant_id` strecurat în câmpuri (cast) nu înlocuiește
+    // id-ul sesiunii și nici restaurantul.
+    h.args = []
+    const sneaky = { ...FIELDS, id: 'altul', restaurant_id: 'rest-2' } as NewRule
+    await expect(createHappyHourRule('rest-1', 'id-1', sneaky)).rejects.toBeTruthy()
+    expect(h.args).toEqual([[{ ...FIELDS, id: 'id-1', restaurant_id: 'rest-1' }]])
   })
 
   it('HHA4 reîncărcarea de verificare leagă semnalul de cerere', async () => {

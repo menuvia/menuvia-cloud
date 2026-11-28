@@ -61,19 +61,28 @@ export async function fetchHappyHourRules(
 // `signal` (opțional) ANULEAZĂ cererea, nu doar o ignoră (recenzia lotului
 // C4a): supabase-js nu are timeout, iar editorul Happy Hour își mărginește
 // salvarea în timp (HappyHourTab) — fără anulare, o cerere abandonată ar fi
-// putut ajunge la server și DUPĂ ce omul a primit „nu s-a putut confirma”. Una
-// ajunsă deja acolo poate fi comisă oricum; de aceea, la termen, fila verifică
-// lista reîncărcată în loc să lase omul să reîncerce orbește (o creare dublată).
+// putut ajunge la server și DUPĂ ce omul a primit „nu s-a putut confirma”.
 // Pe o cerere anulată, supabase-js întoarce eroarea (`AbortError`), deci
 // funcțiile aruncă, ca la orice refuz.
+//
+// `id` vine din CLIENT (recenzia adversarială a lotului C4a): editorul îl
+// generează o dată pe sesiune și îl retrimite la fiecare reîncercare. O cerere
+// ajunsă la server poate fi comisă și după ce clientul a renunțat la ea, iar
+// `happy_hour_rules` n-are altă cheie unică decât `id` (mig 036, `default
+// gen_random_uuid()` — valoarea trimisă îl înlocuiește): cu același id, o
+// reîncercare a unei creări deja comise e respinsă cu 23505, nu devine a doua
+// regulă, iar „s-a salvat?” se află căutând rândul cu acel id, nu ghicind după
+// nume. `id` și `restaurant_id` stau DUPĂ `fields`, ca un câmp în plus strecurat
+// printr-un cast să nu le poată înlocui.
 export async function createHappyHourRule(
   restaurantId: string,
+  id: string,
   fields: Omit<HappyHourRule, 'id' | 'restaurant_id' | 'created_at' | 'updated_at'>,
   signal?: AbortSignal,
 ): Promise<HappyHourRule> {
   const query = supabase
     .from('happy_hour_rules')
-    .insert({ restaurant_id: restaurantId, ...fields })
+    .insert({ ...fields, id, restaurant_id: restaurantId })
     .select()
   const { data, error } = await (signal ? query.abortSignal(signal) : query).single()
   if (error) throw error

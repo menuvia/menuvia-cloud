@@ -52,13 +52,17 @@
 //        lasă omul să ghicească: exact la HAPPY_HOUR_SAVE_TIMEOUT_MS cererea e
 //        ANULATĂ (semnalul ei), editorul rămâne blocat pe „Se verifică…” cât
 //        fila reîncarcă lista (cu semnal propriu, deci mărginită), iar când
-//        lista arată o regulă NOUĂ cu numele ciornei, salvarea e confirmată:
-//        editorul se închide, un toast spune că s-a salvat după ce conexiunea
-//        și-a revenit, regula e în listă, fără o a doua creare. Control: cu 1 ms
-//        înainte de termen totul e încă blocat, nimic reîncărcat. Mutațiile care
-//        pică: fără `Promise.race` cu termenul (blocaj), fără `ctrl.abort()`,
-//        verificarea scoasă (editorul rămânea deschis, peste lista care avea
-//        deja regula — reîncercarea o dubla) sau toast-ul scos.
+//        lista arată rândul cu ID-UL SESIUNII, salvarea e confirmată — chiar cu
+//        altă valoare decât cea trimisă (alt dispozitiv l-a modificat între
+//        timp; un rând cu acest id nu poate fi decât al editorului): editorul se
+//        închide, un toast spune că s-a salvat după ce conexiunea și-a revenit,
+//        regula e în listă, fără o a doua creare. Control: cu 1 ms înainte de
+//        termen totul e încă blocat, nimic reîncărcat. Mutațiile care pică: fără
+//        `Promise.race` cu termenul (blocaj), fără `ctrl.abort()`, verificarea
+//        scoasă (editorul rămânea deschis peste o regulă salvată), toast-ul
+//        scos, sau confirmarea pe VALORI în loc de id (`sameRuleFields`: „nu
+//        s-a salvat” despre o regulă salvată, iar reîncercarea, respinsă cu
+//        23505, ar fi suprascris modificarea celuilalt dispozitiv).
 //   HHM11 reîncărcarea de verificare nu demontează editorul deschis pe o filă
 //        FĂRĂ reguli: același dialog, aceeași ciornă, fără spinnerul filei, cât
 //        ea e în aer și după ce arată că regula NU a ajuns (atunci: deblocat,
@@ -66,25 +70,27 @@
 //        spinnerul pe toată fila. Mutația care pică: `if (loading &&
 //        rules.length === 0) return <InlineSpinner/>` readus.
 //   HHM12 numele ciornei pe o regulă care EXISTA dinainte („Seara”) nu e o
-//        confirmare: verificarea caută o regulă NOUĂ (id absent înaintea primei
-//        încercări), deci editorul rămâne deschis cu „nu s-a salvat”, iar
-//        reîncercarea verifică ÎNTÂI lista și abia apoi trimite crearea.
-//        Mutațiile care pică: potrivirea doar pe nume (închidea editorul peste o
-//        regulă care nu s-a creat) sau reîncercarea fără verificare.
-//   HHM13 INSERT-ul anulat în client poate fi comis și DUPĂ verificarea de la
-//        termen: reîncercarea îl găsește în listă și scrie peste EL ce e acum în
-//        formular (o modificare, nu încă o regulă) — o singură creare, valorile
-//        noi. Mutația care pică: reîncercarea fără verificarea dinainte (a doua
-//        regulă „Brunch”, care rămânea să reducă comenzile, mig 077).
+//        confirmare — confirmă doar id-ul sesiunii: editorul rămâne deschis cu
+//        „nu s-a salvat”, iar reîncercarea retrimite crearea DIRECT (nimic de
+//        lămurit înainte), cu ACELAȘI id. Mutațiile care pică: potrivirea pe
+//        nume (închidea editorul peste o regulă care nu s-a creat) sau un id nou
+//        la fiecare încercare (o creare comisă după termen ar sta lângă
+//        reîncercare — regula dublată, ambele reduc comenzile QR, mig 077).
+//   HHM13 id-ul e al SESIUNII, nu al filei: o a doua regulă nouă, cu ACELAȘI
+//        nume (numele nu sunt unice), primește alt id — un rând nou, nu o
+//        modificare a primei. Control pozitiv: id-ul e un UUID (coloana e
+//        `uuid`), iar prima regulă se creează normal. Mutația care pică: id-ul
+//        generat o dată pe filă (al doilea editor primea 23505 pe id-ul primei
+//        reguli — refuz, iar la reîncercare o SUPRASCRIA).
 //   HHM14 când lista de verificare pică sau nu răspunde, editorul o SPUNE (nu
 //        doar bannerul filei, ascuns sub overlay): „nu se știe dacă salvarea a
 //        ajuns”, deblocat, cu ciorna; verificarea are termen propriu
-//        (HAPPY_HOUR_VERIFY_TIMEOUT_MS, cererea ei anulată), iar cât lista nu se
-//        poate citi reîncercarea NU trimite nimic; când lista revine (fără
-//        regulă), crearea pleacă. Control: cu 1 ms înainte de termenul
-//        verificării, încă „Se verifică…”. Mutațiile care pică: verificarea fără
-//        termen (blocaj), reîncercarea care trimite fără listă, mesajul doar pe
-//        banner.
+//        (HAPPY_HOUR_VERIFY_TIMEOUT_MS, cererea ei anulată). Reîncercarea nu are
+//        nevoie de listă: retrimite crearea DIRECT, cu ACELAȘI id, de câte ori e
+//        nevoie. Controale: cu 1 ms înainte de termenul verificării, încă „Se
+//        verifică…”; cu rețeaua revenită, crearea reușește. Mutațiile care pică:
+//        verificarea fără termen (blocaj), mesajul doar pe banner, un id nou la
+//        reîncercare.
 //   HHM15 o MODIFICARE fără răspuns: dacă rândul reîncărcat are exact valorile
 //        trimise, s-a salvat (editorul se închide, toast); dacă nu, editorul
 //        rămâne deschis cu „modificarea nu s-a salvat” și ciorna. Mutațiile care
@@ -99,23 +105,21 @@
 //        locație o montează din nou. Control pozitiv: același tipar prinde
 //        cheia lui FloorPlanEditor și NU prinde un element fără cheie. Mutația
 //        care pică: cheia scoasă.
-//   HHM18 cu lista refuzată la încărcare, o regulă NOUĂ nu pleacă orbește:
-//        editorul cere lista întâi (fără ea, o creare fără răspuns n-ar mai
-//        putea fi verificată) și spune că nu s-a trimis nimic; cu lista
-//        venită, crearea pleacă. Mutația care pică: id-urile „de dinainte”
-//        luate dintr-o listă goală, refuzată (orice regulă existentă cu numele
-//        ciornei ar fi trecut drept salvarea ei).
+//   HHM18 cu lista refuzată la încărcare, o regulă NOUĂ pleacă direct: id-ul
+//        sesiunii o face verificabilă fără o listă „de dinainte”, iar reușita ei
+//        reîncarcă lista și șterge bannerul (control pozitiv: bannerul e acolo
+//        înainte). Mutația care pică: poarta veche pe o listă „de încredere”
+//        readusă (cât lista pica, nicio regulă nu se putea crea).
 // A doua rundă de recenzie a lotului C4a:
 //   HHM19 o CREARE căzută pe REȚEA (`TypeError: Load failed`, cod gol — fetch
 //        respinge înainte de termen, după ce INSERT-ul s-a comis) e „fără
 //        răspuns”, ca termenul: fila verifică lista (picată și ea → „nu se știe
 //        dacă salvarea a ajuns”, nu „Fără conexiune”), iar reîncercarea
-//        verifică ÎNTÂI, găsește regula și o MODIFICĂ — două creări în total
-//        (cea refuzată + cea comisă), nu trei. Control pozitiv: un REFUZ al
-//        serverului (cod 42501) e un răspuns — mesajul lui, nicio verificare, iar
-//        reîncercarea trimite direct crearea. Mutația care pică: `catch`-ul care
-//        punea `unresolved = false` și arunca ORICE eroare (codul de dinainte:
-//        „Fără conexiune”, apoi un INSERT nou fără verificare — regula dublată).
+//        retrimite ACELAȘI id, primește 23505 și MODIFICĂ regula comisă — un
+//        singur rând. Control pozitiv: un REFUZ al serverului (cod 42501) e un
+//        răspuns — mesajul lui, nicio verificare. Mutația care pică: `catch`-ul
+//        care trata ORICE eroare drept refuz (codul de dinainte de a815596:
+//        „Fără conexiune” despre o salvare comisă, nicio verificare).
 //   HHM20 reîncărcarea de verificare, cu editorul DESCHIS peste ea, nu golește
 //        ce folosește editorul când o sub-cerere pică sau e anulată
 //        (builder-ele supabase-js NU aruncă: `{ data: null, error }`): categoriile
@@ -126,7 +130,8 @@
 //        necondiționat (prima jumătate: „— Selectează categorie —” singur, valoarea
 //        pierdută), `.catch(() => [])` + `setActive` necondiționat (bannerul
 //        dispare), garda `signal?.aborted` scoasă (regula „Prânz” apare după
-//        abandon).
+//        abandon). (Fiecare verificare urmează unei încercări rămase fără
+//        răspuns: reîncercarea nu mai reîncarcă lista înainte.)
 //   HHM21 o MODIFICARE căzută pe rețea e și ea „fără răspuns”: rândul reîncărcat
 //        cu valorile trimise = salvată (editorul se închide, toast); altfel
 //        „modificarea nu s-a salvat”, iar la închiderea editorului lista se mai
@@ -134,6 +139,32 @@
 //        Mutațiile care pică: eroarea de rețea tratată ca refuz (editorul rămâne
 //        cu „Fără conexiune” peste o modificare salvată) sau `reloadOnCloseRef`
 //        pus doar la termen (lista nereîncărcată la închidere).
+// Recenzia adversarială a lui a815596 (creare confirmată după NUME → id
+// generat în client, o dată pe sesiune):
+//   HHM22 o regulă cu ACELAȘI nume creată de pe alt dispozitiv apare în lista de
+//        verificare, dar id-ul sesiunii lipsește: editorul rămâne deschis, cu
+//        ciorna și „nu s-a salvat”, iar reîncercarea retrimite INSERT-ul cu
+//        ACELAȘI id și nu atinge regula celuilalt. Control pozitiv: când lista
+//        arată rândul cu id-ul sesiunii, salvarea e confirmată (toast
+//        `saved_late`). Mutațiile care pică: potrivirea pe nume (editorul se
+//        închidea cu „Regula s-a salvat” peste o regulă nesalvată, iar ciorna
+//        se pierdea) sau reîncercarea care devenea modificarea regulii găsite
+//        (reducerea telefonului suprascrisă — se aplică pe comenzile QR, mig 077).
+//   HHM23 INSERT-ul anulat în client e comis DUPĂ verificare: reîncercarea, cu
+//        același id, e respinsă de cheia primară (23505) și devine modificarea
+//        acelui id, cu ce e ACUM în formular — un singur rând, valorile noi.
+//        Control pozitiv: 23505 la PRIMA trimitere a unei sesiuni (id-ul n-a
+//        plecat încă) e un refuz — mesajul lui, nicio modificare. Mutațiile care
+//        pică: 23505 tratat ca refuz (editorul blocat: orice reîncercare primea
+//        23505, iar modificarea se pierdea) sau garda „doar la retrimitere”
+//        scoasă (o primă trimitere ar fi modificat un rând care nu e al sesiunii).
+//   HHM24 eroarea PRIMEI încărcări rămâne pe banner cât o reîncărcare e în aer
+//        și după ce verificarea unei creări e abandonată la termenul ei — și
+//        după închiderea editorului, cu reîncărcarea de la închidere încă în aer
+//        (altfel fila arăta „Nicio regulă încă” peste o listă care nu s-a
+//        încărcat niciodată). Control pozitiv: o reîncărcare REUȘITĂ șterge
+//        bannerul și aduce lista. Mutația care pică: `setErr(null)` la PORNIREA
+//        lui `load` readus.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
@@ -142,7 +173,7 @@ import userEvent from '@testing-library/user-event'
 import type { ActiveRule, HappyHourRule } from '../../lib/happyHour'
 import type { ConfirmOptions } from '../ui/confirm'
 import promotionsRo from '../../i18n/ns/promotions/ro'
-import { MSG_NO_PERMISSION } from '../../lib/userMessages'
+import { MSG_DUPLICATE, MSG_NETWORK, MSG_NO_PERMISSION } from '../../lib/userMessages'
 
 type NewRule = Omit<HappyHourRule, 'id' | 'restaurant_id' | 'created_at' | 'updated_at'>
 
@@ -151,6 +182,12 @@ const h = vi.hoisted(() => ({
   // Regulile altui restaurant (HHM16); implicit `rules`.
   rulesBy: {} as Record<string, HappyHourRule[]>,
   created: [] as NewRule[],
+  // Id-ul trimis de fiecare creare: id-ul SESIUNII editorului, retrimis la
+  // fiecare reîncercare (HHM12–HHM14, HHM19, HHM22, HHM23).
+  createdIds: [] as string[],
+  // Următoarea creare e respinsă cu 23505 orice id ar avea (HHM23: o PRIMĂ
+  // trimitere).
+  dupNext: false,
   // Semnalul primit de fiecare creare (HHM10: anulată la termen).
   signals: [] as (AbortSignal | null)[],
   updated: [] as [string, Partial<HappyHourRule>][],
@@ -165,7 +202,8 @@ const h = vi.hoisted(() => ({
   fetchSignals: [] as (AbortSignal | null)[],
   fetchPlan: [] as ('ok' | 'fail' | 'hold')[],
   held: [] as { release: () => void }[],
-  // Ordinea cererilor (verificarea dinaintea unei reîncercări, HHM12–HHM14).
+  // Ordinea cererilor (reîncercarea pleacă direct, HHM12/HHM14; 23505 →
+  // modificare, HHM19/HHM23).
   log: [] as string[],
   // Categoriile din bază și planul cererii lor, pe încărcare (HHM20): „ok”
   // implicit; „fail” = picată, „hold” = în aer până la anulare — ambele se
@@ -183,6 +221,12 @@ const h = vi.hoisted(() => ({
   // `vi.hoisted`: factory-urile `vi.mock` sunt ridicate deasupra oricărei
   // constante a fișierului.)
   aborted: { message: 'AbortError: signal is aborted without reason', code: '20' },
+  // Ca PostgREST la o cheie primară care există deja (mig 036: singura cheie
+  // unică a tabelei).
+  dup: {
+    message: 'duplicate key value violates unique constraint "happy_hour_rules_pkey"',
+    code: '23505',
+  },
 }))
 
 vi.mock('../ui/confirm', () => ({
@@ -223,13 +267,33 @@ vi.mock('../../lib/happyHour', () => ({
     if (step === 'ok') return Promise.resolve([...h.active])
     return Promise.reject({ message: 'TypeError: Load failed', code: '' })
   },
-  createHappyHourRule: (_rid: string, fields: NewRule, signal?: AbortSignal) => {
+  createHappyHourRule: (rid: string, id: string, fields: NewRule, signal?: AbortSignal) => {
     h.created.push(fields)
+    h.createdIds.push(id)
     h.signals.push(signal ?? null)
     h.log.push('create')
-    if (!h.holdCreate) return Promise.resolve(h.rules[0])
-    return new Promise<void>((resolve, reject) => {
-      h.pending = { resolve, reject }
+    // Ca baza: un id care există deja e respins de cheia primară, nu devine al
+    // doilea rând. (Un test simulează o creare comisă al cărei răspuns s-a
+    // pierdut adăugând el rândul în `h.rules`.)
+    if (h.dupNext || h.rules.some((r: HappyHourRule) => r.id === id)) {
+      h.dupNext = false
+      return Promise.reject(h.dup)
+    }
+    // O creare reușită e comisă: apare în lista următoare.
+    const commit = (): HappyHourRule => {
+      const row: HappyHourRule = {
+        ...fields,
+        id,
+        restaurant_id: rid,
+        created_at: '2026-11-28T10:00:00Z',
+        updated_at: '2026-11-28T10:00:00Z',
+      }
+      h.rules = [...h.rules, row]
+      return row
+    }
+    if (!h.holdCreate) return Promise.resolve(commit())
+    return new Promise<HappyHourRule>((resolve, reject) => {
+      h.pending = { resolve: () => resolve(commit()), reject }
       signal?.addEventListener('abort', () => reject(h.aborted))
     })
   },
@@ -307,6 +371,8 @@ beforeEach(() => {
   h.rules = [rule({}), rule({ id: 'r2', name: 'Seara' })]
   h.rulesBy = {}
   h.created = []
+  h.createdIds = []
+  h.dupNext = false
   h.signals = []
   h.updated = []
   h.deleted = []
@@ -330,8 +396,8 @@ beforeEach(() => {
   h.confirm = []
   h.answer = false
 })
-// HHM10–HHM15 folosesc ceasul fals doar în jurul termenului; un test picat în
-// mijloc nu are voie să-l lase următorului.
+// HHM10–HHM15, HHM20 și HHM22–HHM24 folosesc ceasul fals doar în jurul
+// termenului; un test picat în mijloc nu are voie să-l lase următorului.
 afterEach(() => {
   vi.useRealTimers()
 })
@@ -566,7 +632,7 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 
-  it('HHM10 crearea fără răspuns, găsită de verificare: editorul se închide, cu mesaj', async () => {
+  it('HHM10 crearea fără răspuns, găsită de verificare după id: editorul se închide, cu mesaj', async () => {
     h.holdCreate = true
     const { user, dlg } = await openNew()
     const name = within(dlg).getByLabelText('Nume *')
@@ -597,8 +663,11 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     expect(name).toBeDisabled()
     expect(within(dlg).getByRole('button', { name: 'Se verifică…' })).toBeDisabled()
 
-    // INSERT-ul ajunsese: lista arată regula NOUĂ cu numele ciornei.
-    h.rules = [...h.rules, rule({ id: 'r3', name: 'Brunch' })]
+    // INSERT-ul ajunsese: lista arată rândul cu id-ul SESIUNII — cu altă
+    // valoare decât cea trimisă (20), fiindcă alt dispozitiv l-a modificat
+    // între timp. Tot al acestui editor e: confirmarea nu cere valorile.
+    expect(h.created[0]).toMatchObject({ name: 'Brunch', discount_value: 20 })
+    h.rules = [...h.rules, rule({ id: h.createdIds[0], name: 'Brunch', discount_value: 15 })]
     h.held[0].release()
     await flush()
     await flush()
@@ -651,7 +720,7 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     expect(screen.getByText('Nicio regulă încă')).toBeInTheDocument()
   })
 
-  it('HHM12 o regulă existentă cu numele ciornei nu confirmă; reîncercarea verifică întâi', async () => {
+  it('HHM12 o regulă existentă cu numele ciornei nu confirmă; reîncercarea retrimite același id', async () => {
     h.holdCreate = true
     const { user, dlg } = await openNew()
     const name = within(dlg).getByLabelText('Nume *')
@@ -671,54 +740,58 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     expect(within(dlg).getByRole('alert').textContent).toBe(promotionsRo.err_notSavedCreate)
     expect(h.toasts).toEqual([])
 
-    // Reîncercarea: ÎNTÂI lista, apoi crearea (care acum reușește).
+    // Reîncercarea: crearea DIRECT (nimic de lămurit înainte), cu ACELAȘI id;
+    // reușită, lista se reîncarcă după ea.
     h.holdCreate = false
     h.log = []
     await user.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    expect(h.log.slice(0, 2)).toEqual(['fetch', 'create'])
-    expect(h.created).toHaveLength(2)
+    expect(h.log).toEqual(['create', 'fetch'])
+    expect(h.createdIds).toHaveLength(2)
+    expect(h.createdIds[1]).toBe(h.createdIds[0])
+    expect(h.updated).toEqual([])
     expect(h.toasts).toEqual([])
   })
 
-  it('HHM13 INSERT-ul comis după verificare: reîncercarea îl modifică, nu creează altul', async () => {
-    h.holdCreate = true
+  it('HHM13 id-ul e al sesiunii: o a doua regulă nouă cu același nume primește alt id', async () => {
     const { user, dlg } = await openNew()
     await user.type(within(dlg).getByLabelText('Nume *'), 'Brunch')
-
-    vi.useFakeTimers()
-    fireEvent.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
-    await flush(HAPPY_HOUR_SAVE_TIMEOUT_MS)
-    await flush()
-    vi.useRealTimers()
-    expect(within(dlg).getByRole('alert').textContent).toBe(promotionsRo.err_notSavedCreate)
-
-    // Omul schimbă valoarea; între timp INSERT-ul anulat a fost totuși comis.
-    const value = within(dlg).getByLabelText('Valoarea reducerii')
-    await user.clear(value)
-    await user.type(value, '25')
-    h.rules = [...h.rules, rule({ id: 'r3', name: 'Brunch' })]
-
-    h.log = []
     await user.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    expect(h.log.slice(0, 2)).toEqual(['fetch', 'update'])
-    expect(h.created).toHaveLength(1)
-    expect(h.updated).toHaveLength(1)
-    expect(h.updated[0][0]).toBe('r3')
-    expect(h.updated[0][1]).toMatchObject({ name: 'Brunch', discount_value: 25 })
+    // Control pozitiv: prima regulă se creează normal, cu un UUID.
+    expect(await screen.findByText('Brunch')).toBeInTheDocument()
+    expect(h.createdIds[0]).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    )
+
+    // A doua regulă nouă, cu ACELAȘI nume (numele nu sunt unice) și altă
+    // reducere: un rând NOU, nu modificarea primei.
+    await user.click(screen.getByRole('button', { name: 'Regulă nouă' }))
+    const dlg2 = screen.getByRole('dialog', { name: 'Regulă nouă' })
+    await user.type(within(dlg2).getByLabelText('Nume *'), 'Brunch')
+    const value = within(dlg2).getByLabelText('Valoarea reducerii')
+    await user.clear(value)
+    await user.type(value, '10')
+    await user.click(within(dlg2).getByRole('button', { name: 'Creează regulă' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(h.createdIds).toHaveLength(2)
+    expect(h.createdIds[1]).not.toBe(h.createdIds[0])
+    expect(h.updated).toEqual([])
+    const brunch = h.rules.filter((r: HappyHourRule) => r.name === 'Brunch')
+    expect(brunch.map((r: HappyHourRule) => r.discount_value)).toEqual([20, 10])
   })
 
-  it('HHM14 lista de verificare picată sau mută: editorul o spune și nu trimite orbește', async () => {
+  it('HHM14 lista de verificare picată sau mută: editorul o spune; reîncercarea retrimite același id', async () => {
     h.holdCreate = true
     const { user, dlg } = await openNew()
     const name = within(dlg).getByLabelText('Nume *')
     await user.type(name, 'Brunch')
+    const create = () => within(dlg).getByRole('button', { name: 'Creează regulă' })
 
     // Termenul salvării, apoi verificarea refuzată.
     vi.useFakeTimers()
     h.fetchPlan = ['fail']
-    fireEvent.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
+    fireEvent.click(create())
     await flush(HAPPY_HOUR_SAVE_TIMEOUT_MS)
     await flush()
     expect(h.fetches).toBe(2)
@@ -726,10 +799,15 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     expect(name).toHaveValue('Brunch')
     expect(within(dlg).getByRole('alert').textContent).toBe(promotionsRo.err_saveUnverified)
 
-    // Reîncercarea: verificarea nu răspunde; are termen propriu.
+    // Reîncercarea: crearea pleacă DIRECT, cu același id (fără listă); rămâne
+    // și ea fără răspuns, iar verificarea ei nu răspunde — are termen propriu.
+    h.log = []
     h.fetchPlan = ['hold']
-    fireEvent.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
+    fireEvent.click(create())
     await flush()
+    expect(h.log).toEqual(['create'])
+    expect(h.createdIds[1]).toBe(h.createdIds[0])
+    await flush(HAPPY_HOUR_SAVE_TIMEOUT_MS)
     expect(h.fetches).toBe(3)
     const verifySignal = h.fetchSignals[2]
     // Control: cu 1 ms înainte de termenul verificării, încă în aer.
@@ -741,17 +819,16 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     expect(verifySignal?.aborted).toBe(true)
     expect(name).toBeEnabled()
     expect(within(dlg).getByRole('alert').textContent).toBe(promotionsRo.err_saveUnverified)
-    // Fără listă, nimic trimis din nou.
-    expect(h.created).toHaveLength(1)
     vi.useRealTimers()
 
-    // Lista revine (fără regulă): crearea pleacă.
+    // Control: rețeaua revine — crearea, tot cu același id, reușește.
     h.holdCreate = false
     h.log = []
-    await user.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
+    await user.click(create())
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    expect(h.log.slice(0, 2)).toEqual(['fetch', 'create'])
-    expect(h.created).toHaveLength(2)
+    expect(h.log).toEqual(['create', 'fetch'])
+    const id = h.createdIds[0]
+    expect(h.createdIds).toEqual([id, id, id])
   })
 
   it('HHM15 modificarea fără răspuns: rândul cu valorile trimise = salvat; altfel nu', async () => {
@@ -828,32 +905,26 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     expect(keyed(dash, 'HappyHourTab')).toBe(true)
   })
 
-  it('HHM18 lista refuzată la încărcare: o regulă nouă nu pleacă până nu vine lista', async () => {
+  it('HHM18 lista refuzată la încărcare: o regulă nouă pleacă direct, iar reușita șterge bannerul', async () => {
     h.fetchPlan = ['fail']
     const user = userEvent.setup()
     render(<HappyHourTab restaurantId="rest-1" payAtTable={false} />)
     expect(await screen.findByText('Nicio regulă încă')).toBeInTheDocument()
+    // Control pozitiv: bannerul încărcării picate e acolo.
+    expect(screen.getByText(MSG_NETWORK)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Regulă nouă' }))
     const dlg = screen.getByRole('dialog', { name: 'Regulă nouă' })
-    const name = within(dlg).getByLabelText('Nume *')
-    await user.type(name, 'Seara')
-    h.fetchPlan = ['fail']
-    await user.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
-    await waitFor(() =>
-      expect(within(dlg).getByRole('alert').textContent).toBe(promotionsRo.err_listUnavailable),
-    )
-    expect(h.created).toHaveLength(0)
-    expect(name).toBeEnabled()
-    expect(name).toHaveValue('Seara')
-
-    // Lista vine (cu „Seara” EXISTENTĂ, r2): crearea pleacă, iar o verificare
-    // ulterioară ar ști că r2 nu e regula ei.
+    await user.type(within(dlg).getByLabelText('Nume *'), 'Brunch')
     h.log = []
     await user.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    expect(h.log.slice(0, 2)).toEqual(['fetch', 'create'])
+    // Fără listă cerută înainte: crearea, apoi reîncărcarea de după succes.
+    expect(h.log).toEqual(['create', 'fetch'])
     expect(h.created).toHaveLength(1)
+    expect(await screen.findByText('Brunch')).toBeInTheDocument()
+    expect(screen.getByText('Seara')).toBeInTheDocument()
+    expect(screen.queryByText(MSG_NETWORK)).toBeNull()
   })
 
   it('HHM19 crearea căzută pe rețea e „fără răspuns”: se verifică, iar reîncercarea n-o dublează', async () => {
@@ -864,7 +935,7 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     const create = () => within(dlg).getByRole('button', { name: 'Creează regulă' })
 
     // Control pozitiv: un REFUZ al serverului (cu cod) e un răspuns — mesajul
-    // lui, nicio verificare, iar reîncercarea trimite direct crearea.
+    // lui, nicio verificare.
     await user.click(create())
     h.pending?.reject({ message: 'Nu ai voie.', code: '42501' })
     await waitFor(() => expect(within(dlg).getByRole('alert').textContent).toBe(MSG_NO_PERMISSION))
@@ -875,7 +946,8 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     h.log = []
     await user.click(create())
     expect(h.log).toEqual(['create'])
-    h.rules = [...h.rules, rule({ id: 'r3', name: 'Brunch' })]
+    const id = h.createdIds[0]
+    h.rules = [...h.rules, rule({ id, name: 'Brunch' })]
     h.fetchPlan = ['fail']
     h.pending?.reject({ message: 'TypeError: Load failed', code: '' })
     await waitFor(() =>
@@ -885,14 +957,16 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     expect(name).toBeEnabled()
     expect(name).toHaveValue('Brunch')
 
-    // Rețeaua revine: reîncercarea verifică ÎNTÂI, găsește regula și o modifică.
+    // Rețeaua revine: reîncercarea retrimite ACELAȘI id, cheia primară o
+    // respinge (23505), deci devine modificarea regulii comise.
     h.holdCreate = false
     h.log = []
     await user.click(create())
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    expect(h.log.slice(0, 2)).toEqual(['fetch', 'update'])
-    expect(h.created).toHaveLength(2)
-    expect(h.updated).toEqual([['r3', expect.objectContaining({ name: 'Brunch' })]])
+    expect(h.log.slice(0, 2)).toEqual(['create', 'update'])
+    expect(h.createdIds).toEqual([id, id, id])
+    expect(h.updated).toEqual([[id, expect.objectContaining({ name: 'Brunch' })]])
+    expect(h.rules.filter((r: HappyHourRule) => r.name === 'Brunch')).toHaveLength(1)
   })
 
   it('HHM20 verificarea cu sub-cereri picate sau anulate nu golește editorul deschis', async () => {
@@ -935,12 +1009,14 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     expect(select).toHaveValue('c2')
     expect(screen.getByText('ACTIVĂ ACUM')).toBeInTheDocument()
 
-    // 2) Reîncercarea verifică întâi; categoriile stau în aer până la termenul
-    //    verificării, care le anulează. Regula „Prânz” (de pe alt dispozitiv)
-    //    venise deja în lista acestei verificări abandonate.
+    // 2) Reîncercarea rămâne și ea fără răspuns; la verificarea ei categoriile
+    //    stau în aer până la termenul verificării, care le anulează. Regula
+    //    „Prânz” (de pe alt dispozitiv) venise deja în lista acestei verificări
+    //    abandonate.
     h.rules = [...h.rules, rule({ id: 'r4', name: 'Prânz' })]
     h.catsPlan = ['hold']
     fireEvent.click(create())
+    await flush(HAPPY_HOUR_SAVE_TIMEOUT_MS)
     await flush(HAPPY_HOUR_VERIFY_TIMEOUT_MS)
     await flush()
     expect(h.fetches).toBe(3)
@@ -948,24 +1024,28 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     expect(options()).toEqual(initial)
     expect(select).toHaveValue('c2')
     expect(screen.queryByText('Prânz')).toBeNull()
-    expect(h.created).toHaveLength(1)
+    expect(h.created).toHaveLength(2)
 
-    // Control pozitiv: o reîncărcare REUȘITĂ chiar aduce ce e nou (categoria
-    // „Vin”, regula „Prânz”), apoi crearea pleacă.
+    // Control pozitiv: o reîncărcare REUȘITĂ (după încă o încercare fără
+    // răspuns) chiar aduce ce e nou — categoria „Vin”, regula „Prânz”.
     h.cats = [...h.cats, { id: 'c3', name: 'Vin', emoji: '🍷' }]
     fireEvent.click(create())
-    await flush()
+    await flush(HAPPY_HOUR_SAVE_TIMEOUT_MS)
     await flush()
     expect(h.fetches).toBe(4)
+    expect(within(dlg).getByRole('alert').textContent).toBe(promotionsRo.err_notSavedCreate)
     expect(options()).toEqual([...initial, '🍷 Vin'])
     expect(select).toHaveValue('c2')
     expect(screen.getByText('Prânz')).toBeInTheDocument()
-    expect(h.created).toHaveLength(2)
-    expect(h.created[1]).toMatchObject({ scope: 'category', category_id: 'c2' })
-    h.pending?.resolve()
-    await flush()
+    expect(h.created).toHaveLength(3)
+    expect(h.created[2]).toMatchObject({ scope: 'category', category_id: 'c2' })
     vi.useRealTimers()
+
+    // Abia acum crearea primește răspuns: editorul se închide.
+    h.holdCreate = false
+    await user.click(create())
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(h.created).toHaveLength(4)
   })
 
   it('HHM21 modificarea căzută pe rețea: se verifică; la închidere lista se reîncarcă', async () => {
@@ -1006,5 +1086,147 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     await user.click(within(dlg).getByRole('button', { name: 'Anulează' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     await waitFor(() => expect(h.fetches).toBe(4))
+  })
+
+  it('HHM22 regula cu același nume de pe alt dispozitiv nu e a editorului; reîncercarea n-o atinge', async () => {
+    h.holdCreate = true
+    const { user, dlg } = await openNew()
+    const name = within(dlg).getByLabelText('Nume *')
+    await user.type(name, 'Brunch')
+    const create = () => within(dlg).getByRole('button', { name: 'Creează regulă' })
+
+    // Termenul; între timp telefonul a creat și el o regulă „Brunch” (alt id,
+    // altă reducere), care apare în lista de verificare.
+    vi.useFakeTimers()
+    fireEvent.click(create())
+    await flush()
+    h.rules = [...h.rules, rule({ id: 'phone-1', name: 'Brunch', discount_value: 50 })]
+    await flush(HAPPY_HOUR_SAVE_TIMEOUT_MS)
+    await flush()
+    vi.useRealTimers()
+
+    expect(h.fetches).toBe(2)
+    expect(screen.getByRole('dialog', { name: 'Regulă nouă' })).toBe(dlg)
+    expect(name).toBeEnabled()
+    expect(name).toHaveValue('Brunch')
+    expect(within(dlg).getByRole('alert').textContent).toBe(promotionsRo.err_notSavedCreate)
+    expect(h.toasts).toEqual([])
+    // Regula telefonului e în lista din spate, dar nu e a acestui editor.
+    expect(screen.getByText('Brunch')).toBeInTheDocument()
+
+    // Reîncercarea: INSERT-ul cu ACELAȘI id, fără răspuns din nou — de data
+    // asta a ajuns (control pozitiv: rândul cu id-ul sesiunii confirmă).
+    const id = h.createdIds[0]
+    h.log = []
+    vi.useFakeTimers()
+    fireEvent.click(create())
+    await flush()
+    expect(h.log).toEqual(['create'])
+    expect(h.createdIds).toEqual([id, id])
+    h.rules = [...h.rules, rule({ id, name: 'Brunch' })]
+    await flush(HAPPY_HOUR_SAVE_TIMEOUT_MS)
+    await flush()
+    vi.useRealTimers()
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(h.toasts).toEqual([['success', promotionsRo.saved_late]])
+    // Regula telefonului n-a fost atinsă: nicio modificare, reducerea ei rămâne.
+    expect(h.updated).toEqual([])
+    expect(h.rules.find((r: HappyHourRule) => r.id === 'phone-1')).toMatchObject({
+      discount_value: 50,
+    })
+    expect(screen.getAllByText('Brunch')).toHaveLength(2)
+  })
+
+  it('HHM23 reîncercarea respinsă cu 23505 devine modificarea aceluiași id, cu valorile din formular', async () => {
+    h.holdCreate = true
+    const { user, dlg } = await openNew()
+    await user.type(within(dlg).getByLabelText('Nume *'), 'Brunch')
+    const create = () => within(dlg).getByRole('button', { name: 'Creează regulă' })
+
+    vi.useFakeTimers()
+    fireEvent.click(create())
+    await flush(HAPPY_HOUR_SAVE_TIMEOUT_MS)
+    await flush()
+    vi.useRealTimers()
+    expect(within(dlg).getByRole('alert').textContent).toBe(promotionsRo.err_notSavedCreate)
+
+    // INSERT-ul anulat a fost totuși comis DUPĂ verificare; omul schimbă
+    // valoarea și reîncearcă.
+    const id = h.createdIds[0]
+    h.rules = [...h.rules, rule({ id, name: 'Brunch' })]
+    const value = within(dlg).getByLabelText('Valoarea reducerii')
+    await user.clear(value)
+    await user.type(value, '25')
+    h.holdCreate = false
+    h.log = []
+    await user.click(create())
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(h.log.slice(0, 2)).toEqual(['create', 'update'])
+    expect(h.createdIds).toEqual([id, id])
+    expect(h.updated).toEqual([
+      [id, expect.objectContaining({ name: 'Brunch', discount_value: 25 })],
+    ])
+    expect(h.rules.filter((r: HappyHourRule) => r.name === 'Brunch')).toHaveLength(1)
+    expect(h.toasts).toEqual([])
+
+    // Control pozitiv: 23505 la PRIMA trimitere a unei sesiuni noi (id-ul ei
+    // n-a plecat încă) nu poate fi o încercare a ei — e un refuz: mesajul lui,
+    // editorul deschis, nicio modificare.
+    await user.click(screen.getByRole('button', { name: 'Regulă nouă' }))
+    const dlg2 = screen.getByRole('dialog', { name: 'Regulă nouă' })
+    await user.type(within(dlg2).getByLabelText('Nume *'), 'Prânz')
+    h.dupNext = true
+    await user.click(within(dlg2).getByRole('button', { name: 'Creează regulă' }))
+    await waitFor(() => expect(within(dlg2).getByRole('alert').textContent).toBe(MSG_DUPLICATE))
+    expect(screen.getByRole('dialog', { name: 'Regulă nouă' })).toBe(dlg2)
+    expect(h.updated).toHaveLength(1)
+  })
+
+  it('HHM24 eroarea primei încărcări rămâne pe banner peste o verificare abandonată', async () => {
+    h.fetchPlan = ['fail']
+    h.holdCreate = true
+    const user = userEvent.setup()
+    render(<HappyHourTab restaurantId="rest-1" payAtTable={false} />)
+    expect(await screen.findByText('Nicio regulă încă')).toBeInTheDocument()
+    expect(screen.getByText(MSG_NETWORK)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Regulă nouă' }))
+    const dlg = screen.getByRole('dialog', { name: 'Regulă nouă' })
+    await user.type(within(dlg).getByLabelText('Nume *'), 'Brunch')
+
+    // Termenul salvării; verificarea nu răspunde. Cât e în aer, bannerul rămâne.
+    vi.useFakeTimers()
+    h.fetchPlan = ['hold']
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Creează regulă' }))
+    await flush(HAPPY_HOUR_SAVE_TIMEOUT_MS)
+    expect(h.fetches).toBe(2)
+    expect(within(dlg).getByRole('button', { name: 'Se verifică…' })).toBeDisabled()
+    expect(screen.getByText(MSG_NETWORK)).toBeInTheDocument()
+
+    // Verificarea e abandonată la termenul ei: editorul spune „nu se știe”,
+    // bannerul rămâne.
+    await flush(HAPPY_HOUR_VERIFY_TIMEOUT_MS)
+    await flush()
+    vi.useRealTimers()
+    expect(h.fetchSignals[1]?.aborted).toBe(true)
+    expect(within(dlg).getByRole('alert').textContent).toBe(promotionsRo.err_saveUnverified)
+    expect(screen.getByText(MSG_NETWORK)).toBeInTheDocument()
+
+    // Omul renunță; lista se reîncarcă la închidere și stă în aer: bannerul
+    // rămâne și deasupra lui „Nicio regulă încă”.
+    h.fetchPlan = ['hold']
+    h.answer = true
+    await user.click(within(dlg).getByRole('button', { name: 'Anulează' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(h.fetches).toBe(3)
+    expect(screen.getByText('Nicio regulă încă')).toBeInTheDocument()
+    expect(screen.getByText(MSG_NETWORK)).toBeInTheDocument()
+
+    // Control pozitiv: reîncărcarea REUȘITĂ șterge bannerul și aduce lista.
+    h.held[1].release()
+    expect(await screen.findByText('Seara')).toBeInTheDocument()
+    expect(screen.queryByText(MSG_NETWORK)).toBeNull()
+    expect(screen.queryByText('Nicio regulă încă')).toBeNull()
   })
 })

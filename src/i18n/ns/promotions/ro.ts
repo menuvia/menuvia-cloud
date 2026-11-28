@@ -90,20 +90,17 @@ const ro = {
   // lotului C4a): cererea s-a anulat sau a căzut, iar fila a VERIFICAT singură
   // lista reîncărcată (lista stă sub editor, deci omul n-o poate citi). Fiecare text
   // spune ce s-a aflat; „nu se dublează” e adevărat fiindcă o reîncercare de
-  // creare verifică întâi lista încă o dată, iar o modificare repetată scrie
-  // același rând.
+  // creare retrimite ACELAȘI id (o creare deja comisă e respinsă de cheia
+  // primară și devine modificarea ei), iar o modificare repetată scrie același
+  // rând.
   err_notSavedCreate:
     'Salvarea n-a primit răspuns de la server, iar regula nu apare în lista reîncărcată: nu s-a salvat. Poți încerca din nou — o nouă încercare nu dublează regula.',
   err_notSavedUpdate:
     'Salvarea n-a primit răspuns de la server, iar regula din lista reîncărcată nu are valorile tale: modificarea nu s-a salvat. Poți încerca din nou.',
   err_saveUnverified:
     'Salvarea n-a primit răspuns de la server, iar lista regulilor nu s-a putut reîncărca: nu se știe dacă salvarea a ajuns. Verifică conexiunea și încearcă din nou — o nouă încercare nu dublează regula.',
-  // O regulă nouă se trimite doar cu o listă de încredere (altfel o creare
-  // fără răspuns n-ar mai putea fi verificată): aici nu a plecat nimic.
-  err_listUnavailable:
-    'Lista regulilor nu s-a putut încărca, deci regula nu s-a trimis încă. Verifică conexiunea și încearcă din nou.',
   saving: 'Se salvează…',
-  // Butonul cât fila verifică lista (după termen sau înaintea unei reîncercări).
+  // Butonul cât fila verifică lista (după o salvare rămasă fără răspuns).
   verifying: 'Se verifică…',
   // Mesajul (toast) când verificarea găsește salvarea: editorul s-a închis.
   saved_late: 'Regula s-a salvat — confirmarea a venit după ce conexiunea și-a revenit.',

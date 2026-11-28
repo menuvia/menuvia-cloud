@@ -76,8 +76,6 @@ const en: Translation<typeof ro> = {
     'The save got no response from the server, and the rule in the reloaded list does not have your values: the change was not saved. You can try again.',
   err_saveUnverified:
     'The save got no response from the server, and the rule list could not be reloaded: it is not known whether the save went through. Check your connection and try again — a new attempt will not duplicate the rule.',
-  err_listUnavailable:
-    'The rule list could not be loaded, so the rule has not been sent yet. Check your connection and try again.',
   saving: 'Saving…',
   verifying: 'Checking…',
   saved_late: 'The rule was saved — the confirmation came after the connection recovered.',

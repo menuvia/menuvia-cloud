@@ -77,8 +77,6 @@ const fr: Translation<typeof ro> = {
     'L’enregistrement n’a reçu aucune réponse du serveur et la règle de la liste rechargée n’a pas vos valeurs : la modification n’a pas été enregistrée. Vous pouvez réessayer.',
   err_saveUnverified:
     'L’enregistrement n’a reçu aucune réponse du serveur et la liste des règles n’a pas pu être rechargée : on ne sait pas si l’enregistrement a abouti. Vérifiez la connexion et réessayez — une nouvelle tentative ne duplique pas la règle.',
-  err_listUnavailable:
-    'La liste des règles n’a pas pu être chargée, la règle n’a donc pas encore été envoyée. Vérifiez la connexion et réessayez.',
   saving: 'Enregistrement…',
   verifying: 'Vérification…',
   saved_late: 'La règle a été enregistrée — la confirmation est arrivée après le rétablissement de la connexion.',

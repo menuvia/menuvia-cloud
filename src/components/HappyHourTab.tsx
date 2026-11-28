@@ -43,13 +43,8 @@ import type promotionsRo from '../i18n/ns/promotions/ro'
 // Ce a aflat fila despre bază după o salvare FĂRĂ răspuns (vezi `handleSave`):
 // `not_saved` = lista reîncărcată arată că salvarea n-a ajuns (`create` alege
 // textul: regula lipsește / regula n-are valorile tale); `unverified` = lista
-// nu s-a putut reîncărca, deci nu se știe; `list_unavailable` = nu s-a trimis
-// nimic, fiindcă fără o listă de încredere o creare fără răspuns n-ar mai putea
-// fi verificată.
-type VerifyResult =
-  | { kind: 'not_saved'; create: boolean }
-  | { kind: 'unverified' }
-  | { kind: 'list_unavailable' }
+// nu s-a putut reîncărca, deci nu se știe.
+type VerifyResult = { kind: 'not_saved'; create: boolean } | { kind: 'unverified' }
 // Erorile ținute ca DATE (lotul L5b): validarea editorului e o cheie, refuzul
 // serverului e eroarea brută; textul se compune la RANDARE, în limba curentă.
 type EditorError =
@@ -62,18 +57,19 @@ type RuleFields = Omit<HappyHourRule, 'id' | 'restaurant_id' | 'created_at' | 'u
 // de verificare); altfel editorul rămâne deschis, deblocat, cu ciorna.
 type SaveOutcome = { kind: 'saved' } | VerifyResult
 // Ce face editorul cât cererea e în aer: salvează sau verifică (lista
-// reîncărcată după un termen, ori dinaintea unei reîncercări).
+// reîncărcată după o salvare rămasă fără răspuns).
 type SavePhase = 'saving' | 'verifying'
 // Ce scrie editorul deschis, ținut de filă pe toată durata lui (deschidere →
-// închidere), nu pe o singură încercare. La creare: id-urile regulilor de
-// DINAINTE de prima încercare (null = lista nu era de încredere), numele
-// trimise și dacă o încercare a rămas fără răspuns (`unresolved`) — atunci
-// următoarea încercare verifică întâi lista, ca un INSERT comis DUPĂ
-// verificarea de la termen să nu fie dublat. O creare confirmată astfel devine
-// modificarea regulii găsite.
-type SaveSession =
-  | { kind: 'create'; beforeIds: ReadonlySet<string> | null; names: Set<string>; unresolved: boolean }
-  | { kind: 'update'; id: string }
+// închidere), nu pe o singură încercare. La creare: id-ul regulii, generat în
+// CLIENT la deschiderea editorului (`openEditor`) și retrimis la FIECARE
+// încercare, plus dacă un INSERT cu el a plecat deja (`sent`). Id-ul e per
+// SESIUNE (recenzia adversarială a lotului C4a), nu per încercare și nici per
+// filă: per încercare, un INSERT comis după ce clientul a renunțat la el ar
+// rămâne alături de reîncercare — regula dublată, ambele reduc comenzile QR
+// (mig 077); per filă, al doilea editor deschis ar primi 23505 pe id-ul primei
+// reguli și ar SUPRASCRIE-o. O creare găsită astfel în bază (23505 la o
+// reîncercare) devine modificarea acelui id.
+type SaveSession = { kind: 'create'; id: string; sent: boolean } | { kind: 'update'; id: string }
 type LoadResult = { ok: true; rules: HappyHourRule[] } | { ok: false }
 
 // Textul unui rezultat de verificare (fiecare spune ce s-a aflat despre bază).
@@ -83,8 +79,6 @@ function verifyErrorKey(e: VerifyResult): StringKey<typeof promotionsRo> {
       return e.create ? 'err_notSavedCreate' : 'err_notSavedUpdate'
     case 'unverified':
       return 'err_saveUnverified'
-    case 'list_unavailable':
-      return 'err_listUnavailable'
   }
 }
 
@@ -96,9 +90,8 @@ function verifyErrorKey(e: VerifyResult): StringKey<typeof promotionsRo> {
 // cererea se ANULEAZĂ — iar când cade pe drum fără răspunsul serverului, la fel
 // (`isServerAnswer`) — și fila VERIFICĂ singură ce a ajuns în bază: lista
 // reîncărcată stă sub overlay-ul modalului, deci omul n-o putea citi fără să
-// închidă editorul și să-și piardă ciorna, iar o reîncercare oarbă dubla regula
-// (`happy_hour_rules` n-are nicio cheie unică în afara lui `id`, mig 036; două
-// reguli active reduc amândouă comenzile QR, mig 077).
+// închidă editorul și să-și piardă ciorna. O reîncercare nu dublează regula:
+// crearea se retrimite cu ACELAȘI id (`SaveSession`).
 export const HAPPY_HOUR_SAVE_TIMEOUT_MS = 20_000
 // Termenul reîncărcării de verificare: și ea e o cerere fără timeout propriu,
 // iar cât durează editorul rămâne blocat.
@@ -126,9 +119,9 @@ async function raceDeadline<T>(p: Promise<T>, ms: number): Promise<T | 'timeout'
 // lib/networkError; supabase-js o întoarce cu `code: ''`) poate veni DUPĂ ce
 // INSERT-ul s-a comis și doar răspunsul s-a pierdut (Wi-Fi → 4G, reset
 // HTTP/2), iar o eroare fără cod (ex. pagina HTML a unui gateway 502/504) nu
-// spune nici ea nimic despre tranzacție. Tratată ca refuz, următorul click
-// trimitea încă un INSERT fără să verifice — exact dublura pe care o previne
-// termenul. Deci se tratează ca termenul: fila verifică lista.
+// spune nici ea nimic despre tranzacție. Tratată ca refuz, editorul spunea
+// „Fără conexiune” despre o salvare care poate fi deja în bază, iar lista nu se
+// mai reîncărca la închidere. Deci se tratează ca termenul: fila verifică lista.
 function isServerAnswer(e: unknown): boolean {
   if (isNetworkError(e)) return false
   const code = e != null && typeof e === 'object' ? (e as { code?: unknown }).code : undefined
@@ -159,15 +152,11 @@ function sameRuleFields(row: HappyHourRule, f: RuleFields): boolean {
   )
 }
 
-// Regula creată de editorul deschis, dacă lista o arată: o regulă NOUĂ (id-ul
-// ei lipsea dinaintea primei încercări) cu unul dintre numele trimise. Doar
-// numele, nu toate valorile: un rând inserat are exact valorile trimise, iar o
-// nepotrivire falsă aici ar spune „nu s-a salvat” despre o regulă salvată —
-// adică exact reîncercarea care o dublează.
-function findCreated(rules: readonly HappyHourRule[], s: SaveSession): HappyHourRule | null {
-  if (s.kind !== 'create' || s.beforeIds == null) return null
-  const before = s.beforeIds
-  return rules.find((r) => !before.has(r.id) && s.names.has(r.name)) ?? null
+// 23505 la INSERT = cheia primară există deja — singura cheie unică a tabelei
+// (mig 036). Cu id-ul generat de sesiune, înseamnă că o încercare de dinainte a
+// acestei sesiuni a ajuns în bază, iar răspunsul ei s-a pierdut.
+function isUniqueViolation(e: unknown): boolean {
+  return e != null && typeof e === 'object' && (e as { code?: unknown }).code === '23505'
 }
 // Erorile care țin DOAR de reducerea în procent (plafonul există doar acolo, iar
 // „max 100” nu se aplică unei sume în lei): la trecerea pe sumă fixă se șterg,
@@ -271,9 +260,14 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
   // și montată pe cheia restaurantului în DashboardPage — recenzia CodeRabbit pe
   // #393; garda rămâne pentru încărcările aceluiași restaurant.)
   const loadSeqRef = useRef(0)
-  // Lista din stare e cea din bază? false după o încărcare refuzată: atunci
-  // id-urile ei nu pot spune ce regulă e NOUĂ după o salvare fără răspuns.
-  const rulesTrustedRef = useRef(false)
+  // Câte erori a pus fila pe banner (crește la fiecare). O încărcare reușită
+  // șterge bannerul doar dacă nu a apărut între timp o eroare NOUĂ (ex. o
+  // ștergere refuzată cât lista era în aer): acelea nu le-a lămurit ea.
+  const errSeqRef = useRef(0)
+  const showErr = useCallback((e: unknown) => {
+    errSeqRef.current += 1
+    setErr({ err: e })
+  }, [])
   const sessionRef = useRef<SaveSession | null>(null)
   // O salvare a rămas fără răspuns: la închiderea editorului lista se mai
   // reîncarcă o dată — o cerere anulată în client poate fi comisă și DUPĂ
@@ -282,10 +276,16 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
 
   // `signal` (doar reîncărcarea de verificare) anulează cererile la termenul
   // ei; o încărcare anulată nu pune nimic pe bannerul filei — o spune editorul.
+  // Bannerul NU se șterge când PORNEȘTE o încărcare, ci doar când una REUȘEȘTE
+  // și e încă ultima (recenzia adversarială a lotului C4a): o verificare
+  // abandonată la termenul ei nu mai ajunge la nicio ramură care scrie
+  // bannerul, deci un `setErr(null)` de la început lăsa o filă a cărei PRIMĂ
+  // încărcare picase să arate „Nicio regulă încă” peste o listă care nu s-a
+  // încărcat niciodată.
   const load = useCallback(
     async (signal?: AbortSignal): Promise<LoadResult> => {
       const seq = ++loadSeqRef.current
-      setErr(null)
+      const errSeq = errSeqRef.current
       try {
         const cats = supabase
           .from('categories')
@@ -320,20 +320,19 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
           // dinainte.
           if (!catsRes.error) setCategories((catsRes.data ?? []) as Category[])
           if (!prodsRes.error) setProducts((prodsRes.data ?? []) as Product[])
-          rulesTrustedRef.current = true
+          // Lista a venit: eroarea de dinainte (o încărcare picată, o acțiune
+          // refuzată) nu mai descrie fila.
+          if (errSeqRef.current === errSeq) setErr(null)
         }
         return { ok: true, rules: rs }
       } catch (e) {
-        if (seq === loadSeqRef.current && !signal?.aborted) {
-          setErr({ err: e })
-          rulesTrustedRef.current = false
-        }
+        if (seq === loadSeqRef.current && !signal?.aborted) showErr(e)
         return { ok: false }
       } finally {
         if (seq === loadSeqRef.current) setLoadedFor(restaurantId)
       }
     },
-    [restaurantId],
+    [restaurantId, showErr],
   )
 
   useEffect(() => {
@@ -349,9 +348,15 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
   }, 60_000)
 
   function openEditor(target: HappyHourRule | 'new') {
+    // Un id NOU la fiecare deschidere pentru o regulă nouă (`SaveSession`).
+    // `crypto.randomUUID` direct, ca `lib/idempotency.ts` și cheia comenzii
+    // ospătarului (WaiterEntry): panoul rulează doar pe https, unde există în
+    // toate browserele țintă. Un înlocuitor care nu e UUID (ca vizitatorul din
+    // `lib/affiliate.ts`) nu se poate folosi: coloana e `uuid`, INSERT-ul ar fi
+    // respins.
     sessionRef.current =
       target === 'new'
-        ? { kind: 'create', beforeIds: null, names: new Set(), unresolved: false }
+        ? { kind: 'create', id: crypto.randomUUID(), sent: false }
         : { kind: 'update', id: target.id }
     setEditing(target)
   }
@@ -450,55 +455,50 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
     if (s == null) return { kind: 'unverified' }
     if (s.kind === 'update') return saveUpdate(s.id, rule, onPhase)
 
-    // Crearea: înaintea INSERT-ului, lista de comparat trebuie să fie de
-    // încredere, iar o încercare rămasă fără răspuns (termen sau cădere de
-    // rețea) trebuie lămurită — altfel un INSERT comis după verificarea de
-    // atunci ar fi dublat de reîncercare.
-    if (s.beforeIds == null && rulesTrustedRef.current) {
-      s.beforeIds = new Set(rules.map((r) => r.id))
-    }
-    if (s.beforeIds == null || s.unresolved) {
-      onPhase('verifying')
-      const fresh = await reloadForVerify()
-      if (fresh == null) return { kind: s.unresolved ? 'unverified' : 'list_unavailable' }
-      const created = findCreated(fresh, s)
-      if (created) {
-        // Încercarea de dinainte ajunsese: de acum editorul scrie regula aceea
-        // (cu ce e acum în formular), nu încă una.
-        sessionRef.current = { kind: 'update', id: created.id }
-        return saveUpdate(created.id, rule, onPhase)
-      }
-      s.unresolved = false
-      if (s.beforeIds == null) s.beforeIds = new Set(fresh.map((r) => r.id))
-    }
-
+    // Crearea trimite MEREU id-ul sesiunii, și la reîncercare: înainte nu e
+    // nimic de lămurit. O încercare de dinainte ajunsă totuși în bază (comisă
+    // după ce clientul a renunțat la ea) face ca aceasta să fie respinsă de
+    // cheia primară (23505) — niciodată un al doilea rând.
     onPhase('saving')
-    s.names.add(rule.name)
-    s.unresolved = true
+    const resent = s.sent
+    s.sent = true
     let sent: 'saved' | 'unanswered'
     try {
-      sent = await sendWithDeadline((signal) => createHappyHourRule(restaurantId, rule, signal))
+      sent = await sendWithDeadline((signal) =>
+        createHappyHourRule(restaurantId, s.id, rule, signal),
+      )
     } catch (e) {
-      // Doar un refuz al SERVERULUI ajunge aici — un răspuns: nu s-a creat
-      // nimic. O cădere de rețea e „fără răspuns” (`sendWithDeadline`), deci
-      // `unresolved` rămâne și reîncercarea verifică întâi.
-      s.unresolved = false
+      // Doar un refuz al SERVERULUI ajunge aici (o cădere de rețea e „fără
+      // răspuns”, `sendWithDeadline`). 23505 la o REtrimitere = încercarea de
+      // dinainte a ajuns: de acum editorul scrie regula aceea, cu ce e acum în
+      // formular — o modificare pe id, cu confirmarea ei obișnuită. La PRIMA
+      // trimitere id-ul n-a plecat încă nicăieri, deci 23505 n-ar fi regula
+      // acestei sesiuni: rămâne un refuz.
+      if (resent && isUniqueViolation(e)) {
+        sessionRef.current = { kind: 'update', id: s.id }
+        return saveUpdate(s.id, rule, onPhase)
+      }
       throw e
     }
     if (sent === 'saved') {
       finishSaved(false)
       return { kind: 'saved' }
     }
+    // Fără răspuns: s-a salvat DOAR dacă lista reîncărcată are rândul cu id-ul
+    // sesiunii. Nu după nume — numele nu sunt unice, iar o regulă cu același
+    // nume creată de pe alt dispozitiv trecea drept a acestui editor (omul își
+    // pierdea ciorna, iar reîncercarea ajungea să modifice regula CELUILALT);
+    // nici după valori — un rând cu acest id nu poate fi decât al sesiunii, iar
+    // o nepotrivire ar spune „nu s-a salvat” despre o regulă salvată.
     onPhase('verifying')
     const fresh = await reloadForVerify()
     if (fresh == null) return { kind: 'unverified' }
-    if (findCreated(fresh, s)) {
+    if (fresh.some((r) => r.id === s.id)) {
       finishSaved(true)
       return { kind: 'saved' }
     }
-    // `unresolved` RĂMÂNE: anularea oprește cererea doar în client, deci
-    // INSERT-ul poate fi comis și după această verificare; reîncercarea
-    // verifică lista încă o dată înainte să trimită.
+    // Negăsită: reîncercarea retrimite ACELAȘI id, deci o creare comisă abia
+    // după această verificare nu se dublează (23505 → modificare).
     return { kind: 'not_saved', create: true }
   }
 
@@ -518,7 +518,7 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
       await deleteHappyHourRule(rule.id)
       void load()
     } catch (e) {
-      setErr({ err: e })
+      showErr(e)
     }
   }
 
@@ -527,7 +527,7 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
       await updateHappyHourRule(rule.id, { is_active: !rule.is_active })
       void load()
     } catch (e) {
-      setErr({ err: e })
+      showErr(e)
     }
   }
 
