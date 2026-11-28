@@ -66,11 +66,19 @@
 // după plan („Meniu QR" / „Comenzi") nu mai e al lui SettingsTab, ci al
 // sub-tab-ului (`subTabLabel`, dashboardNav.test NV4) — aserțiunile pe numele
 // pastilei din PS1/PS2 s-au mutat acolo.
+//
+// Lotul C7c: „Salvează" de sus apare doar pe secțiunile cu câmpuri de
+// formular (lib/settingsForm `sectionHasFormFields`) — pe Planul 1, free și
+// planul necunoscut, „Comenzi" are doar carduri care se salvează singure, deci
+// ancora lui `openOrders` nu mai poate fi butonul. Ancora e acum cardul
+// „Module opționale" (de aceea testele primesc un `modulesState`), prezent pe
+// orice plan; butonul se verifică separat (SettingsTabSave SJ6).
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { SettingsSection } from '../../lib/dashboardNav'
 import userEvent from '@testing-library/user-event'
 import type { Restaurant } from '../../hooks/useData'
+import type { useRestaurantModules } from '../../hooks/useRestaurantModules'
 
 vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'owner-1' } }) }))
 vi.mock('../../lib/supabase', () => ({ supabase: {} }))
@@ -136,6 +144,16 @@ function makeRestaurant(over: Partial<Restaurant> = {}): Restaurant {
 
 const SWITCH = 'Comenzi pentru ridicare'
 
+// Modulele (comutatoare auto): ancora secțiunii „Comenzi" pe orice plan.
+const modulesState = {
+  modules: {},
+  loading: false,
+  loadError: false,
+  isEnabled: () => false,
+  setModule: vi.fn(async () => {}),
+  reload: vi.fn(async () => {}),
+} as unknown as ReturnType<typeof useRestaurantModules>
+
 function ui(section: SettingsSection, plan: DbPlan, restaurant: Restaurant, planKnown: boolean) {
   return (
     <SettingsTab
@@ -145,6 +163,7 @@ function ui(section: SettingsSection, plan: DbPlan, restaurant: Restaurant, plan
       plan={plan}
       onSignOut={() => {}}
       onPricing={() => {}}
+      modulesState={modulesState}
       surface={planKnown ? surfaceFor(plan) : null}
     />
   )
@@ -153,9 +172,9 @@ function ui(section: SettingsSection, plan: DbPlan, restaurant: Restaurant, plan
 async function openOrders(plan: DbPlan, restaurant: Restaurant, planKnown = true) {
   const user = userEvent.setup()
   const { rerender } = render(ui('orders', plan, restaurant, planKnown))
-  // Ancora: e randată secțiunea „Comenzi & plăți" (formular, cu „Salvează"),
-  // nu alta — absența cardului nu vine dintr-o secțiune greșită.
-  expect(screen.getByRole('button', { name: 'Salvează' })).toBeInTheDocument()
+  // Ancora: e randată secțiunea „Comenzi & plăți" (cardul modulelor, pe orice
+  // plan), nu alta — absența cardului nu vine dintr-o secțiune greșită.
+  expect(screen.getByText('Module opționale')).toBeInTheDocument()
   expect(screen.queryByText('Informații principale')).toBeNull()
   expect(screen.queryByText('Previzualizare')).toBeNull()
   // Trecerea între secțiuni pe ACEEAȘI instanță (ca în panou).

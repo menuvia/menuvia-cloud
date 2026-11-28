@@ -19,6 +19,12 @@ const LEGAL_RATES_TEXT = LEGAL_PRESET.rates.map((r) => `grupa ${r.group}: ${r.ra
 
 interface Props {
   restaurantId: string
+  /**
+   * Un rând are modificări nesalvate (lotul C7c): SettingsTab le adaugă la
+   * paza de modificări nesalvate a panoului. Editorul rămâne cu salvare PE RÂND
+   * (componentă fiscală) — pagina doar întreabă înainte să le piardă.
+   */
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 // Construiește intrarea din harta de editare pornind de la o cotă existentă.
@@ -29,7 +35,7 @@ const toEditForm = (r: VatRate) => ({
   description: r.description ?? '',
 })
 
-export default function VatRatesEditor({ restaurantId }: Props) {
+export default function VatRatesEditor({ restaurantId, onDirtyChange }: Props) {
   const toast = useToast()
   const [rates, setRates] = useState<VatRate[]>([])
   const [loading, setLoading] = useState(true)
@@ -82,6 +88,13 @@ export default function VatRatesEditor({ restaurantId }: Props) {
       (orig.description ?? '') !== ed.description
     )
   }
+
+  const anyDirty = [1, 2, 3, 4].some(isDirty)
+  useEffect(() => {
+    onDirtyChange?.(anyDirty)
+  }, [anyDirty, onDirtyChange])
+  // La demontare (altă secțiune, alt plan) editorul nu mai are ce pierde.
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
 
   async function save(group: number) {
     const ed = editing.get(group)

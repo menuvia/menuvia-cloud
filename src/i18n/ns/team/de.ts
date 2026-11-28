@@ -69,6 +69,15 @@ const de: Translation<typeof ro> = {
   remove_title: 'Aus dem Team entfernen',
   remove_confirm: 'Möchten Sie {name} wirklich entfernen?',
   remove: 'Entfernen',
+
+  role_confirmTitle: 'Rolle von {name} in {role} ändern?',
+  role_confirmOk: 'Rolle ändern',
+  role_toManager:
+    'Als Manager kann diese Person die Einstellungen des Restaurants ändern, Teammitglieder ' +
+    'einladen und entfernen sowie Berichte und Einnahmen sehen.',
+  role_toWaiter: 'Diese Person arbeitet in der Ansicht Service: die Tische und ihre Bestellungen.',
+  role_toKitchen: 'Diese Person arbeitet in der Ansicht Küche: die zuzubereitenden Bestellungen.',
+  role_fromManager: 'Diese Person verliert den Zugriff auf Einstellungen, Team, Berichte und Einnahmen.',
 }
 
 export default de

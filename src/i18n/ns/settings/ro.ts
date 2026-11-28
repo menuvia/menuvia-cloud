@@ -46,6 +46,16 @@ const ro = {
   // Rezerva lui `describeStaffError` la schimbarea slug-ului (RPC-ul
   // change_restaurant_slug nu poartă hint).
   err_slug: 'Eroare la schimbarea slug-ului.',
+  // Confirmarea schimbării slug-ului (lotul C7c): adresa veche nu are alias,
+  // deci tot ce o poartă moare imediat. `{next}` / `{old}` = adresele întregi
+  // (host + /m/ + slug) — date, nu text.
+  slug_confirmTitle: 'Schimbi adresa meniului în {next}?',
+  slug_confirmDesc:
+    'Adresa veche {old} nu va mai funcționa: QR-ul general deja tipărit (vitrină, flyere), linkurile ' +
+    'de pe Instagram, Google sau flyere, pagina de rezervări și linkurile de anulare trimise deja ' +
+    'clienților duc la o pagină inexistentă. QR-urile meselor funcționează în continuare. După ' +
+    'salvare, descarcă noul QR general din Mese & QR-uri.',
+  slug_confirmOk: 'Schimbă adresa',
   // Rezerva comutatorului de modul (setModule).
   err_save: 'Eroare la salvare',
 
@@ -58,10 +68,19 @@ const ro = {
   info_taglinePh: 'Bucătărie autentică',
   info_city: 'Oraș',
   info_cityPh: 'Sibiu',
+  // Adresa (lotul C7c): o arată meniul public, pagina de rezervări și SEO.
+  info_address: 'Adresă',
+  info_addressPh: 'Str. Nicolae Bălcescu 10',
   info_phone: 'Telefon',
   info_phonePh: '07xx xxx xxx',
-  info_hours: 'Program',
-  info_hoursPh: 'Lun–Dum: 12:00–23:00',
+  // Fost „Program" (lotul C7c): textul liber din subsolul meniului. Orarul pe
+  // zile și „DESCHIS ACUM" vin din „Program detaliat" — două orare prezentate
+  // ca același lucru se contraziceau la prima modificare a unuia.
+  info_hours: 'Notă despre program (opțional)',
+  info_hoursPh: 'Ex: Închis în zilele de sărbătoare legală',
+  info_hoursHint:
+    'Apare în josul meniului, lângă adresă. Orele pe zile și indicatorul de deschis vin din ' +
+    '„Program detaliat”, mai jos.',
   info_description: 'Descriere',
   info_descriptionPh: 'Despre restaurant...',
 
@@ -154,6 +173,9 @@ const ro = {
   url_title: 'URL meniu',
   url_slugLabel: 'Adresa meniului (slug)',
   url_slugPh: 'slug-url',
+  url_slugHint:
+    'Schimbarea adresei oprește QR-ul general deja tipărit și linkurile publicate (Instagram, Google, ' +
+    'rezervări). QR-urile meselor nu sunt afectate.',
   accent_title: 'Culoare accent',
   accent_aria: 'Culoare accent {name}',
   // Mostrele (`ACCENT_SWATCHES`, lib/accentPalette — în română EXACT `name`).
@@ -276,6 +298,12 @@ const ro = {
   pickup_openAria: 'Deschidere ridicare',
   pickup_close: 'Închidere',
   pickup_closeAria: 'Închidere ridicare',
+  // Validarea orelor și a minutelor (lotul C7c): un „9" fără minute oprea
+  // comenzile pentru ridicare (zero sloturi), fără niciun avertisment.
+  pickup_errTime: 'Alege o oră completă (ex. 09:00).',
+  pickup_errMinutes: 'Introdu un număr de minute între {min} și {max}.',
+  // `{card}` = numele comutatorului (`pickup_toggle`).
+  pickup_errSave: 'Verifică orele și minutele de la „{card}” înainte să salvezi.',
   pickup_instr: 'Instrucțiuni client (opțional)',
   pickup_instrPh: 'Ex: Sună la sosire, intrarea pe lateral',
   // `{badge}` = eticheta îngroșată a badge-ului (`pickup_badge`, fillNodes) —

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type CSSProperties, type ReactNode } from 'react'
+import { useState, useEffect, useMemo, useId, type CSSProperties, type ReactNode } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { changeRestaurantSlug } from '../lib/restaurants'
@@ -9,6 +9,17 @@ import { MENU_CURRENCIES, resolveMenuCurrency } from '../lib/currency'
 import type { PlanSurface } from '../lib/planSurface'
 import { pickupSettingsCopyT } from '../lib/pickupCopy'
 import { encodeForUpload } from '../lib/imageEncode'
+import {
+  PICKUP_LEAD_RANGE,
+  PICKUP_SLOT_RANGE,
+  clampMinutes,
+  isPickupTime,
+  parseMinutes,
+  sectionHasFormFields,
+  slugChangeNeedsConfirm,
+} from '../lib/settingsForm'
+import { loyaltyNeedsSave } from '../lib/loyaltyProgramForm'
+import { useLoyaltyProgramForm } from '../hooks/useLoyaltyProgramForm'
 import VatRatesEditor from './VatRatesEditor'
 import OnlinePaymentsCard from './OnlinePaymentsCard'
 import LoyaltySettingsCard from './LoyaltySettingsCard'
@@ -74,6 +85,19 @@ const PICKUP_DEFAULTS: NonNullable<Restaurant['pickup_settings']> = {
   instructions: null,
   pickup_only: false,
 }
+
+// Câmpurile de ridicare cu eroare afișată (lotul C7c). Minutele arată eroarea
+// după ieșirea din câmp sau după o salvare încercată — un „4" tastat în drum
+// spre „45" nu e încă o greșeală; orele, imediat (un <input type="time">
+// întoarce doar o oră completă sau nimic).
+type PickupField = 'lead' | 'slot'
+const NO_PICKUP_TOUCH: Readonly<Record<PickupField, boolean>> = { lead: false, slot: false }
+const ALL_PICKUP_TOUCH: Readonly<Record<PickupField, boolean>> = { lead: true, slot: true }
+const minutesDraft = (n: number | undefined, fallback: number) => String(n ?? fallback)
+// Mesajul de sub un câmp invalid.
+const FIELD_ERROR: CSSProperties = { fontSize: '0.72rem', color: D.red, marginTop: 4, lineHeight: 1.4 }
+// Ajutorul de sub un câmp.
+const FIELD_HINT: CSSProperties = { fontSize: '0.72rem', color: D.t2, marginTop: 6, lineHeight: 1.5 }
 
 // ── Secțiunile de setări sunt sub-tab-uri REALE ale panoului (lotul R2):
 // Restaurant / Aspect meniu / Comenzi & plăți / Abonament & cont stau în
@@ -220,7 +244,8 @@ export default function SettingsTab({
   // (UiLanguageCard) e cerut deja de DashboardPage, deasupra filei.
   // Traducătorul se numește `st`: `t` e deja tema curentă din bucla THEMES.
   const st = useT(settingsNs)
-  useT(settingsCardsNs)
+  // `settingsCards` și pentru erorile programului de fidelizare (lotul C7c).
+  const stc = useT(settingsCardsNs)
   const tc = useT(commonNs)
   const trTr = useT(translationsNs)
   useT(homeNs)
@@ -233,6 +258,32 @@ export default function SettingsTab({
   const [uploadingLogo, setUploadingLogo] = useState(false)
   const [uploadingPages, setUploadingPages] = useState(false)
   const { toasts, toast } = useToast()
+  // Minutele de ridicare ca TEXT (lotul C7c): un câmp controlat care arunca
+  // orice tastă în afara plajei nu putea fi golit sau retastat (ștergerea lui
+  // „20" sărea înapoi la 20, iar „4" spre „45" era respins). Formularul
+  // primește numărul doar când e valid; la ieșire se aduce în plajă.
+  const [leadDraft, setLeadDraft] = useState(() =>
+    minutesDraft(restaurant.pickup_settings?.min_lead_time_minutes, PICKUP_DEFAULTS.min_lead_time_minutes),
+  )
+  const [slotDraft, setSlotDraft] = useState(() =>
+    minutesDraft(restaurant.pickup_settings?.slot_interval_minutes, PICKUP_DEFAULTS.slot_interval_minutes),
+  )
+  const [pickupTouched, setPickupTouched] = useState<Readonly<Record<PickupField, boolean>>>(NO_PICKUP_TOUCH)
+  // Editorul de cote TVA are rânduri nesalvate (salvare pe rând, componentă
+  // fiscală) — intră doar în paza de ieșire, nu în bara „Salvează".
+  const [vatDirty, setVatDirty] = useState(false)
+  const pickupErrId = useId()
+  const slugHintId = useId()
+  const infoHintId = useId()
+  // Programul de fidelizare e al FORMULARULUI (lotul C7c): stă aici, nu în
+  // card, fiindcă formularul rămâne montat între secțiuni, iar cardul nu.
+  // Aceeași condiție ca montarea cardului (planul cu comenzi + modulele).
+  const loyalty = useLoyaltyProgramForm(
+    restaurant.id,
+    modulesState != null && surface?.ordering === true,
+    menuBaseLang(form.language),
+  )
+  const loyaltyPending = loyaltyNeedsSave(loyalty, modulesState?.isEnabled('loyalty') ?? false)
   const upd = (k: keyof Restaurant, v: unknown) => setForm((f) => ({ ...f, [k]: v }))
   // Merge order: DEFAULTS → valoarea curentă din form → patch. Identic cu
   // spread-urile inline anterioare; patch-ul are mereu ultimul cuvânt.
@@ -250,6 +301,13 @@ export default function SettingsTab({
   // slug-ului prin RPC, care întoarce slug-ul normalizat) — altfel form-ul rămâne stale.
   useEffect(() => {
     setForm({ ...restaurant })
+    setLeadDraft(
+      minutesDraft(restaurant.pickup_settings?.min_lead_time_minutes, PICKUP_DEFAULTS.min_lead_time_minutes),
+    )
+    setSlotDraft(
+      minutesDraft(restaurant.pickup_settings?.slot_interval_minutes, PICKUP_DEFAULTS.slot_interval_minutes),
+    )
+    setPickupTouched(NO_PICKUP_TOUCH)
   }, [restaurant])
 
   async function uploadImage(
@@ -395,13 +453,102 @@ export default function SettingsTab({
   const saveHints: Readonly<Record<string, string>> | undefined =
     tc.lang === 'ro' ? undefined : { country_owner_only: st.t('country_ownerOnly') }
 
+  // ── Ridicarea: orele și minutele (lotul C7c) ──
+  // Câmpurile sunt vizibile (deci validate) doar pe planul cu ridicare și cu
+  // ridicarea pornită — oprită, orele nu produc sloturi oricum.
+  const pickupFieldsShown = surface?.pickup === true && form.pickup_settings?.enabled === true
+  const pickupOpen = form.pickup_settings?.open_hours?.start ?? '09:00'
+  const pickupClose = form.pickup_settings?.open_hours?.end ?? '21:00'
+  const pickupInvalid = {
+    lead: parseMinutes(leadDraft, PICKUP_LEAD_RANGE) == null,
+    slot: parseMinutes(slotDraft, PICKUP_SLOT_RANGE) == null,
+    // `buildPickupSlots` întoarce ZERO sloturi pe o oră fără minute („9").
+    open: !isPickupTime(pickupOpen),
+    close: !isPickupTime(pickupClose),
+  }
+  const pickupError = {
+    lead: pickupFieldsShown && pickupInvalid.lead && pickupTouched.lead,
+    slot: pickupFieldsShown && pickupInvalid.slot && pickupTouched.slot,
+    open: pickupFieldsShown && pickupInvalid.open,
+    close: pickupFieldsShown && pickupInvalid.close,
+  }
+  const pickupBlocksSave =
+    pickupFieldsShown &&
+    (pickupInvalid.lead || pickupInvalid.slot || pickupInvalid.open || pickupInvalid.close)
+  // Un minut tastat dar încă invalid (gol, sub plajă) nu e în formular — tot
+  // muncă nesalvată, deci bara și paza de ieșire îl văd.
+  const pickupDraftsDirty =
+    pickupFieldsShown &&
+    (leadDraft !==
+      minutesDraft(form.pickup_settings?.min_lead_time_minutes, PICKUP_DEFAULTS.min_lead_time_minutes) ||
+      slotDraft !==
+        minutesDraft(form.pickup_settings?.slot_interval_minutes, PICKUP_DEFAULTS.slot_interval_minutes))
+
+  function onMinutesChange(field: PickupField, raw: string) {
+    const range = field === 'lead' ? PICKUP_LEAD_RANGE : PICKUP_SLOT_RANGE
+    const setDraft = field === 'lead' ? setLeadDraft : setSlotDraft
+    setDraft(raw)
+    const n = parseMinutes(raw, range)
+    if (n == null) return
+    updPickup(field === 'lead' ? { min_lead_time_minutes: n } : { slot_interval_minutes: n })
+  }
+
+  // La ieșire: un număr în afara plajei se aduce la capăt; gol / ne-numeric
+  // rămâne cu eroarea afișată (nu ghicim o valoare). O valoare validă e deja
+  // în formular (de la tastare) — o ieșire fără schimbare nu atinge formularul
+  // (`updPickup` reordonează cheile și ar face pagina „nesalvată" din nimic).
+  function onMinutesBlur(field: PickupField) {
+    const range = field === 'lead' ? PICKUP_LEAD_RANGE : PICKUP_SLOT_RANGE
+    const raw = field === 'lead' ? leadDraft : slotDraft
+    const n = clampMinutes(raw, range)
+    if (n != null && String(n) !== raw) {
+      const setDraft = field === 'lead' ? setLeadDraft : setSlotDraft
+      setDraft(String(n))
+      updPickup(field === 'lead' ? { min_lead_time_minutes: n } : { slot_interval_minutes: n })
+    }
+    setPickupTouched((t) => ({ ...t, [field]: true }))
+  }
+
   const handleSave = async () => {
-    setSaving(true)
+    // 1) Validarea locală, ÎNAINTE de orice scriere: o oră de ridicare
+    //    ilizibilă ar opri tăcut comenzile pentru ridicare (zero sloturi).
+    if (pickupBlocksSave) {
+      setPickupTouched(ALL_PICKUP_TOUCH)
+      toast(st.t('pickup_errSave', { card: st.t('pickup_toggle') }), 'error')
+      return
+    }
+    // Programul de fidelizare: aceleași reguli ca înainte, în cardul lui.
+    if (loyaltyPending) {
+      const invalid = loyalty.validate()
+      if (invalid) {
+        toast(stc.t(invalid), 'error')
+        return
+      }
+    }
     // Slug-ul are flux separat (RPC change_restaurant_slug — PR 1B 096B revocă
     // UPDATE column-level pe restaurants.slug). Rulăm slug-ul ÎNAINTE: dacă
     // eșuează (slug ocupat), abortăm și nu mai trimitem celelalte câmpuri.
     const slugChanged =
       typeof form.slug === 'string' && form.slug.trim() !== '' && form.slug !== restaurant.slug
+    // 2) Adresa veche nu are alias (mig 096b; `get_restaurant_by_slug` rezolvă
+    //    doar slug-ul curent): tot ce o poartă moare imediat. Întrebăm ÎNAINTE
+    //    de RPC; „Anulează" nu salvează nimic (lotul C7c).
+    if (slugChanged && slugChangeNeedsConfirm(restaurant.slug, form.slug)) {
+      const host = siteHost()
+      const ok = await confirm({
+        title: st.t('slug_confirmTitle', {
+          next: `${host}/m/${String(form.slug).replace(/^-+|-+$/g, '')}`,
+        }),
+        description: st.t('slug_confirmDesc', {
+          old: `${host}/m/${restaurant.slug ?? ''}`,
+        }),
+        confirmLabel: st.t('slug_confirmOk'),
+        cancelLabel: tc.t('cancel'),
+        destructive: true,
+      })
+      if (!ok) return
+    }
+    setSaving(true)
     if (slugChanged) {
       try {
         const r = await changeRestaurantSlug({
@@ -428,16 +575,28 @@ export default function SettingsTab({
     // hint-uri — regula 1 din staffErrors ar înlocui textul românesc de azi).
     // În celelalte limbi, refuzul trigger-ului de țară (mig 296) își are
     // textul propriu.
-    if (error) toast(describeStaffError(error, tc, { hints: saveHints }), 'error')
-    else {
-      // Țara aleasă explicit aici înlocuiește orice intenție rămasă de la
-      // onboarding (lib/pendingCountry.ts) — altfel ar fi re-aplicată peste ea.
-      // Doar când câmpul de țară e VIZIBIL (a fost deci trimis conștient): o
-      // salvare cu aceeași țară confirmă alegerea și stinge o intenție veche,
-      // care altfel ar fi re-aplicată la următoarea încărcare (recenzie #288).
-      if (countrySettingVisible(browserSite(), restaurant.country)) clearPendingCountry(restaurant.id)
-      toast(st.t('toast_saved'))
+    if (error) {
+      toast(describeStaffError(error, tc, { hints: saveHints }), 'error')
+      setSaving(false)
+      return
     }
+    // Țara aleasă explicit aici înlocuiește orice intenție rămasă de la
+    // onboarding (lib/pendingCountry.ts) — altfel ar fi re-aplicată peste ea.
+    // Doar când câmpul de țară e VIZIBIL (a fost deci trimis conștient): o
+    // salvare cu aceeași țară confirmă alegerea și stinge o intenție veche,
+    // care altfel ar fi re-aplicată la următoarea încărcare (recenzie #288).
+    if (countrySettingVisible(browserSite(), restaurant.country)) clearPendingCountry(restaurant.id)
+    // 3) Programul de fidelizare, în ACELAȘI „Salvează" (lotul C7c) — doar
+    //    când e citit (`ready`, fail-closed) și are ce scrie.
+    if (loyaltyPending) {
+      const saved = await loyalty.save()
+      if (saved.error) {
+        toast(describeStaffError(saved.error, tc), 'error')
+        setSaving(false)
+        return
+      }
+    }
+    toast(st.t('toast_saved'))
     setSaving(false)
   }
 
@@ -450,13 +609,18 @@ export default function SettingsTab({
   const restaurantJson = useMemo(() => JSON.stringify(restaurant), [restaurant])
   // ~400 de fusuri (Intl.supportedValuesOf): recalculate doar când se schimbă fusul ales.
   const tzOptions = useMemo(() => timeZoneOptions(form.timezone), [form.timezone])
-  const dirty = JSON.stringify(form) !== restaurantJson
+  // „Murdar" = tot ce salvează „Salvează": rândul restaurantului, programul
+  // de fidelizare (lotul C7c — înainte avea buton propriu și scăpa pazei) și un
+  // minut de ridicare tastat dar încă invalid.
+  const dirty = JSON.stringify(form) !== restaurantJson || loyalty.dirty || pickupDraftsDirty
   // O imagine în curs de încărcare (logo, copertă, pagini Flipbook) e tot muncă
   // nesalvată: URL-ul ei intră în formular abia la final, deci o ieșire în
   // timpul încărcării (altă locație, alt restaurant, /pricing) ar fi trecut de
   // confirmare și ar fi pierdut-o (recenzia CodeRabbit pe #353). Bara de
   // salvare de jos rămâne pe `dirty`: o încărcare în zbor nu are încă ce salva.
-  const unsaved = dirty || uploadingCover || uploadingLogo || uploadingPages
+  // Rândurile nesalvate din editorul de cote TVA (salvare pe rând, componentă
+  // fiscală) intră în aceeași pază de ieșire (lotul C7c), nu în bara de jos.
+  const unsaved = dirty || vatDirty || uploadingCover || uploadingLogo || uploadingPages
   // Starea „nesalvat" urcă spre panou; la demontare formularul nu mai are
   // nimic de pierdut.
   useEffect(() => {
@@ -496,8 +660,11 @@ export default function SettingsTab({
       <Toast toasts={toasts} />
       {/* Titlul paginii vine din panou (eticheta sub-tab-ului, lotul R2); aici
           rămâne doar „Salvează" — pe secțiunile care au ce salva. Abonament &
-          cont are doar acțiuni cu salvare proprie (MFA, GDPR, portalul). */}
-      {section !== 'account' && (
+          cont are doar acțiuni cu salvare proprie (MFA, GDPR, portalul), iar
+          „Meniu QR" pe Planul 1 doar carduri care se salvează singure (lotul
+          C7c: butonul trimitea tot rândul și spunea „Salvat" fără să fi salvat
+          nimic). Bara de jos rămâne pe `dirty`: când apare, are ce salva. */}
+      {sectionHasFormFields(section, surface) && (
         <div
           style={{
             display: 'flex',
@@ -519,17 +686,26 @@ export default function SettingsTab({
             {/* „Agentul tău Menuvia" (mig 303) stă pe Acasă — acolo trimite și
                 emailul cererii de acces; aici era a doua copie (lotul R2). */}
             <SettingsCard icon="info" title={st.t('info_title')}>
+              {/* Adresa (lotul C7c): o arată meniul public (subsol), pagina de
+                  rezervări și datele SEO, dar nu exista niciun câmp care s-o
+                  scrie — era mereu goală. E deja în RESTAURANT_UPDATE_FIELDS și
+                  în grant-ul pe coloane (mig 096b). „Program" e acum o NOTĂ
+                  liberă (subsolul meniului): orarul pe zile și „DESCHIS ACUM"
+                  vin din „Program detaliat", deci două orare care se pot
+                  contrazice nu mai sunt prezentate ca același lucru. */}
               {(
                 [
-                  ['name', 'info_name', 'info_namePh'],
-                  ['tagline', 'info_tagline', 'info_taglinePh'],
-                  ['city', 'info_city', 'info_cityPh'],
-                  ['phone', 'info_phone', 'info_phonePh'],
-                  ['hours', 'info_hours', 'info_hoursPh'],
-                  ['description', 'info_description', 'info_descriptionPh'],
+                  ['name', 'info_name', 'info_namePh', null],
+                  ['tagline', 'info_tagline', 'info_taglinePh', null],
+                  ['city', 'info_city', 'info_cityPh', null],
+                  ['address', 'info_address', 'info_addressPh', null],
+                  ['phone', 'info_phone', 'info_phonePh', null],
+                  ['hours', 'info_hours', 'info_hoursPh', 'info_hoursHint'],
+                  ['description', 'info_description', 'info_descriptionPh', null],
                 ] as const
-              ).map(([k, labelKey, phKey]) => {
+              ).map(([k, labelKey, phKey, hintKey]) => {
                 const label = st.t(labelKey)
+                const hintId = hintKey ? `${infoHintId}-${k}` : undefined
                 return (
                   <div key={k} style={{ marginBottom: 13 }}>
                     <label
@@ -542,7 +718,13 @@ export default function SettingsTab({
                       value={String(form[k] || '')}
                       onChange={(v) => upd(k, v)}
                       placeholder={st.t(phKey)}
+                      describedBy={hintId}
                     />
+                    {hintKey && (
+                      <div id={hintId} style={FIELD_HINT}>
+                        {st.t(hintKey)}
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -1107,7 +1289,14 @@ export default function SettingsTab({
                   value={form.slug || ''}
                   onChange={(v) => upd('slug', slugifyWhileTyping(v))}
                   placeholder={st.t('url_slugPh')}
+                  describedBy={slugHintId}
                 />
+              </div>
+              {/* Lotul C7c: adresa veche nu are alias — QR-ul general tipărit și
+                  linkurile publicate mor la schimbare (confirmarea e în
+                  handleSave). QR-urile meselor sunt /q/<token>, neatinse. */}
+              <div id={slugHintId} style={FIELD_HINT}>
+                {st.t('url_slugHint')}
               </div>
             </SettingsCard>
 
@@ -1725,8 +1914,7 @@ export default function SettingsTab({
                 (fost card blocat pe Planul 1 — lotul P). */}
             {modulesState && surface?.ordering === true && (
               <LoyaltySettingsCard
-                restaurantId={restaurant.id}
-                baseLang={menuBaseLang(form.language)}
+                program={loyalty}
                 plan={plan}
                 modulesState={modulesState}
                 toast={toast}
@@ -1814,13 +2002,22 @@ export default function SettingsTab({
                       </label>
                       <Inp
                         label={st.t('pickup_leadAria')}
-                        value={String(form.pickup_settings?.min_lead_time_minutes ?? 20)}
-                        onChange={(v) => {
-                          const n = parseInt(v)
-                          if (!isNaN(n) && n >= 5 && n <= 240) updPickup({ min_lead_time_minutes: n })
-                        }}
+                        value={leadDraft}
+                        onChange={(v) => onMinutesChange('lead', v)}
+                        onBlur={() => onMinutesBlur('lead')}
                         type="number"
+                        inputMode="numeric"
+                        invalid={pickupError.lead}
+                        describedBy={pickupError.lead ? `${pickupErrId}-lead` : undefined}
                       />
+                      {pickupError.lead && (
+                        <div id={`${pickupErrId}-lead`} style={FIELD_ERROR}>
+                          {st.t('pickup_errMinutes', {
+                            min: PICKUP_LEAD_RANGE.min,
+                            max: PICKUP_LEAD_RANGE.max,
+                          })}
+                        </div>
+                      )}
                     </div>
                     <div>
                       <label
@@ -1835,13 +2032,22 @@ export default function SettingsTab({
                       </label>
                       <Inp
                         label={st.t('pickup_slotAria')}
-                        value={String(form.pickup_settings?.slot_interval_minutes ?? 15)}
-                        onChange={(v) => {
-                          const n = parseInt(v)
-                          if (!isNaN(n) && n >= 5 && n <= 60) updPickup({ slot_interval_minutes: n })
-                        }}
+                        value={slotDraft}
+                        onChange={(v) => onMinutesChange('slot', v)}
+                        onBlur={() => onMinutesBlur('slot')}
                         type="number"
+                        inputMode="numeric"
+                        invalid={pickupError.slot}
+                        describedBy={pickupError.slot ? `${pickupErrId}-slot` : undefined}
                       />
+                      {pickupError.slot && (
+                        <div id={`${pickupErrId}-slot`} style={FIELD_ERROR}>
+                          {st.t('pickup_errMinutes', {
+                            min: PICKUP_SLOT_RANGE.min,
+                            max: PICKUP_SLOT_RANGE.max,
+                          })}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
@@ -1856,19 +2062,21 @@ export default function SettingsTab({
                       >
                         {st.t('pickup_open')}
                       </label>
+                      {/* `type="time"` ca programul pe zile (lotul C7c): un „9"
+                          tastat liber dădea ZERO sloturi de ridicare. */}
                       <Inp
+                        type="time"
                         label={st.t('pickup_openAria')}
-                        value={form.pickup_settings?.open_hours?.start ?? '09:00'}
-                        onChange={(v) =>
-                          updPickup({
-                            open_hours: {
-                              start: v,
-                              end: form.pickup_settings?.open_hours?.end ?? '21:00',
-                            },
-                          })
-                        }
-                        placeholder="09:00"
+                        value={pickupOpen}
+                        onChange={(v) => updPickup({ open_hours: { start: v, end: pickupClose } })}
+                        invalid={pickupError.open}
+                        describedBy={pickupError.open ? `${pickupErrId}-open` : undefined}
                       />
+                      {pickupError.open && (
+                        <div id={`${pickupErrId}-open`} style={FIELD_ERROR}>
+                          {st.t('pickup_errTime')}
+                        </div>
+                      )}
                     </div>
                     <div>
                       <label
@@ -1882,18 +2090,18 @@ export default function SettingsTab({
                         {st.t('pickup_close')}
                       </label>
                       <Inp
+                        type="time"
                         label={st.t('pickup_closeAria')}
-                        value={form.pickup_settings?.open_hours?.end ?? '21:00'}
-                        onChange={(v) =>
-                          updPickup({
-                            open_hours: {
-                              start: form.pickup_settings?.open_hours?.start ?? '09:00',
-                              end: v,
-                            },
-                          })
-                        }
-                        placeholder="21:00"
+                        value={pickupClose}
+                        onChange={(v) => updPickup({ open_hours: { start: pickupOpen, end: v } })}
+                        invalid={pickupError.close}
+                        describedBy={pickupError.close ? `${pickupErrId}-close` : undefined}
                       />
+                      {pickupError.close && (
+                        <div id={`${pickupErrId}-close`} style={FIELD_ERROR}>
+                          {st.t('pickup_errTime')}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div>
@@ -2000,7 +2208,7 @@ export default function SettingsTab({
               >
                 {/* Ecran fiscal: în română prin lege (lib/fiscalScreens.ts). */}
                 <div lang="ro">
-                  <VatRatesEditor restaurantId={restaurant.id} />
+                  <VatRatesEditor restaurantId={restaurant.id} onDirtyChange={setVatDirty} />
                 </div>
               </SettingsCard>
             )}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useId } from 'react'
 import { fnUrl } from '../lib/fn'
 import { browserSite } from '../lib/domain'
 import { supabase } from '../lib/supabase'
@@ -19,7 +19,6 @@ import { useT } from '../i18n/useT'
 import { useUiLang } from '../i18n/UiLangContext'
 import { describeStaffError } from '../i18n/staffErrors'
 import { staffLocale } from '../i18n/format'
-import { fillNodes } from '../i18n/fillNodes'
 import { teamNs } from '../i18n/ns/team'
 import { commonNs } from '../i18n/ns/common'
 import type { Translator } from '../i18n/core'
@@ -28,6 +27,10 @@ import type teamRo from '../i18n/ns/team/ro'
 // avea o copie locală (fixă jos-dreapta, fără regiune live), deci notificările
 // echipei arătau și se anunțau altfel decât restul panoului.
 import { useToast, Toast } from './_dashboard/sharedUI'
+// Confirmările (schimbarea rolului, eliminarea) trec prin dialogul comun
+// (lotul C7c): role="dialog", Escape, focus prins — modalul de eliminare făcut
+// de mână n-avea niciuna.
+import { confirm } from './ui/confirm'
 
 // Valoarea din DB → cheia textului (se traduce doar afișarea, nu valoarea).
 const ROLE_KEYS = {
@@ -53,6 +56,25 @@ const INVITE_ERROR_KEYS = {
   email_send_uncertain: 'inv_err_email_send_uncertain',
   email_send_failed: 'inv_err_email_send_failed',
 } as const
+
+// Ce înseamnă rolul NOU pentru membru (lotul C7c) — confirmarea schimbării și
+// rândul de sub selectul invitației. Managerul e admin (`is_admin`): setări,
+// echipă, rapoarte, încasări — un clic greșit pe select nu mai are voie să
+// dea toate astea fără întrebare.
+const ROLE_GAIN_KEYS = {
+  manager: 'role_toManager',
+  waiter: 'role_toWaiter',
+  kitchen: 'role_toKitchen',
+} as const satisfies Record<Exclude<MemberRole, 'owner'>, string>
+
+function roleChangeDescription(
+  from: MemberRole,
+  to: Exclude<MemberRole, 'owner'>,
+  tm: Translator<typeof teamRo>,
+): string {
+  const gain = tm.t(ROLE_GAIN_KEYS[to])
+  return from === 'manager' && to !== 'manager' ? `${tm.t('role_fromManager')} ${gain}` : gain
+}
 
 // Refuzul invitației, ca DATĂ: textul și codul serverului, sau rețeaua.
 type InviteError = { kind: 'server'; text: string | null; code: string | null } | { kind: 'network' }
@@ -149,7 +171,7 @@ export default function TeamManager({
   const [role, setRole] = useState<Exclude<MemberRole, 'owner'>>('waiter')
   const [sending, setSending] = useState(false)
   const [invErr, setInvErr] = useState<InviteError | null>(null)
-  const [removeTarget, setRemoveTarget] = useState<Member | null>(null)
+  const inviteRoleHintId = useId()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -276,31 +298,46 @@ export default function TeamManager({
     }
   }
 
-  const handleRemoveMember = async () => {
-    if (!removeTarget) return
+  const handleRemoveMember = async (m: Member, name: string) => {
+    const ok = await confirm({
+      title: tm.t('remove_title'),
+      description: tm.t('remove_confirm', { name }),
+      confirmLabel: tm.t('remove'),
+      cancelLabel: tc.t('cancel'),
+      destructive: true,
+    })
+    if (!ok) return
     try {
-      await removeMember({ membershipId: removeTarget.id })
+      await removeMember({ membershipId: m.id })
       toast(tm.t('member_removed'))
-      setRemoveTarget(null)
       await load()
     } catch {
-      // Pe eroare păstrăm modalul deschis (userul poate reîncerca) — nu mai închidem +
-      // reîncărcăm ca și cum eliminarea a reușit.
+      // Pe eroare nu reîncărcăm ca și cum eliminarea ar fi reușit; butonul
+      // rămâne, deci omul poate reîncerca.
       toast(tm.t('err_remove'), 'error')
     }
   }
 
-  const handleChangeRole = async (id: string, newRole: MemberRole) => {
+  const handleChangeRole = async (m: Member, name: string, newRole: MemberRole) => {
+    if (newRole === m.role) return
     if (newRole === 'owner') {
       // UI nu permite promovarea la owner; defense in depth.
       toast(tm.t('owner_forbidden'), 'error')
       return
     }
+    // Selectul e CONTROLAT pe `m.role`: cât timp întrebarea e deschisă și la
+    // „Anulează", React îl readuce pe rolul salvat — un clic greșit nu schimbă
+    // nimic (lotul C7c). Promovarea la Manager e marcată distructiv.
+    const ok = await confirm({
+      title: tm.t('role_confirmTitle', { name, role: tm.t(ROLE_KEYS[newRole]) }),
+      description: roleChangeDescription(m.role, newRole, tm),
+      confirmLabel: tm.t('role_confirmOk'),
+      cancelLabel: tc.t('cancel'),
+      destructive: newRole === 'manager',
+    })
+    if (!ok) return
     try {
-      await changeMemberRole({
-        membershipId: id,
-        newRole: newRole as Exclude<MemberRole, 'owner'>,
-      })
+      await changeMemberRole({ membershipId: m.id, newRole })
       toast(tm.t('role_updated'))
       await load()
     } catch {
@@ -384,6 +421,7 @@ export default function TeamManager({
             <select
               value={role}
               onChange={(e) => setRole(e.target.value as Exclude<MemberRole, 'owner'>)}
+              aria-describedby={inviteRoleHintId}
               style={{ ...inp, cursor: 'pointer' }}
             >
               {roleOptions}
@@ -410,6 +448,13 @@ export default function TeamManager({
             )}
           </button>
         </form>
+        {/* Ce poate face rolul ales, într-un rând (lotul C7c). */}
+        <div
+          id={inviteRoleHintId}
+          style={{ marginTop: 8, fontSize: '0.75rem', color: D.t2, lineHeight: 1.5 }}
+        >
+          {tm.t(ROLE_GAIN_KEYS[role])}
+        </div>
         {invErr && (
           <div
             style={{
@@ -585,7 +630,7 @@ export default function TeamManager({
                     {!isOwner && !isSelf ? (
                       <select
                         value={m.role}
-                        onChange={(e) => handleChangeRole(m.id, e.target.value as MemberRole)}
+                        onChange={(e) => void handleChangeRole(m, name, e.target.value as MemberRole)}
                         aria-label={tm.t('role_aria', { name })}
                         style={{
                           background: D.s3,
@@ -610,7 +655,7 @@ export default function TeamManager({
                     )}
                     {!isOwner && !isSelf && (
                       <button
-                        onClick={() => setRemoveTarget(m)}
+                        onClick={() => void handleRemoveMember(m, name)}
                         aria-label={tm.t('remove_aria', { name })}
                         style={{
                           width: 44,
@@ -638,65 +683,6 @@ export default function TeamManager({
           </div>
         )}
       </div>
-
-      {removeTarget && (
-        <div
-          onClick={() => setRemoveTarget(null)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.75)',
-            zIndex: 1000,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 16,
-              padding: 24,
-              maxWidth: 380,
-              width: '100%',
-            }}
-          >
-            <div
-              style={{
-                fontFamily: 'Fraunces,serif',
-                fontSize: '1.05rem',
-                color: D.t1,
-                marginBottom: 12,
-              }}
-            >
-              {tm.t('remove_title')}
-            </div>
-            <p style={{ color: D.t2, fontSize: '0.875rem', marginBottom: 22 }}>
-              {fillNodes(tm.t('remove_confirm'), {
-                name: (
-                  <strong style={{ color: D.t1 }}>
-                    {removeTarget.user?.full_name || removeTarget.user?.email}
-                  </strong>
-                ),
-              })}
-            </p>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setRemoveTarget(null)}
-                style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
-              >
-                {tc.t('cancel')}
-              </button>
-              <button onClick={handleRemoveMember} style={btn({ background: D.red, color: '#fff' })}>
-                {tm.t('remove')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Accesul agentului de vânzări NU mai trăiește aici (cerea planul 2): cardul
           „Agentul tău Menuvia” de pe Acasă / Setări (mig 303) funcționează pe orice plan. */}

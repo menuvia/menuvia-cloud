@@ -12,6 +12,14 @@ const fr: Translation<typeof ro> = {
   toast_uploadFailed: 'Échec de l’envoi',
   slug_taken: 'Slug indisponible : « {slug} » est déjà utilisé',
   err_slug: 'Impossible de modifier le slug.',
+  slug_confirmTitle: 'Changer l’adresse du menu en {next} ?',
+  slug_confirmDesc:
+    'L’ancienne adresse {old} ne fonctionnera plus : le code QR général déjà imprimé (vitrine, ' +
+    'flyers), les liens sur Instagram, Google ou les flyers, la page de réservation et les liens ' +
+    'd’annulation déjà envoyés aux clients mèneront à une page inexistante. Les codes QR des tables ' +
+    'continuent de fonctionner. Après l’enregistrement, téléchargez le nouveau code QR général depuis ' +
+    'Tables & codes QR.',
+  slug_confirmOk: 'Changer l’adresse',
   err_save: 'Échec de l’enregistrement',
 
   info_title: 'Informations principales',
@@ -21,10 +29,15 @@ const fr: Translation<typeof ro> = {
   info_taglinePh: 'Cuisine authentique',
   info_city: 'Ville',
   info_cityPh: 'Lyon',
+  info_address: 'Adresse',
+  info_addressPh: '12 rue de la République',
   info_phone: 'Téléphone',
   info_phonePh: '+33 x xx xx xx xx',
-  info_hours: 'Horaires',
-  info_hoursPh: 'Lun–Dim : 12:00–23:00',
+  info_hours: 'Note sur les horaires (facultatif)',
+  info_hoursPh: 'Ex. : Fermé les jours fériés',
+  info_hoursHint:
+    'Affichée en bas du menu, à côté de l’adresse. Les horaires par jour et l’indicateur d’ouverture ' +
+    'viennent de « Horaires détaillés », plus bas.',
   info_description: 'Description',
   info_descriptionPh: 'À propos du restaurant…',
 
@@ -109,6 +122,9 @@ const fr: Translation<typeof ro> = {
   url_title: 'URL du menu',
   url_slugLabel: 'Adresse du menu (slug)',
   url_slugPh: 'slug-url',
+  url_slugHint:
+    'Changer l’adresse désactive le code QR général déjà imprimé et les liens publiés (Instagram, ' +
+    'Google, réservations). Les codes QR des tables ne sont pas concernés.',
   accent_title: 'Couleur d’accent',
   accent_aria: 'Couleur d’accent {name}',
   accent_C8963C: 'Or',
@@ -223,6 +239,9 @@ const fr: Translation<typeof ro> = {
   pickup_openAria: 'Ouverture des commandes à emporter',
   pickup_close: 'Fermeture',
   pickup_closeAria: 'Fermeture des commandes à emporter',
+  pickup_errTime: 'Choisissez une heure complète (ex. 09:00).',
+  pickup_errMinutes: 'Saisissez un nombre de minutes entre {min} et {max}.',
+  pickup_errSave: 'Vérifiez les heures et les minutes de « {card} » avant d’enregistrer.',
   pickup_instr: 'Instructions pour les clients (facultatif)',
   pickup_instrPh: 'Ex. : Appelez à votre arrivée, entrée sur le côté',
   pickup_kitchenNote:

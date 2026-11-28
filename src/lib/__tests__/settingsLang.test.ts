@@ -40,8 +40,10 @@
 //        recompensa fidelizării) urmează limba de BAZĂ a meniului, nu a
 //        personalului: româna EXACT textul de dinainte, cele 7 limbi ale
 //        meniului au textul lor, o limbă necunoscută cade pe română, iar
-//        LoyaltySettingsCard pornește din `loyaltyDefaultReward(baseLang)`.
-//        Mutația care pică: tabelul cu româna pe toate limbile.
+//        programul de fidelizare pornește din `loyaltyDefaultReward(baseLang)`
+//        (din lotul C7c în `useLoyaltyProgramForm`, chemat de SettingsTab cu
+//        `menuBaseLang(form.language)`). Mutația care pică: tabelul cu româna
+//        pe toate limbile.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
@@ -279,8 +281,11 @@ describe('TW14 datele implicite văzute de oaspete', () => {
     // Necunoscută → română.
     expect(checkoutSuggestionDefaultMessage('xx')).toBe(CHECKOUT_SUGGESTION_DEFAULT_MESSAGE)
     expect(loyaltyDefaultReward('')).toBe(LOYALTY_DEFAULT_REWARD)
-    // Cardul pornește din limba de bază primită de la SettingsTab.
-    expect(read('src/components/LoyaltySettingsCard.tsx')).toContain('useState<string>(() => loyaltyDefaultReward(baseLang))')
-    expect(read('src/components/SettingsTab.tsx')).toContain('baseLang={menuBaseLang(form.language)}')
+    // Programul pornește din limba de bază primită de la SettingsTab (lotul
+    // C7c: starea e în hook, ținut de pagină, nu în card).
+    expect(read('src/hooks/useLoyaltyProgramForm.ts')).toContain('reward: loyaltyDefaultReward(baseLang),')
+    expect(read('src/components/SettingsTab.tsx')).toMatch(
+      /useLoyaltyProgramForm\(\s*restaurant\.id,\s*[^,]+,\s*menuBaseLang\(form\.language\),?\s*\)/,
+    )
   })
 })

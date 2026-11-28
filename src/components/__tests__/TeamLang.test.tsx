@@ -16,8 +16,11 @@
 //        românesc; pe aceeași rădăcină, trecut în germană, se retraduce
 //        (eroarea e ținută ca DATĂ); un `code` necunoscut → rezerva; rețeaua în
 //        franceză. Mutația care pică: `setInvErr(d.error || …)` readus.
-//   TE4  modalul de eliminare în franceză (textContent-ul nodului împărțit cu
-//        numele îngroșat) și toast-ul după eliminare.
+//   TE4  confirmarea eliminării în franceză și toast-ul după eliminare. Lotul
+//        C7c: modalul făcut de mână (fără role="dialog", Escape sau focus prins)
+//        a trecut pe dialogul comun `confirm()` — testul citește opțiunile lui
+//        (titlu, întrebarea cu numele, butoanele explicite, distructiv).
+//        Schimbarea rolului e în TeamRoleConfirm.test.tsx (RJ1–RJ6).
 //   TE5  încărcarea eșuată: în română textul serverului, în engleză rezerva +
 //        „Try again”, în germană după schimbarea limbii. Mutația care pică:
 //        `setError(toUserMessage(err, …))` readus.
@@ -26,6 +29,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Restaurant } from '../../hooks/useData'
+import type { ConfirmOptions } from '../ui/confirm'
 
 interface Res {
   data: unknown
@@ -39,7 +43,10 @@ const h = vi.hoisted(() => ({
   remove: vi.fn<(a: { membershipId: string }) => Promise<{ ok: boolean }>>(async () => ({
     ok: true,
   })),
+  confirm: vi.fn<(o: ConfirmOptions) => Promise<boolean>>(async () => true),
 }))
+
+vi.mock('../ui/confirm', () => ({ confirm: h.confirm }))
 
 vi.mock('../../hooks/useIsMobile', () => ({ useIsMobile: () => false }))
 vi.mock('../../lib/restaurants', () => ({
@@ -126,6 +133,7 @@ beforeEach(() => {
   h.invites = INVITES
   h.names = NAMES
   h.remove.mockClear()
+  h.confirm.mockClear()
   fetchMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
 })
@@ -299,19 +307,19 @@ describe('Echipa în limba personalului', () => {
     ).toBeInTheDocument()
   })
 
-  it('TE4: modalul de eliminare în franceză', async () => {
+  it('TE4: confirmarea eliminării în franceză', async () => {
     const user = userEvent.setup()
     inLang('fr', tab())
     await screen.findByText('Ana')
     await user.click(screen.getByRole('button', { name: 'Retirer Ana de l’équipe' }))
-    expect(screen.getByText('Retirer de l’équipe')).toBeInTheDocument()
-    const question = screen.getByText(
-      (_, el) => el?.tagName === 'P' && /^Voulez-vous vraiment/.test(el.textContent ?? ''),
-    )
-    expect(question.textContent).toBe('Voulez-vous vraiment retirer Ana ?')
-    expect(screen.getAllByRole('button', { name: 'Annuler' }).length).toBeGreaterThan(0)
-    await user.click(screen.getByRole('button', { name: 'Retirer' }))
     await waitFor(() => expect(h.remove).toHaveBeenCalledWith({ membershipId: 'm2' }))
+    expect(h.confirm).toHaveBeenCalledWith({
+      title: 'Retirer de l’équipe',
+      description: 'Voulez-vous vraiment retirer Ana ?',
+      confirmLabel: 'Retirer',
+      cancelLabel: 'Annuler',
+      destructive: true,
+    })
     expect(await screen.findByText('Membre retiré')).toBeInTheDocument()
   })
 

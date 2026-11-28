@@ -12,6 +12,14 @@ const de: Translation<typeof ro> = {
   toast_uploadFailed: 'Hochladen fehlgeschlagen',
   slug_taken: 'Slug nicht verfügbar: „{slug}“ wird bereits verwendet',
   err_slug: 'Der Slug konnte nicht geändert werden.',
+  slug_confirmTitle: 'Adresse der Speisekarte in {next} ändern?',
+  slug_confirmDesc:
+    'Die alte Adresse {old} funktioniert dann nicht mehr: Der bereits gedruckte allgemeine QR-Code ' +
+    '(Schaufenster, Flyer), Links auf Instagram, Google oder Flyern, die Reservierungsseite und die ' +
+    'bereits an Gäste gesendeten Stornierungslinks führen zu einer Seite, die es nicht gibt. Die ' +
+    'QR-Codes der Tische funktionieren weiter. Laden Sie nach dem Speichern den neuen allgemeinen ' +
+    'QR-Code unter Tische & QR-Codes herunter.',
+  slug_confirmOk: 'Adresse ändern',
   err_save: 'Speichern fehlgeschlagen',
 
   info_title: 'Allgemeine Angaben',
@@ -21,10 +29,15 @@ const de: Translation<typeof ro> = {
   info_taglinePh: 'Authentische Küche',
   info_city: 'Stadt',
   info_cityPh: 'Freiburg',
+  info_address: 'Adresse',
+  info_addressPh: 'Hauptstraße 12',
   info_phone: 'Telefon',
   info_phonePh: '+49 xxx xxxxxxx',
-  info_hours: 'Öffnungszeiten',
-  info_hoursPh: 'Mo–So: 12:00–23:00',
+  info_hours: 'Hinweis zu den Öffnungszeiten (optional)',
+  info_hoursPh: 'z. B. An Feiertagen geschlossen',
+  info_hoursHint:
+    'Erscheint unten auf der Speisekarte, neben der Adresse. Die Zeiten pro Tag und die Anzeige ' +
+    '„geöffnet“ kommen aus „Detaillierte Öffnungszeiten“ weiter unten.',
   info_description: 'Beschreibung',
   info_descriptionPh: 'Über das Restaurant…',
 
@@ -110,6 +123,10 @@ const de: Translation<typeof ro> = {
   url_title: 'URL der Speisekarte',
   url_slugLabel: 'Adresse der Speisekarte (Slug)',
   url_slugPh: 'slug-url',
+  url_slugHint:
+    'Wenn Sie die Adresse ändern, funktionieren der bereits gedruckte allgemeine QR-Code und die ' +
+    'veröffentlichten Links (Instagram, Google, Reservierungen) nicht mehr. Die QR-Codes der Tische ' +
+    'sind nicht betroffen.',
   accent_title: 'Akzentfarbe',
   accent_aria: 'Akzentfarbe {name}',
   accent_C8963C: 'Gold',
@@ -224,6 +241,9 @@ const de: Translation<typeof ro> = {
   pickup_openAria: 'Beginn der Abholung',
   pickup_close: 'Ende',
   pickup_closeAria: 'Ende der Abholung',
+  pickup_errTime: 'Wählen Sie eine vollständige Uhrzeit (z. B. 09:00).',
+  pickup_errMinutes: 'Geben Sie eine Minutenzahl zwischen {min} und {max} ein.',
+  pickup_errSave: 'Prüfen Sie die Zeiten und Minuten unter „{card}“, bevor Sie speichern.',
   pickup_instr: 'Hinweise für Gäste (optional)',
   pickup_instrPh: 'z. B. Bei Ankunft anrufen, Seiteneingang',
   pickup_kitchenNote:

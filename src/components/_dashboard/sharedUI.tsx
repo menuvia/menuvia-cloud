@@ -295,6 +295,7 @@ export function Inp({
   invalid = false,
   describedBy,
   inputMode,
+  onBlur,
 }: {
   value: string
   onChange: (v: string) => void
@@ -309,6 +310,8 @@ export function Inp({
   invalid?: boolean
   /** `aria-describedby` — id-ul mesajului de eroare/ajutor. */
   describedBy?: string
+  /** La ieșirea din câmp (ex. validarea/aducerea în plajă a unui număr). */
+  onBlur?: () => void
 }) {
   return (
     <input
@@ -323,7 +326,10 @@ export function Inp({
       inputMode={inputMode}
       style={inp}
       onFocus={(e) => (e.target.style.borderColor = D.gold)}
-      onBlur={(e) => (e.target.style.borderColor = D.border)}
+      onBlur={(e) => {
+        e.target.style.borderColor = D.border
+        onBlur?.()
+      }}
     />
   )
 }

@@ -64,6 +64,15 @@ const en: Translation<typeof ro> = {
   remove_title: 'Remove from the team',
   remove_confirm: 'Are you sure you want to remove {name}?',
   remove: 'Remove',
+
+  role_confirmTitle: 'Change {name}’s role to {role}?',
+  role_confirmOk: 'Change role',
+  role_toManager:
+    'As a Manager they’ll be able to change the restaurant’s settings, invite and remove team ' +
+    'members, and see reports and takings.',
+  role_toWaiter: 'They’ll work in the Waiter screen: the tables and their orders.',
+  role_toKitchen: 'They’ll work in the Kitchen screen: the orders to prepare.',
+  role_fromManager: 'They’ll lose access to settings, the team, reports and takings.',
 }
 
 export default en

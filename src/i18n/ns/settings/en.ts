@@ -11,6 +11,13 @@ const en: Translation<typeof ro> = {
   toast_uploadFailed: 'Upload failed',
   slug_taken: 'Slug unavailable: “{slug}” is already in use',
   err_slug: 'Couldn’t change the slug.',
+  slug_confirmTitle: 'Change the menu address to {next}?',
+  slug_confirmDesc:
+    'The old address {old} will stop working: the general QR code you’ve already printed (window, ' +
+    'flyers), links on Instagram, Google or flyers, the reservation page and the cancellation links ' +
+    'already sent to guests will lead to a page that doesn’t exist. Table QR codes keep working. ' +
+    'After saving, download the new general QR code from Tables & QR codes.',
+  slug_confirmOk: 'Change address',
   err_save: 'Couldn’t save',
 
   info_title: 'Main details',
@@ -20,10 +27,15 @@ const en: Translation<typeof ro> = {
   info_taglinePh: 'Authentic cuisine',
   info_city: 'City',
   info_cityPh: 'Brighton',
+  info_address: 'Address',
+  info_addressPh: '12 North Street',
   info_phone: 'Phone',
   info_phonePh: '+44 xxxx xxxxxx',
-  info_hours: 'Opening hours',
-  info_hoursPh: 'Mon–Sun: 12:00–23:00',
+  info_hours: 'Note about opening hours (optional)',
+  info_hoursPh: 'E.g. Closed on public holidays',
+  info_hoursHint:
+    'Shown at the bottom of the menu, next to the address. The daily hours and the open indicator come ' +
+    'from “Detailed opening hours” below.',
   info_description: 'Description',
   info_descriptionPh: 'About the restaurant…',
 
@@ -104,6 +116,9 @@ const en: Translation<typeof ro> = {
   url_title: 'Menu URL',
   url_slugLabel: 'Menu address (slug)',
   url_slugPh: 'slug-url',
+  url_slugHint:
+    'Changing the address stops the general QR code you’ve already printed and the links you’ve ' +
+    'published (Instagram, Google, reservations). Table QR codes aren’t affected.',
   accent_title: 'Accent colour',
   accent_aria: 'Accent colour {name}',
   accent_C8963C: 'Gold',
@@ -215,6 +230,9 @@ const en: Translation<typeof ro> = {
   pickup_openAria: 'Pickup opening time',
   pickup_close: 'Closing',
   pickup_closeAria: 'Pickup closing time',
+  pickup_errTime: 'Choose a full time (e.g. 09:00).',
+  pickup_errMinutes: 'Enter a number of minutes between {min} and {max}.',
+  pickup_errSave: 'Check the times and minutes under “{card}” before saving.',
   pickup_instr: 'Instructions for guests (optional)',
   pickup_instrPh: 'E.g. Call when you arrive, side entrance',
   pickup_kitchenNote:

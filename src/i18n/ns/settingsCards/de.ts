@@ -24,9 +24,8 @@ const de: Translation<typeof ro> = {
   loy_threshold: 'Schwelle für die Prämie (Punkte)',
   loy_reward: 'Prämie (was der Gast an der Schwelle erhält)',
   loy_rewardPlaceholder: 'Z. B. ein Dessert aufs Haus',
-  loy_saving: 'Wird gespeichert…',
-  loy_save: 'Programm speichern',
-  loy_saved: 'Das Treueprogramm wurde gespeichert',
+  loy_notSaved:
+    'Das Programm ist noch nicht gespeichert: Tippen Sie auf „Speichern“, damit das Treueprogramm in der Speisekarte startet.',
   loy_err_ppl: 'Die Punkte pro Leu müssen zwischen 0,1 und 100 liegen.',
   loy_err_threshold: 'Die Schwelle muss zwischen 1 und 100.000 Punkten liegen.',
   loy_err_reward: 'Beschreiben Sie die Prämie (max. 200 Zeichen).',

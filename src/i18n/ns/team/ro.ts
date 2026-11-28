@@ -80,9 +80,22 @@ const ro = {
   role_aria: 'Rol pentru {name}',
   remove_aria: 'Elimină {name} din echipă',
   remove_title: 'Elimină din echipă',
-  // `{name}` = numele îngroșat (element).
+  // Descrierea dialogului comun de confirmare (lotul C7c: `confirm()`, nu
+  // modalul făcut de mână); `{name}` = numele membrului, text.
   remove_confirm: 'Ești sigur că vrei să elimini {name}?',
   remove: 'Elimină',
+
+  // ── Schimbarea rolului (lotul C7c): confirmare cu urmările rolului NOU ──
+  // `{role}` = numele rolului (`role_*`). `role_to*` sunt și rândul de sub
+  // selectul invitației; `role_fromManager` se pune ÎNAINTEA lor la retrogradare.
+  role_confirmTitle: 'Schimbi rolul pentru {name} în {role}?',
+  role_confirmOk: 'Schimbă rolul',
+  role_toManager:
+    'Ca Manager va putea modifica setările restaurantului, invita și elimina membri din echipă și ' +
+    'vedea rapoartele și încasările.',
+  role_toWaiter: 'Va lucra în ecranul Ospătar: mesele și comenzile lor.',
+  role_toKitchen: 'Va lucra în ecranul Bucătărie: comenzile de preparat.',
+  role_fromManager: 'Își pierde accesul la setări, echipă, rapoarte și încasări.',
 }
 
 export default ro

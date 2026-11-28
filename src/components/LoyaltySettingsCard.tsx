@@ -3,32 +3,37 @@
 // (plan_features.loyalty growth+ + modulul `loyalty` + program activ);
 // aici doar UX-ul. Configurația (puncte/leu, prag, recompensă) se scrie
 // direct în loyalty_programs — RLS permite doar adminilor restaurantului.
+// Lotul C7c: câmpurile programului sunt ale FORMULARULUI paginii
+// (`useLoyaltyProgramForm`, ținut de SettingsTab): se salvează cu „Salvează”
+// de sus, iar paza de modificări nesalvate le acoperă. Cardul nu mai are buton
+// propriu și nici stare proprie (cu ea, o trecere pe altă secțiune pierdea
+// modificările). Doar comutatorul modulului se scrie imediat — marcat ca atare.
 // Limba (lotul L6b): textele vin din `settingsCards` (același chunk cu fila
 // Setări), „Reîncearcă” din `common`; erorile serverului prin
 // `describeStaffError` (în română exact `toUserMessage`). Recompensa
 // IMPLICITĂ e o valoare a meniului (o vede oaspetele), nu un text al
-// personalului: vine din limba de BAZĂ a meniului (`loyaltyDefaultReward`).
-import { useEffect, useId, useState, type CSSProperties } from 'react'
+// personalului: vine din limba de BAZĂ a meniului (`loyaltyDefaultReward`,
+// în hook).
+import { useId, type CSSProperties } from 'react'
 import { D, PLAN_LABELS } from '../lib/constants'
 import { planTier } from '../lib/features'
-import { supabase } from '../lib/supabase'
-import { Toggle } from './_dashboard/sharedUI'
+import { AutoSaveHint, Toggle } from './_dashboard/sharedUI'
 import { Icon } from './ui/Icon'
 import type { useRestaurantModules } from '../hooks/useRestaurantModules'
+import type { LoyaltyProgramForm } from '../hooks/useLoyaltyProgramForm'
+import { LOYALTY_REWARD_MAX } from '../lib/loyaltyProgramForm'
 import { useT } from '../i18n/useT'
 import { describeStaffError } from '../i18n/staffErrors'
 import { settingsCardsNs } from '../i18n/ns/settingsCards'
 import { commonNs } from '../i18n/ns/common'
 import { fillNodes } from '../i18n/fillNodes'
-import { loyaltyDefaultReward } from '../lib/settingsLang'
 
 interface Props {
-  restaurantId: string
   plan: string
   modulesState: ReturnType<typeof useRestaurantModules>
   toast: (msg: string, type?: string) => void
-  /** Limba de bază a meniului: recompensa implicită e în ea (o vede oaspetele). */
-  baseLang?: string
+  /** Programul, ca parte a formularului paginii (SettingsTab). */
+  program: LoyaltyProgramForm
 }
 
 const inp: CSSProperties = {
@@ -43,106 +48,17 @@ const inp: CSSProperties = {
   fontFamily: 'DM Sans,sans-serif',
 }
 
-interface LoyaltyProgramRow {
-  points_per_leu: number
-  reward_threshold: number
-  reward_description: string
-}
+// Câmpurile se pot edita DOAR pe `ready`: pe o citire eșuată, valorile afișate
+// sunt cele implicite, iar un „Salvează" le-ar fi scris peste pragul și
+// recompensa reale ale localului (fail-closed, LY1).
 
-// Starea citirii programului existent. „Salvează" e activ DOAR pe 'ready':
-// înainte, `{ error }` de la supabase-js (care NU aruncă) era ignorat, cardul
-// rămânea cu valorile implicite și butonul se activa — iar un „Salvează" apăsat
-// după un blip de rețea suprascria prin upsert pragul și recompensa reale ale
-// localului cu cele implicite (100 de puncte, „Un desert din partea casei").
-type LoadState = 'loading' | 'ready' | 'error'
-
-// Valoarea implicită a recompensei: DATĂ a meniului (o vede oaspetele), deci
-// în limba de BAZĂ a meniului, nu a personalului (lib/settingsLang.ts).
-
-export default function LoyaltySettingsCard({
-  restaurantId,
-  plan,
-  modulesState,
-  toast,
-  baseLang = 'ro',
-}: Props) {
+export default function LoyaltySettingsCard({ plan, modulesState, toast, program }: Props) {
   const tr = useT(settingsCardsNs)
   const tc = useT(commonNs)
   const eligible = planTier(plan) >= 2
-  const [pointsPerLeu, setPointsPerLeu] = useState('1')
-  const [threshold, setThreshold] = useState('100')
-  const [reward, setReward] = useState<string>(() => loyaltyDefaultReward(baseLang))
-  const [saving, setSaving] = useState(false)
-  const [loadState, setLoadState] = useState<LoadState>('loading')
-  const [reloadKey, setReloadKey] = useState(0)
   const fieldId = useId()
-  const loaded = loadState === 'ready'
-
-  useEffect(() => {
-    if (!eligible) return
-    let cancelled = false
-    setLoadState('loading')
-    async function load(): Promise<void> {
-      try {
-        const { data, error } = await supabase
-          .from('loyalty_programs')
-          .select('points_per_leu, reward_threshold, reward_description')
-          .eq('restaurant_id', restaurantId)
-          .maybeSingle()
-        if (cancelled) return
-        if (error) {
-          setLoadState('error')
-          return
-        }
-        const row = data as LoyaltyProgramRow | null
-        if (row) {
-          setPointsPerLeu(String(row.points_per_leu))
-          setThreshold(String(row.reward_threshold))
-          setReward(row.reward_description)
-        }
-        setLoadState('ready')
-      } catch {
-        // Respingere de transport (fetch picat) — aceeași stare ca `{ error }`.
-        if (!cancelled) setLoadState('error')
-      }
-    }
-    void load()
-    return () => {
-      cancelled = true
-    }
-  }, [restaurantId, eligible, reloadKey])
-
-  async function save(): Promise<void> {
-    const ppl = parseFloat(pointsPerLeu.replace(',', '.'))
-    const thr = parseInt(threshold, 10)
-    if (!Number.isFinite(ppl) || ppl <= 0 || ppl > 100) {
-      toast(tr.t('loy_err_ppl'), 'error')
-      return
-    }
-    if (!Number.isFinite(thr) || thr < 1 || thr > 100000) {
-      toast(tr.t('loy_err_threshold'), 'error')
-      return
-    }
-    if (reward.trim().length === 0 || reward.length > 200) {
-      toast(tr.t('loy_err_reward'), 'error')
-      return
-    }
-    setSaving(true)
-    const { error } = await supabase.from('loyalty_programs').upsert({
-      restaurant_id: restaurantId,
-      points_per_leu: ppl,
-      reward_threshold: thr,
-      reward_description: reward.trim(),
-      is_active: true,
-      updated_at: new Date().toISOString(),
-    })
-    setSaving(false)
-    if (error) {
-      toast(describeStaffError(error, tc), 'error')
-      return
-    }
-    toast(tr.t('loy_saved'))
-  }
+  const loaded = program.loadState === 'ready'
+  const moduleOn = modulesState.isEnabled('loyalty')
 
   return (
     <div
@@ -188,8 +104,11 @@ export default function LoyaltySettingsCard({
             }}
           >
             <div>
+              {/* Comutatorul modulului se scrie IMEDIAT (setModule), spre
+                  deosebire de câmpurile de dedesubt — marcat ca atare (lotul C7c). */}
               <div style={{ fontSize: '0.82rem', fontWeight: 600, color: D.t1 }}>
                 {tr.t('loy_enableTitle')}
+                <AutoSaveHint />
               </div>
               <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
                 {tr.t('loy_enableDesc')}
@@ -197,7 +116,7 @@ export default function LoyaltySettingsCard({
             </div>
             <Toggle
               label={tr.t('loy_toggle')}
-              value={modulesState.isEnabled('loyalty')}
+              value={moduleOn}
               onChange={(v) => {
                 modulesState
                   .setModule('loyalty', v)
@@ -209,7 +128,7 @@ export default function LoyaltySettingsCard({
             />
           </div>
 
-          {loadState === 'error' && (
+          {program.loadState === 'error' && (
             <div
               role="alert"
               style={{
@@ -229,7 +148,7 @@ export default function LoyaltySettingsCard({
               <span>{tr.t('loy_loadError')}</span>
               <button
                 type="button"
-                onClick={() => setReloadKey((k) => k + 1)}
+                onClick={program.reload}
                 style={{
                   background: D.s3,
                   color: D.t1,
@@ -264,8 +183,9 @@ export default function LoyaltySettingsCard({
               </label>
               <input
                 id={`${fieldId}-ppl`}
-                value={pointsPerLeu}
-                onChange={(e) => setPointsPerLeu(e.target.value)}
+                value={program.values.pointsPerLeu}
+                onChange={(e) => program.setField('pointsPerLeu', e.target.value)}
+                disabled={!loaded}
                 inputMode="decimal"
                 style={inp}
               />
@@ -279,8 +199,9 @@ export default function LoyaltySettingsCard({
               </label>
               <input
                 id={`${fieldId}-thr`}
-                value={threshold}
-                onChange={(e) => setThreshold(e.target.value)}
+                value={program.values.threshold}
+                onChange={(e) => program.setField('threshold', e.target.value)}
+                disabled={!loaded}
                 inputMode="numeric"
                 style={inp}
               />
@@ -295,33 +216,23 @@ export default function LoyaltySettingsCard({
             </label>
             <input
               id={`${fieldId}-reward`}
-              value={reward}
-              onChange={(e) => setReward(e.target.value.slice(0, 200))}
+              value={program.values.reward}
+              onChange={(e) =>
+                program.setField('reward', e.target.value.slice(0, LOYALTY_REWARD_MAX))
+              }
+              disabled={!loaded}
               placeholder={tr.t('loy_rewardPlaceholder')}
               style={inp}
             />
           </div>
-          <div>
-            <button
-              onClick={() => void save()}
-              disabled={saving || !loaded}
-              style={{
-                background: D.gold,
-                color: D.bg,
-                border: 'none',
-                borderRadius: 8,
-                padding: '10px 18px',
-                fontFamily: 'DM Sans,sans-serif',
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: saving ? 'wait' : 'pointer',
-                minHeight: 44,
-                opacity: saving || !loaded ? 0.7 : 1,
-              }}
-            >
-              {saving ? tr.t('loy_saving') : tr.t('loy_save')}
-            </button>
-          </div>
+          {/* Modulul e pornit, dar programul n-a fost salvat niciodată:
+              fidelizarea nu pornește fără rândul din loyalty_programs
+              (`fn_loyalty_active`, mig 226) — „Salvează” de sus îl creează. */}
+          {loaded && !program.exists && moduleOn && (
+            <div style={{ fontSize: '0.74rem', color: D.gold, lineHeight: 1.5 }}>
+              {tr.t('loy_notSaved')}
+            </div>
+          )}
         </div>
       )}
     </div>

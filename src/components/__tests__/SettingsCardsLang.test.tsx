@@ -16,14 +16,16 @@
 //        Comenzi — punctele …”, „Luna aceasta: 50 / 50 SMS — plafon atins; …”,
 //        „… Detalii în Politica de confidențialitate.”). Mutația care pică:
 //        `loy_locked` fără spațiul de după „—”.
-//   GQ2  fidelizarea în engleză: etichetele, comutatorul, placeholderul
-//        tradus, recompensa implicită RĂMÂNE „Un desert din partea casei” (dată a
-//        meniului), validarea în engleză, fără resturi. Mutația care pică:
-//        `toast('Pragul trebuie …')` readus.
-//   GQ3  refuzurile serverului pe fidelizare: în română EXACT textul serverului;
-//        în engleză rezerva tradusă (salvarea → `common.err_generic`, comutatorul
-//        → „Couldn’t save”), FĂRĂ mesajul românesc; citirea eșuată în germană.
-//        Mutația care pică: `toUserMessage(error)` readus în `save`.
+//   GQ2  fidelizarea în engleză: etichetele, comutatorul (marcat „saved
+//        automatically”), placeholderul tradus, recompensa implicită RĂMÂNE „Un
+//        desert din partea casei” (dată a meniului), nota „not saved yet” cu
+//        modulul pornit, fără resturi. Lotul C7c: validarea și refuzul
+//        serverului la SALVARE au trecut în formularul paginii — testate în
+//        SettingsTabSave.test.tsx (SJ10, SJ11), unde trăiește acum salvarea.
+//   GQ3  refuzurile serverului pe fidelizare: comutatorul în engleză →
+//        „Couldn’t save”, FĂRĂ mesajul românesc; citirea eșuată în germană
+//        (alerta, „Erneut versuchen”, câmpurile blocate). Mutația care pică:
+//        `toUserMessage(err)` readus în comutator.
 //   GQ4  SMS-urile în germană: comutatorul, contorul cu plafonul atins, toast-ul
 //        comutatorului, fără resturi. Mutația care pică: `{usage.used}` +
 //        „ SMS” lăsat literal (contorul ar ieși „50 / 50 SMS” fără „Diesen
@@ -121,6 +123,7 @@ vi.mock('../ui/confirm', () => ({
 }))
 
 import LoyaltySettingsCard from '../LoyaltySettingsCard'
+import { useLoyaltyProgramForm } from '../../hooks/useLoyaltyProgramForm'
 import SmsNotificationsCard from '../SmsNotificationsCard'
 import MfaCard from '../MfaCard'
 import GdprCard from '../GdprCard'
@@ -177,14 +180,20 @@ function tree(lang: StaffLang | null, node: ReactNode) {
   return lang ? <UiLangScope lang={lang}>{inner}</UiLangScope> : inner
 }
 const inLang = (lang: StaffLang | null, node: ReactNode) => render(tree(lang, node))
-const loyalty = (plan = 'growth', toast = vi.fn()) => (
-  <LoyaltySettingsCard
-    restaurantId="r1"
-    plan={plan}
-    modulesState={modulesState(true)}
-    toast={toast}
-  />
-)
+// Lotul C7c: programul e al formularului paginii — harness-ul face ce face
+// SettingsTab (hook + card).
+function LoyaltyHarness({ plan, toast }: { plan: string; toast: (m: string, t?: string) => void }) {
+  const program = useLoyaltyProgramForm('r1', true, 'ro')
+  return (
+    <LoyaltySettingsCard
+      program={program}
+      plan={plan}
+      modulesState={modulesState(true)}
+      toast={toast}
+    />
+  )
+}
+const loyalty = (plan = 'growth', toast = vi.fn()) => <LoyaltyHarness plan={plan} toast={toast} />
 const sms = (toast = vi.fn()) => (
   <SmsNotificationsCard
     restaurantId="r1"
@@ -301,49 +310,33 @@ describe('cardurile Setărilor în limba personalului', () => {
   })
 
   it('GQ2: fidelizarea în engleză; recompensa implicită rămâne dată', async () => {
-    const toast = vi.fn()
-    const user = userEvent.setup()
-    const { container } = inLang('en', loyalty('growth', toast))
-    const save = await screen.findByRole('button', { name: 'Save programme' })
-    await waitFor(() => expect(save).toBeEnabled())
+    const { container } = inLang('en', loyalty('growth'))
+    const ppl = await screen.findByLabelText('Points per leu spent')
+    await waitFor(() => expect(ppl).toBeEnabled())
     expect(screen.getByText('Loyalty — points and rewards')).toBeInTheDocument()
     expect(screen.getByRole('switch', { name: 'Loyalty in the QR menu' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Points per leu spent')).toHaveValue('1')
+    expect(screen.getByText('Turn on loyalty in the QR menu')).toHaveTextContent('saved automatically')
+    expect(ppl).toHaveValue('1')
     const reward = screen.getByLabelText('Reward (what the guest gets at the threshold)')
     expect(reward).toHaveValue('Un desert din partea casei')
     expect(reward).toHaveAttribute('placeholder', 'E.g. A dessert on the house')
+    // Modulul pornit, programul niciodată salvat (rândul lipsește).
+    expect(
+      screen.getByText('The programme isn’t saved yet: press “Save” so loyalty starts working in the menu.'),
+    ).toBeInTheDocument()
+    // Fără buton propriu: salvarea e a paginii.
+    expect(screen.queryByRole('button', { name: /Save/ })).not.toBeInTheDocument()
     expect(romanianLeftovers(visible(container), 'en')).toEqual([])
-    const threshold = screen.getByLabelText('Reward threshold (points)')
-    await user.clear(threshold)
-    await user.type(threshold, '0')
-    await user.click(save)
-    expect(toast).toHaveBeenCalledWith(
-      'The threshold must be between 1 and 100,000 points.',
-      'error',
-    )
   })
 
   it('GQ3: refuzurile serverului pe fidelizare', async () => {
-    const SERVER = 'Programul nu poate fi salvat: pragul încalcă regula restaurantului.'
-    h.upsert = { data: null, error: { message: SERVER, code: 'P0001' } }
     setModule.mockImplementation(async () => {
       throw new Error('Modulul nu poate fi schimbat acum.')
     })
     const user = userEvent.setup()
-    const roToast = vi.fn()
-    const ro = inLang(null, loyalty('growth', roToast))
-    const roSave = await screen.findByRole('button', { name: 'Salvează programul' })
-    await waitFor(() => expect(roSave).toBeEnabled())
-    await user.click(roSave)
-    await waitFor(() => expect(roToast).toHaveBeenCalledWith(SERVER, 'error'))
-    ro.unmount()
-
     const enToast = vi.fn()
     const en = inLang('en', loyalty('growth', enToast))
-    const enSave = await screen.findByRole('button', { name: 'Save programme' })
-    await waitFor(() => expect(enSave).toBeEnabled())
-    await user.click(enSave)
-    await waitFor(() => expect(enToast).toHaveBeenCalledWith(commonEn.err_generic, 'error'))
+    await waitFor(() => expect(screen.getByLabelText('Points per leu spent')).toBeEnabled())
     await user.click(screen.getByRole('switch', { name: 'Loyalty in the QR menu' }))
     await waitFor(() => expect(enToast).toHaveBeenCalledWith('Couldn’t save', 'error'))
     for (const [msg] of enToast.mock.calls) expect(String(msg)).not.toMatch(/[ăĂșȘțȚ]/)
@@ -355,7 +348,7 @@ describe('cardurile Setărilor în limba personalului', () => {
       'Wir konnten das gespeicherte Treueprogramm nicht lesen.',
     )
     expect(screen.getByRole('button', { name: 'Erneut versuchen' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Programm speichern' })).toBeDisabled()
+    expect(screen.getByLabelText('Punkte pro ausgegebenem Leu')).toBeDisabled()
     expect(romanianLeftovers(visible(container), 'de')).toEqual([])
   })
 

@@ -397,6 +397,9 @@ describe('Setări în limba personalului', () => {
   it('TW6: refuzurile serverului — în română mesajul de azi, în engleză fără el', async () => {
     const user = userEvent.setup()
     const SERVER = 'Slug-ul nu poate fi schimbat acum, încearcă mai târziu.'
+    // Lotul C7c: schimbarea slug-ului cere confirmare înaintea RPC-ului — omul
+    // o acceptă aici (refuzul și textul ei sunt în SettingsTabSave SJ1–SJ3).
+    h.confirm.mockImplementation(() => Promise.resolve(true))
     // (a) schimbarea slug-ului respinsă cu text românesc de la server.
     h.changeSlug.mockRejectedValue({ message: SERVER })
     const ro = inLang(null, tab('menu'))

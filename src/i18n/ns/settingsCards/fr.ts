@@ -25,9 +25,8 @@ const fr: Translation<typeof ro> = {
   loy_threshold: 'Seuil de récompense (points)',
   loy_reward: 'Récompense (ce que reçoit le client au seuil)',
   loy_rewardPlaceholder: 'Ex. : un dessert offert par la maison',
-  loy_saving: 'Enregistrement…',
-  loy_save: 'Enregistrer le programme',
-  loy_saved: 'Le programme de fidélité a été enregistré',
+  loy_notSaved:
+    'Le programme n’est pas encore enregistré : appuyez sur « Enregistrer » pour que la fidélité démarre dans le menu.',
   loy_err_ppl: 'Les points par leu doivent être compris entre 0,1 et 100.',
   loy_err_threshold: 'Le seuil doit être compris entre 1 et 100 000 points.',
   loy_err_reward: 'Décrivez la récompense (200 caractères max.).',

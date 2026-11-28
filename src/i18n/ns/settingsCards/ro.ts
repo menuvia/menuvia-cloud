@@ -48,9 +48,10 @@ const ro = {
   loy_threshold: 'Prag pentru recompensă (puncte)',
   loy_reward: 'Recompensa (ce primește clientul la prag)',
   loy_rewardPlaceholder: 'Ex: Un desert din partea casei',
-  loy_saving: 'Se salvează…',
-  loy_save: 'Salvează programul',
-  loy_saved: 'Programul de fidelizare a fost salvat',
+  // Lotul C7c: câmpurile se salvează cu „Salvează” de sus (formularul
+  // paginii); cardul nu mai are buton propriu. Nota apare când modulul e
+  // pornit, dar programul n-a fost salvat niciodată (fidelizarea cere rândul).
+  loy_notSaved: 'Programul nu e salvat încă: apasă „Salvează” ca fidelizarea să pornească în meniu.',
   loy_err_ppl: 'Punctele pe leu trebuie între 0,1 și 100.',
   loy_err_threshold: 'Pragul trebuie între 1 și 100.000 de puncte.',
   loy_err_reward: 'Descrie recompensa (max. 200 de caractere).',
