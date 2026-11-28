@@ -262,3 +262,29 @@ describe('QrCartSheet — ora comenzilor trimise pe fusul localului (G2c)', () =
     expect(screen.getByText(/#A1B2 · 12:10/)).toBeInTheDocument()
   })
 })
+
+// Recenzia pe #396: un meniu ÎNCĂRCAT gol nu mai e „meniu necunoscut”. Coșul
+// rehidratat (lotul C8a) pe un local care a scos tot din meniu se trimitea
+// și pica abia la server.
+//   QCE1 `menuLoaded` + meniu gol → linia „Nu mai e în meniu”, CTA dezactivat,
+//        clic fără trimitere. [PICĂ: steagul nedus din foaie la
+//        `cartIssueCounts`/`cartLineIssue`, sau garda veche `menu.size === 0`]
+//   QCE2 control pozitiv: fără steag (meniu încă necunoscut) coșul rămâne
+//        trimisibil, ca înainte.
+describe('QrCartSheet — meniul încărcat gol blochează coșul (recenzia pe #396)', () => {
+  it('QCE1 meniu încărcat și gol → linia marcată, trimiterea blocată', async () => {
+    const user = userEvent.setup()
+    const props = renderSheet({ categories: [], menuLoaded: true })
+    expect(screen.getByText('Nu mai e în meniu')).toBeInTheDocument()
+    const cta = screen.getByRole('button', { name: /trimite comanda/i })
+    expect(cta).toBeDisabled()
+    await user.click(cta)
+    expect(props.onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('QCE2 fără steag (meniu necunoscut) nimic nu e inventat', () => {
+    renderSheet({ categories: [] })
+    expect(screen.queryByText('Nu mai e în meniu')).toBeNull()
+    expect(screen.getByRole('button', { name: /trimite comanda/i })).toBeEnabled()
+  })
+})

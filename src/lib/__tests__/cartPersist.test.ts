@@ -364,11 +364,10 @@ describe('cartPersist — cablajul pe /q și /m', () => {
     const pub = read('src/pages/PublicMenuPage.tsx')
     // Sursa ref-ului: coșul de ridicare salvat, doar dacă are linii.
     expect(pub).toMatch(/hydratedCartRef\.current = saved\.cart\s*\n\s*setCart\(saved\.cart\)/)
-    const pubEffect = hydrationEffect(pub, '}, [loading, categories])')
-    expectGuardBeforeConsume(
-      pubEffect,
-      'if (before == null || loading || categories.length === 0) return',
-    )
+    // Garda e „meniul s-a încărcat CU SUCCES”, nu numărul de categorii: un
+    // meniu încărcat gol e meniul de acum (recenzia pe #396, CM10/CM11).
+    const pubEffect = hydrationEffect(pub, '}, [menuLoaded, categories])')
+    expectGuardBeforeConsume(pubEffect, 'if (before == null || !menuLoaded) return')
     // Anunțul de pe /m: cheile repreluate alimentează `pricesUpdated`.
     expect(pubEffect).toContain('setRepricedKeys(')
   })

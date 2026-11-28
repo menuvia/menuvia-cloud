@@ -612,13 +612,18 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   }, [menuRestaurantId])
   useMenuVersionRefetch(menuRestaurantId, refreshMenu)
   const menuIndex = useMemo(() => productIndex(categories), [categories])
+  // Meniul încărcat CU SUCCES, chiar dacă e gol: un meniu gol după încărcare
+  // e meniul de acum (localul a scos tot), nu unul încă necunoscut — liniile
+  // restaurate se marchează `unavailable` și blochează „Continuă” (recenzia
+  // pe #396; înainte o gardă pe `categories.length` le lăsa nemarcate).
+  const menuLoaded = !loading && error === null
   // Coșul de ridicare rehidratat (lotul C8a) trece O DATĂ pe prețurile
   // meniului încărcat, cu același anunț ca reîmprospătarea. Liniile care nu
   // mai corespund meniului rămân marcate și blochează „Continuă”. Actualizarea
   // e funcțională: în commit-ul hidratării `setCart(saved)` e doar programat.
   useEffect(() => {
     const before = hydratedCartRef.current
-    if (before == null || loading || categories.length === 0) return
+    if (before == null || !menuLoaded) return
     hydratedCartRef.current = null
     const menu = productIndex(categories)
     const r = repriceCart(before, menu)
@@ -626,8 +631,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
       setRepricedKeys(new Set(r.cart.filter((c, i) => c !== before[i]).map((c) => c._key)))
       setCart((prev) => repriceCart(prev, menu).cart)
     }
-  }, [loading, categories])
-  const cartIssues = cartIssueCounts(cart, menuIndex)
+  }, [menuLoaded, categories])
+  const cartIssues = cartIssueCounts(cart, menuIndex, menuLoaded)
   const cartBlocked = cartIssues.sold_out + cartIssues.unavailable + cartIssues.options_changed > 0
   const cartNoticeKey = cartIssueNoticeKey(cartIssues)
   const pricesUpdated = cart.some((c) => repricedKeys.has(c._key))
@@ -1329,7 +1334,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                       {item.quantity}× {item.product_name_snapshot}
                     </div>
                     {(() => {
-                      const issue = cartLineIssue(item, menuIndex)
+                      const issue = cartLineIssue(item, menuIndex, menuLoaded)
                       if (!issue) return null
                       return (
                         <div style={{ fontSize: 12, fontWeight: 700, color: errorInk, marginTop: 3 }}>

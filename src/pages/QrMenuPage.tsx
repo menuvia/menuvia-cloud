@@ -687,7 +687,10 @@ export default function QrMenuPage({ token }: Props) {
     },
     [baseLang],
   )
-  const menuLoaded = !resolving && categories.length > 0
+  // Meniul încărcat CU SUCCES, chiar dacă e gol (recenzia pe #396): un meniu
+  // gol după încărcare e meniul de acum, nu unul încă necunoscut — coșul
+  // restaurat se marchează `unavailable` în foaie și nu se trimite.
+  const menuLoaded = !resolving && !invalid && !networkError
   useEffect(() => {
     // Limba salvată odată cu coșul (lotul C8a): se aplică o singură dată, după
     // încărcarea meniului, și doar dacă meniul încă o oferă; altfel cade pe
@@ -1953,6 +1956,7 @@ export default function QrMenuPage({ token }: Props) {
             // Fusul localului, BRUT (mig 326): foaia îl validează în chunk-ul ei
             // leneș — pagina nu importă lib/dates (ZT8).
             timeZone={ctx?.restaurant.timezone ?? undefined}
+            menuLoaded={menuLoaded}
             onSubmit={(v) => {
               // Sursa de adevăr rămâne părintele (nota supraviețuiește
               // re-deschiderii sheet-ului); submit-ul primește valoarea ca

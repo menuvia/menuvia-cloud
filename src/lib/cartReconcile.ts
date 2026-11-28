@@ -60,24 +60,33 @@ function optionsStillValid(item: CartItem, product: Product): boolean {
 
 /**
  * Ce e în neregulă cu linia, față de meniul curent. `menu` gol = meniul nu e
- * cunoscut (încă se încarcă): nu inventăm probleme.
+ * cunoscut (încă se încarcă): nu inventăm probleme — DOAR cât timp apelantul
+ * nu spune că meniul s-a încărcat. Un meniu ÎNCĂRCAT cu succes și gol (localul
+ * a scos sau a trecut în ciornă tot) face orice linie `unavailable`: altfel un
+ * coș rehidratat (lotul C8a) nu era marcat, „Continuă” rămânea activ și
+ * comanda pica abia la trimitere (recenzia pe #396).
  */
-export function cartLineIssue(item: CartItem, menu: ReadonlyMap<string, Product>): CartLineIssue | null {
-  if (menu.size === 0) return null
+export function cartLineIssue(
+  item: CartItem,
+  menu: ReadonlyMap<string, Product>,
+  menuLoaded = false,
+): CartLineIssue | null {
+  if (menu.size === 0 && !menuLoaded) return null
   const product = menu.get(item.product_id)
   if (!product || product.is_draft) return 'unavailable'
   if (product.is_sold_out) return 'sold_out'
   return optionsStillValid(item, product) ? null : 'options_changed'
 }
 
-/** Câte linii au fiecare tip de problemă. */
+/** Câte linii au fiecare tip de problemă (`menuLoaded` ca la `cartLineIssue`). */
 export function cartIssueCounts(
   cart: readonly CartItem[],
   menu: ReadonlyMap<string, Product>,
+  menuLoaded = false,
 ): Record<CartLineIssue, number> {
   const counts: Record<CartLineIssue, number> = { sold_out: 0, unavailable: 0, options_changed: 0 }
   for (const item of cart) {
-    const issue = cartLineIssue(item, menu)
+    const issue = cartLineIssue(item, menu, menuLoaded)
     if (issue) counts[issue]++
   }
   return counts
