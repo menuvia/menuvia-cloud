@@ -278,3 +278,136 @@ describe('OrderTracker — totalul confirmat de server (Happy Hour, lotul C8b)',
     expect(onServerTotal).not.toHaveBeenCalled()
   })
 })
+
+// Recenzia lotului C8b: bannerul trata `served` ca TERMINAL, deci o comandă
+// servită nu mai era poll-uită — iar reducerea manuală e permisă tocmai pe
+// `served` (apply_order_discount, mig 291), la notă. Totalul din listă rămânea
+// cel vechi, iar „Plătește masa · 100” contrazicea PayTableSheet (90).
+// Mutațiile care pică: `served` readus în TERMINAL-ul bannerului (SVT12 —
+// niciun poll la 18 s; SVT14 — reîmprospătarea forțată sare comanda); ritmul
+// rar scos, adică `served` la fiecare tick (SVT12 — 3 apeluri la 12 s);
+// TERMINAL golit (SVT13 — comanda `paid` poll-uită mai departe); efectul de pe
+// `billOpen` scos (SVT14 — un singur apel) sau declanșat și la montare, nu doar
+// pe tranziție (SVT15 — 2 apeluri). Control pozitiv: comanda încă în lucru e
+// poll-uită la fiecare tick (SVT13, 7 apeluri în 36 s).
+describe('ActiveOrdersBanner — banii comenzilor `served` rămân urmăriți (recenzia C8b)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    statusMock.mockReset()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('SVT12 `served` rămâne poll-uit, mai rar; reducerea de la notă ajunge în antet și la părinte', async () => {
+    statusMock.mockResolvedValue({ id: 'o1', short_id: 'ABC123', status: 'served', total: 30 })
+    const onServerTotal = vi.fn()
+    render(
+      <ActiveOrdersBanner
+        orders={[CONF]}
+        accent="#000"
+        onAddMore={() => {}}
+        sessionId="s1"
+        onServerTotal={onServerTotal}
+      />,
+    )
+    await tick(0)
+    expect(statusMock).toHaveBeenCalledTimes(1)
+    expect(onServerTotal).not.toHaveBeenCalled()
+    // Ospătarul aplică o reducere pe comanda servită: 30 → 27.
+    statusMock.mockResolvedValue({
+      id: 'o1',
+      short_id: 'ABC123',
+      status: 'served',
+      total: 27,
+      discount_amount: 3,
+    })
+    await tick(6000 * 2)
+    expect(statusMock).toHaveBeenCalledTimes(1)
+    await tick(6000)
+    expect(statusMock).toHaveBeenCalledTimes(2)
+    expect(screen.getByText(/27\.00 lei/)).toBeInTheDocument()
+    expect(screen.queryByText(/30\.00 lei/)).not.toBeInTheDocument()
+    expect(onServerTotal).toHaveBeenCalledWith('o1', 27)
+  })
+
+  it('SVT13 `paid` oprește polling-ul; comanda în lucru rămâne la fiecare tick (control)', async () => {
+    const o2: OrderConfirmationPayload = { ...CONF, id: 'o2', short_id: 'DEF456' }
+    statusMock.mockImplementation(async (id: string) =>
+      id === 'o1'
+        ? { id: 'o1', short_id: 'ABC123', status: 'paid', total: 30 }
+        : { id: 'o2', short_id: 'DEF456', status: 'preparing', total: 30 },
+    )
+    render(
+      <ActiveOrdersBanner orders={[CONF, o2]} accent="#000" onAddMore={() => {}} sessionId="s1" />,
+    )
+    await tick(0)
+    await tick(6000 * 6)
+    const callsFor = (id: string): number => statusMock.mock.calls.filter((c) => c[0] === id).length
+    expect(callsFor('o1')).toBe(1)
+    expect(callsFor('o2')).toBe(7)
+  })
+
+  it('SVT14 deschiderea coșului reîmprospătează imediat și comenzile `served`, o singură dată', async () => {
+    statusMock.mockResolvedValue({ id: 'o1', short_id: 'ABC123', status: 'served', total: 30 })
+    // Aceeași referință la fiecare randare: o listă nouă ar reporni efectul de
+    // polling și ar masca efectul de pe `billOpen`.
+    const orders = [CONF]
+    const onServerTotal = vi.fn()
+    const { rerender } = render(
+      <ActiveOrdersBanner
+        orders={orders}
+        accent="#000"
+        onAddMore={() => {}}
+        sessionId="s1"
+        onServerTotal={onServerTotal}
+        billOpen={false}
+      />,
+    )
+    await tick(0)
+    expect(statusMock).toHaveBeenCalledTimes(1)
+    statusMock.mockResolvedValue({ id: 'o1', short_id: 'ABC123', status: 'served', total: 27 })
+    rerender(
+      <ActiveOrdersBanner
+        orders={orders}
+        accent="#000"
+        onAddMore={() => {}}
+        sessionId="s1"
+        onServerTotal={onServerTotal}
+        billOpen
+      />,
+    )
+    await tick(0)
+    expect(statusMock).toHaveBeenCalledTimes(2)
+    expect(screen.getByText(/27\.00 lei/)).toBeInTheDocument()
+    expect(onServerTotal).toHaveBeenCalledWith('o1', 27)
+    // Coșul rămâne deschis: o re-randare nu mai trimite nimic.
+    rerender(
+      <ActiveOrdersBanner
+        orders={orders}
+        accent="#000"
+        onAddMore={() => {}}
+        sessionId="s1"
+        onServerTotal={onServerTotal}
+        billOpen
+      />,
+    )
+    await tick(0)
+    expect(statusMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('SVT15 montat cu coșul deja deschis → doar poll-ul de montare, nu două', async () => {
+    statusMock.mockResolvedValue({ id: 'o1', short_id: 'ABC123', status: 'served', total: 30 })
+    render(
+      <ActiveOrdersBanner
+        orders={[CONF]}
+        accent="#000"
+        onAddMore={() => {}}
+        sessionId="s1"
+        billOpen
+      />,
+    )
+    await tick(0)
+    expect(statusMock).toHaveBeenCalledTimes(1)
+  })
+})

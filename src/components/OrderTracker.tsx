@@ -451,7 +451,11 @@ function OrderTracker({
           {isCancelled ? T(lang, 'ot_new_order') : T(lang, 'ot_close_session')}
         </button>
       </div>
-      {/* Show session total if there are previous orders */}
+      {/* Show session total if there are previous orders. Runda curentă vine din
+          poll-ul de aici; rundele anterioare sunt cum le-a confirmat ultima dată
+          ActiveOrdersBanner — pe ecranul ăsta nu se poll-uiesc, iar bannerul le
+          reîmprospătează imediat ce oaspetele revine în meniu (unde stă și
+          „Plătește masa”). */}
       {previousOrders.length > 0 && !isCancelled && (
         <div style={{ marginTop: 16, fontSize: '0.8rem', color: '#6B5A3F', textAlign: 'center' }}>
           {T(lang, 'ot_session_total')}{' '}
@@ -502,7 +506,17 @@ interface ActiveOrdersBannerProps {
   // Totalul de server al unei comenzi diferă de cel din listă (lotul C8b,
   // aceeași semantică ca la OrderTracker).
   onServerTotal?: (orderId: string, total: number) => void
+  // Coșul e deschis, deci „Plătește masa · X” e pe ecran: la trecerea închis →
+  // deschis bannerul reîmprospătează IMEDIAT toate comenzile ne-terminale (și
+  // pe cele `served`), ca suma de pe buton să fie a serverului de acum.
+  billOpen?: boolean
 }
+
+// Ritmul bannerului: comenzile încă în lucru la fiecare tick; cele `served` la
+// fiecare al treilea (≈18 s, aproape de SERVED_POLL_MS din OrderTracker) —
+// după servire banii se mai mișcă doar la notă, nu din secundă în secundă.
+const BANNER_POLL_MS = 6000
+const BANNER_SERVED_EVERY_TICKS = 3
 
 function ActiveOrdersBanner({
   orders,
@@ -512,6 +526,7 @@ function ActiveOrdersBanner({
   currency = 'RON',
   lang = 'ro',
   onServerTotal,
+  billOpen = false,
 }: ActiveOrdersBannerProps) {
   const [expanded, setExpanded] = useState(false)
   const [statuses, setStatuses] = useState<Record<string, string>>(() =>
@@ -524,6 +539,8 @@ function ActiveOrdersBanner({
   statusesRef.current = statuses
   const onServerTotalRef = useRef(onServerTotal)
   onServerTotalRef.current = onServerTotal
+  // `pollAll` al efectului montat acum — deschiderea coșului îl cheamă forțat.
+  const pollAllRef = useRef<((includeServed: boolean) => Promise<void>) | null>(null)
 
   // Polling pentru toate comenzile active
   useEffect(() => {
@@ -531,15 +548,24 @@ function ActiveOrdersBanner({
 
     let cancelled = false
 
-    const TERMINAL = ['paid', 'served', 'cancelled', 'closed']
+    // Polling-ul se oprește DOAR pe stările terminale ale serverului (paritate
+    // cu OrderTracker, RES-36). `served` NU e terminal pentru bani: reducerea
+    // manuală e permisă pe `served` (apply_order_discount, mig 291), la fel
+    // editarea liniilor (update_order_items) — exact la notă, când oaspetele e
+    // în meniu și apasă „Plătește masa”, care citește totalul de aici. Cu
+    // `served` printre terminale, totalul butonului rămânea cel de dinaintea
+    // reducerii, iar PayTableSheet încasa altă sumă (recenzia lotului C8b).
+    const TERMINAL = ['paid', 'cancelled', 'closed']
 
-    const pollAll = async () => {
-      // Poll solo pentru comenzi non-terminale și non-offline
-      const active = orders.filter(
-        (o) =>
-          !o.short_id?.startsWith('LOCAL-') &&
-          !TERMINAL.includes(statusesRef.current[o.id] ?? o.status),
-      )
+    const pollAll = async (includeServed: boolean) => {
+      // Poll solo pentru comenzi non-terminale și non-offline; cele `served`
+      // doar când tick-ul le include (ritm rar) sau la o reîmprospătare forțată.
+      const active = orders.filter((o) => {
+        if (o.short_id?.startsWith('LOCAL-')) return false
+        const st = statusesRef.current[o.id] ?? o.status
+        if (TERMINAL.includes(st)) return false
+        return includeServed || st !== 'served'
+      })
       if (active.length === 0) return
 
       const results = await Promise.all(
@@ -578,24 +604,37 @@ function ActiveOrdersBanner({
       }
     }
 
-    void pollAll()
+    pollAllRef.current = pollAll
+    void pollAll(true)
+    let ticks = 0
     const interval = setInterval(() => {
       // Guard identic cu polling-ul principal: tab în fundal = zero cereri.
       if (document.hidden) return
-      void pollAll()
-    }, 6000)
+      ticks += 1
+      void pollAll(ticks % BANNER_SERVED_EVERY_TICKS === 0)
+    }, BANNER_POLL_MS)
     // La revenirea în tab: starea de acum, nu peste până la 6 s.
     const onVisibility = (): void => {
-      if (!document.hidden) void pollAll()
+      if (!document.hidden) void pollAll(true)
     }
     document.addEventListener('visibilitychange', onVisibility)
 
     return () => {
       cancelled = true
+      pollAllRef.current = null
       clearInterval(interval)
       document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [orders, sessionId])
+
+  // Doar pe TRANZIȚIA închis → deschis: montarea are deja poll-ul ei, iar o
+  // re-randare cu coșul deja deschis nu trebuie să mai trimită nimic.
+  const billOpenRef = useRef(billOpen)
+  useEffect(() => {
+    const wasOpen = billOpenRef.current
+    billOpenRef.current = billOpen
+    if (billOpen && !wasOpen) void pollAllRef.current?.(true)
+  }, [billOpen])
 
   const orderTotal = (o: OrderConfirmationPayload): number => serverTotals[o.id] ?? Number(o.total)
   const totalSpent = orders.reduce((s, o) => s + orderTotal(o), 0)

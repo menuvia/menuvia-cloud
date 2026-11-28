@@ -893,6 +893,9 @@ export default function QrMenuPage({ token }: Props) {
             currency={menuCurrency}
             lang={lang}
             onServerTotal={applyServerTotal}
+            // Coșul poartă „Plătește masa”: la deschidere, totalurile se
+            // reîmprospătează imediat (și cele `served`, unde cade reducerea).
+            billOpen={showCart}
             onAddMore={() => {
               /* user is already in menu */
             }}
@@ -1921,6 +1924,9 @@ export default function QrMenuPage({ token }: Props) {
             // Totalurile din listă sunt cele CONFIRMATE de server după trimitere
             // (applyServerTotal, lotul C8b — Happy Hour, editări, reduceri), ca
             // suma de pe buton să corespundă cu ce se încasează (regula de aur).
+            // ActiveOrdersBanner le urmărește până la paid/cancelled/closed —
+            // și pe `served`, unde cade de obicei reducerea de la notă — plus o
+            // reîmprospătare la deschiderea coșului (billOpen).
             tableTotal={previousOrders
               .filter((o) => !paidOrderIds.has(o.id))
               .reduce((s, o) => s + o.total, 0)}
