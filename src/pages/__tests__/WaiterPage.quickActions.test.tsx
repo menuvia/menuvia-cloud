@@ -259,9 +259,15 @@ describe('WaiterPage — Planul 3: pasul următor pe card (lotul O7b)', () => {
   })
 
   it('WP6 listă: comanda `ready` are UN singur card și UN singur „Servit”; `preparing` are pe al ei', async () => {
-    // Mutațiile care pică: handleForwardStep dat necondiționat cardului din
-    // „Gata de servit” → două „Servit” pe aceeași comandă `ready`; `ready`
-    // lăsat în lista grupată (lotul C2b) → două carduri pentru aceeași comandă.
+    // Mutația care pică: `ready` lăsat în lista grupată (`listOpenOrders`,
+    // lotul C2b) → R are DOUĂ carduri (cel din grupul mesei primește pasul
+    // O7b) și pe ecran apar trei „Servit”. Ce NU prinde, deliberat: dublul
+    // „Servit” pe ACELAȘI card. Dacă pagina ar da și `onAdvance` cardului din
+    // „Gata de servit”, OrderCard suprimă oricum pasul (`!serveReady`), deci
+    // WP6 ar rămâne verde — garda aceea e OCS2 (WaiterOrderCard.test.tsx).
+    // Nici handlerul nu se poate distinge de aici: pe `ready`, handleServit și
+    // handleForwardStep fac același apel (served, gardă 'list').
+    // Control pozitiv: P (`preparing`) își păstrează propriul „Servit”.
     const advance = setOrders([
       makeOrder({ id: 'R', status: 'ready', created_at: '2026-07-20T09:00:00Z' }),
       makeOrder({ id: 'P', status: 'preparing', created_at: '2026-07-20T09:05:00Z' }),
