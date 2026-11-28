@@ -22,6 +22,9 @@ export type FeatureName =
   | 'split_bill'
   | 'kitchen_tickets'
   | 'sms_notifications'
+  // Fidelizarea (mig 226, growth+): ospătarul vede răscumpărarea doar cu el
+  // ȘI cu modulul `loyalty` pornit (lotul C2b).
+  | 'loyalty'
   | 'themes'
   | 'remove_branding'
   | 'max_products'

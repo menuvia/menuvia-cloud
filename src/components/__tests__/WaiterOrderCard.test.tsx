@@ -535,3 +535,76 @@ describe('OrderCard — „Retipărește la bucătărie” (lotul O3b)', () => {
     expect(onReprint).toHaveBeenCalledWith(order)
   })
 })
+
+// Lotul C2b — „Gata de servit” cu cardul COMPLET. Înainte comanda `ready` era
+// randată de două ori pe ecranul ospătarului (ReadyOrderCard sus + OrderCard în
+// grupul mesei); acum secțiunea de sus folosește OrderCard cu `onServe`, iar
+// ReadyOrderCard e șters (testele lui RC1–RC3 trăiesc aici, pe noul card).
+//   OCS1 `onServe` pe `ready` → „Servit” pe ORICE plan (true / false / null):
+//        servirea nu e bani. Pe Planul 1/2 rămâne și „Închide comanda”.
+//        [PICĂ: „Servit” legat de `paymentsEnabled === true` — pe Planul 2
+//         comanda gata n-ar mai avea cum fi servită]
+//   OCS2 Planul 3 cu `onServe` ȘI `onAdvance` → UN singur „Servit” (al lui
+//        onServe), pasul O7b nu se dublează. [PICĂ: `!serveReady` scos din
+//        condiția pasului → două „Servit” pe același card]
+//   OCS3 pending → „Servit” dezactivat („Se salvează…”), fără al doilea apel
+//        (fostul RC2). [PICĂ: `loading={pending}` scos]
+//   OCS4 control: `onServe` pe o comandă ne-`ready` NU adaugă „Servit” (pe
+//        Planul 3 rămâne pasul ei), iar cardul poartă cheia comenzii.
+describe('OrderCard — „Servit” din „Gata de servit” (lotul C2b)', () => {
+  function renderServe(order: Order, paymentsEnabled: boolean | null, opts: { pending?: boolean } = {}) {
+    const onServe = vi.fn()
+    const onAdvance = vi.fn()
+    const utils = render(
+      <OrderCard
+        order={order}
+        highlight
+        onPayOpen={vi.fn()}
+        onSplitOpen={vi.fn()}
+        onCloseOrder={vi.fn()}
+        onServe={onServe}
+        onAdvance={onAdvance}
+        paymentsEnabled={paymentsEnabled}
+        pending={opts.pending ?? false}
+      />,
+    )
+    return { ...utils, onServe, onAdvance }
+  }
+
+  it('OCS1 „Servit” pe orice plan; pe Planul 1/2 și „Închide comanda”', async () => {
+    for (const pe of [true, false, null] as const) {
+      const order = makeOrder({ id: `r-${String(pe)}`, status: 'ready' })
+      const { onServe, onAdvance, unmount } = renderServe(order, pe)
+      await userEvent.click(screen.getByRole('button', { name: /^servit$/i }))
+      expect(onServe, String(pe)).toHaveBeenCalledWith(order)
+      expect(onAdvance, String(pe)).not.toHaveBeenCalled()
+      const close = screen.queryByRole('button', { name: /^închide comanda$/i })
+      if (pe === false) expect(close, 'Plan 1/2').toBeInTheDocument()
+      else expect(close, String(pe)).toBeNull()
+      unmount()
+    }
+  })
+
+  it('OCS2 Planul 3: un singur „Servit” chiar cu pasul O7b prezent', () => {
+    renderServe(makeOrder({ status: 'ready' }), true)
+    expect(screen.getAllByRole('button', { name: /^servit$/i })).toHaveLength(1)
+  })
+
+  it('OCS3 pending → „Servit” dezactivat, fără al doilea apel', async () => {
+    const { onServe } = renderServe(makeOrder({ status: 'ready' }), null, { pending: true })
+    const btn = screen.getByRole('button', { name: 'Se salvează…' })
+    expect(btn).toBeDisabled()
+    await userEvent.click(btn)
+    expect(onServe).not.toHaveBeenCalled()
+  })
+
+  it('OCS4 control: pe o comandă ne-`ready` `onServe` nu adaugă buton; cardul are cheia comenzii', async () => {
+    const order = makeOrder({ id: 'p1', status: 'preparing' })
+    const { onServe, onAdvance, container } = renderServe(order, true)
+    expect(container.querySelectorAll('[data-order-id="p1"]')).toHaveLength(1)
+    // „Servit” de aici e pasul O7b (preparing → served), nu onServe
+    await userEvent.click(screen.getByRole('button', { name: /^servit$/i }))
+    expect(onAdvance).toHaveBeenCalledWith(order)
+    expect(onServe).not.toHaveBeenCalled()
+  })
+})

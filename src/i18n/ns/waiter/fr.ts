@@ -80,6 +80,12 @@ const fr: Translation<typeof ro> = {
   resv_noShowConfirm: 'Marquer comme absent (no-show) ?',
   resv_tablesError: 'Impossible de charger la liste des tables : {error}',
   resv_tablesErrorFallback: 'Impossible de charger les tables.',
+  resv_titleNext: 'Réservations du jour ({n}) · prochaine à {time}',
+  resv_showAll: 'Toutes ({n})',
+  resv_showDue: 'Seulement les 2 prochaines heures',
+  resv_noneDue: 'Aucune réservation dans les 2 prochaines heures.',
+  resv_finish: 'Terminer',
+  resv_noShowDesc: 'Cette action ne peut pas être annulée depuis l’application.',
 
   section_ready: 'Prêtes à servir',
   section_calls: 'Appels serveur',
@@ -93,6 +99,7 @@ const fr: Translation<typeof ro> = {
   call_billBadge: 'ADDITION DEMANDÉE',
   call_tip: '· pourboire proposé {amount} lei',
   call_take: 'J’y vais',
+  call_takeErr: 'L’appel n’a pas pu être pris en charge. Réessayez.',
 
   reprint_ok: 'Le ticket a été mis dans la file de la cuisine.',
   reprint_noPrinter: 'Aucune imprimante de cuisine n’est connectée (Paramètres → Bridge).',

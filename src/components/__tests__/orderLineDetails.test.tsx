@@ -13,6 +13,8 @@
 //   OL4  cardul ospătarului: câte un rând pe linie, cu opțiunea, extra-ul și nota.
 //        [PICĂ: lista „Pizza ×1, Pizza ×1" de dinainte]
 //   OL5  „Gata de servit": cantitatea și extra-ul apar (înainte doar numele).
+//        Din lotul C2b secțiunea folosește cardul complet (OrderCard cu
+//        `onServe`), nu ReadyOrderCard (șters).
 //   OL6  interogarea comenzilor de staff cere `extras_added` — fără ea, toate
 //        ecranele de mai sus primesc o listă goală. [PICĂ: coloana scoasă din
 //        ORDER_SELECT]
@@ -39,7 +41,6 @@ vi.mock('../../hooks/useAudioUnlock', () => ({ useAudioUnlock: vi.fn() }))
 import { OrderLineDetails } from '../OrderLineDetails'
 import { KitchenOrderCard } from '../../pages/KitchenPage'
 import { OrderCard } from '../WaiterOrderCard'
-import { ReadyOrderCard } from '../ReadyOrderCard'
 import { fetchKitchenOrders, fetchWaiterOrders, orderItemExtraNames } from '../../lib/orders'
 import { makeOrder, makeOrderItem } from './fixtures'
 
@@ -112,9 +113,13 @@ describe('extra-urile pe ecranele personalului', () => {
 
   it('OL5 „Gata de servit": cantitatea și extra-ul apar', () => {
     render(
-      <ReadyOrderCard
+      <OrderCard
         order={makeOrder({ id: 'R1', status: 'ready', order_items: [burger, pizza] })}
+        highlight
         onServe={vi.fn()}
+        paymentsEnabled={null}
+        onPayOpen={vi.fn()}
+        onSplitOpen={vi.fn()}
       />,
     )
     const lines = screen.getAllByTestId('order-line')
