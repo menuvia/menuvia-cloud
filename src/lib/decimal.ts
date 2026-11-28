@@ -39,7 +39,9 @@ function normalizeDecimalText(text: string): string {
  * de preț, dar `parseFloat` le dă `Infinity`, care trecea de orice
  * `Number.isNaN` și pleca la server ca `null` în JSON — la plafonul Happy Hour,
  * `null` înseamnă „fără plafon”. Regula stă AICI, nu la fiecare câmp, ca toți
- * apelanții (preț, extra, opțiune, stoc, NIR, Happy Hour) s-o primească odată.
+ * apelanții (preț, extra, opțiune, stoc, NIR) s-o primească odată. (Happy Hour
+ * citește acum sumele cu `parseDecimalCents`, unde aceeași regulă e garda pe
+ * întregul sigur de cenți.)
  */
 export function parseDecimalInput(text: string): number | null {
   const t = normalizeDecimalText(text)
@@ -84,6 +86,12 @@ export function decimalOrZero(text: string): number {
  * unde serverul ar fi păstrat 1,01. Gol → null; orice altceva → NaN, inclusiv
  * o sumă care nu încape într-un întreg sigur de cenți (un „1” urmat de sute de
  * zerouri e finit ca lei, dar Infinity ca cenți).
+ *
+ * Editorul Happy Hour trimite valoarea și plafonul ca `cenți / 100` (recenzia
+ * adversarială a lui b3121b8): verificarea unei salvări fără răspuns compară
+ * încercarea cu rândul din bază în bani, deci cererea trebuie să poarte deja
+ * suma pe care o păstrează coloana — „1,005” trimis ca 1.005 nu se mai
+ * recunoștea în rândul stocat 1,01.
  */
 export function parseDecimalCents(text: string): number | null {
   const t = normalizeDecimalText(text)

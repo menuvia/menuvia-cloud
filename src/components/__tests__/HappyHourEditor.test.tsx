@@ -31,8 +31,9 @@
 //   HHM7 o valoare sau un plafon prea mare (309 cifre de 9 — `Infinity` pentru
 //        `parseFloat`) e o eroare, nu o regulă trimisă: un plafon `Infinity`
 //        pleca în JSON ca `null`, adică „fără plafon”. Control: „50” pe sumă
-//        fixă pleacă. Mutația care pică: garda `Number.isFinite` scoasă din
-//        `parseDecimalInput`.
+//        fixă pleacă. Mutația care pică: garda `Number.isSafeInteger` scoasă
+//        din `parseDecimalCents` (editorul citește sumele direct în bani din
+//        HHM26; garda `Number.isFinite` a lui `parseDecimalInput` o ține DC8).
 //   HHM8 trecerea pe „Sumă fixă” șterge erorile care țin DOAR de procent
 //        (plafon invalid, „Procent max 100”) — plafonul dispare, mesajul rămânea
 //        lângă un câmp ascuns; o eroare care încă se aplică (numele gol) RĂMÂNE.
@@ -185,6 +186,22 @@
 //        = salvat). Mutația care pică: confirmarea pe simpla prezență a id-ului
 //        (codul lui e750907: editorul se închidea pe „Regula s-a salvat”, ciorna
 //        se pierdea, iar în bază rămânea reducerea de 20%).
+// Recenzia adversarială a lui b3121b8:
+//   HHM26 sumele pleacă rotunjite ZECIMAL ca `numeric(10,2)`: „1,005” → 1.01,
+//        plafonul „9,995” → 10 (cererea poartă ce păstrează baza). Altfel HHM25
+//        se redeschidea pe o sumă cu trei zecimale: prima încercare (1,005,
+//        toate produsele) se comite fără răspuns, verificarea ei pică; omul
+//        restrânge regula la „Cocktailuri” și reîncearcă, respingerea pe cheia
+//        primară se pierde și ea, iar rândul stocat (1,01) nu se potrivea în
+//        bani cu NICIO încercare (1.005 × 100 = 100,4999… → 100, rândul → 101)
+//        — deci „salvat”, ciorna pierdută, reducerea pe toate produsele. Acum
+//        rândul e recunoscut drept prima încercare, iar fila trimite
+//        modificarea id-ului (categoria, aceeași sumă), fără toast-ul
+//        `saved_late`. Mock-ul creării rotunjește sumele ca baza. Mutațiile care
+//        pică: `parseDecimalInput` readus în `go()` (sumele trimise cu trei
+//        zecimale — prima jumătate; fără ea, editorul se închidea pe „salvat”)
+//        sau `Math.round(n * 100) / 100` în loc de rotunjirea zecimală (1,005
+//        pleca 1,00, nu 1,01 ca în bază — prima jumătate).
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
@@ -306,10 +323,21 @@ vi.mock('../../lib/happyHour', () => ({
     h.createdIds.push(id)
     h.signals.push(signal ?? null)
     h.log.push('create')
-    // O creare reușită e comisă: apare în lista următoare.
+    // Ca `numeric(10,2)` (mig 036): baza rotunjește ZECIMAL, cu jumătatea în
+    // sus, numărul primit în JSON — 1.005 se stochează 1.01, nu 1.00 (HHM26).
+    // (Doar pentru sumele din teste: fără exponent, nenegative.)
+    const numeric2 = (v: number): number => {
+      const [whole = '0', frac = ''] = String(v).split('.')
+      const up = frac.length > 2 && frac.charAt(2) >= '5' ? 1 : 0
+      return (Number(whole + frac.padEnd(2, '0').slice(0, 2)) + up) / 100
+    }
+    // O creare reușită e comisă: apare în lista următoare, cu sumele cum le
+    // păstrează baza.
     const commit = (): HappyHourRule => {
       const row: HappyHourRule = {
         ...fields,
+        discount_value: numeric2(fields.discount_value),
+        max_discount: fields.max_discount == null ? null : numeric2(fields.max_discount),
         id,
         restaurant_id: rid,
         created_at: '2026-11-28T10:00:00Z',
@@ -1327,6 +1355,59 @@ describe('editorul Happy Hour (lotul C4a)', () => {
     expect(h.rules.filter((r: HappyHourRule) => r.name === 'Brunch')).toHaveLength(1)
     // Confirmarea e cea obișnuită a modificării, nu „s-a salvat după ce
     // conexiunea și-a revenit” peste valorile primei încercări.
+    expect(h.toasts).toEqual([])
+  })
+
+  it('HHM26 sumele pleacă rotunjite ca în bază; o sumă cu trei zecimale nu ascunde încercarea de dinainte', async () => {
+    const { user, dlg } = await openNew()
+    await user.type(within(dlg).getByLabelText('Nume *'), 'Brunch')
+    const value = within(dlg).getByLabelText('Valoarea reducerii')
+    await user.clear(value)
+    await user.type(value, '1,005')
+    await user.type(within(dlg).getByLabelText('Plafon maxim în lei, opțional'), '9,995')
+    const create = () => within(dlg).getByRole('button', { name: 'Creează regulă' })
+
+    // Prima încercare (toate produsele) se comite, răspunsul se pierde, iar
+    // lista de verificare pică: „nu se știe”. Cererea poartă deja sumele pe
+    // care le păstrează baza, nu textul cu trei zecimale.
+    h.loseNext = true
+    h.fetchPlan = ['fail']
+    await user.click(create())
+    await waitFor(() =>
+      expect(within(dlg).getByRole('alert').textContent).toBe(promotionsRo.err_saveUnverified),
+    )
+    const id = h.createdIds[0]
+    expect(h.created[0]).toMatchObject({ scope: 'all', discount_value: 1.01, max_discount: 10 })
+    expect(h.rules.find((r: HappyHourRule) => r.id === id)).toMatchObject({
+      scope: 'all',
+      discount_value: 1.01,
+      max_discount: 10,
+    })
+
+    // Omul restrânge regula la „Cocktailuri” și reîncearcă: cheia primară
+    // respinge INSERT-ul, răspunsul se pierde din nou, iar lista arată rândul
+    // primei încercări. E recunoscut (sumele se potrivesc în bani), deci fila
+    // trimite modificarea id-ului cu ce e acum în formular.
+    await user.click(within(dlg).getByRole('button', { name: 'Categorie' }))
+    await user.selectOptions(within(dlg).getByRole('combobox', { name: 'Categorie' }), 'c1')
+    h.loseNext = true
+    h.log = []
+    await user.click(create())
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(h.log).toEqual(['create', 'fetch', 'update', 'fetch'])
+    expect(h.createdIds).toEqual([id, id])
+    expect(h.updated).toEqual([
+      [
+        id,
+        expect.objectContaining({
+          scope: 'category',
+          category_id: 'c1',
+          discount_value: 1.01,
+          max_discount: 10,
+        }),
+      ],
+    ])
+    expect(h.rules.filter((r: HappyHourRule) => r.name === 'Brunch')).toHaveLength(1)
     expect(h.toasts).toEqual([])
   })
 })

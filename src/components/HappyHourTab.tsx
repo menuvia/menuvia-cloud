@@ -19,7 +19,7 @@ import { EmptyState } from './ui/EmptyState'
 import { confirm as confirmDialog } from './ui/confirm'
 import { Modal } from './_dashboard/sharedUI'
 import { useToast } from './ui/useToast'
-import { parseDecimalInput } from '../lib/decimal'
+import { parseDecimalCents } from '../lib/decimal'
 import {
   fetchHappyHourRules,
   createHappyHourRule,
@@ -134,9 +134,17 @@ function isServerAnswer(e: unknown): boolean {
 
 // Rândul din bază are EXACT valorile trimise? (verificarea unei modificări
 // fără răspuns, și a unei creări: CARE încercare a ajuns). Ora vine din `time`
-// cu secunde, sumele din `numeric(10,2)` (comparate în bani), zilele ca
-// mulțime. O nepotrivire falsă (ex. o sumă cu trei zecimale, rotunjită de bază)
-// duce cel mult la o modificare în plus, cu aceleași valori — inofensivă.
+// cu secunde, zilele ca mulțime, iar sumele din `numeric(10,2)` se compară în
+// bani: comparația e EXACTĂ fiindcă și încercarea poartă deja sume la precizia
+// coloanei — editorul le rotunjește ZECIMAL înainte de trimitere, ca baza
+// (`parseDecimalCents` în `go()`), deci ambele părți au cel mult două zecimale
+// și `Math.round(v * 100)` nu greșește pe niciuna. O nepotrivire falsă NU e
+// inofensivă (recenzia adversarială a lui b3121b8): la o modificare ar cere
+// doar o reîncercare, dar la o CREARE fără răspuns un rând care nu are
+// valorile niciunei încercări trece drept „salvat” (alt dispozitiv l-a
+// modificat, HHM10) — „1,005” trimis ca 1.005 dădea 100 de bani în client și
+// 101 în bază, deci nepotrivire cu FIECARE încercare și „salvat” peste
+// valorile altei încercări (HHM26).
 function sameRuleFields(row: HappyHourRule, f: RuleFields): boolean {
   const hm = (v: string) => v.slice(0, 5)
   const cents = (v: number | null) => (v == null ? null : Math.round(Number(v) * 100))
@@ -535,6 +543,9 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
     // poate fi decât al sesiunii, deci regula s-a creat, iar valori pe care
     // nu le-a trimis nicio încercare vin de la alt dispozitiv, care a modificat-o
     // după ce a ajuns. Editorul nu „repară” peste modificarea celuilalt.
+    // Ramura cere o comparație EXACTĂ: o nepotrivire falsă cu toate încercările
+    // ar ajunge aici ca „salvat” — de aceea sumele pleacă deja rotunjite ca în
+    // bază (`go()`, HHM26).
     finishSaved(true)
     return { kind: 'saved' }
   }
@@ -1009,26 +1020,38 @@ function RuleEditor({
     // Câmpurile sunt text cu tastatură zecimală (lotul C4a): „12,5” e 12.5. Pe
     // vechiul `type="number"`, `replace(',', '.')` era cod mort — valoarea nu
     // conținea niciodată virgulă, iar „12,5” ajungea gol.
-    const dv = parseDecimalInput(discountValue)
-    if (dv != null && Number.isNaN(dv)) {
+    //
+    // Sumele pleacă la precizia COLOANEI (`numeric(10,2)`, mig 036), rotunjite
+    // ZECIMAL cu jumătatea în sus, exact ca baza (`parseDecimalCents`; recenzia
+    // adversarială a lui b3121b8): „1,005” e 1,01 și în cerere, nu doar în
+    // rândul stocat. Trimis ca 1.005, verificarea unei creări fără răspuns îl
+    // compara în bani cu rândul (1.005 × 100 = 100,4999… → 100, rândul → 101),
+    // nu recunoștea încercarea care ajunsese și închidea editorul pe „salvat”
+    // peste valorile ei (`sameRuleFields`, HHM26). Tot așa „0,004” e acum 0:
+    // mesajul „trebuie să fie pozitivă” lângă câmp, nu refuzul CHECK-ului din
+    // bază (`discount_value > 0`, care vedea tot 0,00).
+    const dvCents = parseDecimalCents(discountValue)
+    if (dvCents != null && Number.isNaN(dvCents)) {
       setErr({ kind: 'invalid', key: 'err_valueInvalid' })
       return
     }
-    if (dv == null || dv <= 0) {
+    if (dvCents == null || dvCents <= 0) {
       setErr({ kind: 'invalid', key: 'err_value' })
       return
     }
+    const dv = dvCents / 100
     if (discountType === 'percent' && dv > 100) {
       setErr({ kind: 'invalid', key: 'err_pctMax' })
       return
     }
     // Plafonul: gol = fără plafon. Un text fără formă de număr dădea NaN, care
     // pleca la server ca `null` în JSON — plafonul dispărea tăcut.
-    const cap = discountType === 'percent' ? parseDecimalInput(maxDiscount) : null
-    if (cap != null && Number.isNaN(cap)) {
+    const capCents = discountType === 'percent' ? parseDecimalCents(maxDiscount) : null
+    if (capCents != null && Number.isNaN(capCents)) {
       setErr({ kind: 'invalid', key: 'err_capInvalid' })
       return
     }
+    const cap = capCents == null ? null : capCents / 100
     if (scope === 'category' && !categoryId) {
       setErr({ kind: 'invalid', key: 'err_category' })
       return
