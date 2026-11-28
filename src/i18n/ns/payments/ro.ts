@@ -26,6 +26,11 @@ const ro = {
   pay_totalDue: 'Total de plată:',
   pay_partiallyPaid: 'Plătit parțial:',
   pay_rest: 'Rest de plată:',
+  // Lotul C2a: suma deja încasată pe comandă NU e cunoscută (citirea plăților
+  // e în curs sau a eșuat) — confirmarea e dezactivată, nu se presupune 0.
+  pay_paidLoading: 'Se citesc plățile deja înregistrate pe comandă…',
+  pay_paidUnknown:
+    'Nu am putut citi plățile deja înregistrate pe comandă, deci restul de plată nu e cunoscut. Plata se poate confirma după ce se citesc.',
   pay_discountLocked: 'Reducerea nu se mai poate modifica: comanda are deja plăți înregistrate.',
   pay_discountEdit: 'Modifică / scoate reducerea',
   pay_discountApply: 'Aplică reducere',

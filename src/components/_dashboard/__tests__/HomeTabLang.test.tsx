@@ -6,7 +6,8 @@
 //        cheie cu text românesc schimbat (testele vechi ar prinde doar o parte).
 //   HL2  `<UiLangScope lang="en">`: același ecran în engleză și NICIUN cuvânt
 //        românesc rămas (nici diacritice). Mutația care pică: un text lăsat în
-//        cod în HomeTab sau în PlanUpsellCard (ex. „Acțiuni rapide”).
+//        cod în HomeTab sau în PlanUpsellCard (ex. „Acțiuni rapide”). Lotul C1:
+//        și numele accesibil al cifrei-buton „Orders today” vine din dicționar.
 //   HL3  engleză, numărul de produse necunoscut: numele accesibil al pasului e
 //        „Add products (status unknown)” — sufixul vine tot din dicționar.
 //        Mutația care pică: `it.label + ' (stare necunoscută)'` readus.
@@ -87,6 +88,7 @@ import { surfaceFor } from '../../../lib/__tests__/planSurfaceFixtures'
 import { planUpsellTarget } from '../../../lib/planSurface'
 import { PLAN_LABELS } from '../../../lib/constants'
 import { preloadNamespace } from '../../../i18n/core'
+import { clearHomeSetupCache } from '../../../lib/homeSetup'
 import { homeNs } from '../../../i18n/ns/home'
 import { commonNs } from '../../../i18n/ns/common'
 import { UiLangScope } from '../../../i18n/UiLangContext'
@@ -105,6 +107,8 @@ beforeEach(() => {
   codvia.open = null
   agentState.agent = null
   openBillingPortal.mockReset()
+  // Cache-ul citirilor de setup (lotul C1) e per modul: fiecare test pornește curat.
+  clearHomeSetupCache()
   for (const k of Object.keys(counts)) delete counts[k]
   // Fără mese → pasul „QR-uri pentru mese” rămâne de făcut, deci cardul de
   // configurare se vede; restul pașilor sunt făcuți.
@@ -130,6 +134,7 @@ function renderHome(lang: StaffLang | null, over: Partial<Props> = {}) {
     pickupOnly: false,
     onNavigate: vi.fn(),
     onViewMenu: vi.fn(),
+    onViewOrders: vi.fn(),
     onPricing: vi.fn(),
     onOrderQrStands: vi.fn(),
     ...over,
@@ -155,7 +160,10 @@ describe('Acasă în limba personalului', () => {
     const { container } = renderHome('en')
     expect(await screen.findByText('Welcome, Bistro Test')).toBeInTheDocument()
     expect(screen.getByText('Orders today')).toBeInTheDocument()
-    expect(screen.getByText('Active products')).toBeInTheDocument()
+    expect(screen.getByText('Products on the menu')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: 'Orders today: 3. View orders' }),
+    ).toBeInTheDocument()
     expect(await screen.findByText('Restaurant setup')).toBeInTheDocument()
     expect(
       await screen.findByRole('button', { name: 'Generate QR codes for your tables' }),
@@ -179,7 +187,7 @@ describe('Acasă în limba personalului', () => {
       await screen.findByRole('button', { name: 'Add products (status unknown)' }),
     ).toBeInTheDocument()
     await waitFor(() =>
-      expect(screen.getByText('Active products').nextElementSibling).toHaveTextContent('…'),
+      expect(screen.getByText('Products on the menu').nextElementSibling).toHaveTextContent('…'),
     )
   })
 

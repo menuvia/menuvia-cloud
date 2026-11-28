@@ -15,7 +15,10 @@ const ro = {
   metric_ordersToday: 'Comenzi azi',
   metric_ordersTodayHint: 'fără cele anulate',
   metric_loadFailedHint: 'nu s-a putut încărca',
-  metric_activeProducts: 'Produse active',
+  // Cifra mare e buton spre comenzi (lotul C1): numele accesibil spune și unde duce.
+  metric_ordersTodayAria: '{label}: {value}. Vezi comenzile',
+  // Ce vede OASPETELE: active, fără ciorne, într-o categorie (lotul C1).
+  metric_menuProducts: 'Produse în meniu',
   metric_activeQrs: 'QR-uri active',
   metric_pickupQrHint: 'QR general (doar ridicare)',
   metric_scannableTablesHint: 'mese scanabile',
@@ -25,19 +28,18 @@ const ro = {
   metric_revenueHint: 'plăți înregistrate azi',
   metric_tipsToday: 'Bacșiș azi',
   metric_tipsHint: 'informativ, nu intră în încasări',
-  metric_setup: 'Configurare',
-  metric_setupDoneHint: 'totul e gata ✓',
-  metric_setupStepsHint: 'pași completați',
   metrics_someFailed: 'Unele cifre nu s-au putut încărca.',
 
   // ── Pașii de configurare ──
+  // Lotul C1: aceleași chei și pentru acțiunile rapide care fac același lucru
+  // (produse, QR-uri pentru mese, meniul public, echipa) — aceleași cuvinte.
   setup_title: 'Configurare restaurant',
   setup_progress: '{done}/{total} pași completați',
   setup_progressAria: 'Progres configurare',
-  setup_addProducts: 'Adaugă produse',
   setup_createCategories: 'Creează categorii',
+  setup_addProducts: 'Adaugă produse',
   setup_generateTableQrs: 'Generează QR-uri pentru mese',
-  setup_checkPublicMenu: 'Verifică meniul public',
+  setup_viewPublicMenu: 'Vezi meniul public',
   setup_inviteTeam: 'Invită echipa',
   setup_firstOrderPickup: 'Prima comandă de test — deschide meniul public și comandă',
   setup_firstOrderTable: 'Prima comandă de test — deschide QR-ul unei mese și comandă',
@@ -50,12 +52,10 @@ const ro = {
 
   // ── Acțiuni rapide ──
   quick_title: 'Acțiuni rapide',
-  quick_addProduct: 'Adaugă produs',
+  // Doar în modul „doar ridicare", unde nu există pasul „pentru mese".
   quick_generateQrs: 'Generează QR-uri',
   quick_qrStands: 'Suporturi QR fizice',
-  quick_viewPublicMenu: 'Vezi meniul public',
   quick_viewOrders: 'Vezi comenzile',
-  quick_inviteWaiter: 'Invită ospătar',
 
   // ── Abonament & facturare (SubscriptionCard, Setări → Abonament & cont) ──
   sub_title: 'Abonament & facturare',

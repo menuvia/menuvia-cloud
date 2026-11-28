@@ -51,10 +51,10 @@
 ## 5. Dashboard Acasă
 
 - [ ] „Bun venit, {restaurant}" + subtitlu
-- [ ] Produse active = numărul real; QR-uri active = numărul real
-- [ ] „Comenzi azi" apare DOAR pe tier 2+ (cifră mare aurie)
-- [ ] „Setup X/Y" corect; pașii nebifați navighează la tab-ul corect (Produse / Categorii / Mese & QR / Echipă)
-- [ ] Click „Vezi meniul public" → pasul „Verifică meniul public" se bifează (flag local)
+- [ ] Produse în meniu = produsele pe care le vede oaspetele (active, fără ciorne, într-o categorie); QR-uri active = numărul real
+- [ ] „Comenzi azi" apare DOAR pe tier 2+ (cifră mare aurie); click pe cifră și pe „Vezi comenzile" → direct ecranul ospătarului
+- [ ] Cardul „Configurare restaurant" (X/Y pași, „Creează categorii" primul) corect; pașii nebifați navighează la tab-ul corect (Categorii / Produse / Mese & QR / Echipă) și NU se repetă în „Acțiuni rapide"; la un local configurat cardul nu clipește la revenirea pe Acasă
+- [ ] Click „Vezi meniul public" → pasul „Vezi meniul public" se bifează (flag local)
 - [ ] Tier 1: card „Vrei să primești comenzi direct de la masă?" cu CTA → pricing
 - [ ] Tier 2: cardul de upgrade tier 1 NU apare; apare „Scor meniu" cu badge + sugestii
 - [ ] Nicio funcție fiscală vizibilă pe tier 1/2 (niciun TVA/Încasări/Facturi nicăieri)
